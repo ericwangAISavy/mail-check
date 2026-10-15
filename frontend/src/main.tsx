@@ -1,8 +1,5 @@
 import "@fontsource-variable/geist/wght.css"
 import "./index.css"
-import "@fontsource/rajdhani/latin-500.css"
-import "@fontsource/rajdhani/latin-600.css"
-import "@fontsource/rajdhani/latin-700.css"
 import "./cyber.css"
 import "./typography.css"
 import React from "react"
