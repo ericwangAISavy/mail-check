@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, BarChart3, ChevronRight, CircleHelp, Inbox, LoaderCircle, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, UsersRound } from "lucide-react"
+import { Activity, BarChart3, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, UsersRound } from "lucide-react"
 import { api, request } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -11,12 +11,14 @@ import TriagePage from "@/pages/triage"
 import { AuthGate, useAuth } from "@/components/auth"
 
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
+const InterviewsPage = lazy(() => import("@/pages/interviews"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
 
 const sections = [
   { to: "/", label: "Triage", icon: Inbox },
   { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { to: "/interviews", label: "Interview", icon: CalendarDays },
   { to: "/accounts", label: "Accounts", icon: UsersRound },
   { to: "/settings", label: "Settings", icon: Settings2 },
 ]
@@ -102,8 +104,13 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
             queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
             queryClient.invalidateQueries({ queryKey: ["reader"] }),
+            queryClient.invalidateQueries({ queryKey: ["interviews"] }),
           ])
           toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
+          for (const item of current.interview_changes || []) {
+            const label = item.status === "Cancelled" ? "Interview cancelled" : item.status === "Rescheduled" ? "Interview rescheduled" : "Interview detected"
+            toast(`${label} · ${item.company || "Company unknown"}${item.start_at ? " · " + new Date(item.start_at).toLocaleString() : " · Needs review"}`, "info")
+          }
           try {
             const pref = localStorage.getItem("mailcheck.notify") === "on" && typeof Notification !== "undefined" && Notification.permission === "granted"
             if (pref) {
@@ -124,16 +131,18 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
       if (!stopped) timer = window.setTimeout(poll, status?.running ? 1000 : Date.now() < fastPollUntil.current ? 2000 : 30000)
     }
     const focus = () => { window.clearTimeout(timer); void poll() }
+    const checkStarted = () => { fastPollUntil.current = Date.now() + 10_000; focus() }
+    window.addEventListener("mailcheck:check-started", checkStarted)
     pollNow.current = focus
     void poll()
     window.addEventListener("focus", focus)
     window.addEventListener("mailcheck:settings-updated", focus)
-    return () => { stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
+    return () => { window.removeEventListener("mailcheck:check-started", checkStarted); stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
   }, [queryClient, toast, setStatus, status?.running])
 
   const runCheck = async () => {
     try {
-      await api.post("/api/check", {})
+      await api.startCheck()
       toast("Check started. Your inbox stays read-only.", "info")
       pollNow.current()
     } catch (error) { toast(error instanceof Error ? error.message : "Could not start the check.", "error") }
@@ -198,6 +207,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} readOnly={!admin} />} />
+        <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/accounts" element={admin ? <AccountsPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/settings" element={admin ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />

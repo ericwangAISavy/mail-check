@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -12,14 +13,54 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
 #: nothing to keep and means an old system SQLite degrades instead of crashing.
 _HAS_RETURNING = sqlite3.sqlite_version_info >= (3, 35, 0)
 
-SCHEMA = """
+SCHEMA = """CREATE TABLE IF NOT EXISTS interview_events (
+    id INTEGER PRIMARY KEY,
+    calendar_uid TEXT,
+    recurrence_id TEXT NOT NULL DEFAULT '',
+    company TEXT, role TEXT, stage TEXT NOT NULL DEFAULT 'Other',
+    status TEXT NOT NULL DEFAULT 'Scheduled',
+    start_at TEXT, end_at TEXT, timezone TEXT,
+    meeting_platform TEXT, meeting_url TEXT, location TEXT,
+    organizer_name TEXT, organizer_email TEXT,
+    participants TEXT NOT NULL DEFAULT '[]', notes TEXT,
+    confidence REAL NOT NULL DEFAULT 0,
+    needs_review INTEGER NOT NULL DEFAULT 1,
+    review_reason TEXT,
+    extraction_rank INTEGER NOT NULL DEFAULT 1,
+    sequence INTEGER NOT NULL DEFAULT 0,
+    revision_at TEXT,
+    manual_fields TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE(calendar_uid, recurrence_id)
+);
+CREATE TABLE IF NOT EXISTS interview_sources (
+    id INTEGER PRIMARY KEY,
+    event_id INTEGER NOT NULL REFERENCES interview_events(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    message_pk INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    external_message_id TEXT NOT NULL,
+    thread_id TEXT, references_json TEXT NOT NULL DEFAULT '[]',
+    source_subject TEXT, source_sender TEXT, source_received_at TEXT,
+    candidate_key TEXT NOT NULL DEFAULT '',
+    UNIQUE(account_id, external_message_id, candidate_key)
+);
+CREATE INDEX IF NOT EXISTS idx_interviews_start ON interview_events(start_at);
+CREATE INDEX IF NOT EXISTS idx_interview_sources_event ON interview_sources(event_id, account_id);
+CREATE INDEX IF NOT EXISTS idx_interview_sources_thread ON interview_sources(account_id, thread_id);
+CREATE TABLE IF NOT EXISTS interview_scans (
+    message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL,
+    retryable INTEGER NOT NULL DEFAULT 0,
+    scanned_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS accounts (
     id          INTEGER PRIMARY KEY,
     label       TEXT NOT NULL UNIQUE,
@@ -121,6 +162,10 @@ CREATE INDEX IF NOT EXISTS idx_class_latest
 #: Columns added after v1. SQLite cannot add them inside CREATE TABLE IF NOT
 #: EXISTS on a database that already exists, so they are applied separately.
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    ("messages", "calendar_data", "TEXT NOT NULL DEFAULT '[]'"),
+    ("messages", "thread_id", "TEXT"),
+    ("messages", "references_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("messages", "interview_text", "TEXT"),
     ("accounts", "provider", "TEXT NOT NULL DEFAULT 'imap'"),
     ("messages", "provider_url", "TEXT"),
     ("messages", "handled_at", "TEXT"),
@@ -263,10 +308,15 @@ def set_account_enabled(conn: sqlite3.Connection, label: str, enabled: bool) -> 
 _UPSERT_MESSAGE = """
         INSERT INTO messages
             (account_id, message_id, uid, folder, from_addr, from_name,
-             subject, date_utc, body_text, snippet, provider_url, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             subject, date_utc, body_text, snippet, provider_url, fetched_at,
+             calendar_data, thread_id, references_json, interview_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(account_id, message_id) DO UPDATE SET
             uid = excluded.uid,
+            calendar_data = excluded.calendar_data,
+            thread_id = COALESCE(excluded.thread_id, messages.thread_id),
+            references_json = excluded.references_json,
+            interview_text = excluded.interview_text,
             body_text = excluded.body_text,
             snippet = excluded.snippet,
             provider_url = COALESCE(excluded.provider_url, messages.provider_url)
@@ -292,6 +342,10 @@ def upsert_message(conn: sqlite3.Connection, msg: NormalizedMessage) -> int:
         msg.snippet,
         msg.provider_url,
         _now(),
+        json.dumps(msg.calendar_data),
+        msg.thread_id,
+        json.dumps(msg.references),
+        msg.interview_text,
     )
     if _HAS_RETURNING:
         # DO UPDATE always fires on conflict, so a row comes back either way.

@@ -172,3 +172,28 @@ Automated outcomes:
 - [x] Full-view and focused visual comparisons reviewed after fixes.
 - [x] Desktop, narrow desktop, tablet, mobile, role restrictions and core interactions checked.
 - [x] Tests completed, with the existing smoke failure distinguished from passing checks.
+
+## Interview feature follow-up
+
+The new `/interviews` route uses the existing cyan/navy panel, Geist typography,
+shared four-size scale, buttons, dialogs, sidebar and message reader. Month is the
+default; Week and Day use the same styling. Today has a cyan outline, rescheduled
+and review records use purple, and cancelled records are muted with strike-through.
+No demo events are seeded into the application.
+
+Browser QA uses a separate, explicitly synthetic fixture database and deterministic
+mailbox/model stand-ins. The real automatic scheduler and mail-processing pipeline
+create, reschedule and cancel the same record; navigation, filtering, details,
+source-email reading, manual correction and incremental historical scanning pass.
+All existing primary routes still render. The Interview route and API remain admin-only.
+
+Widths checked: 1672, 1280, 900 and 390px in Month/Week/Day views; no document
+horizontal overflow or browser errors. At narrower widths the upcoming/review rail
+stacks beneath the calendar and Week becomes a daily agenda. Month cells remain
+compact; event buttons have full descriptive accessible labels and open the same
+detail modal as the rail. Keyboard focus styles and native labelled controls are used.
+Small header action labels now wrap with their controls rather than being clipped.
+
+Evidence: `/tmp/mailcheck-interviews-1672.png`, `/tmp/mailcheck-interviews-1280.png`,
+`/tmp/mailcheck-interviews-900.png`, `/tmp/mailcheck-interviews-390.png`.
+Full architecture, files, validation and limitations are in `docs/INTERVIEWS.md`.

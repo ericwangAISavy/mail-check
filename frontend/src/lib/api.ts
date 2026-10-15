@@ -20,6 +20,11 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
 }
 
 export const api = {
+  startCheck: async (): Promise<{ ok: boolean }> => {
+    const result = await api.post<{ ok: boolean }>("/api/check", {})
+    window.dispatchEvent(new Event("mailcheck:check-started"))
+    return result
+  },
   session: () => request<{ role: "admin" | "guest" | null }>("/api/auth/session"),
   login: (role: "admin" | "guest", password: string) => request<{ role: "admin" | "guest" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password }) }),
   dashboardAccounts: () => request<{ accounts: { label: string }[] }>("/api/dashboard/accounts"),
@@ -30,7 +35,7 @@ export const api = {
   settings: () => request<{ settings: Settings; rules: { category: string; sender: string | null; sender_domain: string | null; subject_contains: string | null }[]; categories: { name: string; label: string }[]; config_path: string; db_path: string }>("/api/settings"),
   activeModel: () => request<{ model: string | null; loaded: boolean; message: string }>("/api/settings/model"),
   dashboard: (params: URLSearchParams) => request<Record<string, any>>(`/api/dashboard?${params}`),
-  status: () => request<{ running: boolean; completion_id: number; auto: boolean; interval_minutes?: number; next_in: number | null; message: string; detail: string; ok: boolean; stage_elapsed: number | null }>("/api/status"),
+  status: () => request<{ running: boolean; completion_id: number; auto: boolean; interval_minutes?: number; next_in: number | null; message: string; detail: string; ok: boolean; stage_elapsed: number | null; interview_changes?: { id: number; company: string | null; status: string; start_at: string | null }[] }>("/api/status"),
   post: <T,>(url: string, body?: unknown) => request<T>(url, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
 }
 

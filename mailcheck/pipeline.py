@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
-from . import db, normalize, prefilter, secrets
+from . import db, normalize, prefilter, secrets, interviews
 from .config import Config
 from .diagnostics import PerformanceLog
 from .llm import LLMClient, PROMPT_VERSION, classify
@@ -197,7 +197,8 @@ def check_once(
                 result.retryable += 1
         conn.commit()
 
-    result.items.sort(key=lambda t: t.message.date_utc or datetime.min, reverse=True)
+    interviews.process_run(conn, cfg, result)
+    result.items.sort(key=lambda t: (t.message.date_utc or datetime.min).replace(tzinfo=None), reverse=True)
     result.finished_at = datetime.now(timezone.utc)
     _finish(conn, run_id, result)
     return result
@@ -330,7 +331,8 @@ def reclassify(
                 result.retryable += 1
         conn.commit()
 
-    result.items.sort(key=lambda t: t.message.date_utc or datetime.min, reverse=True)
+    interviews.process_run(conn, cfg, result)
+    result.items.sort(key=lambda t: (t.message.date_utc or datetime.min).replace(tzinfo=None), reverse=True)
     result.finished_at = datetime.now(timezone.utc)
     _finish(conn, run_id, result)
     return result

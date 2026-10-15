@@ -245,3 +245,8 @@ h2 { font-family: var(--display-font); font-weight: 600; }.card-title-row h2, .e
   box-shadow: inset 3px 0 var(--primary);
 }
 .mail-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+@media (max-width: 430px) {
+  .top-right { flex-wrap: wrap; }
+  .top-actions > .btn > span { max-width: none; }
+}

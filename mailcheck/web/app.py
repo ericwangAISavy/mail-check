@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets
+from .. import db, outlook_auth, secrets, interviews
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -72,6 +72,7 @@ TEMPLATES.env.globals["asset_v"] = _asset_version
 #: network, so allowing it costs nothing.
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
 
+_interview_scan = {"running":False,"processed":0,"total":0,"found":0,"errors":0}
 _job_lock = threading.Lock()
 _job: dict = {"running": False, "message": "", "detail": "", "at": None,
               "ok": True, "stage_started": None, "completion_id": 0}
@@ -323,7 +324,7 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
     """
 
     def runner():
-        _job.update(running=True, message="Connecting…", detail="", ok=True,
+        _job.update(running=True, message="Connecting…", detail="", ok=True, interview_changes=[],
                     stage_started=time.time())
         try:
             work()
@@ -372,6 +373,7 @@ def _run_check(body: CheckBody) -> None:
                 ),
                 event=event,
             )
+        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
         bits = [f"{result.fetched} unread", f"{result.classified} classified"]
         if result.from_cache:
             bits.append(f"{result.from_cache} cached")
@@ -424,6 +426,7 @@ def _run_reclassify(body: ReclassifyBody) -> None:
                 ),
                 event=event,
             )
+        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
         if not result.fetched:
             _job.update(message="Nothing left to re-classify.", detail="", ok=True)
             return
@@ -557,7 +560,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -596,6 +599,74 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_password(body: PasswordBody):
         auth.change_password(body.role, body.password)
         return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
+
+    @app.get("/api/interviews")
+    def api_interviews(account: str | None = None, status: str | None = None, company: str | None = None):
+        if status and status not in interviews.STATUSES:
+            return _err("Unknown interview status")
+        with db.session() as conn:
+            events = interviews.list_events(conn, account=account, status=status, company=company)
+            accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
+            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
+        return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
+
+    @app.get("/api/interviews/scan")
+    def interview_scan_status():
+        return dict(_interview_scan)
+
+    @app.post("/api/interviews/scan")
+    def interview_scan():
+        if not _job_lock.acquire(blocking=False):
+            return _err("A mail check or scan is already running. Wait for it to finish.", 409)
+        _interview_scan.update(running=True, processed=0, total=0, found=0, errors=0)
+        def work():
+            from contextlib import nullcontext
+            cfg = cfgmod.load()
+            try:
+                with db.session() as conn:
+                    max_id = conn.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
+                    predicate = """m.id<=? AND a.enabled=1 AND NOT EXISTS (
+                        SELECT 1 FROM interview_scans s WHERE s.message_pk=m.id AND s.retryable=0)"""
+                    joins = " FROM messages m JOIN accounts a ON a.id=m.account_id " + db.LATEST_CLASSIFICATION
+                    _interview_scan["total"] = conn.execute("SELECT COUNT(*)"+joins+" WHERE "+predicate,(max_id,)).fetchone()[0]
+                    client_context = interviews.LLMClient.from_config(cfg.llm, fallback_model=db.last_llm_model(conn)) if cfg.llm.base_url else nullcontext(None)
+                    with client_context as client:
+                        extractor = interviews.RunExtractionClient(client, seconds=600) if client else None
+                        cursor = 0
+                        while True:
+                            rows = conn.execute("SELECT m.id,c.category,c.company,c.role"+joins+" WHERE "+predicate+" AND m.id>? ORDER BY m.id LIMIT 25",(max_id,cursor)).fetchall()
+                            if not rows: break
+                            for row in rows:
+                                changes = interviews.process_message(conn,row["id"],{k:row[k] for k in ("category","company","role")},client=extractor)
+                                _interview_scan["found"] += len(changes)
+                                _interview_scan["processed"] += 1
+                                scan = conn.execute("SELECT retryable FROM interview_scans WHERE message_pk=?",(row["id"],)).fetchone()
+                                if not scan or scan["retryable"]: _interview_scan["errors"] += 1
+                                cursor = row["id"]
+                                conn.commit()
+                                _job["message"] = f"Scanning stored mail: {_interview_scan['processed']} of {_interview_scan['total']}"
+                    _job.update(message=f"Interview scan complete: {_interview_scan['found']} changes, {_interview_scan['errors']} need retry.",ok=True)
+            finally:
+                _interview_scan["running"] = False
+        _start_job(work, failed="Interview scan failed")
+        return {"ok":True}
+
+    @app.get("/api/interviews/{event_id}")
+    def interview_detail(event_id: int):
+        with db.session() as conn:
+            row = conn.execute("SELECT * FROM interview_events WHERE id=?",(event_id,)).fetchone()
+            if not row: return _err("Interview not found",404)
+            return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id)}
+
+    @app.post("/api/interviews/{event_id}")
+    def interview_update(event_id: int, changes: dict):
+        try:
+            with db.session() as conn:
+                return {"event":interviews.correct_event(conn,event_id,changes)}
+        except LookupError as exc:
+            return _err(str(exc),404)
+        except (ValueError,TypeError) as exc:
+            return _err(str(exc))
 
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():

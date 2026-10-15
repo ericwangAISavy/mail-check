@@ -15,6 +15,7 @@ from imap_tools import AND, MailBox, MailBoxUnencrypted
 from imap_tools.errors import ImapToolsError
 
 from ..models import RawMessage
+from ..interview_metadata import imap_calendars, message_references
 from ..secrets import clean_password
 from .base import SourceError
 
@@ -118,6 +119,8 @@ def _to_raw(msg, folder: str) -> RawMessage:
         subject=msg.subject or "(no subject)",
         date_utc=dt,
         text=msg.text or msg.html or "",
+        calendar_data=imap_calendars(msg),
+        references=message_references(headers),
     )
 
 

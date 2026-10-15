@@ -32,3 +32,17 @@ export type Settings = {
   outlook: { client_id: string }; privacy_ack: boolean
 }
 export type ApiResult<T> = T
+
+export type InterviewEvent = {
+  id: number; calendar_uid: string | null; company: string | null; role: string | null
+  stage: string; status: string; display_status: string; start_at: string | null; end_at: string | null
+  timezone: string | null; meeting_platform: string | null; meeting_url: string | null; location: string | null
+  organizer_name: string | null; organizer_email: string | null; participants: string[]; notes: string | null
+  confidence: number; needs_review: boolean; review_reason: string | null; manual_fields: string[]
+  created_at: string; updated_at: string
+}
+export type InterviewSource = {
+  id: number; message_pk: number | null; account_label: string; account_email: string
+  source_subject: string; source_sender: string; source_received_at: string; account_enabled: boolean
+}
+export type InterviewData = { companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }

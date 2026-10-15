@@ -16,6 +16,7 @@ from typing import Iterator
 import httpx
 
 from ..models import RawMessage
+from ..interview_metadata import graph_calendars, message_references
 from ..outlook_auth import OutlookAuthError, ReconnectRequired, acquire_token
 from .base import SourceError
 
@@ -25,7 +26,7 @@ MESSAGES_URL = f"{GRAPH}/me/mailFolders/inbox/messages"
 #: Only the fields the pipeline consumes. Bodies dominate the payload, so an
 #: explicit $select keeps responses small.
 SELECT = (
-    "id,internetMessageId,subject,from,receivedDateTime,isRead,webLink,bodyPreview,body"
+    "id,internetMessageId,subject,from,receivedDateTime,isRead,webLink,bodyPreview,body,conversationId,internetMessageHeaders"
 )
 PAGE_SIZE = 50
 MAX_PAGES = 40  # a hard stop so a pathological mailbox cannot loop forever
@@ -118,8 +119,10 @@ class OutlookGraphSource:
         params = {
             # Graph requires the $orderby property to appear first in $filter,
             # or the messages endpoint rejects the query with InefficientFilter.
-            "$filter": f"receivedDateTime ge {since_iso}",
+            "$filter": f"receivedDateTime ge {since_iso} and isRead eq false",
             "$select": SELECT,
+            # Invitation attachments arrive with this same read-only mailbox request.
+            "$expand": "attachments",
             "$top": str(PAGE_SIZE),
             "$orderby": "receivedDateTime desc",
         }
@@ -162,6 +165,9 @@ def _to_raw(item: dict) -> RawMessage:
         subject=item.get("subject") or "(no subject)",
         date_utc=dt,
         text=text,
+        calendar_data=graph_calendars(item),
+        thread_id=item.get("conversationId"),
+        references=message_references({h["name"].lower(): h.get("value", "") for h in item.get("internetMessageHeaders") or []}),
         provider_url=item.get("webLink"),
     )
 

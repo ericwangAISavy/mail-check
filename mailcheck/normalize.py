@@ -122,4 +122,8 @@ def normalize(
         date_utc=raw.date_utc,
         body=body,
         provider_url=raw.provider_url,
+        calendar_data=raw.calendar_data,
+        thread_id=raw.thread_id,
+        references=raw.references,
+        interview_text=_strip_footer(_strip_quotes(_html_to_text(raw.text) if _HTML_HINT.search(raw.text or "") else (raw.text or "")))[:24000],
     )
