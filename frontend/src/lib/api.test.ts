@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest"
-import { triageParams } from "./api"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { request, triageParams } from "./api"
 
 describe("triageParams", () => {
   it("defaults invalid views and ranges while preserving supported filters", () => {
@@ -20,4 +20,18 @@ describe("triageParams", () => {
     expect(result.has("account")).toBe(false)
     expect(result.has("category")).toBe(false)
   })
+})
+
+
+afterEach(() => vi.unstubAllGlobals())
+it("shows FastAPI validation fields and messages for invalid form values", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
+    { loc: ["body", "amount"], msg: "Decimal input should have no more than 2 decimal places" },
+    { loc: ["query", "week"], msg: "Input should be a valid date" },
+  ] }), { status: 422, headers: { "Content-Type": "application/json" } })))
+  await expect(request("/api/payments")).rejects.toThrow("amount: Decimal input should have no more than 2 decimal places; week: Input should be a valid date")
+})
+it("shows string detail errors without replacing them with a generic failure", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "That record was not found" }), { status: 404, headers: { "Content-Type": "application/json" } })))
+  await expect(request("/api/example")).rejects.toThrow("That record was not found")
 })

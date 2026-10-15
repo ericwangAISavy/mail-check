@@ -13,7 +13,12 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
   const value = contentType.includes("json") ? await response.json() : await response.text()
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mailcheck:unauthorized"))
-    const message = typeof value === "string" ? value : value?.error || "Something went wrong."
+    const detail = value?.detail
+    const validation = Array.isArray(detail) ? detail.map((item: { loc?: (string | number)[]; msg?: string }) => {
+      const field = (item.loc || []).filter(part => part !== "body" && part !== "query").join(".")
+      return item.msg ? `${field ? field + ": " : ""}${item.msg}` : ""
+    }).filter(Boolean).join("; ") : typeof detail === "string" ? detail : ""
+    const message = typeof value === "string" ? value : value?.error || validation || "Something went wrong."
     throw new ApiError(message, response.status)
   }
   return value as T

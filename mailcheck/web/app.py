@@ -1226,7 +1226,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 folder=body.folder,
             ).test()
         except (SourceError, secrets.SecretError) as exc:
-            secrets.delete_account_password(label)  # never keep a bad credential
+            try:
+                secrets.delete_account_password(label)
+            except secrets.SecretError as cleanup_error:
+                return _err(f"{exc} Could not remove the stored credential: {cleanup_error}")
             return _err(str(exc))
 
         with db.session() as conn:
@@ -1263,13 +1266,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.post("/api/accounts/{label}/delete")
     def api_delete_account(label: str):
         with db.session() as conn:
-            if not db.remove_account(conn, label):
+            if not db.get_account(conn, label):
                 return _err("No such account.", 404)
-        secrets.delete_account_password(label)
-        outlook_auth.delete_cache(label)  # a token must not outlive its account
+        # Keep the account recoverable if credential cleanup cannot finish.
+        try:
+            secrets.delete_account_password(label)
+            outlook_auth.delete_cache(label)
+        except (secrets.SecretError, outlook_auth.OutlookAuthError) as exc:
+            return _err(str(exc))
+        with db.session() as conn:
+            db.remove_account(conn, label)
         return {"ok": True, "message": f"Removed {label}."}
 
     # ------------------------------------------------------- outlook sign-in
+
+    def cleanup_outlook_cache(label: str) -> str:
+        try:
+            outlook_auth.delete_cache(label)
+            return ""
+        except outlook_auth.OutlookAuthError as exc:
+            return f" Credential cleanup failed: {exc}"
 
     @app.post("/api/outlook/start")
     def api_outlook_start(body: OutlookStartBody):
@@ -1311,16 +1327,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             try:
                 email = outlook_auth.complete_device_flow(pending)
             except outlook_auth.OutlookAuthError as exc:
-                outlook_auth.delete_cache(label)
+                cleanup_error = cleanup_outlook_cache(label)
                 if _outlook.get("active_id") == flow_id:
-                    _outlook.update(pending=None, state="failed", message=str(exc))
+                    _outlook.update(pending=None, state="failed", message=str(exc) + cleanup_error)
                 return
             except Exception as exc:  # noqa: BLE001 - report, never crash the thread
-                outlook_auth.delete_cache(label)
+                cleanup_error = cleanup_outlook_cache(label)
                 if _outlook.get("active_id") == flow_id:
                     _outlook.update(
                         pending=None, state="failed",
-                        message=f"{type(exc).__name__}: {exc}",
+                        message=f"{type(exc).__name__}: {exc}" + cleanup_error,
                     )
                 return
 
@@ -1329,7 +1345,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             # just saved must not survive, and the account must not appear.
             with _outlook_lock:
                 if _outlook.get("active_id") != flow_id:
-                    outlook_auth.delete_cache(label)
+                    cleanup_outlook_cache(label)
                     return
                 with db.session() as conn:
                     current = db.get_account(conn, label)
@@ -1383,7 +1399,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             pending = _outlook.get("pending")
             if pending is not None:
                 outlook_auth.abort(pending)              # unblocks the background thread
-                outlook_auth.delete_cache(pending.label)  # in case it already wrote one
+                cleanup_error = cleanup_outlook_cache(pending.label)
+                if cleanup_error:
+                    _outlook.update(pending=None, active_id=None, state="failed", message=cleanup_error.strip(), email="")
+                    return _err(cleanup_error.strip())
             _outlook.update(pending=None, active_id=None, state="idle", message="", email="")
         return {"ok": True, "message": "Sign-in cancelled."}
 

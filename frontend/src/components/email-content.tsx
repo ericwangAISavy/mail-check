@@ -17,6 +17,7 @@ export function EmailContent({ html }: { html: string }) {
   }, [])
   const documentHtml = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${html}<style>
     html { overflow-x: auto; }
+    html, body { height: auto !important; min-height: 0 !important; max-height: none !important; }
     body { margin: 0; padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; overflow-wrap: break-word; }
     body, body * { color: ${palette.foreground} !important; background-color: transparent !important; background-image: none !important; border-color: ${palette.border} !important; }
     html, body { background-color: ${palette.background} !important; }
@@ -30,7 +31,13 @@ export function EmailContent({ html }: { html: string }) {
     const body = frame.current?.contentDocument?.body
     if (!body || !frame.current) return
     const resize = () => {
-      if (frame.current) frame.current.style.height = `${Math.max(80, Math.ceil(body.getBoundingClientRect().height) + 20)}px`
+      const element = frame.current
+      const document = element?.contentDocument
+      if (!element || !document) return
+      // Measure against a fixed viewport: sender CSS can use 100vh/100%.
+      // Measuring at the previous frame height creates a resize feedback loop.
+      element.style.height = "80px"
+      element.style.height = `${Math.max(80, document.documentElement.scrollHeight, body.scrollHeight) + 20}px`
     }
     resize()
     observer.current = new ResizeObserver(resize)
