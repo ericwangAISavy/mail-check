@@ -49,6 +49,22 @@ function replaceTextNodes(root: Element) {
 }
 
 describe("header status after external text replacement", () => {
+  it("refreshes page data after a manual check that completes immediately", async () => {
+    let current = idle
+    vi.spyOn(api, "status").mockImplementation(async () => current)
+    vi.spyOn(api, "post").mockImplementation(async () => {
+      current = { ...idle, completion_id: 2, message: "Check complete." }
+      return { ok: true } as any
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    clients.push(client)
+    render(<QueryClientProvider client={client}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>)
+    await screen.findByText("Your queue is clear")
+    await waitFor(() => expect(api.status).toHaveBeenCalled())
+    const previous = vi.mocked(api.bootstrap).mock.calls.length
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }))
+    await waitFor(() => expect(vi.mocked(api.bootstrap).mock.calls.length).toBeGreaterThan(previous))
+  })
   it.each([
     ["idle to scheduled", idle, scheduled, "Next check", "2:00"],
     ["scheduled to running", scheduled, running, "Reading mail…", null],

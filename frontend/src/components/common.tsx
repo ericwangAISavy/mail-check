@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from "react"
-import { Check, CircleAlert, LoaderCircle, RotateCcw, X } from "lucide-react"
+import { Check, CircleAlert, LoaderCircle, RotateCcw, Search, X } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { api, request } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -66,6 +66,7 @@ export function useDoneMutation(onSuccess?: (message: Message) => void) {
       client.invalidateQueries({ queryKey: ["triage"] })
       client.invalidateQueries({ queryKey: ["dashboard"] })
       client.invalidateQueries({ queryKey: ["bootstrap"] })
+      client.invalidateQueries({ queryKey: ["reader", variables.message.pk] })
       onSuccess?.(variables.message)
       const message = variables.message
       const toastText = variables.done ? "Moved to Completed." : "Restored to your queue."
@@ -75,6 +76,7 @@ export function useDoneMutation(onSuccess?: (message: Message) => void) {
           client.invalidateQueries({ queryKey: ["triage"] })
           client.invalidateQueries({ queryKey: ["dashboard"] })
           client.invalidateQueries({ queryKey: ["bootstrap"] })
+          client.invalidateQueries({ queryKey: ["reader", message.pk] })
           toast(`Restored ${message.company || message.subject}.`, "success")
         } catch (error) { toast(error instanceof Error ? error.message : "Could not undo.", "error") }
       } } : undefined)
@@ -84,11 +86,11 @@ export function useDoneMutation(onSuccess?: (message: Message) => void) {
 }
 
 export function SearchInput({ value, onChange, placeholder = "Search" }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return <label className="search-field"><span className="sr-only">{placeholder}</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg><input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} /></label>
+  return <label className="search-field"><span className="sr-only">{placeholder}</span><Search size={18} /><input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} /></label>
 }
 
-export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)} className={`switch ${checked ? "switch-on" : ""}`}><span /></button>
+export function Switch({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} className={`switch ${checked ? "switch-on" : ""}`}><span /></button>
 }
 
 export function useUndoShortcut(undo: () => void) {

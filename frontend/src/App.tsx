@@ -22,12 +22,13 @@ const sections = [
 ]
 
 function ThemeControl() {
-  const [theme, setTheme] = useState(() => localStorage.getItem("mailcheck.theme") || "system")
+  const [theme, setTheme] = useState(() => localStorage.getItem("mailcheck.theme") || "dark")
   useEffect(() => {
     const root = document.documentElement
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
       root.classList.toggle("dark", dark)
+      root.dataset.theme = dark ? "dark" : "light"
       root.style.colorScheme = dark ? "dark" : "light"
     }
     apply()
@@ -100,6 +101,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["triage"] }),
             queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
             queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
+            queryClient.invalidateQueries({ queryKey: ["reader"] }),
           ])
           toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
           try {
@@ -118,21 +120,22 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             }
           } catch { /* Notification permissions and browser settings are optional. */ }
         }
-      } catch { /* Local console may be starting; retry on the normal cadence. */ }
+      } catch { if (!stopped) setStatusValue(null) }
       if (!stopped) timer = window.setTimeout(poll, status?.running ? 1000 : Date.now() < fastPollUntil.current ? 2000 : 30000)
     }
     const focus = () => { window.clearTimeout(timer); void poll() }
     pollNow.current = focus
     void poll()
     window.addEventListener("focus", focus)
-    return () => { stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus) }
+    window.addEventListener("mailcheck:settings-updated", focus)
+    return () => { stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
   }, [queryClient, toast, setStatus, status?.running])
 
   const runCheck = async () => {
     try {
       await api.post("/api/check", {})
       toast("Check started. Your inbox stays read-only.", "info")
-      void api.status().then(setStatus)
+      pollNow.current()
     } catch (error) { toast(error instanceof Error ? error.message : "Could not start the check.", "error") }
   }
   const toggle = async () => {
@@ -152,7 +155,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
           nodes, so removing a bare text sibling can crash React reconciliation.
           Only this message is a live region; the ticking digits are not, or a
           screen reader would announce every second. */}
-      <span className="status-text" aria-live="polite">{status?.running ? status.message || "Checking mail…" : scheduled ? "Next check" : "All systems ready"}</span>
+      <span className="status-text" aria-live="polite">{!status ? "Status unavailable" : status.running ? status.message || "Checking mail…" : scheduled ? "Next check" : "All systems ready"}</span>
       {elapsed != null && <small className="tabular status-elapsed">{elapsed}s</small>}
       {!status?.running && scheduled && status?.next_in != null && <Countdown nextIn={status.next_in} receivedAt={receivedAt} onDue={onDue} />}
     </span>
