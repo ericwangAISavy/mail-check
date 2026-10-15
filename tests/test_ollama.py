@@ -99,7 +99,7 @@ class OllamaTests(unittest.TestCase):
             self.assertFalse(c.use_json_mode)
 
     def test_cli_and_web_without_keyring(self):
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
         from typer.testing import CliRunner
         from mailcheck import config as cfgmod
         from mailcheck.cli import app, _require_llm

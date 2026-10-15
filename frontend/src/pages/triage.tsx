@@ -12,7 +12,7 @@ function PersonLine({ message }: { message: Message }) {
   return <div className="sender-line"><span className="sender-avatar">{sender.slice(0, 1).toUpperCase()}</span><span className="sender-copy"><strong>{sender}</strong><span>{message.from_addr}</span></span><span className="sender-date">{message.date_display}{message.date_estimated && <Badge variant="muted">estimated</Badge>}</span></div>
 }
 
-export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false, readerRef }: { message: Message | null; mobile: boolean; onBack: () => void; onDone: () => void; busy: boolean; canRetry?: boolean; readerRef?: Ref<HTMLElement> }) {
+export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false, readOnly = false, readerRef }: { message: Message | null; mobile: boolean; onBack: () => void; onDone: () => void; busy: boolean; canRetry?: boolean; readOnly?: boolean; readerRef?: Ref<HTMLElement> }) {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [retrying, setRetrying] = useState(false)
@@ -29,7 +29,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
     finally { setRetrying(false) }
   }
   return <article ref={readerRef} tabIndex={-1} className={`reader-pane ${mobile ? "mobile-visible" : ""}`}>
-    <div className="reader-toolbar"><Button className="reader-back" variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={16} /> All messages</Button><span className="reader-account">{message.account_label}</span><div className="reader-actions">{message.category === "unclassified" && canRetry && <Button variant="outline" size="sm" onClick={retryClassification} disabled={retrying}>{retrying ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Try classification again</Button>}{message.open_url && <Button variant="outline" size="sm" asChild><a href={message.open_url} target="_blank" rel="noopener">{message.open_label}<ArrowUpRight size={14} /></a></Button>}<Button size="sm" onClick={onDone} disabled={busy}><Check size={15} />{message.handled_at ? "Restore" : "Done"}</Button></div></div>
+    <div className="reader-toolbar"><Button className="reader-back" variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={16} /> All messages</Button><span className="reader-account">{message.account_label}</span><div className="reader-actions">{message.category === "unclassified" && canRetry && !readOnly && <Button variant="outline" size="sm" onClick={retryClassification} disabled={retrying}>{retrying ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Try classification again</Button>}{message.open_url && <Button variant="outline" size="sm" asChild><a href={message.open_url} target="_blank" rel="noopener">{message.open_label}<ArrowUpRight size={14} /></a></Button>}{!readOnly && <Button size="sm" onClick={onDone} disabled={busy}><Check size={15} />{message.handled_at ? "Restore" : "Done"}</Button>}</div></div>
     <div className="reader-content" key={message.pk}>
       <div className="reader-category"><CategoryBadge message={message} />{message.deadline_display && <span className="deadline-line"><CalendarClock size={15} />{message.deadline_display}</span>}</div>
       <h2 className="reader-subject">{message.subject || "(no subject)"}</h2>

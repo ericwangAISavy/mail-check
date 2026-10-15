@@ -35,10 +35,18 @@ function renderPage() {
   return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bootstrap} /></ToastProvider></QueryClientProvider>)
 }
 
-function renderWithReader(message: Message) {
+function renderWithReader(message: Message, readOnly = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><ToastProvider><Reader message={message} mobile onBack={() => undefined} onDone={() => undefined} busy={false} canRetry /></ToastProvider></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><ToastProvider><Reader message={message} mobile onBack={() => undefined} onDone={() => undefined} busy={false} canRetry readOnly={readOnly} /></ToastProvider></QueryClientProvider>)
 }
+
+it("keeps the guest dashboard reader read-only", async () => {
+  renderWithReader({ ...messages[0], category: "unclassified" }, true)
+  await screen.findByText("Interview 1")
+  expect(screen.queryByRole("button", { name: "Done" })).toBeNull()
+  expect(screen.queryByRole("button", { name: "Restore" })).toBeNull()
+  expect(screen.queryByRole("button", { name: "Try classification again" })).toBeNull()
+})
 
 function setCompactViewport(matches: boolean) {
   Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches })) })

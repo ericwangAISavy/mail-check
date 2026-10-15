@@ -41,6 +41,68 @@ python -m mailcheck web
 It opens `127.0.0.1:8765` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
 
+The web console requires sign-in. Initially use role **Admin** with password
+`admin`, or role **Guest** with password `guest`. Admin can use Triage, Dashboard,
+Accounts, and Settings. Guest can only browse the Dashboard and its stored-message
+reader; guest cannot run checks, mark mail Done, or change anything. Only admin can
+change either password, under **Settings → Sign-in**.
+
+Passwords are stored as salted scrypt hashes in `web-auth.json` next to
+`config.toml`, with private file permissions. Sign-in uses an HttpOnly cookie that
+expires after 12 hours. Password changes sign out every session for that role,
+including your own when changing the admin password. Authentication adds no database;
+the existing SQLite mail history remains unchanged. Keep this local file private and
+back it up with your application configuration. A damaged file fails closed rather
+than resetting passwords. Use one app process with this file.
+
+### Share from your own server or computer
+
+For other devices on your local network, use your computer's actual LAN IP in
+`--allow-host`, and allow inbound TCP port 8765 through its firewall:
+
+```bash
+python -m mailcheck web --no-open --host 0.0.0.0 --allow-host 192.168.1.50
+```
+
+Other devices can then use `http://192.168.1.50:8765`. Replace the example IP with
+your own. `0.0.0.0` is the listening address, not the address visitors enter. Repeat
+`--allow-host` to allow additional hostnames/IPs; unknown Host headers are rejected.
+
+For internet access, point a domain at your server's public IP, put an HTTPS reverse
+proxy in front of the app, and keep port 8765 private. For example, with Caddy on the
+same computer, replace `mail.example.com` with your domain:
+
+```bash
+python -m mailcheck web --no-open --allow-host mail.example.com --secure-cookies
+```
+
+```caddyfile
+mail.example.com {
+    reverse_proxy 127.0.0.1:8765
+}
+```
+
+Caddy obtains and renews HTTPS certificates. Allow public TCP ports 80 and 443.
+On a home network, forward those ports from the router to this computer as well;
+DNS must point to the router's public IP. If your ISP uses carrier-grade NAT, use a
+publicly reachable server or an HTTPS tunnel instead. Binding to `0.0.0.0` alone
+does not create a public URL. A tunnel must forward the visitor's Host header and
+HTTPS scheme correctly and its public hostname must be included in `--allow-host`.
+
+**Before opening public access, change both default passwords locally.** Use HTTPS
+for internet access and `--secure-cookies` so browser sign-in cookies are sent only
+over HTTPS. Leave that flag off for local HTTP development. The app trusts forwarded
+scheme/client information from a loopback reverse proxy; keep the proxy on the same
+computer and do not expose its backend port. Guest access includes the Dashboard's
+stored email subjects, summaries, and message bodies, so share its password only
+with people who should see that mail. These web passwords are separate from mailbox
+app passwords, which still use the OS keyring.
+
+After startup, an unauthenticated `GET /api/dashboard` must return HTTP 401. Sign in
+as guest and verify Dashboard works while Accounts and Settings return HTTP 403.
+The React/Vite development server is for local development; share the Python app
+and its bundled console through the HTTPS proxy.
+
 **1. Point it at your Ollama server.** There is no model to configure: each check uses
 whichever model the server has loaded:
 
@@ -148,9 +210,9 @@ click it to switch automatic checks back off. It is off by default, because open
 should never start spending tokens on its own. The schedule belongs to the running console,
 so closing it stops the checks; use `mail-check watch` for unattended background runs.
 
-It binds `127.0.0.1` only and has no login, since it is a single local user. Because it
-accepts credential writes, non-GET requests carrying a foreign `Origin` are rejected, so a
-web page you happen to have open cannot drive the API.
+It binds `127.0.0.1` by default and requires admin or guest sign-in. For network
+access, follow the server instructions above. Host headers are checked against the
+configured allowlist, and non-GET requests carrying a foreign `Origin` are rejected.
 
 Colours follow the light or dark setting of your OS. Status hues are contrast-validated for
 text in both modes, and no tier is identified by colour alone — every one is also named.

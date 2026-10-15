@@ -401,10 +401,13 @@ def watch(
 
 @app.command()
 def web(
-    port: int = typer.Option(8765, help="Port to bind on localhost."),
+    port: int = typer.Option(8765, help="Port to listen on."),
     open_browser: bool = typer.Option(True, "--open/--no-open"),
+    host: str = typer.Option("127.0.0.1", help="Bind address. Use 0.0.0.0 for network access."),
+    allow_host: list[str] = typer.Option([], "--allow-host", help="Allowed public hostname or IP, without scheme or port. Repeat as needed."),
+    secure_cookies: bool = typer.Option(False, "--secure-cookies", help="Require HTTPS for sign-in cookies (use behind an HTTPS reverse proxy)."),
 ) -> None:
-    """Serve the local dashboard on 127.0.0.1."""
+    """Serve the dashboard with admin/guest sign-in."""
     _load_cfg()
     try:
         import uvicorn
@@ -421,7 +424,11 @@ def web(
         import threading
 
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    if any(not value or any(c in value for c in "/:@* ") for value in allow_host):
+        console.print("[red]--allow-host must be a hostname or IPv4 address without a scheme, port, path, or wildcard.[/red]")
+        raise typer.Exit(1)
+    uvicorn.run(create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies),
+                host=host, port=port, log_level="warning")
 
 
 # ------------------------------------------------------------------------- config

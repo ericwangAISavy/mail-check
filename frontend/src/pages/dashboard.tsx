@@ -20,7 +20,7 @@ const localCalendarDate = (value: string) => {
   return new Date(year, month - 1, day)
 }
 
-export default function DashboardPage({ bootstrap }: { bootstrap: Bootstrap }) {
+export default function DashboardPage({ bootstrap, readOnly = false }: { bootstrap: Bootstrap; readOnly?: boolean }) {
   const [search, setSearch] = useSearchParams()
   const [searchInput, setSearchInput] = useState(search.get("q") || "")
   const deferredSearch = useDeferredValue(searchInput)
@@ -42,7 +42,7 @@ export default function DashboardPage({ bootstrap }: { bootstrap: Bootstrap }) {
     return value
   }, [search, zone, deferredSearch])
   const { data, isPending, error, refetch } = useQuery({ queryKey: ["dashboard", params.toString()], queryFn: () => api.dashboard(params) })
-  const { data: accounts } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts })
+  const { data: accounts } = useQuery({ queryKey: ["dashboard-accounts"], queryFn: api.dashboardAccounts })
   const update = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(search)
     for (const [key, value] of Object.entries(changes)) {
@@ -103,7 +103,7 @@ export default function DashboardPage({ bootstrap }: { bootstrap: Bootstrap }) {
     <div className="dashboard-filters"><div className="field-compact"><label htmlFor="range">Date range</label><select id="range" value={params.has("start") ? "custom" : params.get("days") || "30"} onChange={(e) => e.target.value === "custom" ? update({ start: new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10), end: isoToday() }) : update({ start: null, end: null, days: e.target.value })}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom range</option></select></div>
       {params.has("start") && <><div className="field-compact"><label htmlFor="start">From</label><input id="start" type="date" value={params.get("start") || ""} onChange={(e) => update({ start: e.target.value })} /></div><div className="field-compact"><label htmlFor="end">Through</label><input id="end" type="date" value={params.get("end") || ""} onChange={(e) => update({ end: e.target.value })} /></div></>}
       <div className="field-compact"><label htmlFor="interval">Group by</label><select id="interval" value={params.get("interval") || "day"} onChange={(e) => update({ interval: e.target.value })}><option value="day">Day</option><option value="week">Week</option></select></div>
-      <div className="field-compact"><label htmlFor="account">Account</label><select id="account" value={params.get("account") || ""} onChange={(e) => update({ account: e.target.value })}><option value="">All accounts</option>{accounts?.accounts.map((account) => <option value={account.label} key={account.id}>{account.label}</option>)}</select></div>
+      <div className="field-compact"><label htmlFor="account">Account</label><select id="account" value={params.get("account") || ""} onChange={(e) => update({ account: e.target.value })}><option value="">All accounts</option>{accounts?.accounts.map((account) => <option value={account.label} key={account.label}>{account.label}</option>)}</select></div>
       <div className="field-compact"><label htmlFor="status">Status</label><select id="status" value={params.get("status") || "all"} onChange={(e) => update({ status: e.target.value === "all" ? null : e.target.value })}><option value="all">All mail</option><option value="pending">Open</option><option value="done">Completed</option></select></div>
       <Button variant={advanced ? "secondary" : "outline"} size="sm" onClick={() => setAdvanced((value) => !value)}><SlidersHorizontal size={14} />More</Button>
       {filterCount > 0 && <Button variant="ghost" size="sm" onClick={clear}><FilterX size={14} />Reset</Button>}</div>
@@ -121,6 +121,6 @@ export default function DashboardPage({ bootstrap }: { bootstrap: Bootstrap }) {
       {pageInfo?.items.length ? <><div className="table-scroll explorer-table"><table><thead><tr><th>Message</th><th>Category</th><th>Account</th><th>Received</th></tr></thead><tbody>{pageInfo.items.map((row) => <tr key={row.pk} tabIndex={0} onClick={() => openMessage(row)} onKeyDown={(event) => { if (event.key === "Enter") openMessage(row) }}><td><strong>{row.company || row.from_name || row.from_addr}</strong><span>{row.subject}</span></td><td><Badge variant="muted">{row.category_label}</Badge></td><td>{row.account_label}</td><td>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</td></tr>)}</tbody></table></div><div className="pagination"><span>{pageInfo.total ? `${(pageInfo.page - 1) * pageInfo.page_size + 1}–${Math.min(pageInfo.page * pageInfo.page_size, pageInfo.total)} of ${pageInfo.total}` : "0 messages"}</span><div><Button variant="outline" size="sm" aria-label="Previous page" disabled={pageInfo.page <= 1} onClick={() => update({ page: String(pageInfo.page - 1) })}><ChevronLeft size={15} />Previous</Button><Button variant="outline" size="sm" aria-label="Next page" disabled={pageInfo.page >= pageInfo.total_pages} onClick={() => update({ page: String(pageInfo.page + 1) })}>Next<ChevronRight size={15} /></Button></div></div></> : <EmptyState title="No messages match" description="Adjust your search, filters, or date range to find more stored mail." action={<Button variant="outline" onClick={clear}>Clear filters</Button>} />}
       {data?.daily?.some((row: any) => row.partial) && <p className="partial-note">* Some dates have partial collection history. Previously unread mail and deleted mail are not available.</p>}
     </section>
-    <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by mail-check.</DialogDescription></DialogHeader>{reader && <Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={bootstrap.readiness.model} />}</DialogContent></Dialog>
+    <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by mail-check.</DialogDescription></DialogHeader>{reader && <Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={!readOnly && bootstrap.readiness.model} readOnly={readOnly} />}</DialogContent></Dialog>
   </div>
 }

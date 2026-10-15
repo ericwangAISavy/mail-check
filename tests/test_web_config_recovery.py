@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from tests.web_client import TestClient
 
 from mailcheck import config
 from mailcheck.web.app import create_app
