@@ -14,6 +14,7 @@ const running: Status = { ...scheduled, running: true, message: "Reading mail…
 const clients: QueryClient[] = []
 
 beforeEach(() => {
+  vi.spyOn(api, "session").mockResolvedValue({ role: "admin" })
   vi.spyOn(console, "error").mockImplementation(() => undefined)
   vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() })
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))

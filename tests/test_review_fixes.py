@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from tests.web_client import TestClient
 
 from mailcheck import config, db
 from mailcheck.models import Classification, NormalizedMessage

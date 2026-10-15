@@ -17,6 +17,8 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: { "/api": "http://127.0.0.1:8765" },
+    // Preserve the browser's Host so the backend can compare the full Origin
+    // (including its port) without granting a separate development exception.
+    proxy: { "/api": { target: "http://127.0.0.1:8765", changeOrigin: false } },
   },
 })

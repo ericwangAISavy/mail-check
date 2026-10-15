@@ -104,3 +104,14 @@ button { color: inherit; }
 .attention-banner.is-busy .attention-copy span { font-variant-numeric: tabular-nums; }
 .attention-banner .btn { flex: none; }
 @media (max-width:700px) { .attention-banner { flex-wrap: wrap; gap: 10px; padding: 12px; } .attention-copy { flex-basis: calc(100% - 50px); } .attention-banner .btn { width: 100%; justify-content: center; } }
+
+.sign-in-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--background); }
+.sign-in-card { width: 100%; max-width: 420px; padding: 32px; }
+.sign-in-card h1 { font-size: 2rem; margin: 8px 0; }
+.sign-in-card .eyebrow { margin-top: 20px; }
+.sign-in-card form, .password-form { display: grid; gap: 18px; margin-top: 24px; }
+.sign-in-card form > button { width: 100%; }
+.sign-in-card form > button, .password-form > button { color: var(--primary-foreground); font-size: .85rem; }
+.password-form > button { justify-self: start; }
+.signed-in-role { color: var(--muted-foreground); font-size: .8rem; }
+@media (max-width: 700px) { .top-right { flex-wrap: wrap; } .signed-in-role { display: none; } }

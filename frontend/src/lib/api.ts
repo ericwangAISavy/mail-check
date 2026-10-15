@@ -12,6 +12,7 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
   const contentType = response.headers.get("content-type") || ""
   const value = contentType.includes("json") ? await response.json() : await response.text()
   if (!response.ok) {
+    if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mailcheck:unauthorized"))
     const message = typeof value === "string" ? value : value?.error || "Something went wrong."
     throw new ApiError(message, response.status)
   }
@@ -19,6 +20,9 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
 }
 
 export const api = {
+  session: () => request<{ role: "admin" | "guest" | null }>("/api/auth/session"),
+  login: (role: "admin" | "guest", password: string) => request<{ role: "admin" | "guest" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password }) }),
+  dashboardAccounts: () => request<{ accounts: { label: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
   reader: (pk: number) => request<{ message: import("./types").Message; body_html: string }>(`/api/messages/${pk}`),

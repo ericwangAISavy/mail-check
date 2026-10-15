@@ -517,7 +517,7 @@ def test_web_console(msgs):
                 summary=f"Summary for {cat}."), "m", "1")
         conn.close()
 
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.web.app import create_app
 
@@ -591,7 +591,7 @@ def test_web_console(msgs):
             headers={"Origin": "https://evil.example"}).status_code == 403)
         check("same-origin POST allowed", client.post(
             "/api/settings", json={"batch_size": 4},
-            headers={"Origin": "http://127.0.0.1:8765"}).status_code == 200)
+            headers={"Origin": "http://testserver"}).status_code == 200)
         check("GET unaffected by Origin", client.get(
             "/", headers={"Origin": "https://evil.example"}).status_code == 200)
     finally:
@@ -620,7 +620,7 @@ def test_schedule():
             "watch": {"interval_minutes": 10, "auto_check": False},
         }))
 
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         import mailcheck.web.app as W
 
@@ -783,7 +783,7 @@ def test_action_queue(msgs):
         check("Undo restores it", db.queue_counts(conn)["actionable"] == 2)
         conn.close()
 
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.pipeline import build_source
         from mailcheck.sources import IMAPSource, OutlookGraphSource
@@ -1103,7 +1103,7 @@ def test_review_fixes(msgs):
     cfgmod.config_path = lambda: tmp / "config.toml"
     secmod.get_account_password = lambda label: "dummy"
     try:
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.web.app import create_app
 
@@ -1136,7 +1136,7 @@ def test_review_fixes(msgs):
     cfgmod.db_path = lambda: tmp / "t.db"
     cfgmod.config_path = lambda: tmp / "config.toml"
     try:
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.web.app import create_app
 
@@ -1170,7 +1170,7 @@ def test_review_fixes(msgs):
     cfgmod.db_path = lambda: tmp / "t.db"
     cfgmod.config_path = lambda: tmp / "config.toml"
     try:
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         import mailcheck.web.app as W
 
@@ -1322,7 +1322,7 @@ def test_review_fixes(msgs):
     cfgmod.db_path = lambda: tmp / "t.db"
     cfgmod.config_path = lambda: tmp / "config.toml"
     try:
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.web.app import create_app
 
@@ -1348,7 +1348,7 @@ def test_review_fixes(msgs):
     cfgmod.db_path = lambda: tmp / "t.db"
     cfgmod.config_path = lambda: tmp / "config.toml"
     try:
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.web.app import create_app
 
@@ -1572,7 +1572,7 @@ def test_reclassify(msgs):
         )
         conn.close()
 
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         import mailcheck.web.app as W
 
@@ -1636,7 +1636,7 @@ def test_lazy_bodies_and_inplace_done(msgs):
         conn.commit()
         conn.close()
 
-        from fastapi.testclient import TestClient
+        from tests.web_client import TestClient
 
         from mailcheck.web.app import create_app
 
@@ -1856,7 +1856,7 @@ def test_undo(msgs):
     from pathlib import Path
 
     import mailcheck.config as cfgmod
-    from fastapi.testclient import TestClient
+    from tests.web_client import TestClient
 
     from mailcheck.web.app import create_app
 

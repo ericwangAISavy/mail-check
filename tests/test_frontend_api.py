@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from tests.web_client import TestClient
 
 from mailcheck import config, db
 from mailcheck.models import Classification, NormalizedMessage
@@ -42,7 +42,7 @@ class FrontendApiTests(unittest.TestCase):
         response = self.client.get("/?view=queue&days=30")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("no-cache", response.headers.get("cache-control", ""))
+        self.assertIn("no-store", response.headers.get("cache-control", ""))
         self.assertIn("Starting mail-check", response.text)
         self.assertIn("reload this page", response.text)
 

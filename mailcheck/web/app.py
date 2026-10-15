@@ -1,9 +1,4 @@
-"""Local management console.
-
-Binds 127.0.0.1 only — single local user, no auth. Because it now accepts
-credential writes, non-GET requests carrying a foreign Origin are rejected, so a
-web page you happen to have open cannot drive this API.
-"""
+"""Management console with file-backed admin and guest authentication."""
 
 from __future__ import annotations
 
@@ -12,11 +7,11 @@ import time
 import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
@@ -39,6 +34,7 @@ from ..taxonomy import (
     tier_of,
 )
 from . import bodyhtml
+from .auth import AuthFileError, AuthStore, COOKIE, SESSION_SECONDS
 
 #: Tiers that make up the daily action queue. A failed classification
 #: (``unclassified``) is exactly the kind of thing that must not go unseen, so
@@ -106,6 +102,15 @@ def _reschedule(cfg=None) -> None:
 
 
 # ------------------------------------------------------------------ request bodies
+
+
+class LoginBody(BaseModel):
+    role: Literal["admin", "guest"]
+    password: str = Field(min_length=1, max_length=256)
+
+
+class PasswordBody(LoginBody):
+    pass
 
 
 class CheckBody(BaseModel):
@@ -260,7 +265,8 @@ class SettingsResponse(BaseModel):
 
 
 def _err(message: str, status: int = 400) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": message}, status_code=status)
+    return JSONResponse({"ok": False, "error": message}, status_code=status,
+                        headers={"Cache-Control": "no-store"})
 
 
 def _state(conn=None, accounts=None) -> dict:
@@ -470,8 +476,11 @@ def _scheduler() -> None:
 # ----------------------------------------------------------------------------- app
 
 
-def create_app() -> FastAPI:
+def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False) -> FastAPI:
     app = FastAPI(title="mail-check", docs_url=None, redoc_url=None)
+    auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
+    app.state.auth_store = auth
+    trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     if (FRONTEND_DIST / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
@@ -518,13 +527,80 @@ def create_app() -> FastAPI:
         # 127.0.0.1 makes same-origin GETs to this server, and the Origin check
         # below never sees them. Its requests still carry the attacker's Host.
         host = urlparse("//" + request.headers.get("host", "")).hostname or ""
-        if host not in _LOCAL_HOSTS:
+        if host.lower() not in trusted_hosts:
             return _err("Unrecognised Host header.", 403)
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
-            if origin and (urlparse(origin).hostname or "") not in _LOCAL_HOSTS:
+            expected_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+            if ((origin and origin != expected_origin) or
+                    request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
-        return await call_next(request)
+        path = request.url.path
+        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
+        try:
+            role = auth.role(request.cookies.get(COOKIE))
+            request.state.role = role
+            if not public:
+                if role is None:
+                    if path.startswith("/api/"):
+                        return _err("Sign in to continue.", 401)
+                    return RedirectResponse("/login", status_code=303)
+                if role == "guest":
+                    if path == "/" and request.method in ("GET", "HEAD"):
+                        return RedirectResponse("/dashboard", status_code=303)
+                    guest_read = path in ("/dashboard", "/api/bootstrap", "/api/dashboard", "/api/dashboard/accounts")
+                    # The dashboard's reader is read-only. All mutations and
+                    # account/settings/triage APIs require admin on the server.
+                    guest_read |= path.startswith("/api/messages/") and path.removeprefix("/api/messages/").isdigit()
+                    if path != "/api/auth/logout" and not (guest_read and request.method in ("GET", "HEAD")):
+                        return _err("Admin access is required.", 403)
+            response = await call_next(request)
+        except AuthFileError:
+            return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/"):
+            response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
+
+    @app.get("/login")
+    def login_page():
+        return frontend_page() or PlainTextResponse("Build the React console to enable sign-in.", status_code=503)
+
+    @app.get("/api/auth/session")
+    def auth_session(request: Request):
+        return {"role": request.state.role}
+
+    @app.post("/api/auth/login")
+    def auth_login(body: LoginBody, request: Request):
+        token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown")
+        if limited:
+            response = _err("Too many sign-in attempts. Try again in a minute.", 429)
+            response.headers["Retry-After"] = "60"
+            return response
+        if token is None:
+            return _err("Incorrect role or password.", 401)
+        response = JSONResponse({"role": body.role})
+        response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
+                            secure=secure_cookies, samesite="strict", path="/")
+        return response
+
+    @app.post("/api/auth/logout")
+    def auth_logout():
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(COOKIE, httponly=True, secure=secure_cookies, samesite="strict", path="/")
+        return response
+
+    @app.post("/api/auth/password")
+    def auth_password(body: PasswordBody):
+        auth.change_password(body.role, body.password)
+        return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
+
+    @app.get("/api/dashboard/accounts")
+    def dashboard_accounts():
+        with db.session() as conn:
+            return {"accounts": [{"label": a.label} for a in db.list_accounts(conn)]}
 
     # ------------------------------------------------------------------- pages
 

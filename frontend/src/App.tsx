@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Activity, BarChart3, ChevronRight, CircleHelp, Inbox, LoaderCircle, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, UsersRound } from "lucide-react"
 import { api, request } from "@/lib/api"
@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Loading, PageHeading, ToastProvider, useToast } from "@/components/common"
 import type { Bootstrap } from "@/lib/types"
 import TriagePage from "@/pages/triage"
+import { AuthGate, useAuth } from "@/components/auth"
 
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
@@ -161,6 +162,9 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 }
 
 function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
+  const { role, signOut } = useAuth()
+  const admin = role === "admin"
+  const toast = useToast()
   const [collapsed, setCollapsed] = useState(localStorage.getItem("mailcheck.sidebar") === "collapsed")
   const [mobileNav, setMobileNav] = useState(false)
   const location = useLocation()
@@ -173,9 +177,9 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   return <div className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
-      <button className="brand-lockup" onClick={() => navigate("/")} aria-label="mail-check home"><span className="brand-mark"><MailCheck size={21} /></span><span className="brand-word">mail<span>check</span></span></button>
+      <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/dashboard")} aria-label="mail-check home"><span className="brand-mark"><MailCheck size={21} /></span><span className="brand-word">mail<span>check</span></span></button>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter((s) => admin || s.to === "/dashboard").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
         <div className="sidebar-user"><span className="avatar-mark">m</span><div><strong>mail-check</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
@@ -185,17 +189,18 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <section className="app-content">
       <header className="topbar">
         <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname)?.label || "Triage"}</strong></div></div>
-        <div className="top-right"><ThemeControl /><JobStatus bootstrap={bootstrap} /></div>
+        <div className="top-right"><ThemeControl /><span className="signed-in-role">{admin ? "Admin" : "Guest"}</span><Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
-      {!bootstrap.readiness.model || !bootstrap.readiness.accounts ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>{!bootstrap.readiness.model ? "Connect your Ollama model" : "Connect an email account"}</span><Button variant="outline" size="sm" onClick={() => navigate(!bootstrap.readiness.model ? "/settings" : "/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
+      {admin && (!bootstrap.readiness.model || !bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>{!bootstrap.readiness.model ? "Connect your Ollama model" : "Connect an email account"}</span><Button variant="outline" size="sm" onClick={() => navigate(!bootstrap.readiness.model ? "/settings" : "/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
-        <Route path="/" element={<TriagePage bootstrap={bootstrap} />} />
-        <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} />} />
-        <Route path="/accounts" element={<AccountsPage />} />
-        <Route path="/settings" element={<SettingsPage bootstrap={bootstrap} />} />
-        <Route path="*" element={<UnknownRoute />} />
+        <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} readOnly={!admin} />} />
+        <Route path="/accounts" element={admin ? <AccountsPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/settings" element={admin ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
+        <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/dashboard" replace />} />
       </Routes></Suspense></main>
-      <footer className="app-footer"><span><span className="footer-dot" />Bound to this computer</span><span>Unread stays unread. Always.</span></footer>
+      <footer className="app-footer"><span><span className="footer-dot" />{admin ? "Admin workspace" : "Read-only dashboard"}</span><span>Unread stays unread. Always.</span></footer>
     </section>
   </div>
 }
@@ -217,4 +222,4 @@ function ReadyApp() {
   return <Workspace bootstrap={data!} />
 }
 
-export default function App() { return <ToastProvider><ReadyApp /></ToastProvider> }
+export default function App() { return <ToastProvider><AuthGate><ReadyApp /></AuthGate></ToastProvider> }

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from tests.web_client import TestClient
 
 from mailcheck import config, db
 from mailcheck.taxonomy import CATEGORIES
