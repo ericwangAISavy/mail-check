@@ -701,21 +701,20 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def assign_bidder(bidder_id: int, body: payments.AssignmentBody):
         return payment_write(lambda conn: payments.assign(conn, bidder_id, body))
 
+    @app.post("/api/payments/assignments/{assignment_id}")
+    def edit_bidder_assignment(assignment_id: int, body: payments.AssignmentBody):
+        return payment_write(lambda conn: payments.edit_assignment(conn, assignment_id, body))
+
+    @app.post("/api/payments/assignments/{assignment_id}/remove")
+    def remove_bidder_assignment(assignment_id: int):
+        return payment_write(lambda conn: payments.remove_assignment(conn, assignment_id))
+
     @app.post("/api/payments/assignments/{assignment_id}/end")
     def end_assignment(assignment_id: int, body: payments.EndAssignmentBody):
         def finish(conn):
-            row = conn.execute("SELECT * FROM bidder_assignments WHERE id=?", (assignment_id,)).fetchone()
-            if not row:
-                raise LookupError("Assignment not found")
-            if body.end_date.isoformat() < row["start_date"]:
-                raise ValueError("End date must be on or after start date")
-            previous = date.fromisoformat(row["end_date"]) if row["end_date"] else date.max
-            if previous != body.end_date:
-                payments.reject_paid_overlap(conn, min(previous, body.end_date) + timedelta(days=1), max(previous, body.end_date), row["bidder_id"])
-            if conn.execute("SELECT 1 FROM bidder_assignments WHERE account_id=? AND id!=? AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?",
-                (row["account_id"],assignment_id,body.end_date.isoformat(),row["start_date"])).fetchone():
-                raise ValueError("This end date overlaps another assignment")
-            conn.execute("UPDATE bidder_assignments SET end_date=? WHERE id=?", (body.end_date.isoformat(), assignment_id))
+            row = payments.assignment_row(conn, assignment_id)
+            payments.edit_assignment(conn, assignment_id, payments.AssignmentBody(
+                account_id=row["account_id"], start_date=row["start_date"], end_date=body.end_date))
         return payment_write(finish)
 
     @app.post("/api/payments/bidders/{bidder_id}/paid")

@@ -255,6 +255,7 @@ h2 { font-family: var(--display-font); font-weight: 600; }.card-title-row h2, .e
 .dashboard-primary { container-type: inline-size; }
 .stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .stat-card {
+  --stat-accent: var(--primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -262,18 +263,33 @@ h2 { font-family: var(--display-font); font-weight: 600; }.card-title-row h2, .e
   min-width: 0;
   min-height: 88px;
   padding: 20px;
-  border-radius: 6px;
+  border-radius: 10px;
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: linear-gradient(115deg, color-mix(in srgb, var(--stat-accent) 5%, var(--card)), var(--card) 72%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 3%, transparent), 0 2px 8px #0000000a;
 }
-.stat-icon { width: 32px; height: 32px; flex: none; color: var(--primary); stroke-width: 1.6; }
-.stat-2 .stat-icon, .stat-4 .stat-icon { color: var(--purple); }
+.stat-card::before, .stat-card::after { content: none; }
+.stat-2, .stat-4 { --stat-accent: var(--purple); }
+.stat-icon-wrap {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: var(--stat-accent);
+  border: 1px solid color-mix(in srgb, var(--stat-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--stat-accent) 8%, transparent);
+}
+.stat-icon { width: 26px; height: 26px; color: inherit; stroke-width: 1.7; }
 .stat-value {
   display: block;
   align-self: center;
   margin: 0;
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-weight: 650;
-  letter-spacing: -.02em;
+  font-weight: 600;
+  letter-spacing: -.035em;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }

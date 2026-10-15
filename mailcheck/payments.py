@@ -147,6 +147,52 @@ def reject_paid_overlap(conn, start: date, end: date | None, bidder_id: int):
         raise ValueError("Assignments cannot change a week with a recorded payment")
 
 
+def assignment_row(conn, assignment_id: int):
+    row = conn.execute("SELECT * FROM bidder_assignments WHERE id=?", (assignment_id,)).fetchone()
+    if not row:
+        raise LookupError("Assignment not found")
+    return row
+
+
+def protect_assignment_payments(conn, old, new: AssignmentBody | None):
+    """Allow edits outside settled weeks, while preserving their exact assignments."""
+    old_start = date.fromisoformat(old["start_date"])
+    old_end = date.fromisoformat(old["end_date"]) if old["end_date"] else date.max
+    for payment in conn.execute("SELECT week_start FROM bidder_payments WHERE bidder_id=?", (old["bidder_id"],)):
+        week = date.fromisoformat(payment["week_start"])
+        end = week + timedelta(days=6)
+        def portion(start, stop):
+            lower, upper = max(start, week), min(stop, end)
+            return (lower, upper) if lower <= upper else None
+        before = portion(old_start, old_end)
+        after = portion(new.start_date, new.end_date or date.max) if new else None
+        if before != after or (before and new and old["account_id"] != new.account_id):
+            raise ValueError("This change would affect a week with a recorded payment")
+
+
+def edit_assignment(conn, assignment_id: int, body: AssignmentBody):
+    old = assignment_row(conn, assignment_id)
+    if body.end_date and body.end_date < body.start_date:
+        raise ValueError("End date must be on or after start date")
+    account = conn.execute("SELECT label FROM accounts WHERE id=?", (body.account_id,)).fetchone()
+    if not account and body.account_id != old["account_id"]:
+        raise ValueError("Account not found")
+    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND id!=?
+        AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?""",
+        (body.account_id, assignment_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
+        raise ValueError("This account already has an assignment during those dates")
+    protect_assignment_payments(conn, old, body)
+    conn.execute("UPDATE bidder_assignments SET account_id=?,account_label=?,start_date=?,end_date=? WHERE id=?",
+        (body.account_id, account["label"] if account else old["account_label"], body.start_date.isoformat(),
+         body.end_date.isoformat() if body.end_date else None, assignment_id))
+
+
+def remove_assignment(conn, assignment_id: int):
+    old = assignment_row(conn, assignment_id)
+    protect_assignment_payments(conn, old, None)
+    conn.execute("DELETE FROM bidder_assignments WHERE id=?", (assignment_id,))
+
+
 def record_payment(conn, bidder_id: int, body: PayBody):
     bidder(conn, bidder_id)
     start = monday(body.week)

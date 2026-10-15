@@ -43,7 +43,9 @@ class PaymentTests(unittest.TestCase):
         return pk
 
     def report(self, week=date(2026,10,12)):
-        return payments.report(self.conn, week)
+        result = payments.report(self.conn, week)
+        self.conn.commit()
+        return result
 
     def test_multi_account_daily_weekly_and_repeated_fetch_counts(self):
         self.assign(); self.assign(account=self.other)
@@ -139,3 +141,40 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(paid.status_code,200)
         self.assertEqual(self.client.post('/api/payments/assignments/1/end',json={"end_date":"2026-10-14"}).status_code,400)
         self.assertEqual(self.client.post('/api/payments/assignments/1/end',json={"end_date":"2026-10-18"}).status_code,200)
+
+    def test_edit_and_remove_assignment_recalculate_totals_without_deleting_receipts(self):
+        self.assign(); self.message("one")
+        url='/api/payments/assignments/1'
+        response=self.client.post(url,json={"account_id":self.other,"start_date":"2026-10-12","end_date":"2026-10-14"})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(self.report()["bidders"][0]["total"],0)
+        self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":None}).status_code,200)
+        self.assertEqual(self.report()["bidders"][0]["total"],1)
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,200)
+        self.assertEqual(self.report()["bidders"][0]["total"],0)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM application_receipts').fetchone()[0],1)
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,404)
+
+    def test_edit_rejects_overlaps_and_invalid_dates(self):
+        self.assign(end=date(2026,10,14));self.assign(who=2,start=date(2026,10,15))
+        for body in ({"account_id":self.account,"start_date":"2026-10-12","end_date":None},
+                     {"account_id":self.account,"start_date":"2026-10-14","end_date":"2026-10-12"}):
+            self.assertEqual(self.client.post('/api/payments/assignments/1',json=body).status_code,400)
+        self.assertEqual(self.conn.execute('SELECT end_date FROM bidder_assignments WHERE id=1').fetchone()[0],'2026-10-14')
+
+    def test_paid_weeks_block_remove_but_allow_edits_outside_paid_dates(self):
+        self.assign();self.message("one")
+        self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={"week":"2026-10-12","expected_count":1,"amount":"10"}).status_code,200)
+        url='/api/payments/assignments/1'
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,400)
+        for body in ({"account_id":self.account,"start_date":"2026-10-13","end_date":None},
+                     {"account_id":self.other,"start_date":"2026-10-12","end_date":None}):
+            self.assertEqual(self.client.post(url,json=body).status_code,400)
+        self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":"2026-10-18"}).status_code,200)
+        self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":None}).status_code,200)
+
+    def test_guest_cannot_edit_or_remove_assignments(self):
+        self.assign()
+        self.client.post('/api/auth/login',json={"role":"guest","password":"guest"})
+        for route in ('/api/payments/assignments/1','/api/payments/assignments/1/remove'):
+            self.assertEqual(self.client.post(route,json={}).status_code,403)

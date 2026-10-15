@@ -10,6 +10,10 @@ the server. This feature does not add individual bidder credentials.
 1. As admin, expand **Manage bidders and account assignments**, and add each bidder.
 2. Assign one or more connected accounts to the bidder. Set the first assigned day
    to the date they actually started, including earlier dates when appropriate.
+   Each assignment has **Edit** and **Remove** controls. Edit the account, first
+   day, or optional last day; clear the last day to restore an ongoing rule.
+   Removal requires confirmation and changes attribution, without deleting emails.
+   Changes affecting a paid week are blocked; changes outside it remain editable.
 3. Use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
    The bidder selector narrows the table and summary to one bidder.
 4. After a week ends, select **Record payment**, enter the amount in USD and an
