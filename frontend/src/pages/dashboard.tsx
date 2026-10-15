@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { CartesianGrid, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, Inbox, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
+import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, Inbox, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Bootstrap, Message } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -27,6 +27,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
   const deferredSearch = useDeferredValue(searchInput)
   const [reader, setReader] = useState<Message | null>(null)
   const [advanced, setAdvanced] = useState(false)
+  const [explorerOpen, setExplorerOpen] = useState(() => ["q", "focus_date", "page"].some((key) => search.has(key)))
   const toast = useToast()
   const done = useDoneMutation(() => setReader(null))
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
@@ -72,6 +73,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     else toast("Activity refreshed.", "success")
   }
   const focusChart = (date: string, category?: string) => {
+    setExplorerOpen(true)
     // Keep the existing day-focus semantics: a week bucket focuses Monday,
     // or the first visible day when the range begins partway through a week.
     // Focus refines the explorer only; it must not change chart/card totals.
@@ -143,7 +145,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     </Card>
       </div></div>
       <aside className="dashboard-rail" aria-label="Mail information">
-        <Card className="recent-events"><div className="rail-heading"><p className="eyebrow">RECENT MAIL EVENTS</p><a href="#message-explorer">View all <ArrowRight size={14} /></a></div><p className="rail-context">Stored mail in this view · received time</p>
+        <Card className="recent-events"><div className="rail-heading"><p className="eyebrow">RECENT MAIL EVENTS</p><a href="#message-explorer" onClick={() => setExplorerOpen(true)}>View all <ArrowRight size={14} /></a></div><p className="rail-context">Stored mail in this view · received time</p>
           {pageInfo?.items.length ? <ol className="mail-timeline">{pageInfo.items.slice(0, 4).map((row) => <li key={row.pk}><Mail size={19} /><button onClick={() => openMessage(row)}><strong>{row.subject || "(no subject)"}</strong><span>{row.category_label} · {row.account_label}</span></button><time dateTime={row.received_at}>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</time></li>)}</ol> : <div className="rail-empty"><Inbox size={24} /><p>No stored mail in this view.</p></div>}
           <p className="last-check-label">{bootstrap.last_run}</p>
         </Card>
@@ -156,11 +158,11 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
           <p className="rail-context">{readOnly ? "Mailboxes represented in local history." : "Enabled accounts are included in checks. Connection tests are available in Accounts."}</p>
         </Card>
       </aside></div>
-    <section id="message-explorer" className="explorer cyber-panel"><div className="explorer-heading"><div><p className="eyebrow">MESSAGE EXPLORER</p><h2>Find a message</h2><p className="page-description">Search and read mail already collected on this computer.</p></div><label className="search-field explorer-search"><Search size={16} /><input value={searchInput} onChange={(e) => { setSearchInput(e.target.value); update({ q: e.target.value || null }) }} placeholder="Search subject, sender, company…" aria-label="Search stored mail" /></label></div>
+    <details id="message-explorer" className="explorer cyber-panel" open={explorerOpen} onToggle={(event) => setExplorerOpen(event.currentTarget.open)}><summary className="explorer-toggle"><span>Messages <span className="explorer-total">{pageInfo?.total ?? 0} matching</span></span><span>{explorerOpen ? "Hide messages" : "Show messages"}<ChevronDown size={18} /></span></summary><div className="explorer-body"><div className="explorer-heading"><div><p className="eyebrow">MESSAGE EXPLORER</p><h2>Find a message</h2><p className="page-description">Search and read mail already collected on this computer.</p></div><label className="search-field explorer-search"><Search size={16} /><input value={searchInput} onChange={(e) => { setSearchInput(e.target.value); update({ q: e.target.value || null }) }} placeholder="Search subject, sender, company…" aria-label="Search stored mail" /></label></div>
       <div className="category-pills" aria-label="Filter categories"><button className={!params.getAll("category").length ? "pill-active" : ""} onClick={() => update({ category: null })}>All categories</button>{categories.map((c) => <button key={c.name} className={params.getAll("category").includes(c.name) ? "pill-active" : ""} onClick={() => toggleCategory(c.name)}>{c.label}<span className="category-count">{c.count}</span></button>)}</div>
       {pageInfo?.items.length ? <><div className="table-scroll explorer-table"><table><thead><tr><th>Message</th><th>Category</th><th>Account</th><th>Received</th></tr></thead><tbody>{pageInfo.items.map((row) => <tr key={row.pk} tabIndex={0} onClick={() => openMessage(row)} onKeyDown={(event) => { if (event.key === "Enter") openMessage(row) }}><td><strong>{row.company || row.from_name || row.from_addr}</strong><span>{row.subject}</span></td><td><Badge variant="muted">{row.category_label}</Badge></td><td>{row.account_label}</td><td>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</td></tr>)}</tbody></table></div><div className="pagination"><span>{pageInfo.total ? `${(pageInfo.page - 1) * pageInfo.page_size + 1}–${Math.min(pageInfo.page * pageInfo.page_size, pageInfo.total)} of ${pageInfo.total}` : "0 messages"}</span><div><Button variant="outline" size="sm" aria-label="Previous page" disabled={pageInfo.page <= 1} onClick={() => update({ page: String(pageInfo.page - 1) })}><ChevronLeft size={15} />Previous</Button><Button variant="outline" size="sm" aria-label="Next page" disabled={pageInfo.page >= pageInfo.total_pages} onClick={() => update({ page: String(pageInfo.page + 1) })}>Next<ChevronRight size={15} /></Button></div></div></> : <EmptyState title="No messages match" description="Adjust your search, filters, or date range to find more stored mail." action={<Button variant="outline" onClick={clear}>Clear filters</Button>} />}
       {data?.daily?.some((row: any) => row.partial) && <p className="partial-note">* Some dates have partial collection history. Previously unread mail and deleted mail are not available.</p>}
-    </section>
+    </div></details>
     <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by mail-check.</DialogDescription></DialogHeader>{reader && <Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={!readOnly && bootstrap.readiness.model} readOnly={readOnly} />}</DialogContent></Dialog>
   </div>
 }

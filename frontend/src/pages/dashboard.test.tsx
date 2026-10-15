@@ -125,3 +125,17 @@ it("does not fetch admin account details for a guest", async () => {
   expect(api.accounts).not.toHaveBeenCalled()
   expect(screen.queryByRole("link", { name: /Manage accounts/ })).toBeNull()
 })
+it("collapses the message explorer by default and expands it from View all", async () => {
+  const response = data()
+  response.messages.items = [{ pk: 123, subject: "Application update", received_at: "2026-10-14T12:00:00Z", category_label: "Rejection", account_label: "personal" }] as any
+  vi.mocked(api.dashboard).mockResolvedValue(response)
+  mount()
+  await screen.findByText("Messages collected")
+  const explorer = document.querySelector("#message-explorer") as HTMLDetailsElement
+  expect(explorer.open).toBe(false)
+  fireEvent.click(screen.getByRole("link", { name: /View all/ }))
+  await waitFor(() => expect(explorer.open).toBe(true))
+  explorer.open = false
+  fireEvent(explorer, new Event("toggle"))
+  await waitFor(() => expect(explorer.open).toBe(false))
+})
