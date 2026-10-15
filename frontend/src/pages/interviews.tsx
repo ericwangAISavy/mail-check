@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, RefreshCw } from "lucide-react"
 import { api, request } from "@/lib/api"
@@ -64,6 +64,7 @@ function InterviewDetails({id,stages,statuses}:{id:number;stages:string[];status
     <div className="interview-detail-status"><span className={`interview-status ${stateClass(event)}`}>{event.display_status}</span><Button variant="outline" onClick={()=>setEditing(!editing)}>{editing?"Cancel editing":"Edit details"}</Button></div>
     {editing ? <InterviewEditor event={event} stages={stages} statuses={statuses} onSaved={()=>setEditing(false)}/> : <>
       {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify the event details in your calendar."}</p>}
+      <Link className="sheet-google-link" to={`/sourcing?q=${encodeURIComponent(event.company || event.role || "")}`}>Find application <ExternalLink size={14}/></Link>
       <dl className="interview-details">{[["Company",event.company],["Role",event.role],["Interview stage",event.stage],["Start",dateTime(event.start_at)],["End",dateTime(event.end_at)],["Original timezone",event.timezone],["Display timezone",Intl.DateTimeFormat().resolvedOptions().timeZone],["Meeting platform",event.meeting_platform],["Location",event.location],["Organizer",[event.organizer_name,event.organizer_email].filter(Boolean).join(" · ")],["Participants",event.participants.join(", ")],["Detected status",event.status],["Last updated",dateTime(event.updated_at)],["Notes",event.notes]].map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value||"Unknown"}</dd></div>)}</dl>
       {event.meeting_url && <a className="interview-meeting-link" href={event.meeting_url} target="_blank" rel="noopener noreferrer">Open {event.meeting_platform || "meeting"} link <ExternalLink size={14}/></a>}
       {!!event.manual_fields.length && <p className="form-hint">Manually corrected fields are protected from later automated updates.</p>}

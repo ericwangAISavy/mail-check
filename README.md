@@ -54,15 +54,15 @@ not expose calendar events and is not used as a fallback. See
 existing behavior.
 
 The web console requires sign-in. Initially use role **Admin** with password
-`admin`, or role **Guest** with password `guest`. Admin can use Triage, Dashboard,
-Accounts, and Settings. Guest can only browse the Dashboard and its stored-message
-reader; guest cannot run checks, mark mail Done, or change anything. Only admin can
-change either password, under **Settings → Sign-in**.
+`admin`. Admin can manage the full workspace. Named bidders sign in with their
+own name and password and can access only their Job sourcing workbook and payment
+totals. Enable bidder sign-in and set initial passwords in Job sourcing settings.
+See [Job sourcing setup](docs/JOB_SOURCING.md) for Google connection and permissions.
 
 Passwords are stored as salted scrypt hashes in `web-auth.json` next to
 `config.toml`, with private file permissions. Sign-in uses an HttpOnly cookie that
 expires after 12 hours. Password changes sign out every session for that role,
-including your own when changing the admin password. Authentication adds no database;
+including your own when changing the admin password. Authentication adds no separate database;
 the existing SQLite mail history remains unchanged. Keep this local file private and
 back it up with your application configuration. A damaged file fails closed rather
 than resetting passwords. Use one app process with this file.
@@ -101,17 +101,17 @@ publicly reachable server or an HTTPS tunnel instead. Binding to `0.0.0.0` alone
 does not create a public URL. A tunnel must forward the visitor's Host header and
 HTTPS scheme correctly and its public hostname must be included in `--allow-host`.
 
-**Before opening public access, change both default passwords locally.** Use HTTPS
+**Before opening public access, change the default admin password locally.** Use HTTPS
 for internet access and `--secure-cookies` so browser sign-in cookies are sent only
 over HTTPS. Leave that flag off for local HTTP development. The app trusts forwarded
 scheme/client information from a loopback reverse proxy; keep the proxy on the same
-computer and do not expose its backend port. Guest access includes the Dashboard's
-stored email subjects, summaries, and message bodies, so share its password only
+computer and do not expose its backend port. Bidder access is restricted to their own job sheets and payment totals. The admin Dashboard includes
+stored email subjects, summaries, and message bodies, so share the admin password only
 with people who should see that mail. These web passwords are separate from mailbox
 app passwords, which still use the OS keyring.
 
 After startup, an unauthenticated `GET /api/dashboard` must return HTTP 401. Sign in
-as guest and verify Dashboard works while Accounts and Settings return HTTP 403.
+as a named bidder and verify Job sourcing works while Accounts and Settings return HTTP 403.
 The React/Vite development server is for local development; share the Python app
 and its bundled console through the HTTPS proxy.
 
@@ -222,7 +222,7 @@ click it to switch automatic checks back off. It is off by default, because open
 should never start spending tokens on its own. The schedule belongs to the running console,
 so closing it stops the checks; use `mail-check watch` for unattended background runs.
 
-It binds `127.0.0.1` by default and requires admin or guest sign-in. For network
+It binds `127.0.0.1` by default and requires admin or named bidder sign-in. For network
 access, follow the server instructions above. Host headers are checked against the
 configured allowlist, and non-GET requests carrying a foreign `Origin` are rejected.
 
@@ -407,7 +407,15 @@ architecture and the reasoning behind each decision.
 
 ### Bidder payments
 
-Admins can assign accounts to bidders and record manual weekly payments. Guests
-can view all bidders’ daily and weekly “Application received” totals. Weeks run
+Admins can assign accounts to bidders and record manual weekly payments. Named bidders
+can view their own daily and weekly “Application received” totals. Weeks run
 Monday–Sunday in America/Chicago. See [Bidder payments](docs/BIDDER_PAYMENTS.md)
 for setup, counting rules, and payment history behavior.
+
+
+### Google-backed Job sourcing
+
+Use Job sourcing to edit existing bidder Google Sheets in one spreadsheet workspace,
+with profile tabs, rectangular copy/paste, checked autosaves, and application search
+from interview details. Each named bidder can access only their own workbook.
+See [Job sourcing setup and synchronization](docs/JOB_SOURCING.md).

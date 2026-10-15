@@ -85,7 +85,7 @@ def today() -> date:
     return datetime.now(ZONE).date()
 
 
-def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False) -> dict:
+def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None) -> dict:
     sync_receipts(conn)
     start = monday(week or today())
     end = start + timedelta(days=6)
@@ -101,10 +101,10 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
         key = (row["account_id"], day)
         counts[key] = counts.get(key, 0) + 1
-    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments ORDER BY start_date,id")]
-    payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=?", (start.isoformat(),))}
+    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE (? IS NULL OR bidder_id=?) ORDER BY start_date,id", (bidder_id,bidder_id))]
+    payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
     bidders = []
-    for row in conn.execute("SELECT * FROM bidders ORDER BY name"):
+    for row in conn.execute("SELECT * FROM bidders WHERE (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
         daily = [sum(counts.get((a["account_id"], day), 0) for a in assigned
                      if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)) for day in dates]
@@ -115,7 +115,7 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
         "daily": [sum(b["daily"][i] for b in bidders) for i in range(7)],
-        "unassigned": sum(counts.values()) - sum(b["total"] for b in bidders),
+        "unassigned": sum(counts.values()) - sum(b["total"] for b in bidders) if admin else 0,
         "accounts": [{"id": a["id"], "label": a["label"]} for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")] if admin else []}
 
 

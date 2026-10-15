@@ -1,5 +1,6 @@
 """Interview discovery/reconciliation uses real local SQLite and provider messages."""
 from __future__ import annotations
+from tests.web_client import sign_in_bidder
 import base64
 import json
 import tempfile
@@ -221,7 +222,7 @@ class InterviewApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"Edited"}).status_code,200)
         self.assertEqual(self.client.get("/api/interviews?company=Edited").json()["events"][0]["company"],"Edited")
         self.assertEqual(self.client.get("/api/interviews/999").status_code,404)
-        self.client.post("/api/auth/login",json={"role":"guest","password":"guest"})
+        sign_in_bidder(self.client)
         for path in ("/interviews","/api/interviews","/api/interviews/1","/api/interviews/scan"):
             self.assertEqual(self.client.get(path).status_code,403)
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"No"}).status_code,403)

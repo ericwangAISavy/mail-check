@@ -15,7 +15,7 @@ from typing import Callable
 
 COOKIE = "mailcheck_session"
 SESSION_SECONDS = 12 * 60 * 60
-ROLES = ("admin", "guest")
+ROLES = ("admin", "bidder")
 _file_lock = threading.RLock()
 
 
@@ -66,12 +66,12 @@ class AuthStore:
         try:
             if not path.exists():
                 self._save({"secret": secrets.token_hex(32),
-                            "users": {role: _record(role) for role in ROLES}})
+                            "users": {"admin": _record("admin")}, "bidders": {}})
             data = json.loads(path.read_text())
             if len(bytes.fromhex(data["secret"])) != 32:
                 raise ValueError("Invalid signing key")
-            for role in ROLES:
-                row = data["users"][role]
+            data.setdefault("bidders", {})
+            for row in [data["users"]["admin"], *data["bidders"].values()]:
                 if (len(bytes.fromhex(row["salt"])) != 16 or
                         len(bytes.fromhex(row["hash"])) != 32 or
                         not isinstance(row["version"], str) or not row["version"]):
@@ -80,7 +80,7 @@ class AuthStore:
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise AuthFileError("The local web-auth.json file cannot be read. Restore it from a trusted backup.") from exc
 
-    def login(self, role: str, password: str, address: str) -> tuple[str | None, bool]:
+    def login(self, role: str, password: str, address: str, bidder_id: int | None = None) -> tuple[str | None, bool]:
         now = time.time()
         with self._attempt_lock:
             # Bound retained entries and avoid trusting client-supplied forwarding headers.
@@ -92,19 +92,23 @@ class AuthStore:
             attempts.append(now)
         with _file_lock:
             data = self._load()
-            row = data["users"].get(role, data["users"]["admin"])
+            row = (data["bidders"].get(str(bidder_id)) if role == "bidder" else data["users"].get(role))
+            known = row is not None
+            row = row or data["users"]["admin"]
             matches = hmac.compare_digest(_password(password, row["salt"]), row["hash"])
-            if role not in ROLES or not matches:
+            if role not in ROLES or not matches or not known:
                 return None, False
             with self._attempt_lock:
                 self._attempts.pop(address, None)
-            payload = _encode(json.dumps({"role": role, "version": row["version"],
-                                          "expires": now + SESSION_SECONDS,
-                                          "nonce": secrets.token_hex(16)}, separators=(",", ":")).encode())
-            signature = _encode(hmac.digest(bytes.fromhex(data["secret"]), payload.encode(), "sha256"))
-            return f"{payload}.{signature}", False
+            return self._session(data, row, role, bidder_id), False
 
-    def role(self, token: str | None) -> str | None:
+    @staticmethod
+    def _session(data, row, role, bidder_id=None):
+        payload = _encode(json.dumps({"role":role,"bidder_id":bidder_id if role=="bidder" else None,"version":row["version"],"expires":time.time()+SESSION_SECONDS,"nonce":secrets.token_hex(16)},separators=(",",":")).encode())
+        signature = _encode(hmac.digest(bytes.fromhex(data["secret"]),payload.encode(),"sha256"))
+        return f"{payload}.{signature}"
+
+    def identity(self, token: str | None) -> dict | None:
         if not token or len(token) > 2048:
             return None
         with _file_lock:
@@ -116,17 +120,41 @@ class AuthStore:
                     return None
                 value = json.loads(_decode(payload))
                 role = value["role"]
-                if (role not in ROLES or value["expires"] <= time.time() or
-                        value["version"] != data["users"][role]["version"]):
+                row = data["bidders"].get(str(value.get("bidder_id"))) if role == "bidder" else data["users"].get(role)
+                if (role not in ROLES or not row or value["expires"] <= time.time() or
+                        value["version"] != row["version"]):
                     return None
-                return role
+                return {"role": role, "bidder_id": value.get("bidder_id")}
             except (ValueError, KeyError, TypeError, UnicodeError):
                 return None
 
     def change_password(self, role: str, password: str) -> None:
-        if role not in ROLES or not 1 <= len(password) <= 256:
-            raise ValueError("Choose admin or guest and a password of 1–256 characters.")
+        if role != "admin" or not 1 <= len(password) <= 256:
+            raise ValueError("Choose admin and a password of 1–256 characters.")
         with _file_lock:
             data = self._load()
             data["users"][role] = _record(password)
             self._save(data)
+
+    def role(self, token: str | None) -> str | None:
+        identity = self.identity(token)
+        return identity["role"] if identity else None
+
+    def set_bidder_password(self, bidder_id: int, password: str) -> None:
+        if not 8 <= len(password) <= 256:
+            raise ValueError("Choose a password of 8–256 characters.")
+        with _file_lock:
+            data = self._load()
+            data["bidders"][str(bidder_id)] = _record(password)
+            self._save(data)
+
+    def change_bidder_password(self, bidder_id: int, current: str, password: str) -> str:
+        with _file_lock:
+            data = self._load()
+            row = data["bidders"].get(str(bidder_id))
+            if not row or not hmac.compare_digest(_password(current, row["salt"]), row["hash"]):
+                raise ValueError("Current password is incorrect.")
+            if not 8 <= len(password) <= 256: raise ValueError("Choose a password of 8–256 characters.")
+            data["bidders"][str(bidder_id)] = _record(password)
+            self._save(data)
+            return self._session(data,data["bidders"][str(bidder_id)],"bidder",bidder_id)

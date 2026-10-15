@@ -1,7 +1,7 @@
 # Meeting calendar
 
 The admin-only Interview page displays local calendar bookings in Work week, Week,
-Month and Day views. Guests remain limited to Dashboard. No production events are
+Month and Day views. Named bidders are limited to their own sourcing sheets and payments. No production events are
 seeded, and existing mail history is preserved.
 
 ## Collection

@@ -107,12 +107,23 @@ def _reschedule(cfg=None) -> None:
 
 
 class LoginBody(BaseModel):
-    role: Literal["admin", "guest"]
+    role: Literal["admin", "bidder"]
+    bidder_id: int | None = None
     password: str = Field(min_length=1, max_length=256)
 
 
-class PasswordBody(LoginBody):
-    pass
+class PasswordBody(BaseModel):
+    role: Literal["admin"]
+    password: str = Field(min_length=1, max_length=256)
+
+
+class BidderPasswordBody(BaseModel):
+    password: str | None = Field(default=None,min_length=8,max_length=256)
+    enabled: bool = True
+
+class OwnPasswordBody(BaseModel):
+    current_password: str = Field(min_length=1,max_length=256)
+    password: str = Field(min_length=8,max_length=256)
 
 
 class CheckBody(BaseModel):
@@ -503,6 +514,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     app = FastAPI(title="mail-check", docs_url=None, redoc_url=None)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
+    from .sourcing_routes import install as install_sourcing
+    # Register after the local frontend helper is defined below.
     trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     if (FRONTEND_DIST / "assets").is_dir():
@@ -515,6 +528,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             # shell so a browser cannot keep references from an older build.
             return FileResponse(index, headers={"Cache-Control": "no-cache, must-revalidate"})
         return None
+
+    install_sourcing(app, frontend_page, secure_cookies)
 
     @app.exception_handler(tomllib.TOMLDecodeError)
     async def unreadable_config(request: Request, exc: tomllib.TOMLDecodeError):
@@ -559,28 +574,33 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
         path = request.url.path
-        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
+        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders", "/api/google/callback") or path.startswith(("/assets/", "/static/"))
         try:
-            role = auth.role(request.cookies.get(COOKIE))
+            identity = auth.identity(request.cookies.get(COOKIE))
+            if identity and identity["role"] == "bidder":
+                with db.session() as conn:
+                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND login_enabled=1", (identity["bidder_id"],)).fetchone()
+                if not enabled:
+                    identity = None
+            role = identity["role"] if identity else None
             request.state.role = role
+            request.state.bidder_id = identity.get("bidder_id") if identity else None
             if not public:
                 if role is None:
                     if path.startswith("/api/"):
                         return _err("Sign in to continue.", 401)
                     return RedirectResponse("/login", status_code=303)
-                if role == "guest":
+                if role == "bidder":
                     if path == "/" and request.method in ("GET", "HEAD"):
-                        return RedirectResponse("/dashboard", status_code=303)
-                    guest_read = path in ("/dashboard", "/api/bootstrap", "/api/dashboard", "/api/dashboard/accounts", "/payments", "/api/payments")
-                    # The dashboard's reader is read-only. All mutations and
-                    # account/settings/triage APIs require admin on the server.
-                    guest_read |= path.startswith("/api/messages/") and path.removeprefix("/api/messages/").isdigit()
-                    if path != "/api/auth/logout" and not (guest_read and request.method in ("GET", "HEAD")):
+                        return RedirectResponse("/sourcing", status_code=303)
+                    allowed = path in ("/sourcing", "/api/sourcing", "/payments", "/api/bootstrap", "/api/payments", "/api/auth/password/self")
+                    allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
+                    if not allowed:
                         return _err("Admin access is required.", 403)
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/payments", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/payments", "/sourcing", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -593,20 +613,58 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.get("/api/auth/session")
     def auth_session(request: Request):
-        return {"role": request.state.role}
+        return {"role": request.state.role, **({"bidder_id": request.state.bidder_id} if request.state.bidder_id else {})}
 
     @app.post("/api/auth/login")
     def auth_login(body: LoginBody, request: Request):
-        token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown")
+        if body.role == "bidder":
+            with db.session() as conn:
+                enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND login_enabled=1", (body.bidder_id,)).fetchone()
+            if not enabled:
+                # Still hash/rate-limit a failed request, without allowing disabled credentials.
+                token, limited = auth.login("invalid", body.password, request.client.host if request.client else "unknown")
+            else:
+                token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown", body.bidder_id)
+        else:
+            token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown")
         if limited:
             response = _err("Too many sign-in attempts. Try again in a minute.", 429)
             response.headers["Retry-After"] = "60"
             return response
         if token is None:
             return _err("Incorrect role or password.", 401)
-        response = JSONResponse({"role": body.role})
+        response = JSONResponse({"role": body.role, **({"bidder_id": body.bidder_id} if body.role == "bidder" else {})})
         response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
                             secure=secure_cookies, samesite="strict", path="/")
+        return response
+
+    @app.get("/api/auth/bidders")
+    def bidder_names():
+        with db.session() as conn:
+            return {"bidders": [dict(row) for row in conn.execute("SELECT id,name FROM bidders WHERE login_enabled=1 ORDER BY name")]}
+
+    @app.post("/api/auth/bidders/{bidder_id}/password")
+    def bidder_password(bidder_id: int, body: BidderPasswordBody):
+        with db.session() as conn:
+            if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+                return _err("Bidder not found",404)
+            if body.enabled and not body.password:
+                return _err("Enter an initial password to enable sign-in.")
+            if body.password:
+                auth.set_bidder_password(bidder_id, body.password)
+            conn.execute("UPDATE bidders SET login_enabled=? WHERE id=?", (int(body.enabled),bidder_id))
+        return {"ok": True}
+
+    @app.post("/api/auth/password/self")
+    def own_password(body: OwnPasswordBody, request: Request):
+        if request.state.role != "bidder":
+            return _err("Use the admin password setting.")
+        try:
+            token=auth.change_bidder_password(request.state.bidder_id,body.current_password,body.password)
+        except ValueError as exc:
+            return _err(str(exc))
+        response=JSONResponse({"ok":True})
+        response.set_cookie(COOKIE,token,max_age=SESSION_SECONDS,httponly=True,secure=secure_cookies,samesite="strict",path="/")
         return response
 
     @app.post("/api/auth/logout")
@@ -671,7 +729,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/payments")
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
         with db.session() as conn:
-            return payments.report(conn, week, admin=request.state.role == "admin")
+            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id)
 
     def payment_write(action):
         try:
@@ -755,8 +813,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return dashboard_data(conn, filters, retention_days=cfg.check.retain_days)
 
     @app.get("/api/bootstrap", response_model=BootstrapResponse)
-    def api_bootstrap():
+    def api_bootstrap(request: Request):
         """Small, non-sensitive shell data shared by every React page."""
+        if request.state.role == "bidder":
+            return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[],"presets":[],"last_run":"","account_count":0}
         with db.session() as conn:
             accounts = db.list_accounts(conn)
             state = _state(conn, accounts)

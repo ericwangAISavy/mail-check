@@ -1,9 +1,9 @@
 # Bidder payments
 
 Open **Bidder payments** in the sidebar. Admins manage bidders, account assignments,
-and payment records. Guests use the existing shared guest login to view all bidders’
-daily and weekly totals and recorded payment amounts. Guest writes are rejected by
-the server. This feature does not add individual bidder credentials.
+and payment records. Named bidders use their individual sign-in to view their own
+daily and weekly totals and recorded payment amounts. Bidder writes are rejected by
+the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOURCING.md).
 
 ## Setup and use
 
@@ -56,5 +56,5 @@ the table flags any difference between the current count and paid count.
 Payment records are immutable in this version. There is no payment gateway or bank
 integration. The records describe payments the admin made elsewhere.
 
-The database migration runs automatically on startup. Guest responses omit the full
+The database migration runs automatically on startup. Bidder responses omit the full
 account-management list, while assigned account labels remain visible in the table.

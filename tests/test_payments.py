@@ -1,4 +1,5 @@
 """Real SQLite accounting, dated assignments, settlements and server permissions."""
+from tests.web_client import sign_in_bidder
 import tempfile
 import unittest
 from datetime import date, datetime, timezone
@@ -43,7 +44,7 @@ class PaymentTests(unittest.TestCase):
         return pk
 
     def report(self, week=date(2026,10,12)):
-        result = payments.report(self.conn, week)
+        result = payments.report(self.conn, week, admin=True)
         self.conn.commit()
         return result
 
@@ -117,10 +118,10 @@ class PaymentTests(unittest.TestCase):
 
     def test_guest_reads_all_totals_but_cannot_modify_any_accounting_data(self):
         self.assign(); self.message("one")
-        self.client.post('/api/auth/login',json={"role":"guest","password":"guest"})
+        sign_in_bidder(self.client)
         report=self.client.get('/api/payments?week=2026-10-12')
         self.assertEqual(report.status_code,200)
-        self.assertEqual([b["name"] for b in report.json()["bidders"]],["Alex","Blair"])
+        self.assertEqual([b["name"] for b in report.json()["bidders"]],["Alex"])
         self.assertEqual(report.json()["accounts"],[])
         self.assertEqual(self.client.get('/payments').status_code,200)
         for route in ('/api/payments/bidders','/api/payments/bidders/1','/api/payments/bidders/1/assignments','/api/payments/assignments/1/end','/api/payments/bidders/1/paid'):
@@ -175,6 +176,6 @@ class PaymentTests(unittest.TestCase):
 
     def test_guest_cannot_edit_or_remove_assignments(self):
         self.assign()
-        self.client.post('/api/auth/login',json={"role":"guest","password":"guest"})
+        sign_in_bidder(self.client)
         for route in ('/api/payments/assignments/1','/api/payments/assignments/1/remove'):
             self.assertEqual(self.client.post(route,json={}).status_code,403)

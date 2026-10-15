@@ -30,8 +30,8 @@ export const api = {
     window.dispatchEvent(new Event("mailcheck:check-started"))
     return result
   },
-  session: () => request<{ role: "admin" | "guest" | null }>("/api/auth/session"),
-  login: (role: "admin" | "guest", password: string) => request<{ role: "admin" | "guest" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password }) }),
+  session: () => request<{ role: "admin" | "bidder" | null; bidder_id?: number }>("/api/auth/session"),
+  login: (role: "admin" | "bidder", password: string, bidder_id?: number) => request<{ role: "admin" | "bidder" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, bidder_id }) }),
   dashboardAccounts: () => request<{ accounts: { label: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
