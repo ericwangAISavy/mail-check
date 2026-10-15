@@ -156,3 +156,40 @@ Modified: `mailcheck/db.py`, `mailcheck/models.py`, `mailcheck/normalize.py`,
   unchanged. Two enabled account fixtures exercise unified calendar filtering.
 - Existing Triage, Dashboard, Accounts and Settings render successfully; guest
   interview API access is denied. The normal local app serves the new route/APIs.
+
+## Calendar/interview bug review
+
+Confirmed with regression tests before fixing:
+
+- Separate same-stage bookings in a shared conversation could overwrite one another.
+  Normal invitations now need compatible times; explicit references and matching
+  timestamps outrank a shared thread or weak process similarity.
+- Different recurring occurrences sharing a UID could collapse into one event.
+  UID plus recurrence identity is preserved throughout matching and text updates.
+- Calendar cancellations without interview keywords were missed. Known UIDs now
+  establish context even for minimal cancellation metadata.
+- Cancellation extraction could replace the last booked time. Cancellation now
+  retains the confirmed start/end/timezone; uncertain reschedules retain known times
+  while requesting review.
+- A new automated start could fall after a manually protected end (or vice versa).
+  Conflicting automatic fields are withheld and the record is flagged for review.
+- Date-only model output was interpreted as midnight. Missing clock time now stays
+  unknown and requires review. ICS DURATION now supplies the actual end time.
+- Clearing a start time could make a record disappear from both calendar and review.
+  Incomplete manual records now remain in Needs Review. Invalid timestamp types and
+  whitespace-only company names are rejected instead of corrupting stored values.
+- Date corrections could use an absent/unsupported original timezone instead of the
+  timezone shown by the editor. Date edits now submit that displayed timezone and
+  only the edited time fields; unrelated end times remain unprotected.
+- Changing the selected event could retain another event's unsaved editor/source
+  state. Details are now keyed by event ID, so navigation resets the draft.
+- A configuration failure could leave scan progress stuck at running. Cleanup now
+  covers configuration loading. A detector-version fingerprint lets explicit scans
+  revisit records processed by the earlier detector, while remaining incremental.
+
+Validation after review: 124 backend tests, 76 frontend tests, 331 existing smoke
+assertions, TypeScript/production build, Python compilation, real browser correction
+and navigation regressions, and the automatic invitation → reschedule → cancellation
+workflow. Browser tests use the same isolated fixture/provider/model stand-ins
+noted above. The existing API test fixture was changed from a fixed calendar date
+to recent UTC mail after it aged out of the application's real retention window.

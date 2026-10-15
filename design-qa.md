@@ -197,3 +197,12 @@ Small header action labels now wrap with their controls rather than being clippe
 Evidence: `/tmp/mailcheck-interviews-1672.png`, `/tmp/mailcheck-interviews-1280.png`,
 `/tmp/mailcheck-interviews-900.png`, `/tmp/mailcheck-interviews-390.png`.
 Full architecture, files, validation and limitations are in `docs/INTERVIEWS.md`.
+
+## Interview review regression checks
+
+Verified corrections with a missing original timezone in a browser configured for
+America/Chicago: 10:30 AM remained 15:30 UTC after saving. Navigating to another
+event resets the editor rather than carrying an unsaved company draft. Clearing an
+event's date leaves it accessible in Needs Review. Month/Week/Day remain usable at
+1440, 900 and 390px without document overflow. Existing metric-card alignment
+changes are preserved. Full regression findings are in `docs/INTERVIEWS.md`.

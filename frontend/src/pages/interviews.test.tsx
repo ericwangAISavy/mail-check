@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, useNavigate } from "react-router-dom"
 import { ToastProvider } from "@/components/common"
 import { api, request } from "@/lib/api"
 import type { Bootstrap, InterviewEvent } from "@/lib/types"
@@ -23,7 +23,8 @@ beforeEach(()=>{
   })
 })
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.clearAllMocks()})
-function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client);render(<QueryClientProvider client={client}><MemoryRouter><ToastProvider><InterviewsPage bootstrap={bootstrap}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
+function ChangeInterview() { const navigate=useNavigate(); return <button data-testid="other-interview" onClick={()=>navigate("/interviews?event=2")}>Navigate to another interview</button> }
+function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client);render(<QueryClientProvider client={client}><MemoryRouter><ChangeInterview/><ToastProvider><InterviewsPage bootstrap={bootstrap}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
 it("renders real records in month, week, and day views with date navigation",async()=>{
   mount();await screen.findByRole("button",{name:"Month"})
   await waitFor(()=>expect(document.querySelectorAll('.calendar-day').length).toBe(42))
@@ -65,4 +66,42 @@ it("keeps uncertain events out of dated cells and exposes review details",async(
   expect(document.querySelector('.calendar-day .interview-event')).toBeNull()
   fireEvent.click(screen.getByRole('button',{name:/Acme, Technical Interview/}))
   expect(await screen.findByText('Needs review: Timezone unknown')).toBeTruthy()
+})
+it("sends the editor timezone when correcting a date with missing original timezone",async()=>{
+  current={...event(),timezone:null}
+  mount();await screen.findByRole("button",{name:"Month"})
+  fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
+  const dialog=await screen.findByRole("dialog")
+  fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
+  const start=within(dialog).getByLabelText("Start date/time") as HTMLInputElement
+  const end=within(dialog).getByLabelText("End date/time") as HTMLInputElement
+  fireEvent.change(start,{target:{value:"2026-10-20T10:00"}})
+  fireEvent.change(end,{target:{value:"2026-10-20T11:00"}})
+  const zone=(within(dialog).getByLabelText("Timezone") as HTMLInputElement).value
+  fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{start_at:'2026-10-20T10:00',end_at:'2026-10-20T11:00',timezone:zone}))
+})
+it("resets editing and drafts when navigation selects another event",async()=>{
+  const original=vi.mocked(request).getMockImplementation()!
+  vi.mocked(request).mockImplementation(async(url,...rest)=>url==='/api/interviews/2'?{event:{...event(),id:2,company:'Second Company'},sources:[]} as any:original(url,...rest))
+  mount();await screen.findByRole("button",{name:"Month"})
+  fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
+  let dialog=await screen.findByRole("dialog")
+  fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
+  fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:'Wrong draft from previous event'}})
+  fireEvent.click(screen.getByTestId('other-interview'))
+  dialog=await screen.findByRole('dialog')
+  await within(dialog).findByRole('heading',{name:'Second Company'})
+  fireEvent.click(await within(dialog).findByRole('button',{name:'Edit details'}))
+  expect((within(dialog).getByLabelText('Company') as HTMLInputElement).value).toBe('Second Company')
+})
+it("does not protect an unchanged end time when only the start is corrected",async()=>{
+  mount();await screen.findByRole("button",{name:"Month"})
+  fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
+  const dialog=await screen.findByRole("dialog")
+  fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
+  const zone=(within(dialog).getByLabelText("Timezone") as HTMLInputElement).value
+  fireEvent.change(within(dialog).getByLabelText("Start date/time"),{target:{value:"2026-10-20T10:00"}})
+  fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{start_at:'2026-10-20T10:00',timezone:zone}))
 })

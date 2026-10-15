@@ -296,3 +296,130 @@ class InterviewBackfillTests(unittest.TestCase):
             self.assertEqual(db.get_cached(upgraded,pk,'1').category,'interview_invite')
             self.assertEqual(upgraded.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
         finally:upgraded.close()
+
+    def test_failed_configuration_releases_scan_progress(self):
+        import time
+        with patch.object(web.cfgmod,"load",side_effect=ValueError("Invalid test configuration")):
+            self.assertEqual(self.client.post("/api/interviews/scan").status_code,200)
+            self.assertTrue(web._job_lock.acquire(timeout=2))
+            web._job_lock.release()
+        self.assertFalse(self.client.get("/api/interviews/scan").json()["running"])
+
+    def test_scan_revisits_old_detector_versions(self):
+        import time
+        cfg=config.Config();cfg.llm.base_url="";config.save(cfg)
+        pk,_=self.message(calendar_data=[ics()]);self.process(pk);self.conn.commit()
+        self.conn.execute("UPDATE interview_scans SET fingerprint='old-detector' WHERE message_pk=?",(pk,));self.conn.commit()
+        self.assertEqual(self.client.post("/api/interviews/scan").status_code,200)
+        self.assertTrue(web._job_lock.acquire(timeout=2));web._job_lock.release()
+        state=self.client.get("/api/interviews/scan").json()
+        self.assertEqual(state["processed"],1)
+        self.assertEqual(len(self.client.get("/api/interviews").json()["events"]),1)
+        self.assertTrue(self.conn.execute("SELECT fingerprint FROM interview_scans WHERE message_pk=?",(pk,)).fetchone()[0].startswith(interviews.DETECTOR_VERSION+":"))
+
+class InterviewReviewRegressionTests(unittest.TestCase):
+    setUp = InterviewTests.setUp
+    message = InterviewTests.message
+    process = InterviewTests.process
+    events = InterviewTests.events
+
+    def test_separate_bookings_in_one_thread_remain_separate(self):
+        pk,_=self.message();self.process(pk,Model())
+        pk,_=self.message(subject="Another technical interview confirmation")
+        self.process(pk,Model(start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
+        self.assertEqual(len(self.events()),2)
+        self.assertEqual(self.events()[0]["start_at"],"2026-10-18T15:30:00+00:00")
+
+    def test_recurring_occurrences_with_same_uid_stay_distinct(self):
+        for start,end in (("20261018T153000Z","20261018T163000Z"),("20261025T153000Z","20261025T163000Z")):
+            pk,_=self.message(calendar_data=[ics(uid="series",start=start,end=end,extra=f"RECURRENCE-ID:{start}\r\n")])
+            self.process(pk)
+        self.assertEqual(len(self.events()),2)
+        self.assertNotEqual(self.events()[0]["recurrence_id"],self.events()[1]["recurrence_id"])
+
+    def test_known_calendar_uid_cancellation_does_not_need_interview_keywords(self):
+        pk,_=self.message(calendar_data=[ics()]);self.process(pk)
+        cancel=ics(sequence=1,status="CANCELLED").replace("Acme Technical Interview","Meeting")
+        pk,_=self.message(subject="Cancelled: Meeting",body="This meeting is cancelled.",calendar_data=[cancel])
+        interviews.process_message(self.conn,pk,{"category":"other","company":None})
+        self.assertEqual(self.events()[0]["status"],"Cancelled")
+        self.assertEqual(len(self.events()),1)
+
+    def test_ics_duration_supplies_end_time(self):
+        raw=ics().replace("DTEND:20261018T163000Z","DURATION:PT30M")
+        pk,_=self.message(calendar_data=[raw]);self.process(pk)
+        self.assertEqual(self.events()[0]["end_at"],"2026-10-18T16:00:00+00:00")
+
+    def test_model_date_without_clock_time_does_not_become_midnight_booking(self):
+        pk,_=self.message();self.process(pk,Model(start_time="2026-10-18",end_time=None))
+        self.assertTrue(self.events()[0]["needs_review"])
+        self.assertIsNone(self.events()[0]["start_at"])
+
+    def test_clearing_start_keeps_event_visible_for_review(self):
+        pk,_=self.message();self.process(pk,Model())
+        value=interviews.correct_event(self.conn,1,{"start_at":None,"end_at":None})
+        self.assertTrue(value["needs_review"])
+        self.assertEqual(value["display_status"],"Needs review")
+
+    def test_automatic_update_cannot_create_interval_before_protected_end(self):
+        pk,_=self.message();self.process(pk,Model())
+        interviews.correct_event(self.conn,1,{"end_at":"2026-10-18T18:00:00Z"})
+        pk,_=self.message(subject="Interview rescheduled",date_utc=datetime(2026,10,16,12))
+        self.process(pk,Model(event_type="rescheduled",start_time="2026-10-20T14:00:00-05:00",end_time="2026-10-20T15:00:00-05:00"))
+        event=self.events()[0]
+        self.assertLess(interviews._utc(event["start_at"]),interviews._utc(event["end_at"]))
+        self.assertEqual(event["end_at"],"2026-10-18T18:00:00+00:00")
+        self.assertTrue(event["needs_review"])
+
+    def test_ambiguous_reschedule_preserves_confirmed_time(self):
+        pk,_=self.message();self.process(pk,Model())
+        pk,_=self.message(subject="Interview rescheduled",date_utc=datetime(2026,10,16,12))
+        self.process(pk,Model(event_type="rescheduled",start_time="2026-10-20T14:00:00-05:00",end_time="2026-10-20T15:00:00-05:00",ambiguous=True))
+        event=self.events()[0]
+        self.assertEqual(event["start_at"],"2026-10-18T15:30:00+00:00")
+        self.assertTrue(event["needs_review"])
+
+    def test_cancellation_retains_last_confirmed_booking_time(self):
+        pk,_=self.message();self.process(pk,Model(start_time="2026-10-20T14:00:00-05:00",end_time="2026-10-20T15:00:00-05:00"))
+        pk,_=self.message(subject="Interview cancelled",date_utc=datetime(2026,10,16,12))
+        self.process(pk,Model(event_type="cancelled"))
+        self.assertEqual(self.events()[0]["start_at"],"2026-10-20T19:00:00+00:00")
+        self.assertEqual(self.events()[0]["status"],"Cancelled")
+
+    def test_invalid_timestamp_types_cannot_corrupt_stored_record(self):
+        pk,_=self.message();self.process(pk,Model())
+        for value in (0,False,[],"",{}):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                interviews.correct_event(self.conn,1,{"start_at":value})
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+    def test_explicit_review_status_and_whitespace_company(self):
+        pk,_=self.message();self.process(pk,Model())
+        value=interviews.correct_event(self.conn,1,{"status":"Needs review"})
+        self.assertTrue(value["needs_review"])
+        with self.assertRaises(ValueError):
+            interviews.correct_event(self.conn,1,{"company":"   ","needs_review":False})
+
+    def test_cancellation_with_multiple_possible_bookings_requires_review(self):
+        pk,_=self.message();self.process(pk,Model())
+        pk,_=self.message();self.process(pk,Model(start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
+        pk,_=self.message(subject="Interview cancelled",date_utc=datetime(2026,10,16,12))
+        self.process(pk,Model(event_type="cancelled",start_time=None,end_time=None))
+        self.assertEqual([r["status"] for r in self.events()[:2]],["Scheduled","Scheduled"])
+        self.assertTrue(self.events()[2]["needs_review"])
+
+    def test_reply_reference_identifies_one_booking_in_shared_thread(self):
+        pk,first=self.message();self.process(pk,Model())
+        pk,_=self.message();self.process(pk,Model(start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
+        pk,_=self.message(subject="Interview cancelled",references=[first.message_id],date_utc=datetime(2026,10,16,12))
+        self.process(pk,Model(event_type="cancelled",start_time=None,end_time=None))
+        self.assertEqual(len(self.events()),2)
+        self.assertEqual([r["status"] for r in self.events()],["Cancelled","Scheduled"])
+
+    def test_explicit_time_identifies_one_booking_in_shared_thread(self):
+        pk,_=self.message();self.process(pk,Model())
+        pk,_=self.message();self.process(pk,Model(start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
+        pk,_=self.message(subject="Interview cancelled",date_utc=datetime(2026,10,16,12))
+        self.process(pk,Model(event_type="cancelled",start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
+        self.assertEqual(len(self.events()),2)
+        self.assertEqual([r["status"] for r in self.events()],["Scheduled","Cancelled"])

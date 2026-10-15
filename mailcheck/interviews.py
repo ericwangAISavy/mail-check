@@ -23,6 +23,7 @@ from .llm import LLMClient
 from .llm.schema import extract_json
 
 log = logging.getLogger(__name__)
+DETECTOR_VERSION = "2"
 STAGES = ("Recruiter Screen", "Phone Screen", "Technical Interview", "Coding Interview", "System Design", "Behavioral Interview", "Hiring Manager", "Onsite", "Final Round", "Other")
 STATUSES = ("Scheduled", "Rescheduled", "Cancelled", "Completed", "Needs review")
 INDICATORS = re.compile(r"interview|phone screen|hiring manager|onsite|on-site|calendar invitation|meeting invitation|schedule (?:a|your) call|select a time|like to meet", re.I)
@@ -86,6 +87,8 @@ def meeting_link(text: str) -> tuple[str | None, str | None]:
 
 def instant(value: str | datetime | date | None, zone: str | None = None) -> tuple[str | None, bool]:
     """Never assign the server timezone to a floating/ambiguous appointment."""
+    if isinstance(value, str) and not re.search(r"[T ]\d{2}:\d{2}", value):
+        return None, True
     if not value or isinstance(value, date) and not isinstance(value, datetime):
         return None, True
     try:
@@ -130,7 +133,7 @@ def _text_fallback(row: dict, cls: dict) -> Extraction:
     return Extraction(is_interview_event=True, company=cls.get("company"), role=cls.get("role"), stage=_stage(text), start_time=start, timezone="UTC" if start and start.endswith(("Z", "+00:00")) else None, event_type="cancelled" if CANCEL.search(row["subject"]) else "rescheduled" if CHANGE.search(row["subject"]) else "scheduled", confidence=.75 if start else .4, ambiguous=not bool(start))
 
 
-def detect(row: dict, cls: dict, client=None) -> tuple[list[dict], bool]:
+def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = None) -> tuple[list[dict], bool]:
     text = row["subject"] + "\n" + (row.get("interview_text") or row.get("body_text") or "")
     calendars = json.loads(row.get("calendar_data") or "[]")
     candidates = []
@@ -145,7 +148,7 @@ def detect(row: dict, cls: dict, client=None) -> tuple[list[dict], bool]:
                 summary = str(component.get("SUMMARY", ""))
                 description = str(component.get("DESCRIPTION", ""))
                 # Calendar evidence + classification/context, not every dentist appointment.
-                if cls.get("category") != "interview_invite" and not INTERVIEW_CONTEXT.search(row["subject"] + summary + description):
+                if cls.get("category") != "interview_invite" and not INTERVIEW_CONTEXT.search(row["subject"] + summary + description) and str(component.get("UID", "")) not in (known_uids or set()):
                     continue
                 start_prop = component.get("DTSTART")
                 end_prop = component.get("DTEND")
@@ -154,7 +157,11 @@ def detect(row: dict, cls: dict, client=None) -> tuple[list[dict], bool]:
                 if not zone and isinstance(start_dt, datetime) and start_dt.tzinfo:
                     zone = str(start_dt.tzinfo)
                 start, bad_start = instant(start_dt, zone)
-                end, bad_end = instant(component.decoded("DTEND", None), zone) if end_prop else (None, False)
+                end_dt = component.decoded("DTEND", None)
+                duration = component.decoded("DURATION", None)
+                if end_dt is None and duration is not None and isinstance(start_dt, datetime):
+                    end_dt = start_dt + duration
+                end, bad_end = instant(end_dt, zone) if end_dt is not None else (None, False)
                 organizer = component.get("ORGANIZER")
                 attendees = component.get("ATTENDEE", [])
                 if not isinstance(attendees, list):
@@ -171,7 +178,7 @@ def detect(row: dict, cls: dict, client=None) -> tuple[list[dict], bool]:
                 revision = component.decoded("LAST-MODIFIED", None) or component.decoded("DTSTAMP", None)
                 revision_at = instant(revision)[0] if revision else row.get("date_utc") or row.get("fetched_at")
                 recurrence = component.get("RECURRENCE-ID")
-                candidates.append(dict(calendar_uid=str(component.get("UID", "")) or None, recurrence_id=str(recurrence) if recurrence else "", company=company, role=cls.get("role"), stage=_stage(summary + description + text), status="Cancelled" if cancelled else "Rescheduled" if CHANGE.search(text) else "Scheduled", start_at=start, end_at=end, timezone=zone or None, meeting_url=url or safe_url(str(component.get("URL", ""))), meeting_platform=platform, location=str(component.get("LOCATION", "")) or None, organizer_name=str(organizer.params.get("CN", "")) or None if organizer else None, organizer_email=str(organizer).removeprefix("mailto:") if organizer else None, participants=[str(a).removeprefix("mailto:") for a in attendees], notes=description[:8000] or summary, confidence=.98, needs_review=bool(reasons), review_reason="; ".join(reasons) or None, extraction_rank=2, sequence=int(component.get("SEQUENCE", 0)), revision_at=revision_at))
+                candidates.append(dict(calendar_uid=str(component.get("UID", "")) or None, recurrence_id=str(recurrence) if recurrence else "", company=company, role=cls.get("role"), stage=_stage(summary + description + text), status="Cancelled" if cancelled else "Rescheduled" if CHANGE.search(text) else "Scheduled", start_at=start, end_at=end, timezone=zone or None, meeting_url=url or safe_url(str(component.get("URL", ""))), meeting_platform=platform, location=str(component.get("LOCATION", "")) or None, organizer_name=str(organizer.params.get("CN", "")) or None if organizer else None, organizer_email=str(organizer).removeprefix("mailto:") if organizer else None, participants=[str(a).removeprefix("mailto:") for a in attendees], notes=description[:8000] or summary, confidence=.98, needs_review=bool(reasons), review_reason="; ".join(reasons) or None, time_uncertain=bad_start or bad_end, extraction_rank=2, sequence=int(component.get("SEQUENCE", 0)), revision_at=revision_at))
         except Exception:
             calendar_error = True
             log.warning("Invalid interview calendar metadata on local message %s", row.get("id"), exc_info=True)
@@ -207,7 +214,7 @@ def detect(row: dict, cls: dict, client=None) -> tuple[list[dict], bool]:
     if end and start and end <= start: reasons.append("End must follow start")
     offset = re.search(r"(Z|[+-]\d{2}:\d{2})$", extraction.start_time or "")
     source_zone = extraction.timezone or ("UTC" if offset and offset.group() == "Z" else offset.group() if offset else None)
-    return [dict(calendar_uid=None, recurrence_id="", company=extraction.company, role=extraction.role, stage=extraction.stage if extraction.stage in STAGES else "Other", status={"cancelled":"Cancelled", "rescheduled":"Rescheduled"}.get(extraction.event_type, "Scheduled"), start_at=start, end_at=end, timezone=source_zone, meeting_url=url or safe_url(extraction.meeting_url), meeting_platform=platform, location=extraction.location, organizer_name=extraction.organizer_name, organizer_email=extraction.organizer_email, participants=extraction.participants, notes=None, confidence=extraction.confidence, needs_review=bool(reasons), review_reason="; ".join(reasons) or None, extraction_rank=1, sequence=0, revision_at=row.get("date_utc") or row.get("fetched_at"))], retryable
+    return [dict(calendar_uid=None, recurrence_id="", company=extraction.company, role=extraction.role, stage=extraction.stage if extraction.stage in STAGES else "Other", status={"cancelled":"Cancelled", "rescheduled":"Rescheduled"}.get(extraction.event_type, "Scheduled"), start_at=start, end_at=end, timezone=source_zone, meeting_url=url or safe_url(extraction.meeting_url), meeting_platform=platform, location=extraction.location, organizer_name=extraction.organizer_name, organizer_email=extraction.organizer_email, participants=extraction.participants, notes=None, confidence=extraction.confidence, needs_review=bool(reasons), review_reason="; ".join(reasons) or None, time_uncertain=extraction.ambiguous or bad_start or bad_end, extraction_rank=1, sequence=0, revision_at=row.get("date_utc") or row.get("fetched_at"))], retryable
 
 
 def _utc(value: str | None) -> datetime:
@@ -224,31 +231,47 @@ def _matching(conn, candidate: dict, row: dict):
         if found: return found
     # Identity relations are account-scoped, unlike globally unique calendar UIDs.
     refs = json.loads(row.get("references_json") or "[]")
-    sources = conn.execute("SELECT s.*, e.calendar_uid FROM interview_sources s JOIN interview_events e ON e.id=s.event_id WHERE s.account_id=?", (row["account_id"],)).fetchall()
-    related = set()
+    sources = conn.execute("SELECT s.*, e.calendar_uid, e.recurrence_id FROM interview_sources s JOIN interview_events e ON e.id=s.event_id WHERE s.account_id=?", (row["account_id"],)).fetchall()
+    referenced = set()
+    threaded = set()
+    exact = set()
     for source in sources:
-        if uid and source["calendar_uid"] and uid != source["calendar_uid"]:
+        if uid and source["calendar_uid"] and (uid != source["calendar_uid"] or candidate["recurrence_id"] != source["recurrence_id"]):
             continue
-        if (source["external_message_id"] == row["message_id"] or source["external_message_id"] in refs or row.get("thread_id") and source["thread_id"] == row["thread_id"]):
-            related.add(source["event_id"])
-    # A thread can contain multiple rounds. Only a unique compatible stage wins.
-    if related:
+        if source["external_message_id"] == row["message_id"]:
+            exact.add(source["event_id"])
+        if source["external_message_id"] in refs:
+            referenced.add(source["event_id"])
+        if row.get("thread_id") and source["thread_id"] == row["thread_id"]:
+            threaded.add(source["event_id"])
+    if len(exact) == 1:
+        return conn.execute("SELECT * FROM interview_events WHERE id=?", (next(iter(exact)),)).fetchone()
+    # References outrank a shared conversation; a thread can contain several rounds.
+    for related in (referenced, threaded):
         options = [conn.execute("SELECT * FROM interview_events WHERE id=?", (pk,)).fetchone() for pk in related]
         options = [e for e in options if candidate["stage"] == "Other" or e["stage"] in ("Other", candidate["stage"])]
+        if candidate.get("start_at"):
+            exact_time = [e for e in options if e["start_at"] and _utc(e["start_at"]) == _utc(candidate["start_at"])]
+            if len(exact_time) == 1: return exact_time[0]
+            nearby = [e for e in options if e["start_at"] and abs((_utc(candidate["start_at"]) - _utc(e["start_at"])).total_seconds()) <= 900]
+            if len(nearby) == 1: return nearby[0]
+            if candidate["status"] not in ("Cancelled", "Rescheduled"):
+                options = [e for e in options if not e["start_at"]]
         if len(options) == 1: return options[0]
     company = (candidate.get("company") or "").strip().casefold()
     if not company:
         return None
     options = conn.execute("SELECT DISTINCT e.* FROM interview_events e JOIN interview_sources s ON s.event_id=e.id WHERE s.account_id=?", (row["account_id"],)).fetchall()
+    time_matches = []
     matches = []
     for old in options:
-        if uid and old["calendar_uid"] and uid != old["calendar_uid"]: continue
+        if uid and old["calendar_uid"] and (uid != old["calendar_uid"] or candidate["recurrence_id"] != old["recurrence_id"]): continue
         if (old["company"] or "").strip().casefold() != company: continue
         if candidate.get("role") and old["role"] and candidate["role"].casefold() != old["role"].casefold(): continue
         if candidate["stage"] != "Other" and old["stage"] != "Other" and candidate["stage"] != old["stage"]: continue
         delta = abs((_utc(candidate.get("start_at")) - _utc(old["start_at"])).total_seconds())
         if candidate.get("start_at") and old["start_at"] and delta <= 900:
-            matches.append(old)
+            time_matches.append(old)
         elif candidate["status"] in ("Cancelled", "Rescheduled") and old["status"] != "Cancelled":
             # Conservative semantic fallback only when one recent, same-stage
             # process matches. Never collapse independent historical rounds.
@@ -256,6 +279,9 @@ def _matching(conn, candidate: dict, row: dict):
             if old["start_at"] and abs((_utc(old["start_at"]) - received).days) <= 90:
                 if SequenceMatcher(None, candidate["stage"], old["stage"]).ratio() >= .7 or candidate["stage"] == "Other":
                     matches.append(old)
+    if time_matches:
+        exact_time = [e for e in time_matches if _utc(e["start_at"]) == _utc(candidate["start_at"])]
+        return exact_time[0] if len(exact_time) == 1 else time_matches[0] if len(time_matches) == 1 else None
     return matches[0] if len(matches) == 1 else None
 
 
@@ -275,16 +301,36 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
                  candidate["extraction_rank"] == 2 and candidate["sequence"] < existing["sequence"] or
                  candidate["extraction_rank"] == existing["extraction_rank"] and candidate["sequence"] == existing["sequence"] and _utc(candidate.get("revision_at")) < _utc(existing["revision_at"]))
         if not stale:
-            if candidate["status"] == "Cancelled" and existing["start_at"] and not candidate["start_at"]:
+            if candidate["status"] == "Cancelled" and existing["start_at"]:
                 value["needs_review"] = existing["needs_review"]
                 value["review_reason"] = existing["review_reason"]
             updates = {k:v for k,v in value.items() if k in EVENT_FIELDS and k not in manual and v is not None and (k != "stage" or v != "Other" or existing[k] == "Other")}
-            if candidate["start_at"] and existing["start_at"] and candidate["start_at"] != existing["start_at"] and "start_at" not in manual and "status" not in manual and candidate["status"] != "Cancelled":
+            if not candidate.get("calendar_uid"):
+                updates.pop("recurrence_id", None)
+            if not value["needs_review"] and "review_reason" not in manual:
+                updates["review_reason"] = None
+            if candidate["status"] == "Cancelled" or candidate.get("time_uncertain"):
+                for field in ("start_at", "end_at", "timezone"):
+                    updates.pop(field, None)
+            if "start_at" in updates and existing["start_at"] and updates["start_at"] != existing["start_at"] and "status" not in manual and candidate["status"] != "Cancelled":
                 updates["status"] = "Rescheduled"
                 if "end_at" not in manual and not candidate["end_at"]:
                     updates["end_at"] = None
             elif existing["status"] in ("Rescheduled", "Cancelled") and updates.get("status") == "Scheduled":
                 updates.pop("status", None)  # reminders do not undo cancellation/update
+            merged = {**dict(existing), **updates}
+            if merged["start_at"] and merged["end_at"] and _utc(merged["end_at"]) <= _utc(merged["start_at"]):
+                if "end_at" in manual:
+                    updates.pop("start_at", None)
+                    updates.pop("timezone", None)
+                elif "start_at" in manual:
+                    updates.pop("end_at", None)
+                else:
+                    updates["end_at"] = None
+                if "needs_review" not in manual:
+                    updates["needs_review"] = 1
+                if "review_reason" not in manual:
+                    updates["review_reason"] = "Automated schedule conflicts with corrected times; verify source email"
             if newer_text_change:
                 updates.pop("extraction_rank", None)
                 updates.pop("sequence", None)
@@ -311,14 +357,15 @@ def process_message(conn, pk: int, cls: dict, *, client=None, force=False) -> li
     row_obj = db.get_message(conn, pk)
     if not row_obj: return []
     row = dict(row_obj)
-    fingerprint = hashlib.sha256(json.dumps([row.get(k) for k in ("subject","body_text","calendar_data","thread_id","references_json","interview_text")] + [cls], sort_keys=True).encode()).hexdigest()
+    fingerprint = DETECTOR_VERSION + ":" + hashlib.sha256(json.dumps([row.get(k) for k in ("subject","body_text","calendar_data","thread_id","references_json","interview_text")] + [cls], sort_keys=True).encode()).hexdigest()
     scan = conn.execute("SELECT * FROM interview_scans WHERE message_pk=?", (pk,)).fetchone()
     if not force and scan and scan["fingerprint"] == fingerprint and not scan["retryable"]:
         return []
     # Each message is atomic; a malformed invite never rolls back mail writes.
     conn.execute("SAVEPOINT interview_message")
     try:
-        candidates, retryable = detect(row, cls, client)
+        known_uids = {r[0] for r in conn.execute("SELECT calendar_uid FROM interview_events WHERE calendar_uid IS NOT NULL")}
+        candidates, retryable = detect(row, cls, client, known_uids=known_uids)
         changes = [change for item in candidates if (change := reconcile(conn, item, row))]
         conn.execute("INSERT INTO interview_scans VALUES (?,?,?,?) ON CONFLICT(message_pk) DO UPDATE SET fingerprint=excluded.fingerprint,retryable=excluded.retryable,scanned_at=excluded.scanned_at", (pk,fingerprint,int(retryable),db._now()))
         conn.execute("RELEASE interview_message")
@@ -396,10 +443,16 @@ def correct_event(conn, pk: int, changes: dict) -> dict:
     if changes.get("status",row["status"]) not in STATUSES: raise ValueError("Unknown interview status")
     for key in ("company","role","location","notes","timezone"):
         if changes.get(key) is not None and (not isinstance(changes[key],str) or len(changes[key])>8000): raise ValueError("Invalid interview field")
+    changes = dict(changes)
+    for field in ("company", "role", "timezone"):
+        if isinstance(changes.get(field), str):
+            changes[field] = changes[field].strip() or None
     if changes.get("timezone"):
         try: ZoneInfo(changes["timezone"])
         except ZoneInfoNotFoundError: raise ValueError("Use an IANA timezone such as America/Chicago")
     for key in ("start_at","end_at"):
+        if key in changes and changes[key] is not None and (not isinstance(changes[key], str) or not changes[key].strip()):
+            raise ValueError("Date/time must be an ISO timestamp or null")
         if changes.get(key):
             value,bad=instant(changes[key],changes.get("timezone",row["timezone"]))
             if bad: raise ValueError("Date/time needs an explicit offset or valid timezone; check DST transitions")
@@ -413,6 +466,14 @@ def correct_event(conn, pk: int, changes: dict) -> dict:
         if not safe_url(changes["meeting_url"]): raise ValueError("Meeting URL must be HTTPS")
         _, platform=meeting_link(changes["meeting_url"])
         changes["meeting_platform"]=platform
+    if changes.get("status") == "Needs review" and "needs_review" not in changes:
+        changes["needs_review"] = True
+        changes["review_reason"] = "Marked for review manually"
+    if not effective["company"] or not effective["start_at"]:
+        if changes.get("needs_review") is False:
+            raise ValueError("Company and a clear start time are required to resolve review")
+        changes["needs_review"] = True
+        changes["review_reason"] = "Company or start time is missing; verify source email"
     if changes.get("needs_review") is False:
         if not effective["company"] or not effective["start_at"]: raise ValueError("Company and a clear start time are required to resolve review")
         changes["review_reason"]=None

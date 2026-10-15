@@ -621,20 +621,20 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         _interview_scan.update(running=True, processed=0, total=0, found=0, errors=0)
         def work():
             from contextlib import nullcontext
-            cfg = cfgmod.load()
             try:
+                cfg = cfgmod.load()
                 with db.session() as conn:
                     max_id = conn.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
                     predicate = """m.id<=? AND a.enabled=1 AND NOT EXISTS (
-                        SELECT 1 FROM interview_scans s WHERE s.message_pk=m.id AND s.retryable=0)"""
+                        SELECT 1 FROM interview_scans s WHERE s.message_pk=m.id AND s.retryable=0 AND s.fingerprint LIKE ?)"""
                     joins = " FROM messages m JOIN accounts a ON a.id=m.account_id " + db.LATEST_CLASSIFICATION
-                    _interview_scan["total"] = conn.execute("SELECT COUNT(*)"+joins+" WHERE "+predicate,(max_id,)).fetchone()[0]
+                    _interview_scan["total"] = conn.execute("SELECT COUNT(*)"+joins+" WHERE "+predicate,(max_id,interviews.DETECTOR_VERSION+":%")).fetchone()[0]
                     client_context = interviews.LLMClient.from_config(cfg.llm, fallback_model=db.last_llm_model(conn)) if cfg.llm.base_url else nullcontext(None)
                     with client_context as client:
                         extractor = interviews.RunExtractionClient(client, seconds=600) if client else None
                         cursor = 0
                         while True:
-                            rows = conn.execute("SELECT m.id,c.category,c.company,c.role"+joins+" WHERE "+predicate+" AND m.id>? ORDER BY m.id LIMIT 25",(max_id,cursor)).fetchall()
+                            rows = conn.execute("SELECT m.id,c.category,c.company,c.role"+joins+" WHERE "+predicate+" AND m.id>? ORDER BY m.id LIMIT 25",(max_id,interviews.DETECTOR_VERSION+":%",cursor)).fetchall()
                             if not rows: break
                             for row in rows:
                                 changes = interviews.process_message(conn,row["id"],{k:row[k] for k in ("category","company","role")},client=extractor)
