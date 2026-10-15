@@ -62,7 +62,9 @@ it("quick ranges replace custom dates while preserving other filters", async () 
 })
 it("keeps quick range buttons synchronized with the date dropdown", async () => {
   mount(); await screen.findByLabelText("Date range")
-  expect(screen.getByRole("button", { name: "1 month" }).getAttribute("aria-pressed")).toBe("true")
+  await lastParam("days", "7")
+  expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe("7")
+  expect(screen.getByRole("button", { name: "1 week" }).getAttribute("aria-pressed")).toBe("true")
   for (const [days, label] of [["7", "1 week"], ["90", "3 months"]]) {
     fireEvent.click(screen.getByRole("button", { name: label }))
     await lastParam("days", days)
@@ -124,4 +126,18 @@ it("does not fetch admin account details for a guest", async () => {
   mount("/dashboard", true); await screen.findByText("Messages collected")
   expect(api.accounts).not.toHaveBeenCalled()
   expect(screen.queryByRole("link", { name: /Manage accounts/ })).toBeNull()
+})
+it("collapses the message explorer by default and expands it from View all", async () => {
+  const response = data()
+  response.messages.items = [{ pk: 123, subject: "Application update", received_at: "2026-10-14T12:00:00Z", category_label: "Rejection", account_label: "personal" }] as any
+  vi.mocked(api.dashboard).mockResolvedValue(response)
+  mount()
+  await screen.findByText("Messages collected")
+  const explorer = document.querySelector("#message-explorer") as HTMLDetailsElement
+  expect(explorer.open).toBe(false)
+  fireEvent.click(screen.getByRole("link", { name: /View all/ }))
+  await waitFor(() => expect(explorer.open).toBe(true))
+  explorer.open = false
+  fireEvent(explorer, new Event("toggle"))
+  await waitFor(() => expect(explorer.open).toBe(false))
 })

@@ -155,7 +155,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
           nodes, so removing a bare text sibling can crash React reconciliation.
           Only this message is a live region; the ticking digits are not, or a
           screen reader would announce every second. */}
-      <span className="status-text" aria-live="polite">{!status ? "Status unavailable" : status.running ? status.message || "Checking mail…" : scheduled ? "Next check" : "All systems ready"}</span>
+      <span className="status-text" aria-live="polite" title={status?.message || undefined}>{!status ? "Status unavailable" : status.running ? status.message || "Checking mail…" : scheduled ? "Next check" : "All systems ready"}</span>
       {elapsed != null && <small className="tabular status-elapsed">{elapsed}s</small>}
       {!status?.running && scheduled && status?.next_in != null && <Countdown nextIn={status.next_in} receivedAt={receivedAt} onDue={onDue} />}
     </span>
