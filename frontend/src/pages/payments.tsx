@@ -34,7 +34,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const closed = data.week_end < data.today
   const paymentBidder = data.bidders.find(b => b.id === paying)
   return <div className="page-wrap payments-page">
-    <PageHeading eyebrow="BIDDER ACTIVITY" title="Bidder payments" description="Application received confirmations, counted by bidder and assigned account." />
+    <PageHeading title="Bidder payments" description="Application received confirmations, counted by bidder and assigned account." />
     <Card className="payment-controls">
       <div className="payment-week"><Button variant="ghost" size="icon" aria-label="Previous week" onClick={() => { setWeek(moveWeek(data.week_start, -7)); setPaying(null) }}><ArrowLeft /></Button><label><span>Week of</span><input type="date" min="1971-01-01" max="2100-12-31" aria-label="Week of" value={data.week_start} onChange={e => { if (e.target.value) { setWeek(e.target.value); setPaying(null) } }} /></label><Button variant="ghost" size="icon" aria-label="Next week" onClick={() => { setWeek(moveWeek(data.week_start, 7)); setPaying(null) }}><ArrowRight /></Button><Button variant="outline" size="sm" onClick={() => { setWeek(""); setPaying(null) }}>This week</Button></div>
       <label className="payment-bidder-filter"><span>Bidder</span><select value={selected} onChange={e => setSelected(e.target.value)}><option value="">All bidders</option>{data.bidders.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
