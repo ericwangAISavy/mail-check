@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
 import App from "@/App"
 import { api } from "@/lib/api"
@@ -18,7 +18,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function mount(path = "/") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime:15_000, refetchOnWindowFocus:false }, mutations: { retry: false } } })
   clients.push(client)
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
   return client
@@ -81,4 +81,15 @@ describe("sign-in and role navigation", () => {
     await screen.findByRole("heading", { name: "Sign in" })
     await waitFor(() => expect(client.getQueryData(["reader", 1])).toBeUndefined())
   })
+})
+
+
+it("refreshes bidder names when returning after other bidders are enabled", async () => {
+  mount("/login")
+  await screen.findByRole("option", {name:"Alex"})
+  vi.mocked(fetch).mockImplementation(async () => ({ok:true,headers:new Headers({"content-type":"application/json"}),json:async()=>({bidders:[{id:1,name:"Alex"},{id:2,name:"Blair"},{id:3,name:"Casey"},{id:4,name:"Drew"}]})}) as Response)
+  await act(async () => { focusManager.setFocused(false); focusManager.setFocused(true) })
+  await screen.findByRole("option", {name:"Drew"})
+  for(const name of ["Alex","Blair","Casey","Drew"])expect(screen.getByRole("option",{name})).toBeTruthy()
+  focusManager.setFocused(undefined)
 })

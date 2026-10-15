@@ -89,3 +89,23 @@ resolved locally, confirmed `isSecureContext=false`, `randomUUID=undefined`, and
 `getRandomValues=function`, then passed formatting, rectangular paste, sorted
 editing, row insertion, custom columns, CSV import/export, search and bidder scope
 with no browser page errors. No backend behavior changed in this follow-up.
+
+## Bidder list freshness follow-up
+
+A user reported seeing one name after enabling four bidders. Their live database
+is not available in this workspace, so that specific setup cannot be inspected.
+A reproduced frontend defect could retain the initial login list: the application
+query defaults disable focus refresh. The login names query now explicitly refreshes
+on focus, every 15 seconds while visible, and when the name selector receives focus.
+The endpoint still exposes only enabled bidders; no credentials or permissions change.
+
+The regression test failed before the fix and passed afterward. A real SQLite/API
+test enables all four with the same password and verifies all four remain listed
+and can sign in independently. Chromium kept a login page open with one name,
+enabled the other three through a separate admin session, then verified all four
+options appeared without a reload and bidder four signed in successfully.
+Final checks: **121 frontend tests**, **207 backend tests** plus 59 subtests,
+production TypeScript/Vite build, and diff whitespace check all passed. The backend
+suite retains its existing Starlette/httpx deprecation warning. If the live page
+still shows one name after a hard refresh, its enabled-state/API response needs
+inspection rather than assuming this reproduced cache defect was the sole cause.

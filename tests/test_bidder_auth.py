@@ -53,3 +53,29 @@ class BidderAuthTests(unittest.TestCase):
         response=self.client.post('/api/auth/password/self',json={'current_password':'alex-password','password':'updated-password'})
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(self.client.get('/api/auth/session').json()['role'],'bidder')
+
+    def test_all_four_enabled_bidders_remain_available_and_can_sign_in(self):
+        self.conn.executemany(
+            "INSERT INTO bidders(name,created_at) VALUES(?, '2026-01-01')",
+            [('Casey',), ('Drew',)],
+        )
+        self.conn.commit()
+        for bidder_id in range(1, 5):
+            response = self.client.post(
+                f'/api/auth/bidders/{bidder_id}/password',
+                json={'password': 'bidder-password', 'enabled': True},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+        self.client.post('/api/auth/logout')
+        response = self.client.get('/api/auth/bidders')
+        self.assertEqual(response.json(), {'bidders': [
+            {'id': 1, 'name': 'Alex'}, {'id': 2, 'name': 'Blair'},
+            {'id': 3, 'name': 'Casey'}, {'id': 4, 'name': 'Drew'},
+        ]})
+        for bidder_id in range(1, 5):
+            response = self.client.post('/api/auth/login', json={
+                'role': 'bidder', 'bidder_id': bidder_id, 'password': 'bidder-password',
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['bidder_id'], bidder_id)
+            self.client.post('/api/auth/logout')
