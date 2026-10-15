@@ -133,25 +133,23 @@ it("keeps failed-save drafts visible and prevents tab changes", async () => {
   expect(screen.getByRole("button", { name: "Download draft" })).toBeTruthy();
 });
 it("undoes an acknowledged edit through another revision-checked write", async () => {
-  const post = vi
-    .spyOn(api, "post")
-    .mockResolvedValue({
-      ...snapshot,
-      revision: "two",
-      rows: [
-        [],
-        [
-          {
-            value: "New company",
-            display: "New company",
-            formula: false,
-            link: "",
-            version: 2,
-            style: {},
-          },
-        ],
+  const post = vi.spyOn(api, "post").mockResolvedValue({
+    ...snapshot,
+    revision: "two",
+    rows: [
+      [],
+      [
+        {
+          value: "New company",
+          display: "New company",
+          formula: false,
+          link: "",
+          version: 2,
+          style: {},
+        },
       ],
-    });
+    ],
+  });
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "Edit company" }));
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1), { timeout: 2500 });
@@ -441,4 +439,29 @@ it("confirms discarding pasted append rows and unlocks the sheet after closing",
   expect(
     screen.getByLabelText("Row and column actions").hasAttribute("disabled"),
   ).toBe(false);
+});
+
+it("autosaves on HTTP browsers without crypto.randomUUID", async () => {
+  vi.stubGlobal("crypto", {
+    getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+  });
+  const post = vi
+    .spyOn(api, "post")
+    .mockResolvedValue({ ...snapshot, revision: "saved" });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit company" }));
+  await screen.findByText("Saved", {}, { timeout: 3000 });
+  expect(post.mock.calls[0][1]).toMatchObject({
+    operation: expect.stringMatching(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    ),
+    changes: [
+      {
+        row_id: "row-one",
+        column_id: "company",
+        expected_version: 1,
+        value: "New company",
+      },
+    ],
+  });
 });

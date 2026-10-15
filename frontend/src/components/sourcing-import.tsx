@@ -1,3 +1,4 @@
+import { operationId } from "@/lib/operation-id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { csvDestinations, parseCSV, type Snapshot } from "@/lib/sourcing";
@@ -100,7 +101,7 @@ export default function SourcingImport({
     };
     const key = JSON.stringify(payload);
     if (operation.current?.payload !== key)
-      operation.current = { payload: key, id: crypto.randomUUID() };
+      operation.current = { payload: key, id: operationId() };
     try {
       const result = await api.post<Snapshot>(
         `/api/sourcing/tabs/${snapshot.id}/import`,

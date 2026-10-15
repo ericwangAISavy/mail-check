@@ -72,3 +72,20 @@ without another design approval. Backend and frontend are committed together to
 avoid an intermediate application with mismatched APIs. Existing Google modules
 remain as recovery code, with no active sourcing routes invoking them. This change
 is committed locally; it is not merged or pushed as part of implementation.
+
+## HTTP browser compatibility follow-up
+
+A user screenshot exposed `crypto.randomUUID is not a function` during autosave.
+The initial browser verification used localhost, which browsers treat as secure;
+ordinary HTTP origins do not expose `randomUUID`. All five sourcing write paths
+now share an operation-ID helper using native UUIDs when available, otherwise
+RFC 4122 version-4 UUIDs from `crypto.getRandomValues`, which remains available
+on HTTP. Idempotent retries retain the same operation IDs as before.
+
+The HTTP autosave regression failed with the exact reported error before the fix.
+Final frontend suite: **120 passed**, 19 files. Production TypeScript/Vite build
+and `git diff --check` passed. Chromium verification used `http://mailcheck.test`
+resolved locally, confirmed `isSecureContext=false`, `randomUUID=undefined`, and
+`getRandomValues=function`, then passed formatting, rectangular paste, sorted
+editing, row insertion, custom columns, CSV import/export, search and bidder scope
+with no browser page errors. No backend behavior changed in this follow-up.

@@ -1,3 +1,4 @@
+import { operationId } from "@/lib/operation-id";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { UNSAFE_DataRouterContext } from "react-router-dom";
 import {
@@ -228,7 +229,7 @@ export default function SourcingEditor({
       const changes = nativeChanges(base.current, draft.current),
         body = JSON.stringify(changes);
       if (saveOperation.current?.body !== body)
-        saveOperation.current = { body, id: crypto.randomUUID() };
+        saveOperation.current = { body, id: operationId() };
       const payload = { operation: saveOperation.current.id, changes };
       await execute(
         () => api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/save`, payload),
@@ -341,7 +342,7 @@ export default function SourcingEditor({
     if (!snapshot || dirty || inFlight.current) return;
     setStructureOpen(null);
     const payload = {
-      operation: crypto.randomUUID(),
+      operation: operationId(),
       revision:
         structureContext.current?.snapshot.revision || snapshot.revision,
       ...command,
@@ -364,7 +365,7 @@ export default function SourcingEditor({
       )
         return;
       const payload = {
-        operation: crypto.randomUUID(),
+        operation: operationId(),
         revision: current.revision,
         action: "resize_column",
         column_id: current.columns[col].id,
@@ -431,7 +432,7 @@ export default function SourcingEditor({
       return;
     }
     const payload = {
-      operation: crypto.randomUUID(),
+      operation: operationId(),
       revision: snapshot.revision,
       rows,
     };
