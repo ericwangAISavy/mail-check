@@ -51,6 +51,26 @@ it("keeps all four metrics and uses actual account inclusion state", async () =>
   expect(screen.queryByText("Connected", { exact: true })).toBeNull()
   expect(screen.queryByText(/\+12%/)).toBeNull()
 })
+it("quick ranges replace custom dates while preserving other filters", async () => {
+  mount("/dashboard?start=2026-09-15&end=2026-10-14&account=personal&status=pending&focus_date=2026-09-15&page=2")
+  fireEvent.click(await screen.findByRole("button", { name: "2 weeks" }))
+  await lastParam("days", "14"); await lastParam("start", null); await lastParam("end", null)
+  await lastParam("focus_date", null); await lastParam("account", "personal"); await lastParam("status", "pending")
+  await lastParam("page", "1")
+  expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe("14")
+  expect(screen.getByRole("button", { name: "2 weeks" }).getAttribute("aria-pressed")).toBe("true")
+})
+it("keeps quick range buttons synchronized with the date dropdown", async () => {
+  mount(); await screen.findByLabelText("Date range")
+  expect(screen.getByRole("button", { name: "1 month" }).getAttribute("aria-pressed")).toBe("true")
+  for (const [days, label] of [["7", "1 week"], ["90", "3 months"]]) {
+    fireEvent.click(screen.getByRole("button", { name: label }))
+    await lastParam("days", days)
+    expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe(days)
+  }
+  fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "14" } })
+  expect(screen.getByRole("button", { name: "2 weeks" }).getAttribute("aria-pressed")).toBe("true")
+})
 it("propagates every filter and synchronizes both grouping controls", async () => {
   mount(); await screen.findByLabelText("Date range")
   fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "7" } }); await lastParam("days", "7")

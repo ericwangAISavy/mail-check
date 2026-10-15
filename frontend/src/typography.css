@@ -1,0 +1,61 @@
+/* The entire app uses this four-step scale, including narrow viewports. */
+:root {
+  --text-small: 14px;
+  --text-body: 16px;
+  --text-heading: 20px;
+  --text-display: 26px;
+}
+html { font-size: 100%; }
+body { font-size: var(--text-body); line-height: 1.5; }
+button, input, select, textarea { font-size: var(--text-body); }
+h1, h2, h3, h4, h5, h6 { line-height: 1.3; }
+h1 { font-size: var(--text-display); }
+h2, h3, h4, h5, h6 { font-size: var(--text-heading); }
+small, sup, sub { font-size: var(--text-small); }
+.btn, .side-link, .crumb, .signed-in-role, .connection-status,
+.connection-status strong, .schedule-button, .top-actions > .btn,
+.field-compact, .field-compact select, .field-compact input, .chart-group select,
+.page-description, .card-title-row .page-description, .explorer-heading .page-description,
+.stat-label, .mail-timeline strong, .account-status-list li > span:nth-child(2),
+.setting-field, .setting-field input, .setting-field select, .setting-field textarea,
+.settings-grid input, .settings-grid select, .form-stack input, .form-stack select,
+.view-tabs button, .reader-actions .btn, .reader-back,
+.mail-row-title, .reader-account, .email-body, .email-body p,
+.category-pills button, .timeline-ranges .btn,
+.sign-in-card .page-description, .sign-in-card .setting-field,
+.sign-in-card form > button, .password-form > button,
+.inline-error, .loading-state, .empty-state p, .toast,
+.search-field input, .explorer-table td, .explorer-table th {
+  font-size: var(--text-body);
+}
+.eyebrow, .workspace-label, .system-metadata, .stat-index, .stat-caption,
+.sidebar-user div span, .privacy-chip, .app-footer, .status-elapsed,
+.chart-legend button, .accessible-chart-data, .rail-heading .eyebrow,
+.rail-heading a, .rail-context, .last-check-label, .rail-empty,
+.mail-timeline button span, .mail-timeline time,
+.account-status-list li > span:last-child:not(:nth-child(2)),
+.form-hint, .setting-field > small, .account-info > p, .account-toggle-label,
+.provider-card small, .settings-bottom-action > span,
+.mail-row-summary, .mail-account, .row-date, .row-deadline, .tier-label,
+.sender-date, .message-meta dt, .message-meta dd, .shortcut-hint,
+.keyboard-note, kbd, .attention-copy span, .reader-empty p,
+.tab-count, .nav-count, .category-count, .partial-note {
+  font-size: var(--text-small);
+}
+.card-title-row h2, .explorer-heading h2, .settings-section-title h2,
+.provider-heading h2, .section-title-line h2, .empty-state h2,
+.dialog-header h2, .dialog-header .text-lg, .avatar-mark {
+  font-size: var(--text-heading);
+}
+.page-heading h1, .sign-in-card h1, .stat-value, .reader-subject,
+.brand-word, .recovery-page h1, .outlook-code strong {
+  font-size: var(--text-display);
+}
+/* Keep small button variants and labels on the same scale as other controls. */
+.btn.text-xs, .btn.text-sm { font-size: var(--text-body); }
+/* Utility-sized badges and helper text follow the shared scale as well. */
+.text-xs { font-size: var(--text-small); }
+.text-sm, .text-base { font-size: var(--text-body); }
+@media (max-width: 600px) {
+  .triage-bar { flex-wrap: wrap; gap: 8px; }
+}

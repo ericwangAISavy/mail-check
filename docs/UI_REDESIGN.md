@@ -11,6 +11,11 @@ or API contracts were changed.
   secondary accents, panel corner details, and a subtle grid.
 - Locally bundled Rajdhani display typography alongside the existing Geist body font.
   No remote font service, image dependency, Earth graphic, donut, or fabricated sparkline.
+- Follow-up typography uses only four sizes across the app: 14px secondary text,
+  16px body/controls, 20px section headings, and 26px page titles/metrics. These live
+  in `frontend/src/typography.css`; scattered responsive font-size rules were removed.
+- Timeline quick buttons select 1 week, 2 weeks, 1 month, or 3 months through the
+  existing date filters. The date dropdown also supports 14 days and stays synchronized.
 - The same buttons, panels, inputs, badges, navigation, dialogs, lists, and error/loading
   states across sign-in, Triage, Dashboard, Accounts, Settings, and message readers.
 - Dark is the initial preference; the existing light/system theme controls still work.
