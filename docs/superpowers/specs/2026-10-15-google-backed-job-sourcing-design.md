@@ -1,5 +1,7 @@
 # Google-backed job sourcing and private bidder workbooks
 
+> Superseded by the user’s native-sheet choice. See [native job sourcing design](2026-10-15-native-job-sourcing-design.md). This document records the previous Google-backed approach.
+
 Date: 2026-10-15 (America/Chicago)
 Status: Ready for written-spec review
 

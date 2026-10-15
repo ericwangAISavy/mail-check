@@ -1,5 +1,7 @@
 # Google-backed Job Sourcing Implementation Plan
 
+> Superseded by the user’s native-sheet choice. See [native job sourcing design](../specs/2026-10-15-native-job-sourcing-design.md). This document records the previous Google-backed approach.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Edit the existing bidder Google spreadsheets privately inside mail-check and find source applications from interviews.
