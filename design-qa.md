@@ -2,6 +2,25 @@
 
 final result: passed
 
+## Latest requested follow-up: timeline ranges and consistent typography
+
+The user's later typography instruction supersedes the reference's varied display sizes.
+`frontend/src/typography.css` now defines the only four application text sizes:
+14px secondary labels, 16px body/controls, 20px section headings, and 26px page titles/metrics.
+Font-size declarations were removed from the layout/theme stylesheets, and chart axis
+text uses the same 12px token. No separate mobile font sizes are introduced.
+
+Visible rendered text on Dashboard, Triage, Accounts and Settings was audited at 1440px
+and 390px widths: every computed size belonged to this four-size set, with no horizontal
+overflow. Updated screenshots: `/tmp/mailcheck-type-1440.png` and
+`/tmp/mailcheck-type-390.png`. The production bundle was rebuilt.
+
+Quick range buttons above the timeline provide 1 week, 2 weeks, 1 month and 3 months.
+They use the existing date-filter update handler, clear obsolete custom dates/focus,
+preserve other filters, and synchronize the date dropdown and selected-button state.
+A real API/browser check confirmed that 2 weeks produces 14 daily buckets and fits
+the mobile layout. The expanded frontend suite passes 68 tests.
+
 ## Reference and captured state
 
 - Source visual truth: the inline dashboard reference image in the user's redesign
