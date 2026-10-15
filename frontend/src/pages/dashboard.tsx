@@ -33,7 +33,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
   const params = useMemo(() => {
     const value = new URLSearchParams()
-    value.set("days", search.get("days") || "30")
+    value.set("days", search.get("days") || "7")
     value.set("interval", search.get("interval") === "week" ? "week" : "day")
     value.set("tz", search.get("tz") || zone)
     for (const key of ["start", "end", "account", "status", "action", "sort", "focus_date", "focus_category"]) if (search.has(key)) value.set(key, search.get(key)!)
@@ -102,7 +102,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
   const filterCount = params.getAll("category").length + ["account", "status", "action", "focus_date", "q"].filter((key) => params.has(key)).length
   const focusCategory = params.get("focus_category")
   const focusDate = params.get("focus_date")
-  const clear = () => { setSearch(new URLSearchParams({ tz: zone, days: "30" })); setSearchInput("") }
+  const clear = () => { setSearch(new URLSearchParams({ tz: zone, days: "7" })); setSearchInput("") }
   const openMessage = (row: Record<string, any>) => {
     setReader({
       ...row, pk: row.pk, message_id: "", subject: row.subject || "(no subject)",
@@ -121,7 +121,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
   return <div className="page-wrap analytics-page">
     <PageHeading eyebrow="LOCAL MAIL HISTORY" title="Dashboard" description="A little perspective on the applications in motion." action={<><div className="system-metadata"><span>MAIL INTELLIGENCE</span><span>LOCAL ANALYSIS</span><span>PRIVACY FIRST</span></div><Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refresh()}>{isFetching ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}Refresh</Button></>} />
     {error && data && <p role="alert" className="inline-error">Could not update this view: {error.message}. Showing the last loaded results.</p>}
-    <div className="dashboard-filters cyber-panel"><div className="field-compact"><label htmlFor="range">Date range</label><select id="range" value={params.has("start") ? "custom" : params.get("days") || "30"} onChange={(e) => e.target.value === "custom" ? update({ start: new Intl.DateTimeFormat("en-CA").format(new Date(new Date().setDate(new Date().getDate() - 29))), end: isoToday() }) : update({ start: null, end: null, days: e.target.value })}><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom range</option></select></div>
+    <div className="dashboard-filters cyber-panel"><div className="field-compact"><label htmlFor="range">Date range</label><select id="range" value={params.has("start") ? "custom" : params.get("days") || "7"} onChange={(e) => e.target.value === "custom" ? update({ start: new Intl.DateTimeFormat("en-CA").format(new Date(new Date().setDate(new Date().getDate() - 29))), end: isoToday() }) : update({ start: null, end: null, days: e.target.value })}><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom range</option></select></div>
       {params.has("start") && <><div className="field-compact"><label htmlFor="start">From</label><input id="start" type="date" value={params.get("start") || ""} onChange={(e) => update({ start: e.target.value })} /></div><div className="field-compact"><label htmlFor="end">Through</label><input id="end" type="date" value={params.get("end") || ""} onChange={(e) => update({ end: e.target.value })} /></div></>}
       <div className="field-compact"><label htmlFor="interval">Group by</label><select id="interval" value={params.get("interval") || "day"} onChange={(e) => update({ interval: e.target.value })}><option value="day">Day</option><option value="week">Week</option></select></div>
       <div className="field-compact"><label htmlFor="account">Account</label><select id="account" value={params.get("account") || ""} onChange={(e) => update({ account: e.target.value })}><option value="">All accounts</option>{accounts?.accounts.map((account) => <option value={account.label} key={account.label}>{account.label}</option>)}</select></div>

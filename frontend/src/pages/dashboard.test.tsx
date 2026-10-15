@@ -62,7 +62,9 @@ it("quick ranges replace custom dates while preserving other filters", async () 
 })
 it("keeps quick range buttons synchronized with the date dropdown", async () => {
   mount(); await screen.findByLabelText("Date range")
-  expect(screen.getByRole("button", { name: "1 month" }).getAttribute("aria-pressed")).toBe("true")
+  await lastParam("days", "7")
+  expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe("7")
+  expect(screen.getByRole("button", { name: "1 week" }).getAttribute("aria-pressed")).toBe("true")
   for (const [days, label] of [["7", "1 week"], ["90", "3 months"]]) {
     fireEvent.click(screen.getByRole("button", { name: label }))
     await lastParam("days", days)
