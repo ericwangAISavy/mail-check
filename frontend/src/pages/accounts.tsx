@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, KeyRound, LoaderCircle, Mail, Plus, ShieldCheck, Trash2, UserRound, Wifi } from "lucide-react"
-import { api } from "@/lib/api"
+import { api, request } from "@/lib/api"
 import type { Account } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,12 +22,13 @@ function AccountRow({ account, onRefresh }: { account: Account; onRefresh: () =>
     finally { setBusy("") }
   }
   const label = encodeURIComponent(account.label)
-  return <div className="account-row"><div className="account-icon">{account.provider === "outlook" ? <Mail size={19} /> : <UserRound size={19} />}</div><div className="account-info"><div className="account-name-line"><h3>{account.label}</h3><Badge variant={account.provider === "outlook" ? "default" : "outline"}>{account.provider === "outlook" ? "Microsoft" : "IMAP"}</Badge><Badge variant={account.enabled ? "muted" : "outline"}>{account.enabled ? "Active" : "Paused"}</Badge></div><p>{account.email}{account.provider === "imap" ? ` · ${account.imap_host} · ${account.folder}` : " · Personal Microsoft account"}</p></div><div className="account-actions"><span className="account-toggle-label">Include in checks</span><Switch checked={account.enabled} label={`Include ${account.label} in checks`} onChange={(enabled) => void change("toggle", `/api/accounts/${label}/toggle?enabled=${enabled}`)} /><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void change("test", `/api/accounts/${label}/test`)}>{busy === "test" ? <LoaderCircle className="spin" /> : <Wifi size={14} />}Test</Button><Button variant="ghost" size="icon" className="account-remove" title={`Remove ${account.label}`} disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Remove ${account.label}? Its local message history will stay until normal retention cleanup.`)) void change("remove", `/api/accounts/${label}/delete`) }}><Trash2 size={15} /></Button></div></div>
+  return <div className="account-row"><div className="account-icon">{account.provider === "outlook" ? <Mail size={19} /> : <UserRound size={19} />}</div><div className="account-info"><div className="account-name-line"><h3>{account.label}</h3><Badge variant={account.provider === "outlook" ? "default" : "outline"}>{account.provider === "outlook" ? "Microsoft" : "IMAP"}</Badge><Badge variant={account.enabled ? "muted" : "outline"}>{account.enabled ? "Active" : "Paused"}</Badge></div><p>{account.email}{account.provider === "imap" ? ` · ${account.imap_host} · ${account.folder}` : " · Personal Microsoft account"}</p></div><div className="account-actions"><span className="account-toggle-label">Include in checks</span><Switch disabled={Boolean(busy)} checked={account.enabled} label={`Include ${account.label} in checks`} onChange={(enabled) => void change("toggle", `/api/accounts/${label}/toggle?enabled=${enabled}`)} /><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void change("test", `/api/accounts/${label}/test`)}>{busy === "test" ? <LoaderCircle className="spin" /> : <Wifi size={14} />}Test</Button><Button variant="ghost" size="icon" className="account-remove" title={`Remove ${account.label}`} disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Remove ${account.label}? Its local message history will stay until normal retention cleanup.`)) void change("remove", `/api/accounts/${label}/delete`) }}><Trash2 size={15} /></Button></div></div>
 }
 
 function AddImapDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; refresh: () => void }) {
   const toast = useToast()
   const [email, setEmail] = useState("")
+  const manualServer = useRef(false)
   const [label, setLabel] = useState("")
   const [password, setPassword] = useState("")
   const [host, setHost] = useState("")
@@ -35,28 +36,35 @@ function AddImapDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenC
   const [folder, setFolder] = useState("INBOX")
   const [note, setNote] = useState("")
   const [pending, setPending] = useState(false)
-  const applyPreset = async (value: string) => {
-    if (!value.includes("@")) return
-    try {
-      const result = await fetch(`/api/preset?email=${encodeURIComponent(value)}`).then((response) => response.json())
-      const preset = result.preset as { host: string; port: number; note: string } | null
-      if (!preset) { setNote("Add your provider’s IMAP hostname below."); return }
-      setHost(preset.host); setPort(preset.port); setNote(preset.note)
-      if (!label) setLabel(value.split("@")[0].replace(/[^a-z0-9_-]/gi, "-").slice(0, 28))
-    } catch { setNote("Enter the IMAP server details provided by your email provider.") }
-  }
+  useEffect(() => {
+    if (!open || !email.includes("@")) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await request<{ preset: { host: string; port: number; note: string } | null }>(`/api/preset?email=${encodeURIComponent(email)}`, { signal: controller.signal })
+        if (controller.signal.aborted) return
+        if (!result.preset) { setNote("Add your provider’s IMAP hostname below."); return }
+        if (!manualServer.current) { setHost(result.preset.host); setPort(result.preset.port) }
+        setNote(result.preset.note)
+        setLabel((current) => current || email.split("@")[0].replace(/[^a-z0-9_-]/gi, "-").slice(0, 28))
+      } catch (error) {
+        if (!controller.signal.aborted) setNote(error instanceof Error ? error.message : "Could not load provider details. Enter your server details below.")
+      }
+    }, 250)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [email, open])
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setPending(true)
     try {
       const result = await api.post<{ message: string }>("/api/accounts", { email, label, password, host, port, use_ssl: true, folder })
       toast(result.message || "Mailbox connected.", "success")
-      setEmail(""); setLabel(""); setPassword(""); setHost(""); setFolder("INBOX"); setNote("")
+      setEmail(""); setLabel(""); setPassword(""); setHost(""); setPort(993); setFolder("INBOX"); setNote("")
       onOpenChange(false); refresh()
     } catch (error) { toast(error instanceof Error ? error.message : "Could not connect this mailbox.", "error") }
     finally { setPending(false) }
   }
   const close = (next: boolean) => { if (!next) setPassword(""); onOpenChange(next) }
-  return <Dialog open={open} onOpenChange={close}><DialogContent><DialogHeader><DialogTitle>Connect a mailbox</DialogTitle><DialogDescription>mail-check connects with read-only access. Your app password is saved only in your OS keyring.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-stack"><label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => { setEmail(event.target.value); void applyPreset(event.target.value) }} placeholder="you@gmail.com" /></label><label>Account label<input required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Personal" /></label><label>App password<input type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Provider app password" /><small>Never paste your everyday mailbox password. Credentials are not sent to Ollama.</small></label><details className="advanced-field"><summary>Server details</summary><div className="settings-grid"><label>IMAP host<input required value={host} onChange={(event) => setHost(event.target.value)} placeholder="imap.gmail.com" /></label><label>Port<input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(Number(event.target.value))} /></label><label>Folder<input value={folder} onChange={(event) => setFolder(event.target.value)} /></label></div></details>{note && <p className="form-hint">{note}</p>}<div className="dialog-footer"><Button variant="outline" type="button" onClick={() => close(false)}>Cancel</Button><Button disabled={pending}>{pending && <LoaderCircle className="spin" />}Test &amp; connect</Button></div></form></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={close}><DialogContent><DialogHeader><DialogTitle>Connect a mailbox</DialogTitle><DialogDescription>mail-check connects with read-only access. Your app password is saved only in your OS keyring.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-stack"><label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => { manualServer.current = false; setEmail(event.target.value) }} placeholder="you@gmail.com" /></label><label>Account label<input required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Personal" /></label><label>App password<input type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Provider app password" /><small>Never paste your everyday mailbox password. Credentials are not sent to Ollama.</small></label><details className="advanced-field"><summary>Server details</summary><div className="settings-grid"><label>IMAP host<input required value={host} onChange={(event) => { manualServer.current = true; setHost(event.target.value) }} placeholder="imap.gmail.com" /></label><label>Port<input type="number" min={1} max={65535} value={port} onChange={(event) => { manualServer.current = true; setPort(Number(event.target.value)) }} /></label><label>Folder<input value={folder} onChange={(event) => setFolder(event.target.value)} /></label></div></details>{note && <p className="form-hint">{note}</p>}<div className="dialog-footer"><Button variant="outline" type="button" onClick={() => close(false)}>Cancel</Button><Button disabled={pending}>{pending && <LoaderCircle className="spin" />}Test &amp; connect</Button></div></form></DialogContent></Dialog>
 }
 
 function OutlookDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; refresh: () => void }) {
@@ -71,18 +79,17 @@ function OutlookDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenC
     let timer = 0
     const poll = async () => {
       try {
-        const response = await fetch("/api/outlook/status")
-        const status = await response.json()
+        const status = await request<{ state: string; message: string }>("/api/outlook/status")
         if (cancelled) return
         if (status.state === "connected") { setMessage(status.message); setFlow(null); refresh(); toast(status.message || "Outlook connected.", "success"); onOpenChange(false); return }
         if (status.state === "failed") { setMessage(status.message); setFlow(null); return }
-      } catch { /* Retry while the local console is available. */ }
+      } catch (error) { if (!cancelled) setMessage(error instanceof Error ? error.message : "Sign-in status is unavailable. Retrying…") }
       if (!cancelled) timer = window.setTimeout(poll, 2000)
     }
     void poll()
     return () => { cancelled = true; clearTimeout(timer) }
   }, [flow, open, onOpenChange, refresh, toast])
-  const cancel = async () => { try { await api.post("/api/outlook/cancel") } catch { /* State may already be idle. */ } setFlow(null); onOpenChange(false) }
+  const cancel = async () => { try { await api.post("/api/outlook/cancel"); setFlow(null); onOpenChange(false) } catch (error) { toast(error instanceof Error ? error.message : "Could not cancel sign-in. Try again.", "error") } }
   const start = async (event: FormEvent) => {
     event.preventDefault(); setPending(true); setMessage("")
     try {
@@ -91,7 +98,7 @@ function OutlookDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenC
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not start Microsoft sign-in.") }
     finally { setPending(false) }
   }
-  return <Dialog open={open} onOpenChange={(next) => { if (!next && flow) void cancel(); else onOpenChange(next) }}><DialogContent><DialogHeader><DialogTitle>Connect Outlook.com</DialogTitle><DialogDescription>Sign in with Microsoft’s device code. mail-check requests read-only Mail.Read access.</DialogDescription></DialogHeader>{flow ? <div className="outlook-code"><p>Open the Microsoft sign-in page and enter this code:</p><strong>{flow.user_code}</strong><a href={flow.verification_uri} target="_blank" rel="noreferrer">Open Microsoft sign-in <ExternalLink size={14} /></a><p className="form-hint">This dialog checks for completion automatically.</p><div className="dialog-footer"><Button variant="outline" onClick={() => void cancel()}>Cancel sign-in</Button></div></div> : <form className="form-stack" onSubmit={start}><label>Account label<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Personal Outlook" /></label>{message && <p role="alert" className="inline-error">{message}</p>}<div className="dialog-footer"><Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={pending}>{pending && <LoaderCircle className="spin" />}Continue with Microsoft</Button></div></form>}</DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={(next) => { if (!next && flow) void cancel(); else onOpenChange(next) }}><DialogContent><DialogHeader><DialogTitle>Connect Outlook.com</DialogTitle><DialogDescription>Sign in with Microsoft’s device code. mail-check requests read-only Mail.Read access.</DialogDescription></DialogHeader>{flow ? <div className="outlook-code">{message && <p role="alert" className="inline-error">{message}</p>}<p>Open the Microsoft sign-in page and enter this code:</p><strong>{flow.user_code}</strong><a href={flow.verification_uri} target="_blank" rel="noreferrer">Open Microsoft sign-in <ExternalLink size={14} /></a><p className="form-hint">This dialog checks for completion automatically.</p><div className="dialog-footer"><Button variant="outline" onClick={() => void cancel()}>Cancel sign-in</Button></div></div> : <form className="form-stack" onSubmit={start}><label>Account label<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} required placeholder="Personal Outlook" /></label>{message && <p role="alert" className="inline-error">{message}</p>}<div className="dialog-footer"><Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={pending}>{pending && <LoaderCircle className="spin" />}Continue with Microsoft</Button></div></form>}</DialogContent></Dialog>
 }
 
 export default function AccountsPage() {
@@ -99,7 +106,7 @@ export default function AccountsPage() {
   const [outlookOpen, setOutlookOpen] = useState(false)
   const queryClient = useQueryClient()
   const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts })
-  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }) }
+  const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); void queryClient.invalidateQueries({ queryKey: ["dashboard-accounts"] }) }, [queryClient])
   if (isPending) return <div className="page-wrap"><Loading /></div>
   return <div className="page-wrap accounts-page"><PageHeading eyebrow="YOUR MAILBOXES" title="Accounts" description="Connect the inboxes behind your next opportunity." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect mailbox</Button>} />
     <div className="security-note"><ShieldCheck size={18} /><span><strong>Read-only by design.</strong> Mail-check never marks messages as read, sends replies, or changes your provider inbox.</span></div>

@@ -17,6 +17,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
   const toast = useToast()
   const [retrying, setRetrying] = useState(false)
   const { data, isPending, error } = useQuery({ queryKey: ["reader", message?.pk], queryFn: () => api.reader(message!.pk), enabled: Boolean(message), staleTime: 60_000 })
+  message = data?.message || message
   if (!message) return <section className={`reader-empty ${mobile ? "mobile-visible" : ""}`}><span className="reader-empty-icon"><Sparkles size={18} /></span><h2>Choose a message</h2><p>Select a message from your queue and its full story will appear here.</p><p className="shortcut-hint"><kbd>↑</kbd><kbd>↓</kbd> to move <span>·</span> <kbd>E</kbd> to mark done</p></section>
   const retryClassification = async () => {
     if (retrying) return
