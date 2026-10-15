@@ -4,11 +4,14 @@ final result: passed
 
 ## Latest requested follow-up: timeline ranges and consistent typography
 
+Geist is now the shared font for headings, controls, metrics, and body text. The previous
+Rajdhani imports and dependency were removed. Fonts are bundled locally.
+
 The user's later typography instruction supersedes the reference's varied display sizes.
 `frontend/src/typography.css` now defines the only four application text sizes:
 14px secondary labels, 16px body/controls, 20px section headings, and 26px page titles/metrics.
 Font-size declarations were removed from the layout/theme stylesheets, and chart axis
-text uses the same 12px token. No separate mobile font sizes are introduced.
+text uses the same 14px token. No separate mobile font sizes are introduced.
 
 Visible rendered text on Dashboard, Triage, Accounts and Settings was audited at 1440px
 and 390px widths: every computed size belonged to this four-size set, with no horizontal

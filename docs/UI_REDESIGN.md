@@ -9,7 +9,7 @@ or API contracts were changed.
 
 - Shared near-black/navy surfaces, cyan borders and focus rings, restrained purple
   secondary accents, panel corner details, and a subtle grid.
-- Locally bundled Rajdhani display typography alongside the existing Geist body font.
+- Locally bundled Geist throughout headings, navigation, metrics, and body text.
   No remote font service, image dependency, Earth graphic, donut, or fabricated sparkline.
 - Follow-up typography uses only four sizes across the app: 14px secondary text,
   16px body/controls, 20px section headings, and 26px page titles/metrics. These live

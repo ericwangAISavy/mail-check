@@ -26,7 +26,7 @@
   --glow: rgba(0, 207, 255, .09);
   --radius: .35rem;
   --font-sans: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --display-font: "Rajdhani", "Geist Variable", sans-serif;
+  --display-font: var(--font-sans);
 }
 :root[data-theme="light"] {
   --background: #edf3fa; --foreground: #102439;
