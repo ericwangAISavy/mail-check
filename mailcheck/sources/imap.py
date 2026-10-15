@@ -67,9 +67,9 @@ class IMAPSource:
         finally:
             _quiet_logout(box)
 
-    def fetch_calendar(self, since: date) -> Iterator[RawMessage]:
-        """Include read invitations; the consumer persists calendar metadata only."""
-        yield from self.fetch_unread(since, include_read=True)
+    def fetch_calendar(self, since: date):
+        """IMAP has no calendar event API. Never fall back to reading email."""
+        raise SourceError("IMAP cannot read calendar events. Connect this Outlook account with Microsoft sign-in and grant Calendars.Read access.")
 
     def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
         box = self._open()

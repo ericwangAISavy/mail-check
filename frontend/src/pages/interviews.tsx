@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, RefreshCw, ScanSearch } from "lucide-react"
+import { ExternalLink, RefreshCw } from "lucide-react"
 import { api, request } from "@/lib/api"
 import type { Bootstrap, InterviewData, InterviewEvent, InterviewSource } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Loading, PageHeading, useToast } from "@/components/common"
-import { Reader } from "@/pages/triage"
 import InterviewCalendar from "@/components/interview-calendar"
 import "./interviews.css"
 
@@ -24,7 +23,6 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   if (status) queryParams.set("status",status)
   if (company) queryParams.set("company",company)
   const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:()=>request<InterviewData>(`/api/interviews?${queryParams}`),placeholderData:previous=>previous})
-  const scan = useQuery({queryKey:["interviews", "scan"],queryFn:()=>request<{running:boolean;processed:number;total:number;found:number;errors:number}>("/api/interviews/scan"),refetchInterval: q=>q.state.data?.running ? 1000 : 10000})
   const seenJob = useRef<number | null>(null)
   const job = useQuery({queryKey:["interview-job"],queryFn:api.status,refetchInterval:2000})
   useEffect(() => {
@@ -33,19 +31,16 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
       seenJob.current = job.data.completion_id
     }
   }, [job.data?.completion_id,client])
-  useEffect(() => { if (scan.data && !scan.data.running && scan.data.processed) void client.invalidateQueries({queryKey:["interviews","list"]}) },[scan.data?.running,scan.data?.processed,client])
   useEffect(() => { setSelected(Number(params.get("event")) || null) },[params])
   const setFilter = (name: string,value: string) => { const next = new URLSearchParams(params); value ? next.set(name,value) : next.delete(name); setParams(next) }
   const select = (id: number | null) => { setSelected(id); const next = new URLSearchParams(params); id ? next.set("event",String(id)) : next.delete("event"); setParams(next,{replace:true}) }
   const events = (query.data?.events || []).filter(event=>event.start_at)
   const refresh = async () => { const result = await query.refetch(); toast(result.error ? result.error.message : "Interviews refreshed.",result.error ? "error" : "success") }
   const check = useMutation({mutationFn:()=>api.post("/api/interviews/sync"),onSuccess:()=>{toast("Calendar collection started.","info");window.dispatchEvent(new Event("mailcheck:check-started"));void job.refetch()},onError:e=>toast(e.message,"error")})
-  const backfill = useMutation({mutationFn:()=>api.post("/api/interviews/scan"),onSuccess:()=>{toast("Importing stored calendar invitations.","info");void scan.refetch();void job.refetch()},onError:e=>toast(e.message,"error")})
-  const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label><Button variant="outline" onClick={()=>backfill.mutate()} disabled={backfill.isPending || job.data?.running || scan.data?.running}><ScanSearch size={16}/>Import saved invitations</Button></Card>
+  const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label></Card>
   return <div className="page-wrap interviews-page">
-    <PageHeading eyebrow="MEETING CALENDAR" title="Interviews" description="Meeting events from calendar invitations across your connected accounts." action={<div className="interview-actions"><Button variant="outline" onClick={()=>void refresh()} disabled={query.isFetching}><RefreshCw size={16}/>Refresh</Button><Button onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>}/>
+    <PageHeading eyebrow="MEETING CALENDAR" title="Interviews" description="Meeting bookings from your connected calendars." action={<div className="interview-actions"><Button variant="outline" onClick={()=>void refresh()} disabled={query.isFetching}><RefreshCw size={16}/>Refresh</Button><Button onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>}/>
 
-    {scan.data && (scan.data.running || scan.data.processed>0) && <p className="scan-progress" role="status">{scan.data.running ? "Scanning" : "Last scan"}: {scan.data.processed} of {scan.data.total} invitations · {scan.data.found} event updates{scan.data.errors ? ` · ${scan.data.errors} need retry; run scan again to retry` : ""}{scan.data.running && <progress max={scan.data.total || 1} value={scan.data.processed}/>}</p>}
     {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" onClick={()=>void refresh()}>Try again</Button></div> : <>
     <InterviewCalendar events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
     <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails key={selected} id={selected} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
@@ -62,20 +57,19 @@ function localInput(value: string | null, zone: string) {
 }
 function InterviewDetails({id,stages,statuses}:{id:number;stages:string[];statuses:string[]}) {
   const query = useQuery({queryKey:["interviews","detail",id],queryFn:()=>request<{event:InterviewEvent;sources:InterviewSource[]}>(`/api/interviews/${id}`)})
-  const [editing,setEditing] = useState(false), [sourcePk,setSourcePk] = useState<number|null>(null)
-  const source = useQuery({queryKey:["reader",sourcePk],queryFn:()=>api.reader(sourcePk!),enabled:sourcePk!==null})
+  const [editing,setEditing] = useState(false)
   const event = query.data?.event
-  return <DialogContent className="interview-dialog"><DialogHeader><DialogTitle>{sourcePk ? "Source email" : event?.company || "Interview details"}</DialogTitle><DialogDescription>{sourcePk ? "Original mail in the existing Mailcheck reader." : "Detected schedule, source emails, and local corrections."}</DialogDescription></DialogHeader>
-    {query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && (sourcePk ? <><Button variant="outline" onClick={()=>setSourcePk(null)}>Back to interview</Button>{source.isPending ? <Loading/> : source.error ? <p role="alert">{source.error.message}</p> : source.data && <Reader message={source.data.message} mobile onBack={()=>setSourcePk(null)} onDone={()=>undefined} busy={false} readOnly/>}</> : <>
+  return <DialogContent className="interview-dialog"><DialogHeader><DialogTitle>{event?.company || "Meeting details"}</DialogTitle><DialogDescription>Calendar event details and local corrections.</DialogDescription></DialogHeader>
+    {query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && <>
     <div className="interview-detail-status"><span className={`interview-status ${stateClass(event)}`}>{event.display_status}</span><Button variant="outline" onClick={()=>setEditing(!editing)}>{editing?"Cancel editing":"Edit details"}</Button></div>
     {editing ? <InterviewEditor event={event} stages={stages} statuses={statuses} onSaved={()=>setEditing(false)}/> : <>
-      {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify details against the source email."}</p>}
+      {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify the event details in your calendar."}</p>}
       <dl className="interview-details">{[["Company",event.company],["Role",event.role],["Interview stage",event.stage],["Start",dateTime(event.start_at)],["End",dateTime(event.end_at)],["Original timezone",event.timezone],["Display timezone",Intl.DateTimeFormat().resolvedOptions().timeZone],["Meeting platform",event.meeting_platform],["Location",event.location],["Organizer",[event.organizer_name,event.organizer_email].filter(Boolean).join(" · ")],["Participants",event.participants.join(", ")],["Detected status",event.status],["Last updated",dateTime(event.updated_at)],["Notes",event.notes]].map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value||"Unknown"}</dd></div>)}</dl>
       {event.meeting_url && <a className="interview-meeting-link" href={event.meeting_url} target="_blank" rel="noopener noreferrer">Open {event.meeting_platform || "meeting"} link <ExternalLink size={14}/></a>}
       {!!event.manual_fields.length && <p className="form-hint">Manually corrected fields are protected from later automated updates.</p>}
     </>}
-    <div className="interview-sources"><h2>Source emails</h2>{query.data?.sources.map(s=><article key={s.id}><strong>{s.source_subject}</strong><p>{s.account_email} · {s.source_sender}</p><p>{dateTime(s.source_received_at)}</p>{s.message_pk ? <Button size="sm" variant="outline" onClick={()=>setSourcePk(s.message_pk)}>View source email</Button> : <p className="form-hint">Email aged out of local retention. Source metadata is preserved.</p>}</article>)}</div>
-    </>)}
+    <div className="interview-sources"><h2>Connected calendar accounts</h2>{query.data?.sources.map(s=><article key={s.id}><strong>{s.account_label}</strong><p>{s.account_email}</p></article>)}</div>
+    </>}
   </DialogContent>
 }
 function InterviewEditor({event,stages,statuses,onSaved}:{event:InterviewEvent;stages:string[];statuses:string[];onSaved:()=>void}) {

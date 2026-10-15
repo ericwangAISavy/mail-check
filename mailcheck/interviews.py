@@ -344,7 +344,7 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
                 if any(k in updates for k in ("start_at", "status")):
                     change = {"id": pk, "status": updates.get("status", existing["status"]), "company": updates.get("company", existing["company"]), "start_at": updates.get("start_at", existing["start_at"])}
     else:
-        if candidate["status"] in ("Cancelled", "Rescheduled"):
+        if candidate["status"] in ("Cancelled", "Rescheduled") and candidate["extraction_rank"] < 3:
             value["needs_review"] = 1
             value["review_reason"] = "Could not uniquely match the earlier invitation; verify source email"
         cols = [k for k in EVENT_FIELDS]
@@ -391,7 +391,7 @@ def process_run(conn, cfg, result) -> None:
 
 
 def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None):
-    """Read invitation metadata and persist events, never mail or classifications."""
+    """Read native calendar bookings and persist events, never mail or classifications."""
     from datetime import timedelta
     from .pipeline import build_source
     from .sources import SourceError
@@ -404,33 +404,41 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else cfg.check.lookback_days)).date()
     changes, errors, checked = [], [], 0
     for account in accounts:
-        status(f"Collecting calendar invitations from {account.label}…")
+        status(f"Collecting calendar events from {account.label}…")
         try:
+            if account.provider != "outlook":
+                raise SourceError("IMAP cannot read calendar events. Connect your calendar through Microsoft sign-in with read-only Calendars.Read access; email fallback is disabled.")
             source = build_source(account, cfg)
-            for raw in source.fetch_calendar(since):
-                if not raw.calendar_data:
-                    continue
-                row = dict(id=None,account_id=account.id,message_id=raw.message_id,subject=raw.subject,
-                    from_addr=raw.from_addr,date_utc=raw.date_utc.isoformat() if raw.date_utc else None,
-                    fetched_at=db._now(),calendar_data=json.dumps(raw.calendar_data),
-                    thread_id=raw.thread_id,references_json=json.dumps(raw.references))
-                known_uids = {r[0] for r in conn.execute("SELECT calendar_uid FROM interview_events WHERE calendar_uid IS NOT NULL")}
-                candidates, malformed = detect(row, {}, calendar_only=True, known_uids=known_uids)
-                if malformed:
-                    errors.append(f"[{account.label}] An invitation contained invalid calendar data.")
+            for booking in source.fetch_calendar(since):
+                # Native provider events only: no inbox reads, ICS extraction, or model.
+                row = dict(id=None,account_id=account.id,message_id=booking.provider_id,
+                    subject=booking.title,from_addr=booking.organizer_email,
+                    date_utc=booking.updated_at.isoformat() if booking.updated_at else None,
+                    fetched_at=db._now(),references_json="[]")
+                candidate = dict(calendar_uid=booking.uid,recurrence_id=booking.recurrence_id,
+                    company=booking.title,role=None,stage="Other",
+                    status="Cancelled" if booking.cancelled else "Scheduled",
+                    start_at=booking.start.isoformat(),end_at=booking.end.isoformat() if booking.end else None,
+                    timezone=booking.timezone,meeting_platform=booking.meeting_platform,
+                    meeting_url=booking.meeting_url,location=booking.location,
+                    organizer_name=booking.organizer_name,organizer_email=booking.organizer_email,
+                    participants=booking.participants,notes="\n".join(filter(None,[
+                        f"Calendar: {booking.calendar_name}" if booking.calendar_name else None,
+                        f"Original time zone: {booking.original_timezone}" if booking.original_timezone else None])),
+                    confidence=1.,needs_review=False,review_reason=None,extraction_rank=3,
+                    sequence=0,revision_at=row["date_utc"] or row["fetched_at"])
                 conn.execute("SAVEPOINT calendar_invitation")
                 try:
-                    for candidate in candidates:
-                        change = reconcile(conn,candidate,row)
-                        if change:
-                            changes.append(change)
+                    change = reconcile(conn,candidate,row)
+                    if change:
+                        changes.append(change)
                     conn.execute("RELEASE calendar_invitation")
                     conn.commit()
                 except Exception:
                     conn.execute("ROLLBACK TO calendar_invitation")
                     conn.execute("RELEASE calendar_invitation")
-                    errors.append(f"[{account.label}] Could not save an invitation.")
-                    log.exception("Calendar invitation persistence failed")
+                    errors.append(f"[{account.label}] Could not save a calendar event.")
+                    log.exception("Calendar event persistence failed")
             checked += 1
         except (SourceError, secrets.SecretError) as exc:
             errors.append(f"[{account.label}] {exc}")

@@ -20,8 +20,9 @@ from .secrets import SERVICE
 
 #: Personal Microsoft accounts only. Work/school tenants are out of scope.
 AUTHORITY = "https://login.microsoftonline.com/consumers"
-#: The minimum delegated permission that includes message bodies.
-SCOPES = ["Mail.Read"]
+#: Read-only calendar access for bookings; mail access remains for CLI triage.
+SCOPES = ["Mail.Read", "Calendars.Read"]
+CALENDAR_SCOPES = ["Calendars.Read"]
 
 #: How long a pending device-code flow may sit in memory before it is dropped.
 FLOW_TTL_SECONDS = 15 * 60
@@ -223,7 +224,7 @@ def complete_device_flow(pending: PendingFlow) -> str:
     )
 
 
-def acquire_token(label: str, client_id: str) -> str:
+def acquire_token(label: str, client_id: str, *, scopes: list[str] | None = None) -> str:
     """Return a valid access token, refreshing silently from the cache.
 
     Raises ReconnectRequired when the cache can no longer produce one — the
@@ -236,11 +237,11 @@ def acquire_token(label: str, client_id: str) -> str:
         raise ReconnectRequired(
             f"No stored Microsoft sign-in for '{label}'. Reconnect the account."
         )
-    result = app.acquire_token_silent(SCOPES, account=accounts[0])
+    result = app.acquire_token_silent(scopes or ["Mail.Read"], account=accounts[0])
     save_cache(label, cache)
     if not result or "access_token" not in result:
         raise ReconnectRequired(
             f"Microsoft sign-in for '{label}' has expired or been revoked. "
-            f"Reconnect the account."
+            f"Reconnect the account" + (" to grant read-only Calendars.Read access." if scopes == CALENDAR_SCOPES else ".")
         )
     return result["access_token"]

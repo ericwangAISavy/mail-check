@@ -41,13 +41,15 @@ python -m mailcheck web
 It opens `127.0.0.1:8765` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
 
-Web **Check now** and automatic web checks currently collect calendar invitations
-only, without storing new email bodies or running classification. The Interview
-calendar displays explicit meeting events; existing Dashboard/Triage history remains
-available. Collection reads invitations from connected mailbox folders, including
-read mail, rather than synchronizing the provider Calendar API. See
-[Interview tracking](docs/INTERVIEWS.md) for details. CLI mail-triage commands retain
-their existing behavior.
+Web **Check now** and automatic web checks collect native calendar bookings from
+connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
+phone and in-person bookings are included without reading inbox messages or running
+classification. Existing Dashboard/Triage history remains available. Calendar
+collection requires read-only `Calendars.Read`; reconnect existing Outlook accounts
+in Accounts after adding that permission to your Microsoft application. IMAP does
+not expose calendar events and is not used as a fallback. See
+[Interview tracking](docs/INTERVIEWS.md). CLI mail-triage commands retain their
+existing behavior.
 
 The web console requires sign-in. Initially use role **Admin** with password
 `admin`, or role **Guest** with password `guest`. Admin can use Triage, Dashboard,
@@ -360,7 +362,7 @@ Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft inste
 mailbox password — Microsoft disabled basic-auth IMAP, so app passwords cannot work there.
 
 One-time setup: register a **public client** application in the Microsoft Entra admin
-center with delegated `Mail.Read` permission and device-code flow enabled, then paste its
+center with delegated `Calendars.Read` and `Mail.Read` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
 shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are

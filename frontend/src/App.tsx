@@ -108,7 +108,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
           ])
           toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
           for (const item of current.interview_changes || []) {
-            const label = item.status === "Cancelled" ? "Interview cancelled" : item.status === "Rescheduled" ? "Interview rescheduled" : "Interview detected"
+            const label = item.status === "Cancelled" ? "Meeting cancelled" : item.status === "Rescheduled" ? "Meeting rescheduled" : "Meeting added"
             toast(`${label} · ${item.company || "Company unknown"}${item.start_at ? " · " + new Date(item.start_at).toLocaleString() : " · Needs review"}`, "info")
           }
           try {

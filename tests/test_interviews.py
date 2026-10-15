@@ -239,6 +239,24 @@ class InterviewApiTests(unittest.TestCase):
         self.assertNotIn("classified",web._job["message"])
 
 
+    def test_outlook_reconnect_preserves_account_and_calendar_records(self):
+        from types import SimpleNamespace
+        import time
+        cfg=config.Config();cfg.outlook.client_id="test";config.save(cfg)
+        with db.session() as conn:
+            account_id=db.add_account(conn,label="outlook",email="me@example.test",provider="outlook")
+        pending=SimpleNamespace(id="reconnect-test",label="outlook",user_code="TEST",verification_uri="https://microsoft.com/devicelogin")
+        with patch.object(web.outlook_auth,"begin_device_flow",return_value=pending),patch.object(web.outlook_auth,"complete_device_flow",return_value="me@example.test"):
+            response=self.client.post("/api/outlook/start",json={"label":"outlook","reconnect":True})
+            self.assertEqual(response.status_code,200)
+            for _ in range(100):
+                if web._outlook['state']!='waiting':break
+                time.sleep(.01)
+            self.assertEqual(web._outlook['state'],'connected')
+        self.assertEqual(db.get_account(self.conn,"outlook").id,account_id)
+        self.assertEqual(len(db.list_accounts(self.conn)),3)
+
+
 class AdditionalReconciliationTests(unittest.TestCase):
     setUp = InterviewTests.setUp
     message = InterviewTests.message
@@ -276,28 +294,12 @@ class InterviewBackfillTests(unittest.TestCase):
     message = InterviewTests.message
     process = InterviewTests.process
     events = InterviewTests.events
-    def test_scan_incremental_shared_job_lock_and_resume(self):
-        import time
-        cfg=config.Config();cfg.llm.base_url=""
-        config.save(cfg)
+    def test_saved_mail_scan_is_retired_without_reading_messages(self):
         self.message(calendar_data=[ics()]);self.conn.commit()
-        response=self.client.post("/api/interviews/scan")
-        self.assertEqual(response.status_code,200)
-        for _ in range(100):
-            if not self.client.get("/api/interviews/scan").json()["running"]:break
-            time.sleep(.01)
-        state=self.client.get("/api/interviews/scan").json()
-        self.assertEqual(state["processed"],1);self.assertEqual(state["found"],1)
-        self.assertEqual(len(self.client.get("/api/interviews").json()["events"]),1)
-        self.assertTrue(web._job_lock.acquire(timeout=1));web._job_lock.release()
-        self.assertEqual(self.client.post("/api/interviews/scan").status_code,200)
-        for _ in range(100):
-            if not self.client.get("/api/interviews/scan").json()["running"]:break
-            time.sleep(.01)
-        self.assertEqual(self.client.get("/api/interviews/scan").json()["processed"],0)
-        self.assertTrue(web._job_lock.acquire(timeout=1))
-        try:self.assertEqual(self.client.post("/api/interviews/scan").status_code,409)
-        finally:web._job_lock.release()
+        with patch.object(interviews,"process_message",side_effect=AssertionError("No mail scanning")):
+            self.assertEqual(self.client.post("/api/interviews/scan").status_code,410)
+        self.assertEqual(self.events(),[])
+
     def test_v7_upgrade_keeps_existing_mail_and_handled_state(self):
         pk,_=self.message();db.set_handled(self.conn,pk,True)
         for table in ('interview_sources','interview_scans','interview_events'):self.conn.execute(f'DROP TABLE {table}')
@@ -311,25 +313,6 @@ class InterviewBackfillTests(unittest.TestCase):
             self.assertEqual(upgraded.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
         finally:upgraded.close()
 
-    def test_failed_configuration_releases_scan_progress(self):
-        import time
-        with patch.object(web.cfgmod,"load",side_effect=ValueError("Invalid test configuration")):
-            self.assertEqual(self.client.post("/api/interviews/scan").status_code,200)
-            self.assertTrue(web._job_lock.acquire(timeout=2))
-            web._job_lock.release()
-        self.assertFalse(self.client.get("/api/interviews/scan").json()["running"])
-
-    def test_scan_revisits_old_detector_versions(self):
-        import time
-        cfg=config.Config();cfg.llm.base_url="";config.save(cfg)
-        pk,_=self.message(calendar_data=[ics()]);self.process(pk);self.conn.commit()
-        self.conn.execute("UPDATE interview_scans SET fingerprint='old-detector' WHERE message_pk=?",(pk,));self.conn.commit()
-        self.assertEqual(self.client.post("/api/interviews/scan").status_code,200)
-        self.assertTrue(web._job_lock.acquire(timeout=2));web._job_lock.release()
-        state=self.client.get("/api/interviews/scan").json()
-        self.assertEqual(state["processed"],1)
-        self.assertEqual(len(self.client.get("/api/interviews").json()["events"]),1)
-        self.assertTrue(self.conn.execute("SELECT fingerprint FROM interview_scans WHERE message_pk=?",(pk,)).fetchone()[0].startswith(interviews.DETECTOR_VERSION+"-calendar:"))
 
 class InterviewReviewRegressionTests(unittest.TestCase):
     setUp = InterviewTests.setUp
@@ -437,65 +420,3 @@ class InterviewReviewRegressionTests(unittest.TestCase):
         self.process(pk,Model(event_type="cancelled",start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
         self.assertEqual(len(self.events()),2)
         self.assertEqual([r["status"] for r in self.events()],["Scheduled","Cancelled"])
-
-
-class CalendarOnlyCollectionTests(unittest.TestCase):
-    setUp = InterviewTests.setUp
-
-    def raw(self, **values):
-        fields = dict(message_id="calendar-1",uid="1",folder="INBOX",from_addr="sender@example.test",
-            from_name="Sender",subject="An ordinary appointment",date_utc=datetime.now(timezone.utc),
-            text="Private email body must not be stored",calendar_data=[ics().replace("Acme Technical Interview","Team planning")])
-        fields.update(values)
-        return RawMessage(**fields)
-
-    def collect(self, messages):
-        from types import SimpleNamespace
-        source = SimpleNamespace(fetch_calendar=lambda since: iter(messages))
-        with patch.object(pipeline,"build_source",return_value=source), patch.object(interviews.LLMClient,"from_config",side_effect=AssertionError("No model is allowed")):
-            return interviews.collect_calendar_events(self.conn,config.Config(),account_label="work")
-
-    def test_collects_explicit_events_without_storing_or_classifying_messages(self):
-        result = self.collect([self.raw(),self.raw(message_id="text-only",calendar_data=[],text="Interview on October 18 at 10 AM UTC")])
-        self.assertFalse(result["errors"])
-        self.assertEqual(len(result["changes"]),1)
-        event = self.conn.execute("SELECT * FROM interview_events").fetchone()
-        self.assertEqual(event["company"],"Team planning")
-        self.assertEqual(event["extraction_rank"],2)
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0],0)
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM classifications").fetchone()[0],0)
-        self.assertIsNone(self.conn.execute("SELECT message_pk FROM interview_sources").fetchone()[0])
-        self.assertFalse(self.collect([self.raw()])["changes"])
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM interview_events").fetchone()[0],1)
-
-    def test_calendar_cancellation_without_start_keeps_original_time(self):
-        self.collect([self.raw()])
-        cancel = ics(sequence=1,method="CANCEL",status="CANCELLED").replace("DTSTART:20261018T153000Z\r\n","").replace("DTEND:20261018T163000Z\r\n","")
-        self.collect([self.raw(message_id="cancel",calendar_data=[cancel])])
-        event = self.conn.execute("SELECT * FROM interview_events").fetchone()
-        self.assertEqual(event["status"],"Cancelled")
-        self.assertEqual(event["start_at"],"2026-10-18T15:30:00+00:00")
-
-    def test_malformed_calendar_does_not_abort_other_events(self):
-        result = self.collect([self.raw(calendar_data=["not a calendar"]),self.raw(message_id="valid")])
-        self.assertTrue(result["errors"])
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM interview_events").fetchone()[0],1)
-
-    def test_graph_calendar_transport_includes_read_invitations_without_requesting_bodies(self):
-        from mailcheck.sources.outlook import OutlookGraphSource
-        source = OutlookGraphSource(label="work",client_id="test")
-        with patch.object(source,"_client"), patch.object(source,"_get",return_value={"value":[]}) as get:
-            list(source.fetch_calendar(datetime.now(timezone.utc).date()))
-            params = get.call_args.args[2]
-            self.assertNotIn("isRead",params["$filter"])
-            self.assertNotIn("body",params["$select"])
-            self.assertEqual(params["$expand"],"attachments")
-
-    def test_calendar_transport_keeps_existing_stored_source_link(self):
-        pk = db.upsert_message(self.conn, NormalizedMessage(account_id=self.a,account_label="work",
-            message_id="calendar-1",uid="1",folder="INBOX",from_addr="sender@example.test",
-            from_name="Sender",subject="Appointment",date_utc=datetime.now(timezone.utc),body="Retained history",
-            calendar_data=self.raw().calendar_data))
-        interviews.process_message(self.conn,pk,{},calendar_only=True)
-        self.collect([self.raw()])
-        self.assertEqual(self.conn.execute("SELECT message_pk FROM interview_sources").fetchone()[0],pk)

@@ -273,3 +273,17 @@ checks pass. The normal app was restarted with the calendar-only web collector.
 Production data was not seeded or deleted; event fixtures remain isolated.
 
 Existing smoke validation: 331 assertions pass with an isolated in-memory test keyring.
+
+## Native calendar event collection
+
+The calendar now reads native Graph calendarView bookings instead of inbox
+attachments. Saved-mail import and the calendar's source-email reader are removed.
+Accounts adds Reconnect for in-place read-only calendar consent. Existing chrome,
+views and responsive calendar layout are preserved.
+
+Validation: 134 backend tests, 86 frontend tests, 331 smoke assertions, production
+TypeScript/Vite build. Browser evidence `/tmp/mailcheck-native-calendar-desktop.png`
+and `/tmp/mailcheck-native-calendar-mobile.png` comes from an isolated native Graph
+transport fixture with seven bookings across two calendars. The real web job, local
+database and UI handle Teams links and native reschedule/cancellation updates.
+Live Microsoft consent and provider credentials are not exercised by the fixture.

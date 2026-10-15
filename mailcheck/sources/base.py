@@ -1,4 +1,4 @@
-"""The pluggable seam. Everything downstream consumes RawMessage.
+"""Provider interfaces: legacy mail transport and separate native calendar bookings.
 
 Adding Gmail API or Microsoft Graph later means a new module here that
 satisfies this protocol — not a refactor of the pipeline.
@@ -10,6 +10,7 @@ from datetime import date
 from typing import Iterator, Protocol, runtime_checkable
 
 from ..models import RawMessage
+from ..calendar_events import CalendarBooking
 
 
 class SourceError(RuntimeError):
@@ -28,5 +29,5 @@ class MailSource(Protocol):
     def fetch_unread(self, since: date) -> Iterator[RawMessage]:
         """Yield unread messages newer than ``since``, without mutating them."""
 
-    def fetch_calendar(self, since: date) -> Iterator[RawMessage]:
-        """Read invitation transport, including already-read invitations."""
+    def fetch_calendar(self, since: date) -> Iterator[CalendarBooking]:
+        """Read native calendar bookings without consulting email."""

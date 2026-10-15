@@ -48,7 +48,7 @@ it("filters real account, company, and status and collects calendar events witho
   fireEvent.change(screen.getByLabelText("Company"),{target:{value:"Acme"}})
   await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes('account=personal')&&url.includes('status=Cancelled')&&url.includes('company=Acme'))).toBe(true))
   fireEvent.click(screen.getByRole("button",{name:"Check now"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/interviews/sync"))
-  fireEvent.click(screen.getByRole("button",{name:"Import saved invitations"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/scan'))
+  expect(screen.queryByRole("button",{name:"Import saved invitations"})).toBeNull()
 })
 it("opens event details and persists only fields explicitly corrected",async()=>{
   mount();await screen.findByRole("button",{name:"Month"})
@@ -56,7 +56,7 @@ it("opens event details and persists only fields explicitly corrected",async()=>
   const dialog=await screen.findByRole("dialog")
   await within(dialog).findByRole("button",{name:"Edit details"})
   expect(within(dialog).getByRole("link",{name:/Open Zoom link/}).getAttribute('href')).toBe('https://zoom.us/j/123')
-  expect(within(dialog).getByRole("button",{name:"View source email"})).toBeTruthy()
+  expect(within(dialog).queryByRole("button",{name:"View source email"})).toBeNull()
   fireEvent.click(within(dialog).getByRole("button",{name:"Edit details"}))
   fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:"Correct Company"}})
   fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))

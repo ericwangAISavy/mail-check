@@ -141,6 +141,7 @@ class AccountBody(BaseModel):
 
 class OutlookStartBody(BaseModel):
     label: str
+    reconnect: bool = False
 
 
 class SettingsBody(BaseModel):
@@ -564,14 +565,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if status and status not in interviews.STATUSES:
             return _err("Unknown interview status")
         with db.session() as conn:
-            events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] == 2 and event["start_at"]]
+            events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] >= 2 and event["start_at"]]
             labels: dict[int, list[str]] = {}
             for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
                 labels.setdefault(source["event_id"],[]).append(source["label"])
             for event in events:
                 event["account_labels"] = labels.get(event["id"],[])
             accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
-            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.extraction_rank=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
+            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
         return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
 
     @app.get("/api/interviews/scan")
@@ -580,36 +581,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/interviews/scan")
     def interview_scan():
-        if not _job_lock.acquire(blocking=False):
-            return _err("A mail check or scan is already running. Wait for it to finish.", 409)
-        _interview_scan.update(running=True, processed=0, total=0, found=0, errors=0)
-        def work():
-            try:
-                cfg = cfgmod.load()
-                with db.session() as conn:
-                    max_id = conn.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
-                    predicate = """m.id<=? AND a.enabled=1 AND m.calendar_data IS NOT NULL AND m.calendar_data != '[]' AND NOT EXISTS (
-                        SELECT 1 FROM interview_scans s WHERE s.message_pk=m.id AND s.retryable=0 AND s.fingerprint LIKE ?)"""
-                    joins = " FROM messages m JOIN accounts a ON a.id=m.account_id "
-                    _interview_scan["total"] = conn.execute("SELECT COUNT(*)"+joins+" WHERE "+predicate,(max_id,interviews.DETECTOR_VERSION+"-calendar:%")).fetchone()[0]
-                    cursor = 0
-                    while True:
-                        rows = conn.execute("SELECT m.id"+joins+" WHERE "+predicate+" AND m.id>? ORDER BY m.id LIMIT 25",(max_id,interviews.DETECTOR_VERSION+"-calendar:%",cursor)).fetchall()
-                        if not rows: break
-                        for row in rows:
-                            changes = interviews.process_message(conn,row["id"],{},calendar_only=True)
-                            _interview_scan["found"] += len(changes)
-                            _interview_scan["processed"] += 1
-                            scan = conn.execute("SELECT retryable FROM interview_scans WHERE message_pk=?",(row["id"],)).fetchone()
-                            if not scan or scan["retryable"]: _interview_scan["errors"] += 1
-                            cursor = row["id"]
-                            conn.commit()
-                            _job["message"] = f"Scanning stored mail: {_interview_scan['processed']} of {_interview_scan['total']}"
-                    _job.update(message=f"Interview scan complete: {_interview_scan['found']} changes, {_interview_scan['errors']} need retry.",ok=True)
-            finally:
-                _interview_scan["running"] = False
-        _start_job(work, failed="Interview scan failed")
-        return {"ok":True}
+        return _err("Saved-mail scanning has been retired. Use calendar collection to read native meeting events.", 410)
 
     @app.post("/api/interviews/sync")
     def interview_sync(body: CheckBody | None = None):
@@ -1191,8 +1163,11 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if not label:
             return _err("Give the account a label first.")
         with db.session() as conn:
-            if db.get_account(conn, label):
+            existing = db.get_account(conn, label)
+            if existing and not (body.reconnect and existing.provider == "outlook"):
                 return _err(f"An account labelled “{label}” already exists.")
+            if body.reconnect and not existing:
+                return _err("This Outlook account no longer exists.",404)
 
         # A new attempt supersedes whatever was in flight — for this label or
         # any other — so two browser tabs, or a restarted attempt, cannot leave
@@ -1237,7 +1212,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     outlook_auth.delete_cache(label)
                     return
                 with db.session() as conn:
-                    if not db.get_account(conn, label):
+                    current = db.get_account(conn, label)
+                    if body.reconnect and (not current or not email or email.casefold() != current.email.casefold()):
+                        outlook_auth.delete_cache(label)
+                        _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
+                        return
+                    if not current:
                         db.add_account(
                             conn, label=label, email=email or label, provider="outlook"
                         )
