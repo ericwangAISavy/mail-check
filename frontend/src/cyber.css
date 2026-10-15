@@ -293,3 +293,18 @@ h2 { font-family: var(--display-font); font-weight: 600; }.card-title-row h2, .e
 @container (max-width: 639px) {
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Join the navigation chrome to the viewport and to each other. */
+.app-frame, .app-frame.sidebar-collapsed { padding: 0; gap: 0; }
+.sidebar { top: 0; height: 100dvh; border-radius: 0; }
+.topbar { top: 0; border-radius: 0; }
+@media (max-width: 700px) {
+  .sidebar, .sidebar-collapsed .sidebar { inset: 0 auto 0 0; top: 0; height: 100dvh; transform: translateX(-100%); }
+  .sidebar.mobile-open { transform: translateX(0); }
+}
+
+@media (min-width: 701px) {
+  .app-frame, .app-frame.sidebar-collapsed { display: grid; }
+  .sidebar, .sidebar-collapsed .sidebar { position: sticky; inset: auto; top: 0; width: auto; transform: none; }
+  .mobile-menu { display: none; }
+}

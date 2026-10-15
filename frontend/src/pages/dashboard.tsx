@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { CartesianGrid, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, Inbox, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
+import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Bootstrap, Message } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -145,10 +145,6 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     </Card>
       </div></div>
       <aside className="dashboard-rail" aria-label="Mail information">
-        <Card className="recent-events"><div className="rail-heading"><p className="eyebrow">RECENT MAIL EVENTS</p><a href="#message-explorer" onClick={() => setExplorerOpen(true)}>View all <ArrowRight size={14} /></a></div><p className="rail-context">Stored mail in this view · received time</p>
-          {pageInfo?.items.length ? <ol className="mail-timeline">{pageInfo.items.slice(0, 4).map((row) => <li key={row.pk}><Mail size={19} /><button onClick={() => openMessage(row)}><strong>{row.subject || "(no subject)"}</strong><span>{row.category_label} · {row.account_label}</span></button><time dateTime={row.received_at}>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</time></li>)}</ol> : <div className="rail-empty"><Inbox size={24} /><p>No stored mail in this view.</p></div>}
-          <p className="last-check-label">{bootstrap.last_run}</p>
-        </Card>
         <Card className="account-status-panel"><div className="rail-heading"><p className="eyebrow">ACCOUNT STATUS</p>{!readOnly && <Link to="/accounts">Manage accounts <ArrowRight size={14} /></Link>}</div>
           {!readOnly && accountDetails.error && <p role="alert" className="inline-error">Account status could not be loaded.</p>}
           {accounts?.accounts.length ? <ul className="account-status-list">{accounts.accounts.map((account) => {

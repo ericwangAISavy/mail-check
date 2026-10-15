@@ -27,6 +27,8 @@ function ChangeInterview() { const navigate=useNavigate(); return <button data-t
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client);render(<QueryClientProvider client={client}><MemoryRouter><ChangeInterview/><ToastProvider><InterviewsPage bootstrap={bootstrap}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
 it("renders real records in month, week, and day views with date navigation",async()=>{
   mount();await screen.findByRole("button",{name:"Month"})
+  expect(screen.getByRole("button",{name:"Work week"}).getAttribute("aria-pressed")).toBe("true")
+  fireEvent.click(screen.getByRole("button",{name:"Month"}))
   await waitFor(()=>expect(document.querySelectorAll('.calendar-day').length).toBe(42))
   expect(document.querySelector('.calendar-day .interview-event')).toBeTruthy()
   fireEvent.click(screen.getByRole("button",{name:"Week"}));expect(document.querySelectorAll('.calendar-day').length).toBe(7)
@@ -35,8 +37,9 @@ it("renders real records in month, week, and day views with date navigation",asy
   fireEvent.click(screen.getByRole("button",{name:"Next calendar period"}));expect(document.querySelector('.calendar-day')!.getAttribute('aria-label')).not.toBe(day)
   fireEvent.click(screen.getByRole("button",{name:"Today"}));expect(document.querySelector('.calendar-day')!.getAttribute('aria-label')).toBe(day)
 })
-it("filters real account, company, and status and uses the shared mail check",async()=>{
+it("filters real account, company, and status and collects calendar events without a model",async()=>{
   mount();await screen.findByRole("button",{name:"Month"})
+  fireEvent.click(screen.getByRole("button",{name:"Filter"}))
   fireEvent.change(screen.getByLabelText("Account"),{target:{value:"personal"}})
   await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes("account=personal"))).toBe(true))
   await screen.findByRole("button",{name:"Month"})
@@ -44,8 +47,8 @@ it("filters real account, company, and status and uses the shared mail check",as
   await screen.findByRole("button",{name:"Month"})
   fireEvent.change(screen.getByLabelText("Company"),{target:{value:"Acme"}})
   await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes('account=personal')&&url.includes('status=Cancelled')&&url.includes('company=Acme'))).toBe(true))
-  fireEvent.click(screen.getByRole("button",{name:"Check now"}));await waitFor(()=>expect(api.startCheck).toHaveBeenCalledTimes(1))
-  fireEvent.click(screen.getByRole("button",{name:"Scan existing mail"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/scan'))
+  fireEvent.click(screen.getByRole("button",{name:"Check now"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/interviews/sync"))
+  fireEvent.click(screen.getByRole("button",{name:"Import saved invitations"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/scan'))
 })
 it("opens event details and persists only fields explicitly corrected",async()=>{
   mount();await screen.findByRole("button",{name:"Month"})
@@ -59,13 +62,14 @@ it("opens event details and persists only fields explicitly corrected",async()=>
   fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{company:'Correct Company'}))
 })
-it("keeps uncertain events out of dated cells and exposes review details",async()=>{
-  current={...event(),start_at:null,end_at:null,display_status:'Needs review',needs_review:true,review_reason:'Timezone unknown'}
+it("shows only dated calendar events without upcoming or review panels",async()=>{
+  current={...event(),start_at:null,end_at:null,display_status:'Needs review',needs_review:true}
   mount();await screen.findByRole("button",{name:"Month"})
-  await waitFor(()=>expect(document.querySelector('.interview-rail .needs-review')).toBeTruthy())
   expect(document.querySelector('.calendar-day .interview-event')).toBeNull()
-  fireEvent.click(screen.getByRole('button',{name:/Acme, Technical Interview/}))
-  expect(await screen.findByText('Needs review: Timezone unknown')).toBeTruthy()
+  expect(document.querySelector('.interview-agenda')).toBeNull()
+  expect(document.querySelector('.interview-summary')).toBeNull()
+  expect(screen.queryByText('UPCOMING INTERVIEWS')).toBeNull()
+  expect(screen.queryByText('NEEDS REVIEW')).toBeNull()
 })
 it("sends the editor timezone when correcting a date with missing original timezone",async()=>{
   current={...event(),timezone:null}

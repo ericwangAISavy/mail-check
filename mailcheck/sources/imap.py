@@ -67,10 +67,14 @@ class IMAPSource:
         finally:
             _quiet_logout(box)
 
-    def fetch_unread(self, since: date) -> Iterator[RawMessage]:
+    def fetch_calendar(self, since: date) -> Iterator[RawMessage]:
+        """Include read invitations; the consumer persists calendar metadata only."""
+        yield from self.fetch_unread(since, include_read=True)
+
+    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
         box = self._open()
         try:
-            criteria = AND(seen=False, date_gte=since)
+            criteria = AND(date_gte=since) if include_read else AND(seen=False, date_gte=since)
             for msg in box.fetch(criteria, mark_seen=False, bulk=True):
                 yield _to_raw(msg, self.folder)
         except (ImapToolsError, OSError) as exc:

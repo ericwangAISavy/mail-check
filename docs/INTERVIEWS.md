@@ -1,9 +1,36 @@
 # Interview tracking
 
 Interview is an admin-only route at `/interviews`, between Dashboard and Accounts.
-Guest access remains limited to Dashboard. The page has Month, Week and Day views,
-Today/previous/next navigation, enabled-account/company/status filters, real summary
-counts, upcoming interviews, and a paginated review list. No production events are seeded.
+Guest access remains limited to Dashboard. The page defaults to Work week and also has Week, Month and Day views,
+Today/previous/next navigation and enabled-account/company/status filters.
+No production events are seeded.
+
+## Current collection behavior
+
+Web Check now, `/api/check`, `/api/interviews/sync`, and automatic web checks now
+collect explicit VEVENT calendar invitations only. They do not persist new message
+bodies, create classifications, initialize a model, or infer meeting relevance from
+email prose. Existing stored mail and classifications remain available. The CLI mail
+triage commands remain separate and continue their documented mail workflow.
+
+Both connected mailbox transports include read and unread invitations within the
+configured lookback. Microsoft Graph requests invitation attachments and identifying
+metadata without message body fields; IMAP reads MIME transport to locate calendar
+parts. This imports invitations from the configured inbox/folder, not the provider's
+Calendar API: events that exist only on a remote calendar are not synchronized.
+The source is read-only and the existing shared job lock prevents overlapping checks.
+
+Only dated calendar-backed events appear in the calendar. Previously inferred
+text-only events remain stored but are excluded from this view. Event UID, occurrence,
+sequence and revisions still control deduplication and updates. Imported source rows
+retain invitation identifiers and a nullable link to any previously stored mail.
+Repeated collection preserves existing source links. Unknown dates are skipped;
+known cancellations without DTSTART retain the confirmed time. No upcoming/review
+panels or summary cards remain. The optional saved-invitation import reads retained
+calendar attachments without requiring stored classifications or a model.
+
+The implementation history below describes the original extraction feature; the
+current calendar-only collection above supersedes its automatic text inference.
 
 ## Existing architecture reused
 
@@ -193,3 +220,45 @@ and navigation regressions, and the automatic invitation → reschedule → canc
 workflow. Browser tests use the same isolated fixture/provider/model stand-ins
 noted above. The existing API test fixture was changed from a fixed calendar date
 to recent UTC mail after it aged out of the application's real retention window.
+
+## Outlook-style calendar
+
+The calendar uses a compact charcoal Outlook-style toolbar and time grid, with
+sticky weekday headers, half-hour guides, a current-time marker, and an initial
+8 AM scroll position. All 24 hours remain available. Events use their actual times;
+overlapping bookings occupy separate lanes and multi-day bookings are clipped per
+day. Unknown end times are explicitly identified rather than assigned a duration.
+Events without confirmed start times are excluded from the calendar.
+
+View/date navigation and account/company/status filters are reflected in the URL.
+Split view displays separate source-account calendars with synchronized scrolling.
+Share copies the current filtered calendar URL or downloads an RFC 5545 ICS snapshot;
+it does not publish a calendar or send invitations. Print produces a landscape
+calendar. Expand mode supports Escape and keyboard navigation. Clicking an event
+keeps the existing details, source reader and protected local corrections.
+
+Calendar-specific Segoe UI/Arial typography and green/blue/purple account colors
+follow the supplied Outlook reference. The surrounding application retains its
+existing navigation and font scale. This is the local interview calendar; provider
+calendar write synchronization and drag-to-reschedule are not implemented.
+
+Validation: 85 frontend tests, 124 backend tests, strict TypeScript and production
+build pass. Chromium exercises views, history/date navigation, filters, overlap
+placement, account split/scroll, source reader, copy-link, ICS download, print and
+expanded mode at 1616, 1280, 900, 390 and 350px without document overflow or browser
+errors. Export parsing confirms 22 distinct test events; print produces one A4
+landscape page. Test appointments exist only in the isolated QA database.
+
+## Calendar-only simplification validation
+
+130 backend tests and 85 frontend tests pass, including no-model collection, no new
+message/classification rows, text-only exclusion, generic calendar event acceptance,
+repeat-import deduplication, cancellation without DTSTART, source-link preservation,
+Graph metadata-only requests, and both sync endpoints without model configuration.
+Production TypeScript/Vite build passes. Chromium checks joined sidebar/header edges,
+removed Dashboard recent-events and Interview summary/agenda panels, calendar views,
+and no document overflow at 1616, 1280, 900, 390 and 350px. Real provider credentials
+are not exercised by these isolated tests.
+
+The existing smoke runner also passes all 331 assertions using an isolated in-memory
+keyring; no real OS keyring or provider credentials were used.

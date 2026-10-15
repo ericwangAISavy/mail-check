@@ -111,7 +111,11 @@ class OutlookGraphSource:
         if not (data.get("mail") or data.get("userPrincipalName")):
             raise SourceError("Signed in, but Microsoft returned no mailbox address.")
 
-    def fetch_unread(self, since: date) -> Iterator[RawMessage]:
+    def fetch_calendar(self, since: date) -> Iterator[RawMessage]:
+        """Include read invitations; the consumer persists calendar metadata only."""
+        yield from self.fetch_unread(since, include_read=True)
+
+    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
         since_iso = datetime(
             since.year, since.month, since.day, tzinfo=timezone.utc
         ).isoformat().replace("+00:00", "Z")
@@ -119,8 +123,8 @@ class OutlookGraphSource:
         params = {
             # Graph requires the $orderby property to appear first in $filter,
             # or the messages endpoint rejects the query with InefficientFilter.
-            "$filter": f"receivedDateTime ge {since_iso} and isRead eq false",
-            "$select": SELECT,
+            "$filter": f"receivedDateTime ge {since_iso}" + ("" if include_read else " and isRead eq false"),
+            "$select": "id,internetMessageId,subject,from,receivedDateTime,conversationId,internetMessageHeaders" if include_read else SELECT,
             # Invitation attachments arrive with this same read-only mailbox request.
             "$expand": "attachments",
             "$top": str(PAGE_SIZE),

@@ -41,6 +41,14 @@ python -m mailcheck web
 It opens `127.0.0.1:8765` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
 
+Web **Check now** and automatic web checks currently collect calendar invitations
+only, without storing new email bodies or running classification. The Interview
+calendar displays explicit meeting events; existing Dashboard/Triage history remains
+available. Collection reads invitations from connected mailbox folders, including
+read mail, rather than synchronizing the provider Calendar API. See
+[Interview tracking](docs/INTERVIEWS.md) for details. CLI mail-triage commands retain
+their existing behavior.
+
 The web console requires sign-in. Initially use role **Admin** with password
 `admin`, or role **Guest** with password `guest`. Admin can use Triage, Dashboard,
 Accounts, and Settings. Guest can only browse the Dashboard and its stored-message

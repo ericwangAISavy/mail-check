@@ -133,7 +133,7 @@ def _text_fallback(row: dict, cls: dict) -> Extraction:
     return Extraction(is_interview_event=True, company=cls.get("company"), role=cls.get("role"), stage=_stage(text), start_time=start, timezone="UTC" if start and start.endswith(("Z", "+00:00")) else None, event_type="cancelled" if CANCEL.search(row["subject"]) else "rescheduled" if CHANGE.search(row["subject"]) else "scheduled", confidence=.75 if start else .4, ambiguous=not bool(start))
 
 
-def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = None) -> tuple[list[dict], bool]:
+def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = None, calendar_only: bool = False) -> tuple[list[dict], bool]:
     text = row["subject"] + "\n" + (row.get("interview_text") or row.get("body_text") or "")
     calendars = json.loads(row.get("calendar_data") or "[]")
     candidates = []
@@ -145,10 +145,12 @@ def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = N
             method = str(calendar.get("METHOD", "")).upper()
             for component in calendar.walk("VEVENT"):
                 calendar_events = True
+                if calendar_only and not component.get("UID"):
+                    continue
                 summary = str(component.get("SUMMARY", ""))
                 description = str(component.get("DESCRIPTION", ""))
                 # Calendar evidence + classification/context, not every dentist appointment.
-                if cls.get("category") != "interview_invite" and not INTERVIEW_CONTEXT.search(row["subject"] + summary + description) and str(component.get("UID", "")) not in (known_uids or set()):
+                if not calendar_only and cls.get("category") != "interview_invite" and not INTERVIEW_CONTEXT.search(row["subject"] + summary + description) and str(component.get("UID", "")) not in (known_uids or set()):
                     continue
                 start_prop = component.get("DTSTART")
                 end_prop = component.get("DTEND")
@@ -167,7 +169,7 @@ def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = N
                 if not isinstance(attendees, list):
                     attendees = [attendees]
                 url, platform = meeting_link(description + "\n" + str(component.get("LOCATION", "")) + "\n" + str(component.get("URL", "")))
-                company = cls.get("company")
+                company = (summary or (None if method == "CANCEL" else "Meeting")) if calendar_only else cls.get("company")
                 reasons = []
                 if bad_start: reasons.append("Missing or ambiguous calendar time/timezone")
                 if bad_end: reasons.append("Ambiguous end time")
@@ -182,6 +184,8 @@ def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = N
         except Exception:
             calendar_error = True
             log.warning("Invalid interview calendar metadata on local message %s", row.get("id"), exc_info=True)
+    if calendar_only:
+        return [item for item in candidates if item.get("start_at") or item["status"] == "Cancelled" and item.get("calendar_uid") in (known_uids or set())], calendar_error
     if candidates:
         return candidates, calendar_error
     if calendar_events and not calendar_error:
@@ -349,15 +353,15 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
         change = {"id":pk, "status": candidate["status"], "company": candidate.get("company"), "start_at":candidate.get("start_at")}
     key = (candidate.get("calendar_uid") or "") + "|" + candidate.get("recurrence_id", "")
     conn.execute("""INSERT INTO interview_sources (event_id,account_id,message_pk,external_message_id,thread_id,references_json,source_subject,source_sender,source_received_at,candidate_key)
-        VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id,external_message_id,candidate_key) DO UPDATE SET event_id=excluded.event_id,message_pk=excluded.message_pk""", (pk,row["account_id"],row["id"],row["message_id"],row.get("thread_id"),row.get("references_json") or "[]",row["subject"],row.get("from_addr"),row.get("date_utc") or row.get("fetched_at"),key))
+        VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id,external_message_id,candidate_key) DO UPDATE SET event_id=excluded.event_id,message_pk=COALESCE(excluded.message_pk,interview_sources.message_pk)""", (pk,row["account_id"],row["id"],row["message_id"],row.get("thread_id"),row.get("references_json") or "[]",row["subject"],row.get("from_addr"),row.get("date_utc") or row.get("fetched_at"),key))
     return change
 
 
-def process_message(conn, pk: int, cls: dict, *, client=None, force=False) -> list[dict]:
+def process_message(conn, pk: int, cls: dict, *, client=None, force=False, calendar_only=False) -> list[dict]:
     row_obj = db.get_message(conn, pk)
     if not row_obj: return []
     row = dict(row_obj)
-    fingerprint = DETECTOR_VERSION + ":" + hashlib.sha256(json.dumps([row.get(k) for k in ("subject","body_text","calendar_data","thread_id","references_json","interview_text")] + [cls], sort_keys=True).encode()).hexdigest()
+    fingerprint = (DETECTOR_VERSION + ("-calendar" if calendar_only else "")) + ":" + hashlib.sha256(json.dumps([row.get(k) for k in ("subject","body_text","calendar_data","thread_id","references_json","interview_text")] + [cls], sort_keys=True).encode()).hexdigest()
     scan = conn.execute("SELECT * FROM interview_scans WHERE message_pk=?", (pk,)).fetchone()
     if not force and scan and scan["fingerprint"] == fingerprint and not scan["retryable"]:
         return []
@@ -365,7 +369,7 @@ def process_message(conn, pk: int, cls: dict, *, client=None, force=False) -> li
     conn.execute("SAVEPOINT interview_message")
     try:
         known_uids = {r[0] for r in conn.execute("SELECT calendar_uid FROM interview_events WHERE calendar_uid IS NOT NULL")}
-        candidates, retryable = detect(row, cls, client, known_uids=known_uids)
+        candidates, retryable = detect(row, cls, client, known_uids=known_uids, calendar_only=calendar_only)
         changes = [change for item in candidates if (change := reconcile(conn, item, row))]
         conn.execute("INSERT INTO interview_scans VALUES (?,?,?,?) ON CONFLICT(message_pk) DO UPDATE SET fingerprint=excluded.fingerprint,retryable=excluded.retryable,scanned_at=excluded.scanned_at", (pk,fingerprint,int(retryable),db._now()))
         conn.execute("RELEASE interview_message")
@@ -378,26 +382,59 @@ def process_message(conn, pk: int, cls: dict, *, client=None, force=False) -> li
 
 
 def process_run(conn, cfg, result) -> None:
-    # One configured local model client per run; no extra mailbox request/poller.
-    client = None
-    try:
-        if cfg.llm.base_url:
-            client = LLMClient.from_config(cfg.llm, fallback_model=db.last_llm_model(conn))
-        extractor = RunExtractionClient(client) if client else None
-        for item in result.items:
-            row = conn.execute("SELECT id FROM messages WHERE account_id=? AND message_id=?", (item.message.account_id,item.message.message_id)).fetchone()
-            if row:
-                cls = {"category":item.classification.category,"company":item.classification.company,"role":item.classification.role}
-                result.interview_changes.extend(process_message(conn,row["id"],cls,client=extractor))
-        conn.commit()
-    except Exception:
-        log.exception("Interview extension failed; existing mail result remains available")
-    finally:
-        if client:
-            try:
-                client.close()
-            except Exception:
-                log.warning("Interview model client cleanup failed", exc_info=True)
+    """Mail CLI compatibility: import explicit calendar data without inference."""
+    for item in result.items:
+        row = conn.execute("SELECT id FROM messages WHERE account_id=? AND message_id=?", (item.message.account_id,item.message.message_id)).fetchone()
+        if row:
+            result.interview_changes.extend(process_message(conn,row["id"],{},calendar_only=True))
+    conn.commit()
+
+
+def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None):
+    """Read invitation metadata and persist events, never mail or classifications."""
+    from datetime import timedelta
+    from .pipeline import build_source
+    from .sources import SourceError
+    from . import secrets
+    accounts = db.list_accounts(conn, only_enabled=True)
+    if account_label:
+        accounts = [account for account in accounts if account.label == account_label]
+        if not accounts:
+            return {"changes": [], "errors": [f"No enabled account labelled '{account_label}'."], "accounts": 0}
+    since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else cfg.check.lookback_days)).date()
+    changes, errors, checked = [], [], 0
+    for account in accounts:
+        status(f"Collecting calendar invitations from {account.label}…")
+        try:
+            source = build_source(account, cfg)
+            for raw in source.fetch_calendar(since):
+                if not raw.calendar_data:
+                    continue
+                row = dict(id=None,account_id=account.id,message_id=raw.message_id,subject=raw.subject,
+                    from_addr=raw.from_addr,date_utc=raw.date_utc.isoformat() if raw.date_utc else None,
+                    fetched_at=db._now(),calendar_data=json.dumps(raw.calendar_data),
+                    thread_id=raw.thread_id,references_json=json.dumps(raw.references))
+                known_uids = {r[0] for r in conn.execute("SELECT calendar_uid FROM interview_events WHERE calendar_uid IS NOT NULL")}
+                candidates, malformed = detect(row, {}, calendar_only=True, known_uids=known_uids)
+                if malformed:
+                    errors.append(f"[{account.label}] An invitation contained invalid calendar data.")
+                conn.execute("SAVEPOINT calendar_invitation")
+                try:
+                    for candidate in candidates:
+                        change = reconcile(conn,candidate,row)
+                        if change:
+                            changes.append(change)
+                    conn.execute("RELEASE calendar_invitation")
+                    conn.commit()
+                except Exception:
+                    conn.execute("ROLLBACK TO calendar_invitation")
+                    conn.execute("RELEASE calendar_invitation")
+                    errors.append(f"[{account.label}] Could not save an invitation.")
+                    log.exception("Calendar invitation persistence failed")
+            checked += 1
+        except (SourceError, secrets.SecretError) as exc:
+            errors.append(f"[{account.label}] {exc}")
+    return {"changes":changes,"errors":errors,"accounts":checked}
 
 
 def display_event(row: dict, *, now=None) -> dict:

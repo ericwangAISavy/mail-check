@@ -27,3 +27,6 @@ class MailSource(Protocol):
 
     def fetch_unread(self, since: date) -> Iterator[RawMessage]:
         """Yield unread messages newer than ``since``, without mutating them."""
+
+    def fetch_calendar(self, since: date) -> Iterator[RawMessage]:
+        """Read invitation transport, including already-read invitations."""

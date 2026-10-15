@@ -34,7 +34,7 @@ export type Settings = {
 export type ApiResult<T> = T
 
 export type InterviewEvent = {
-  id: number; calendar_uid: string | null; company: string | null; role: string | null
+  id: number; account_labels?: string[]; calendar_uid: string | null; company: string | null; role: string | null
   stage: string; status: string; display_status: string; start_at: string | null; end_at: string | null
   timezone: string | null; meeting_platform: string | null; meeting_url: string | null; location: string | null
   organizer_name: string | null; organizer_email: string | null; participants: string[]; notes: string | null

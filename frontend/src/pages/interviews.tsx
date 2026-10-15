@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, ExternalLink, RefreshCw, ScanSearch } from "lucide-react"
+import { ExternalLink, RefreshCw, ScanSearch } from "lucide-react"
 import { api, request } from "@/lib/api"
 import type { Bootstrap, InterviewData, InterviewEvent, InterviewSource } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -9,40 +9,21 @@ import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Loading, PageHeading, useToast } from "@/components/common"
 import { Reader } from "@/pages/triage"
+import InterviewCalendar from "@/components/interview-calendar"
 import "./interviews.css"
 
-type View = "month" | "week" | "day"
-const key = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`
-const addDays = (date: Date, days: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate()+days)
-const weekStart = (date: Date) => addDays(date, -((date.getDay()+6)%7))
-const time = (value: string | null) => value ? new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit"}).format(new Date(value)) : "Time unknown"
-const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)) : "Unknown"
 const stateClass = (event: InterviewEvent) => event.display_status.toLowerCase().replaceAll(" ","-")
-const onDay = (event: InterviewEvent, date: Date) => {
-  if (!event.start_at) return false
-  const start = new Date(event.start_at), end = event.end_at ? new Date(event.end_at) : start
-  return start < addDays(date,1) && (end > date || key(start) === key(date))
-}
-
-function EventCard({ event, onSelect, compact = false }: {event: InterviewEvent; onSelect: (id: number) => void; compact?: boolean}) {
-  return <button className={`interview-event ${stateClass(event)} ${compact ? "compact" : ""}`} onClick={() => onSelect(event.id)} aria-label={`${event.company || "Unknown company"}, ${event.stage}, ${dateTime(event.start_at)}, ${event.display_status}`}>
-    <span className="event-time">{time(event.start_at)}</span><strong>{event.company || "Unknown company"}</strong>{event.role && <span className="event-role">{event.role}</span>}<span className="event-stage">{event.stage}</span>{event.display_status !== "Scheduled" && <span className="event-status">{event.display_status}</span>}
-  </button>
-}
-
+const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)) : "Unknown"
 export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const toast = useToast(), client = useQueryClient()
   const [params, setParams] = useSearchParams()
-  const [reviewPage, setReviewPage] = useState(0)
-  const [view, setView] = useState<View>("month")
-  const [date, setDate] = useState(() => new Date(new Date().setHours(0,0,0,0)))
   const [selected, setSelected] = useState<number | null>(() => Number(params.get("event")) || null)
   const account = params.get("account") || "", status = params.get("status") || "", company = params.get("company") || ""
   const queryParams = new URLSearchParams()
   if (account) queryParams.set("account",account)
   if (status) queryParams.set("status",status)
   if (company) queryParams.set("company",company)
-  const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:()=>request<InterviewData>(`/api/interviews?${queryParams}`)})
+  const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:()=>request<InterviewData>(`/api/interviews?${queryParams}`),placeholderData:previous=>previous})
   const scan = useQuery({queryKey:["interviews", "scan"],queryFn:()=>request<{running:boolean;processed:number;total:number;found:number;errors:number}>("/api/interviews/scan"),refetchInterval: q=>q.state.data?.running ? 1000 : 10000})
   const seenJob = useRef<number | null>(null)
   const job = useQuery({queryKey:["interview-job"],queryFn:api.status,refetchInterval:2000})
@@ -56,33 +37,17 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   useEffect(() => { setSelected(Number(params.get("event")) || null) },[params])
   const setFilter = (name: string,value: string) => { const next = new URLSearchParams(params); value ? next.set(name,value) : next.delete(name); setParams(next) }
   const select = (id: number | null) => { setSelected(id); const next = new URLSearchParams(params); id ? next.set("event",String(id)) : next.delete("event"); setParams(next,{replace:true}) }
-  useEffect(() => setReviewPage(0), [account,status,company])
-  const events = query.data?.events || []
-  const now = new Date(), today = key(now), startWeek = weekStart(now), endWeek = addDays(startWeek,7)
-  const upcoming = events.filter(e=>e.start_at && new Date(e.start_at)>=now && !["Cancelled","Completed","Needs review"].includes(e.display_status))
-  const review = events.filter(e=>e.needs_review || e.display_status === "Needs review")
-  useEffect(() => setReviewPage(p=>Math.min(p, Math.max(0,Math.ceil(review.length/10)-1))), [review.length])
-  const summary = [ ["Upcoming",upcoming.length], ["This Week",events.filter(e=>e.start_at && new Date(e.start_at)>=startWeek && new Date(e.start_at)<endWeek && e.display_status!=="Cancelled").length], ["Needs Review",review.length], ["Completed",events.filter(e=>e.display_status==="Completed").length] ] as const
-  const days = useMemo(()=>{
-    const first = view === "month" ? weekStart(new Date(date.getFullYear(),date.getMonth(),1)) : view === "week" ? weekStart(date) : date
-    return Array.from({length:view === "month" ? 42 : view === "week" ? 7 : 1},(_,i)=>addDays(first,i))
-  },[date,view])
-  const navigate = (direction: number) => setDate(view === "month" ? new Date(date.getFullYear(),date.getMonth()+direction,1) : addDays(date,direction*(view === "week" ? 7 : 1)))
+  const events = (query.data?.events || []).filter(event=>event.start_at)
   const refresh = async () => { const result = await query.refetch(); toast(result.error ? result.error.message : "Interviews refreshed.",result.error ? "error" : "success") }
-  const check = useMutation({mutationFn:api.startCheck,onSuccess:()=>{toast("Check started. Your inbox stays read-only.","info");void job.refetch()},onError:e=>toast(e.message,"error")})
-  const backfill = useMutation({mutationFn:()=>api.post("/api/interviews/scan"),onSuccess:()=>{toast("Scanning existing local mail for interviews.","info");void scan.refetch();void job.refetch()},onError:e=>toast(e.message,"error")})
-  const heading = view === "month" ? date.toLocaleDateString(undefined,{month:"long",year:"numeric"}) : view === "week" ? `${days[0].toLocaleDateString(undefined,{month:"short",day:"numeric"})} – ${days[6].toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}` : date.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric",year:"numeric"})
+  const check = useMutation({mutationFn:()=>api.post("/api/interviews/sync"),onSuccess:()=>{toast("Calendar collection started.","info");window.dispatchEvent(new Event("mailcheck:check-started"));void job.refetch()},onError:e=>toast(e.message,"error")})
+  const backfill = useMutation({mutationFn:()=>api.post("/api/interviews/scan"),onSuccess:()=>{toast("Importing stored calendar invitations.","info");void scan.refetch();void job.refetch()},onError:e=>toast(e.message,"error")})
+  const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label><Button variant="outline" onClick={()=>backfill.mutate()} disabled={backfill.isPending || job.data?.running || scan.data?.running}><ScanSearch size={16}/>Import saved invitations</Button></Card>
   return <div className="page-wrap interviews-page">
-    <PageHeading eyebrow="INTERVIEW PIPELINE" title="Interviews" description="Interview schedules detected across your connected accounts." action={<div className="interview-actions"><Button variant="outline" onClick={()=>void refresh()} disabled={query.isFetching}><RefreshCw size={16}/>Refresh</Button><Button onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.model || !bootstrap.readiness.accounts}>Check now</Button><Button variant="outline" onClick={()=>setDate(new Date(new Date().setHours(0,0,0,0)))}>Today</Button></div>}/>
-    <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label><Button variant="outline" onClick={()=>backfill.mutate()} disabled={backfill.isPending || job.data?.running || scan.data?.running}><ScanSearch size={16}/>Scan existing mail</Button></Card>
-    {scan.data && (scan.data.running || scan.data.processed>0) && <p className="scan-progress" role="status">{scan.data.running ? "Scanning" : "Last scan"}: {scan.data.processed} of {scan.data.total} messages · {scan.data.found} interview updates{scan.data.errors ? ` · ${scan.data.errors} need retry; run scan again to retry` : ""}{scan.data.running && <progress max={scan.data.total || 1} value={scan.data.processed}/>}</p>}
+    <PageHeading eyebrow="MEETING CALENDAR" title="Interviews" description="Meeting events from calendar invitations across your connected accounts." action={<div className="interview-actions"><Button variant="outline" onClick={()=>void refresh()} disabled={query.isFetching}><RefreshCw size={16}/>Refresh</Button><Button onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>}/>
+
+    {scan.data && (scan.data.running || scan.data.processed>0) && <p className="scan-progress" role="status">{scan.data.running ? "Scanning" : "Last scan"}: {scan.data.processed} of {scan.data.total} invitations · {scan.data.found} event updates{scan.data.errors ? ` · ${scan.data.errors} need retry; run scan again to retry` : ""}{scan.data.running && <progress max={scan.data.total || 1} value={scan.data.processed}/>}</p>}
     {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" onClick={()=>void refresh()}>Try again</Button></div> : <>
-    <div className="interview-summary">{summary.map(([label,count])=><Card key={label}><span>{label}</span><strong>{count}</strong></Card>)}</div>
-    <div className="interview-layout"><Card className="interview-calendar"><div className="calendar-toolbar"><div className="calendar-navigation"><Button variant="ghost" size="icon" aria-label="Previous calendar period" onClick={()=>navigate(-1)}><ChevronLeft/></Button><h2 aria-live="polite">{heading}</h2><Button variant="ghost" size="icon" aria-label="Next calendar period" onClick={()=>navigate(1)}><ChevronRight/></Button></div><div className="calendar-views" role="group" aria-label="Calendar view">{(["month","week","day"] as const).map(v=><Button key={v} size="sm" variant={view===v?"secondary":"ghost"} aria-pressed={view===v} onClick={()=>setView(v)}>{v[0].toUpperCase()+v.slice(1)}</Button>)}</div></div>
-      <p className="calendar-timezone"><Clock3 size={14}/>Times shown in {Intl.DateTimeFormat().resolvedOptions().timeZone}. Original timezone is retained in event details.</p>
-      <div className={`calendar-grid view-${view}`} aria-label={`${view} calendar`}>{view==="month" && ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(day=><div className="calendar-weekday" key={day}>{day}</div>)}{days.map(day=>{const dayEvents=events.filter(e=>onDay(e,day));return <section key={key(day)} className={`calendar-day ${key(day)===today?"is-today":""} ${view==="month" && day.getMonth()!==date.getMonth()?"other-month":""}`} aria-label={day.toLocaleDateString(undefined,{dateStyle:"full"})}><button className="calendar-day-label" onClick={()=>{setDate(day);setView("day")}}>{view==="month" ? day.getDate() : day.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})}{key(day)===today && <span className="sr-only"> Today</span>}</button><div className="calendar-events">{(view==="month"?dayEvents.slice(0,3):dayEvents).map(event=><EventCard key={event.id} event={event} compact={view==="month"} onSelect={select}/>)}{view==="month" && dayEvents.length>3 && <button className="calendar-more" onClick={()=>{setDate(day);setView("day")}}>+{dayEvents.length-3} more</button>}{view!=="month" && !dayEvents.length && <p className="calendar-no-events">No interviews</p>}</div></section>})}</div>
-      {!events.length && <div className="calendar-empty"><CalendarDays size={24}/><p>No interviews match this view. Check your inbox or scan existing mail to discover schedules.</p></div>}
-    </Card><aside className="interview-rail"><Card><p className="eyebrow">UPCOMING INTERVIEWS</p>{upcoming.slice(0,8).map(event=><div key={event.id} className="upcoming-item"><p>{key(new Date(event.start_at!))===today?"TODAY":key(new Date(event.start_at!))===key(addDays(now,1))?"TOMORROW":new Date(event.start_at!).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</p><EventCard event={event} onSelect={select}/></div>)}{!upcoming.length && <p className="rail-empty">No confirmed upcoming interviews.</p>}</Card><Card><p className="eyebrow">NEEDS REVIEW</p><p className="rail-context">Uncertain dates and details stay here until verified.</p>{review.slice(reviewPage*10,(reviewPage+1)*10).map(event=><EventCard key={event.id} event={event} onSelect={select}/>)}{review.length>10 && <div className="review-pagination"><Button size="sm" variant="ghost" disabled={reviewPage===0} onClick={()=>setReviewPage(p=>p-1)}>Previous</Button><span>{reviewPage*10+1}–{Math.min((reviewPage+1)*10,review.length)} of {review.length}</span><Button size="sm" variant="ghost" disabled={(reviewPage+1)*10>=review.length} onClick={()=>setReviewPage(p=>p+1)}>Next</Button></div>}{!review.length && <p className="rail-empty">No interviews need review.</p>}</Card></aside></div></>}
+    <InterviewCalendar events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
     <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails key={selected} id={selected} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
   </div>
 }

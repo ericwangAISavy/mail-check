@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 from .. import config as cfgmod
 from .. import db, outlook_auth, secrets, interviews
 from ..analytics import DashboardFilters, dashboard_data
-from ..pipeline import build_source, check_once, reclassify
+from ..pipeline import build_source, reclassify
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -343,54 +343,13 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
 def _run_check(body: CheckBody) -> None:
     def work():
         cfg = cfgmod.load()
-
-        def event(values: dict) -> None:
-            if values.get("type") == "llm_request_started":
-                _job.update(
-                    message=(f"Classifying batch {values['batch_index']} of "
-                             f"{values['total_batches']} · {values['completed']} of "
-                             f"{values.get('total', '?')} complete"),
-                    stage_started=time.time(),
-                )
-            elif values.get("type") == "model_loading":
-                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
-                            stage_started=time.time())
-            elif values.get("type") == "llm_request" and values.get("outcome") in {
-                "timeout", "busy", "deadline"
-            }:
-                _job.update(message="Ollama busy; remaining mail will retry next check")
-
         with db.session() as conn:
-            result = check_once(
-                conn,
-                cfg,
-                account_label=body.account,
-                since_days=body.since_days,
-                use_cache=not body.no_cache,
-                status=lambda m: _job.update(message=m),
-                progress=lambda done, total: _job.update(
-                    message=f"Classifying… {done} of {total}"
-                ),
-                event=event,
-            )
-        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
-        bits = [f"{result.fetched} unread", f"{result.classified} classified"]
-        if result.from_cache:
-            bits.append(f"{result.from_cache} cached")
-        if result.prefiltered:
-            bits.append(f"{result.prefiltered} filtered locally")
-        if result.pruned:
-            bits.append(f"{result.pruned} aged out")
-        if result.retryable:
-            bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
-        _job.update(
-            message=" · ".join(bits),
-            detail="\n".join(result.errors[:5]),
-            ok=not result.errors or result.retryable > 0,
-        )
-
-    # A manual check counts as a check: restart the clock from now.
-    _start_job(work, failed="Check failed", on_finish=_reschedule)
+            result = interviews.collect_calendar_events(conn, cfg, account_label=body.account,
+                since_days=body.since_days, status=lambda message: _job.update(message=message))
+        _job.update(interview_changes=list({item["id"]:item for item in result["changes"]}.values()),
+            message=f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts",
+            detail="\n".join(result["errors"][:5]),ok=not result["errors"])
+    _start_job(work, failed="Calendar collection failed", on_finish=_reschedule)
 
 
 def _run_reclassify(body: ReclassifyBody) -> None:
@@ -466,7 +425,7 @@ def _scheduler() -> None:
                 continue
 
             state = _state()
-            if not (state["llm_ready"] and state["has_accounts"]):
+            if not state["has_accounts"]:
                 _reschedule(cfg)  # not set up yet; try again next interval
                 continue
             if _job_lock.acquire(blocking=False):
@@ -605,9 +564,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if status and status not in interviews.STATUSES:
             return _err("Unknown interview status")
         with db.session() as conn:
-            events = interviews.list_events(conn, account=account, status=status, company=company)
+            events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] == 2 and event["start_at"]]
+            labels: dict[int, list[str]] = {}
+            for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
+                labels.setdefault(source["event_id"],[]).append(source["label"])
+            for event in events:
+                event["account_labels"] = labels.get(event["id"],[])
             accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
-            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
+            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.extraction_rank=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
         return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
 
     @app.get("/api/interviews/scan")
@@ -620,36 +584,36 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err("A mail check or scan is already running. Wait for it to finish.", 409)
         _interview_scan.update(running=True, processed=0, total=0, found=0, errors=0)
         def work():
-            from contextlib import nullcontext
             try:
                 cfg = cfgmod.load()
                 with db.session() as conn:
                     max_id = conn.execute("SELECT COALESCE(MAX(id),0) FROM messages").fetchone()[0]
-                    predicate = """m.id<=? AND a.enabled=1 AND NOT EXISTS (
+                    predicate = """m.id<=? AND a.enabled=1 AND m.calendar_data IS NOT NULL AND m.calendar_data != '[]' AND NOT EXISTS (
                         SELECT 1 FROM interview_scans s WHERE s.message_pk=m.id AND s.retryable=0 AND s.fingerprint LIKE ?)"""
-                    joins = " FROM messages m JOIN accounts a ON a.id=m.account_id " + db.LATEST_CLASSIFICATION
-                    _interview_scan["total"] = conn.execute("SELECT COUNT(*)"+joins+" WHERE "+predicate,(max_id,interviews.DETECTOR_VERSION+":%")).fetchone()[0]
-                    client_context = interviews.LLMClient.from_config(cfg.llm, fallback_model=db.last_llm_model(conn)) if cfg.llm.base_url else nullcontext(None)
-                    with client_context as client:
-                        extractor = interviews.RunExtractionClient(client, seconds=600) if client else None
-                        cursor = 0
-                        while True:
-                            rows = conn.execute("SELECT m.id,c.category,c.company,c.role"+joins+" WHERE "+predicate+" AND m.id>? ORDER BY m.id LIMIT 25",(max_id,interviews.DETECTOR_VERSION+":%",cursor)).fetchall()
-                            if not rows: break
-                            for row in rows:
-                                changes = interviews.process_message(conn,row["id"],{k:row[k] for k in ("category","company","role")},client=extractor)
-                                _interview_scan["found"] += len(changes)
-                                _interview_scan["processed"] += 1
-                                scan = conn.execute("SELECT retryable FROM interview_scans WHERE message_pk=?",(row["id"],)).fetchone()
-                                if not scan or scan["retryable"]: _interview_scan["errors"] += 1
-                                cursor = row["id"]
-                                conn.commit()
-                                _job["message"] = f"Scanning stored mail: {_interview_scan['processed']} of {_interview_scan['total']}"
+                    joins = " FROM messages m JOIN accounts a ON a.id=m.account_id "
+                    _interview_scan["total"] = conn.execute("SELECT COUNT(*)"+joins+" WHERE "+predicate,(max_id,interviews.DETECTOR_VERSION+"-calendar:%")).fetchone()[0]
+                    cursor = 0
+                    while True:
+                        rows = conn.execute("SELECT m.id"+joins+" WHERE "+predicate+" AND m.id>? ORDER BY m.id LIMIT 25",(max_id,interviews.DETECTOR_VERSION+"-calendar:%",cursor)).fetchall()
+                        if not rows: break
+                        for row in rows:
+                            changes = interviews.process_message(conn,row["id"],{},calendar_only=True)
+                            _interview_scan["found"] += len(changes)
+                            _interview_scan["processed"] += 1
+                            scan = conn.execute("SELECT retryable FROM interview_scans WHERE message_pk=?",(row["id"],)).fetchone()
+                            if not scan or scan["retryable"]: _interview_scan["errors"] += 1
+                            cursor = row["id"]
+                            conn.commit()
+                            _job["message"] = f"Scanning stored mail: {_interview_scan['processed']} of {_interview_scan['total']}"
                     _job.update(message=f"Interview scan complete: {_interview_scan['found']} changes, {_interview_scan['errors']} need retry.",ok=True)
             finally:
                 _interview_scan["running"] = False
         _start_job(work, failed="Interview scan failed")
         return {"ok":True}
+
+    @app.post("/api/interviews/sync")
+    def interview_sync(body: CheckBody | None = None):
+        return api_check(body or CheckBody())
 
     @app.get("/api/interviews/{event_id}")
     def interview_detail(event_id: int):
@@ -1063,8 +1027,6 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.post("/api/check")
     def api_check(body: CheckBody):
         state = _state()
-        if not state["llm_ready"]:
-            return _err("The model endpoint is not configured yet.")
         if not state["has_accounts"]:
             return _err("Add a mail account first.")
         if not _job_lock.acquire(blocking=False):

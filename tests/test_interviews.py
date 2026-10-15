@@ -173,7 +173,7 @@ class InterviewTests(unittest.TestCase):
         msg=normalize.normalize(raw,account_id=self.a,account_label="work",max_body_chars=60)
         self.assertIn(url,msg.interview_text)
         self.assertNotIn(url,msg.body)
-    def test_pipeline_runs_interview_extension_even_with_unclassified_result(self):
+    def test_pipeline_does_not_infer_events_from_unclassified_text(self):
         pk,msg=self.message()
         cfg=config.Config();cfg.llm.base_url=""
         with patch.object(pipeline,"fetch_account",return_value=[msg]),patch.object(pipeline,"classify",return_value=([Classification(category="unclassified",retryable=True)],[])),patch.object(pipeline,"LLMClient") as llm:
@@ -181,7 +181,7 @@ class InterviewTests(unittest.TestCase):
             result=pipeline.check_once(self.conn,cfg,since_days=90,use_cache=False,account_label="work")
         self.assertEqual(result.fetched,1)
         self.assertIsNotNone(db.get_message(self.conn,pk))
-        self.assertEqual(len(self.events()),1)
+        self.assertEqual(len(self.events()),0)
     def test_pipeline_lifecycle_and_reprocess_no_second_fetch(self):
         cfg=config.Config();cfg.llm.base_url=""
         _,first=self.message(calendar_data=[ics()])
@@ -212,10 +212,11 @@ class InterviewApiTests(unittest.TestCase):
         p=patch.object(web._scheduler_started,"is_set",return_value=True);p.start();self.addCleanup(p.stop)
         self.client=TestClient(web.create_app());self.addCleanup(self.client.close)
     def test_interview_routes_details_edit_and_guest_authorization(self):
-        pk,_=self.message();self.process(pk,Model());self.conn.commit()
+        pk,_=self.message(calendar_data=[ics()]);self.process(pk);self.conn.commit()
         self.assertEqual(self.client.get("/interviews").status_code,200)
         response=self.client.get("/api/interviews").json()
         self.assertEqual(len(response["events"]),1);self.assertEqual(len(response["accounts"]),2)
+        self.assertEqual(response["events"][0]["account_labels"],["work"])
         self.assertEqual(self.client.get("/api/interviews/1").json()["sources"][0]["message_pk"],pk)
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"Edited"}).status_code,200)
         self.assertEqual(self.client.get("/api/interviews?company=Edited").json()["events"][0]["company"],"Edited")
@@ -224,6 +225,19 @@ class InterviewApiTests(unittest.TestCase):
         for path in ("/interviews","/api/interviews","/api/interviews/1","/api/interviews/scan"):
             self.assertEqual(self.client.get(path).status_code,403)
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"No"}).status_code,403)
+
+    def test_web_check_collects_events_without_configured_model(self):
+        cfg=config.Config();cfg.llm.base_url="";config.save(cfg)
+        result={"changes":[],"errors":[],"accounts":2}
+        with patch.object(interviews,"collect_calendar_events",return_value=result) as collect:
+            self.assertEqual(self.client.post("/api/check",json={}).status_code,200)
+            self.assertTrue(web._job_lock.acquire(timeout=2));web._job_lock.release()
+            self.assertEqual(collect.call_count,1)
+            self.assertEqual(self.client.post("/api/interviews/sync").status_code,200)
+            self.assertTrue(web._job_lock.acquire(timeout=2));web._job_lock.release()
+            self.assertEqual(collect.call_count,2)
+        self.assertNotIn("classified",web._job["message"])
+
 
 class AdditionalReconciliationTests(unittest.TestCase):
     setUp = InterviewTests.setUp
@@ -315,7 +329,7 @@ class InterviewBackfillTests(unittest.TestCase):
         state=self.client.get("/api/interviews/scan").json()
         self.assertEqual(state["processed"],1)
         self.assertEqual(len(self.client.get("/api/interviews").json()["events"]),1)
-        self.assertTrue(self.conn.execute("SELECT fingerprint FROM interview_scans WHERE message_pk=?",(pk,)).fetchone()[0].startswith(interviews.DETECTOR_VERSION+":"))
+        self.assertTrue(self.conn.execute("SELECT fingerprint FROM interview_scans WHERE message_pk=?",(pk,)).fetchone()[0].startswith(interviews.DETECTOR_VERSION+"-calendar:"))
 
 class InterviewReviewRegressionTests(unittest.TestCase):
     setUp = InterviewTests.setUp
@@ -423,3 +437,65 @@ class InterviewReviewRegressionTests(unittest.TestCase):
         self.process(pk,Model(event_type="cancelled",start_time="2026-10-22T10:30:00-05:00",end_time="2026-10-22T11:30:00-05:00"))
         self.assertEqual(len(self.events()),2)
         self.assertEqual([r["status"] for r in self.events()],["Scheduled","Cancelled"])
+
+
+class CalendarOnlyCollectionTests(unittest.TestCase):
+    setUp = InterviewTests.setUp
+
+    def raw(self, **values):
+        fields = dict(message_id="calendar-1",uid="1",folder="INBOX",from_addr="sender@example.test",
+            from_name="Sender",subject="An ordinary appointment",date_utc=datetime.now(timezone.utc),
+            text="Private email body must not be stored",calendar_data=[ics().replace("Acme Technical Interview","Team planning")])
+        fields.update(values)
+        return RawMessage(**fields)
+
+    def collect(self, messages):
+        from types import SimpleNamespace
+        source = SimpleNamespace(fetch_calendar=lambda since: iter(messages))
+        with patch.object(pipeline,"build_source",return_value=source), patch.object(interviews.LLMClient,"from_config",side_effect=AssertionError("No model is allowed")):
+            return interviews.collect_calendar_events(self.conn,config.Config(),account_label="work")
+
+    def test_collects_explicit_events_without_storing_or_classifying_messages(self):
+        result = self.collect([self.raw(),self.raw(message_id="text-only",calendar_data=[],text="Interview on October 18 at 10 AM UTC")])
+        self.assertFalse(result["errors"])
+        self.assertEqual(len(result["changes"]),1)
+        event = self.conn.execute("SELECT * FROM interview_events").fetchone()
+        self.assertEqual(event["company"],"Team planning")
+        self.assertEqual(event["extraction_rank"],2)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0],0)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM classifications").fetchone()[0],0)
+        self.assertIsNone(self.conn.execute("SELECT message_pk FROM interview_sources").fetchone()[0])
+        self.assertFalse(self.collect([self.raw()])["changes"])
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM interview_events").fetchone()[0],1)
+
+    def test_calendar_cancellation_without_start_keeps_original_time(self):
+        self.collect([self.raw()])
+        cancel = ics(sequence=1,method="CANCEL",status="CANCELLED").replace("DTSTART:20261018T153000Z\r\n","").replace("DTEND:20261018T163000Z\r\n","")
+        self.collect([self.raw(message_id="cancel",calendar_data=[cancel])])
+        event = self.conn.execute("SELECT * FROM interview_events").fetchone()
+        self.assertEqual(event["status"],"Cancelled")
+        self.assertEqual(event["start_at"],"2026-10-18T15:30:00+00:00")
+
+    def test_malformed_calendar_does_not_abort_other_events(self):
+        result = self.collect([self.raw(calendar_data=["not a calendar"]),self.raw(message_id="valid")])
+        self.assertTrue(result["errors"])
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM interview_events").fetchone()[0],1)
+
+    def test_graph_calendar_transport_includes_read_invitations_without_requesting_bodies(self):
+        from mailcheck.sources.outlook import OutlookGraphSource
+        source = OutlookGraphSource(label="work",client_id="test")
+        with patch.object(source,"_client"), patch.object(source,"_get",return_value={"value":[]}) as get:
+            list(source.fetch_calendar(datetime.now(timezone.utc).date()))
+            params = get.call_args.args[2]
+            self.assertNotIn("isRead",params["$filter"])
+            self.assertNotIn("body",params["$select"])
+            self.assertEqual(params["$expand"],"attachments")
+
+    def test_calendar_transport_keeps_existing_stored_source_link(self):
+        pk = db.upsert_message(self.conn, NormalizedMessage(account_id=self.a,account_label="work",
+            message_id="calendar-1",uid="1",folder="INBOX",from_addr="sender@example.test",
+            from_name="Sender",subject="Appointment",date_utc=datetime.now(timezone.utc),body="Retained history",
+            calendar_data=self.raw().calendar_data))
+        interviews.process_message(self.conn,pk,{},calendar_only=True)
+        self.collect([self.raw()])
+        self.assertEqual(self.conn.execute("SELECT message_pk FROM interview_sources").fetchone()[0],pk)
