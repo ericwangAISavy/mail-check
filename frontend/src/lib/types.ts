@@ -42,7 +42,7 @@ export type InterviewEvent = {
   created_at: string; updated_at: string
 }
 export type InterviewSource = {
-  id: number; message_pk: number | null; account_label: string; account_email: string
+  account_id?: number; id: number; message_pk: number | null; account_label: string; account_email: string
   source_subject: string; source_sender: string; source_received_at: string; account_enabled: boolean
 }
 export type InterviewData = { companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }

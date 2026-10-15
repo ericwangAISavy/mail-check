@@ -18,7 +18,7 @@ beforeEach(()=>{
   vi.mocked(api.post).mockResolvedValue({ok:true})
   vi.mocked(request).mockImplementation(async(url)=>{
     if(url==="/api/interviews/scan")return {running:false,processed:0,total:0,found:0,errors:0} as any
-    if(url==="/api/interviews/1")return {event:current,sources:[{id:1,message_pk:100,account_label:"work",account_email:"work@example.test",source_subject:"Interview confirmation",source_sender:"recruiter@acme.test",source_received_at:new Date().toISOString()}]} as any
+    if(url==="/api/interviews/1")return {event:current,sources:[{id:1,account_id:1,message_pk:100,account_label:"work",account_email:"work@example.test",source_subject:"Interview confirmation",source_sender:"recruiter@acme.test",source_received_at:new Date().toISOString()}]} as any
     return {events:[current],accounts:[{id:1,label:"work",email:"work@example.test"},{id:2,label:"personal",email:"me@example.test"}],companies:["Acme"],stages:["Technical Interview","Other"],statuses:["Scheduled","Cancelled","Needs review"]} as any
   })
 })
@@ -108,4 +108,11 @@ it("does not protect an unchanged end time when only the start is corrected",asy
   fireEvent.change(within(dialog).getByLabelText("Start date/time"),{target:{value:"2026-10-20T10:00"}})
   fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{start_at:'2026-10-20T10:00',timezone:zone}))
+})
+
+it('opens native application lookup with company, role and the available profile',async()=>{
+ mount();await screen.findByRole('button',{name:'Month'})
+ fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
+ const link=await screen.findByRole('link',{name:/Find application/})
+ expect(link.getAttribute('href')).toBe('/sourcing?q=Acme+Engineer&account=1')
 })

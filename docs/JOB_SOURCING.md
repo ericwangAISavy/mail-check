@@ -1,115 +1,118 @@
-# Job sourcing
+# Native Job sourcing
 
-Job sourcing brings the existing bidder Google spreadsheets into one workspace.
-Google remains the source of truth. App edits update the same files, and clean open
-sheets refresh every 15 seconds and when the window regains focus.
+Mail-check owns and saves job sheets in its SQLite database. Open **Job sourcing**
+to work in a spreadsheet grid, with one workbook per bidder and profile tabs below.
+There is no Google account, OAuth configuration, API quota or synchronization setup.
 
-## Connect Google once
+## Create workbooks and profile sheets
 
-1. In Google Cloud, create a project, enable **Google Sheets API**, and configure
-   the OAuth consent screen. If the app is in testing, add the connecting Google
-   account as a test user. Google's testing-mode refresh tokens can expire after
-   seven days; reconnect when prompted or publish the consent configuration.
-2. Create an OAuth client of type **Web application**. Register the exact app
-   callback URL: `https://your-app-host/api/google/callback`. For local use, register
-   `http://127.0.0.1:8765/api/google/callback` (use the port where mail-check runs).
-   The scheme, host, port, and path must match exactly.
-3. Sign in as Admin. Open **Job sourcing → settings**. Enter the client ID, client
-   secret, and callback URL, save, then choose **Connect Google**.
-4. Consent using the one Google account with edit access to all five spreadsheets.
-   The app requests the Sheets read/write scope. Bidders need no Google connection.
+1. Create bidders and assign email/profile accounts on **Bidder payments**.
+2. As admin, open **Job sourcing → settings**. Select a bidder, name their workbook,
+   and choose **Create workbook**.
+3. Expand that workbook, choose a currently assigned profile, name the sheet and
+   choose **Create profile sheet**. Repeat for each profile/bidder.
+4. Each sheet starts with Company, Role and Job link columns and 100 blank rows.
+   Paste jobs straight into the grid or import a CSV file.
 
-The operating system credential store holds the OAuth client configuration and
-Google tokens; no Google secrets are stored in SQLite or sent to bidders. This
-requires a working OS keyring, such as Windows Credential Manager. Headless servers
-need an appropriate supported keyring backend. An unavailable keyring produces a
-recoverable connection error rather than saving plaintext secrets.
+Admins can read and edit every workbook. Bidders can read, copy, edit, search and
+export only their own workbook. The server enforces these rules on direct API
+requests too. Admins can archive/restore profile sheets in settings. Archiving
+preserves their data. Historical sheets stay with their original bidder if a profile
+assignment ends or an email account is removed.
 
-On HTTPS deployments, use the existing `--secure-cookies` server option and configure
-allowed hosts as described in the main README. Do not expose the initial admin
-password. Changing the admin password preserves Google files and bidder credentials.
+## Bidder sign-in
 
-## Connect the five workbooks
+Use Job sourcing settings to enable each bidder with an initial 8–256 character
+password. Share it privately. Bidders select **Bidder**, choose their name and enter
+their password. No default bidder passwords are created. The key icon lets bidders
+change their own password with their current password. Admins can reset a password
+or disable sign-in; old sessions lose access. Bidder payment totals remain based on
+classified application-confirmation emails, independently of the job sheets.
 
-1. Create each bidder and their email/profile assignments on **Bidder payments**.
-2. In Job sourcing settings, choose a bidder and paste their existing Google Sheets
-   URL. Each bidder has one workbook; each spreadsheet can belong to only one bidder.
-   Connecting verifies that the Google account has edit access.
-3. Expand the workbook and map each Google worksheet to one of that bidder's assigned
-   profiles. Select the header row and Company, Role, and Job link columns. Column
-   letters refer to the original Google sheet. Other columns remain available.
-4. Repeat for all five bidders. Removing a mapping unlinks app access and cached
-   search results; it does not delete anything from Google. To correct a mapping,
-   remove it and map the tab again. Historical tabs remain attached to their bidder
-   even if an assignment ends or an email account is removed.
+## Everyday spreadsheet editing
 
-The editor supports tabs up to 100,000 rows and exposes the first 101 columns.
-Additional remote columns are preserved. Reads use bounded 1,000-row requests.
-Formula cells and rows above/including the selected header are read-only. Edit
-formatting, formulas, protected ranges, and sheet structure directly in Google.
+- Double-click, Enter or F2 to edit. Escape cancels; Enter/Tab commits. Arrows and
+  Tab navigate. Shift-click or drag selects a rectangle. Copy/paste supports TSV,
+  quoted multiline values and blanks from Google Sheets or Excel.
+- Use the toolbar for bold, italic, alignment, wrapping and undo/redo. Formatting is
+  stored separately from values. Text beginning with `=` remains literal text.
+- Insert rows and add/rename custom columns. Choose **Insert / edit** for append,
+  deletion and column actions. Company, Role and Job link columns can be renamed;
+  their job-field identity stays intact and they cannot be deleted.
+- Use the filter icon for find-in-sheet, column filtering and A–Z/Z–A sorting.
+  These are views of stable job rows; editing a sorted row changes that job.
+- Autosave waits 1.2 seconds after committed edits. Active typing is protected from
+  refresh; earlier committed cells wait until editing finishes. Watch for Saved,
+  Saving or an error. Clean sheets refresh every 15 seconds and on focus.
+- A rectangle must fit the current sheet. Add rows/columns or use CSV import if it
+  extends beyond the grid; the app rejects the entire paste instead of cropping it.
+- Limits: 101 columns, 100,000 rows per sheet; 10,000 cells per save, paste or import;
+  50,000 characters per cell; CSV input up to 2 MB. Manual row insertion allows
+  1–1,000 rows at a time; larger CSV imports can use the full cell budget.
 
-## Give bidders access
+This is a job-sourcing spreadsheet editor. Formula calculation, charts and pivot
+tables are outside its scope. Use ordinary values for job records.
 
-In Job sourcing settings, enter an initial password (8–256 characters) beside each
-bidder and choose **Enable sign-in**. Share that password privately. Bidders choose
-**Bidder**, select their name, and enter their individual password. There are no
-default bidder passwords. The previous shared Guest login no longer works.
+## Import and export
 
-Bidders see only their own workbook and payment totals. They change their own
-password through the key icon in Job sourcing. Admins can reset a password or disable
-sign-in. Password changes invalidate previous sessions; disabling takes effect on
-the next request. The public name selector contains only enabled names and IDs.
+Choose **Import CSV**, select a file or paste CSV text, then inspect the preview and
+column destinations. With headers enabled, matching column names and Company/Role/
+Job URL aliases map to their respective job fields regardless of order. Unknown
+headers create custom columns. Duplicate destinations or malformed CSV are rejected
+before any rows change. With headers disabled, values follow the sheet’s column order.
 
-## Editing and synchronization
+Choose **Append jobs** to keep existing rows, or **Replace existing rows** and check
+its confirmation to replace the data. Replacement preserves column definitions and
+runs atomically. Failed imports keep the source visible for retry or correction.
+Import/save operation IDs prevent duplicate writes if a response is lost.
 
-- Double-click, Enter, or F2 to edit; arrows and Tab navigate. Shift-click selects
-  a rectangular range for copying or clearing. Paste TSV rectangles from Google
-  Sheets or Excel, including quoted multiline values and empty cells.
-- Autosave runs after 1.2 seconds without an edit. A save writes only changed cells
-  with Google's RAW mode, preserving unrelated formatting and cells. Text beginning
-  with `=` stays literal. Existing formula cells are preserved.
-- **Append jobs** accepts rows without a header in the sheet's column order and
-  appends them to the Google table. Paste at most 10,000 cells per operation.
-- Undo/redo applies within the current editor session. Undoing an acknowledged cell
-  edit makes another checked write. An external sheet change clears positional undo
-  history so it cannot overwrite a different job after a sort. Append is not automatically undone.
-- **Saved to Google** appears only after acknowledgment. A failed/conflicting save
-  keeps the draft in memory and offers a draft download and review/reload controls.
-  Leaving with pending edits prompts before discarding. Signing out clears private
-  editor data. Drafts are not persisted in browser storage.
+**Export CSV** includes the current saved sheet in stored row order, without view
+filters or formatting. Values beginning with spreadsheet formula characters are
+prefixed with an apostrophe so spreadsheet programs treat them as text on opening.
+An exported CSV is an interchange file; use a database backup to preserve styles,
+identities, all workbooks and permissions.
 
-Every write compares the latest Google snapshot with the version opened in the app.
-If another person edits/sorts/inserts rows, the app rejects a stale save and asks you
-to compare your draft with Google. This preflight check cannot eliminate a Google
-UI edit occurring between the check and the write: Google Sheets has no atomic
-compare-and-swap API. Avoid simultaneously editing the same rows in both interfaces.
+## Existing Google-backed sheets
 
-A network failure after submitting a save may mean Google applied it. The app does
-not automatically replay ambiguous writes or appends. Open Google, compare the
-current rows, download your draft if useful, then explicitly choose **I reviewed
-Google; reload**. Check whether appended jobs already exist before appending again.
-Successful operation IDs are idempotent; uncertain append operations block additional
-appends until reviewed. Operation records are separate from email retention.
+On upgrade, available cached Google rows are copied once into native sheets. Owner,
+profile labels and mapped job fields are retained. Actual cached hyperlink URLs are
+preserved. Formula cells become their cached displayed values; missing display values
+are flagged in **Imported sheet information**. A sheet without a usable cache starts
+empty and explains that its current jobs must be pasted/imported.
 
-When Google is unavailable, previously cached rows may be displayed with an error;
-editing stays disabled until a successful refresh. Google permission failures prompt
-for reconnection/edit access. Read quota errors respect bounded Retry-After backoff;
-writes are never retried automatically.
+The imported copy may lag the original Google file. To bring over newer data, export
+that file to CSV and use the preview and confirmed replacement, or copy/paste its
+current rows. Do not append the same cached rows again unintentionally.
 
-## Find the application behind an interview
+External Google files and their sharing permissions are untouched. Legacy mapping,
+cache and operation tables are retained for recovery, and stored Google credentials
+are not erased. The active sourcing workflow never reads or writes Google.
 
-Use **Find application** in interview details, or search Job sourcing by company,
-role, job URL, bidder, or profile. Admin searches cover every mapped workbook; bidder
-searches cover only their own. Results include freshness and open the matching sheet
-row. **Refresh all sheets** updates the search copies before searching recent Google
-changes. Search suggests candidates; it does not automatically assert an interview
-match. Sheets do not change payment counts, which still use classified application
-confirmation emails.
+## Concurrent edits and recovery
 
-## Validation
+Cells have stable row/column IDs and versions. Independent edits can merge. Changes
+to the same cell, removed rows/columns and stale structure/import operations return a
+conflict without partially applying the request. Unsaved drafts remain available to
+download, retry or discard/reload. Undo is another checked save; externally changed
+cells clear unsafe history. Navigation, including browser Back between sourcing
+queries, warns about pending edits. Signing out clears private editor data.
 
-Automated tests cover named authentication, owner isolation, Google transport and
-OAuth, formula/header protection, revision conflicts, checked/idempotent saves,
-ambiguous append recovery, and clipboard/draft behavior. Synthetic browser checks
-exercise the editor and two bidder identities. Live Google consent and writes must
-be checked after configuring your OAuth project and connecting the actual files.
+## Application lookup
+
+Search by company, role, job link, bidder, profile or custom-cell text. Admin searches
+cover all active workbooks; bidder searches cover only their own. Results open the
+matching profile and highlight its stable row. **Find application** in interview
+details opens sourcing search. Matches are suggestions for manual review.
+
+## Backup and restore
+
+Native jobs are independent of email-retention pruning. Include the SQLite database
+shown under **Settings** in backups, together with the private `web-auth.json` file
+and configuration. Stop mail-check before copying/restoring the database; copying
+only the main database file while WAL writes are active can miss recent changes.
+For an online backup use SQLite's backup facility, rather than a raw file copy.
+
+To restore, stop the app, retain the current files as a recovery copy, restore the
+trusted database/auth/config backup, then restart. Protect backups because they
+contain application data and password hashes. CSV files alone do not restore the
+complete workspace.

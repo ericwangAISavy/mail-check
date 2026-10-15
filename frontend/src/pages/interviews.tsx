@@ -59,12 +59,15 @@ function InterviewDetails({id,stages,statuses}:{id:number;stages:string[];status
   const query = useQuery({queryKey:["interviews","detail",id],queryFn:()=>request<{event:InterviewEvent;sources:InterviewSource[]}>(`/api/interviews/${id}`)})
   const [editing,setEditing] = useState(false)
   const event = query.data?.event
+  const applicationLookup = new URLSearchParams({q:[event?.company,event?.role].filter(Boolean).join(" ")})
+  const profileIds = [...new Set(query.data?.sources.filter(s=>s.account_enabled!==false).map(s=>s.account_id).filter((id):id is number=>typeof id==="number")||[])]
+  if(profileIds.length===1)applicationLookup.set("account",String(profileIds[0]))
   return <DialogContent className="interview-dialog"><DialogHeader><DialogTitle>{event?.company || "Meeting details"}</DialogTitle><DialogDescription>Calendar event details and local corrections.</DialogDescription></DialogHeader>
     {query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && <>
     <div className="interview-detail-status"><span className={`interview-status ${stateClass(event)}`}>{event.display_status}</span><Button variant="outline" onClick={()=>setEditing(!editing)}>{editing?"Cancel editing":"Edit details"}</Button></div>
     {editing ? <InterviewEditor event={event} stages={stages} statuses={statuses} onSaved={()=>setEditing(false)}/> : <>
       {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify the event details in your calendar."}</p>}
-      <Link className="sheet-google-link" to={`/sourcing?q=${encodeURIComponent(event.company || event.role || "")}`}>Find application <ExternalLink size={14}/></Link>
+      <Link className="interview-meeting-link" to={`/sourcing?${applicationLookup}`}>Find application <ExternalLink size={14}/></Link>
       <dl className="interview-details">{[["Company",event.company],["Role",event.role],["Interview stage",event.stage],["Start",dateTime(event.start_at)],["End",dateTime(event.end_at)],["Original timezone",event.timezone],["Display timezone",Intl.DateTimeFormat().resolvedOptions().timeZone],["Meeting platform",event.meeting_platform],["Location",event.location],["Organizer",[event.organizer_name,event.organizer_email].filter(Boolean).join(" · ")],["Participants",event.participants.join(", ")],["Detected status",event.status],["Last updated",dateTime(event.updated_at)],["Notes",event.notes]].map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value||"Unknown"}</dd></div>)}</dl>
       {event.meeting_url && <a className="interview-meeting-link" href={event.meeting_url} target="_blank" rel="noopener noreferrer">Open {event.meeting_platform || "meeting"} link <ExternalLink size={14}/></a>}
       {!!event.manual_fields.length && <p className="form-hint">Manually corrected fields are protected from later automated updates.</p>}

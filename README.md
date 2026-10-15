@@ -57,7 +57,7 @@ The web console requires sign-in. Initially use role **Admin** with password
 `admin`. Admin can manage the full workspace. Named bidders sign in with their
 own name and password and can access only their Job sourcing workbook and payment
 totals. Enable bidder sign-in and set initial passwords in Job sourcing settings.
-See [Job sourcing setup](docs/JOB_SOURCING.md) for Google connection and permissions.
+See [Job sourcing setup](docs/JOB_SOURCING.md) for native sheets, imports and permissions.
 
 Passwords are stored as salted scrypt hashes in `web-auth.json` next to
 `config.toml`, with private file permissions. Sign-in uses an HttpOnly cookie that
@@ -413,9 +413,10 @@ Monday–Sunday in America/Chicago. See [Bidder payments](docs/BIDDER_PAYMENTS.m
 for setup, counting rules, and payment history behavior.
 
 
-### Google-backed Job sourcing
+### Native Job sourcing
 
-Use Job sourcing to edit existing bidder Google Sheets in one spreadsheet workspace,
-with profile tabs, rectangular copy/paste, checked autosaves, and application search
-from interview details. Each named bidder can access only their own workbook.
-See [Job sourcing setup and synchronization](docs/JOB_SOURCING.md).
+Use Job sourcing to keep bidder job applications in mail-check’s own spreadsheet
+workspace: profile tabs, rectangular copy/paste, formatting, sorting/filtering, checked
+autosaves, CSV import/export, and application search from interview details. Each
+named bidder can access only their own workbook. No Google connection is required.
+See [Job sourcing setup, import and backups](docs/JOB_SOURCING.md).

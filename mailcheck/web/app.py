@@ -574,7 +574,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
         path = request.url.path
-        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders", "/api/google/callback") or path.startswith(("/assets/", "/static/"))
+        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
         try:
             identity = auth.identity(request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder":

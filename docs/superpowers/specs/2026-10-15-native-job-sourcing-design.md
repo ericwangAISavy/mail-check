@@ -1,7 +1,7 @@
 # Native mail-check job sheets
 
 Date: 2026-10-15
-Status: Revised design for review; implementation has not started
+Status: Implemented and verified locally; see [verification](../verification/2026-10-15-native-job-sourcing.md)
 Supersedes: Google-backed sourcing design and synchronization implementation plan.
 
 ## User's revised choice
