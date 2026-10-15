@@ -123,6 +123,7 @@ def _to_raw(msg, folder: str) -> RawMessage:
         subject=msg.subject or "(no subject)",
         date_utc=dt,
         text=msg.text or msg.html or "",
+        original_html=getattr(msg, "html", None) or None,
         calendar_data=imap_calendars(msg),
         references=message_references(headers),
     )

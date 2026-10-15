@@ -404,3 +404,10 @@ forwards API requests to the local FastAPI console.
 Runs the whole pipeline against a fake mailbox and a fake model — including the malformed-JSON
 paths — with no network and no credentials. See [docs/DESIGN.md](docs/DESIGN.md) for the
 architecture and the reasoning behind each decision.
+
+### Bidder payments
+
+Admins can assign accounts to bidders and record manual weekly payments. Guests
+can view all bidders’ daily and weekly “Application received” totals. Weeks run
+Monday–Sunday in America/Chicago. See [Bidder payments](docs/BIDDER_PAYMENTS.md)
+for setup, counting rules, and payment history behavior.

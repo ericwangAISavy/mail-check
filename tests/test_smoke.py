@@ -1465,8 +1465,8 @@ def test_graph_source():
         check("paged through @odata.nextLink", len(got) == 2, f"got {len(got)}")
         check("  bearer token sent",
               any(h.get("Authorization") == "Bearer fake-token" for h in seen["headers"]))
-        check("  asks Graph for text bodies",
-              any('outlook.body-content-type="text"' in (h.get("Prefer") or "")
+        check("  asks Graph for original HTML bodies",
+              any('outlook.body-content-type="html"' in (h.get("Prefer") or "")
                   for h in seen["headers"]))
         check("  filters to unread within the window",
               any("isRead+eq+false" in p or "isRead%20eq%20false" in p

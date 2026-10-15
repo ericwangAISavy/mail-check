@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type Ref } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowUpRight, CalendarClock, Check, ChevronDown, Clock3, Filter, LoaderCircle, RefreshCw, RotateCcw, Sparkles } from "lucide-react"
+import { EmailContent } from "@/components/email-content"
 import { api, triageParams } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -38,7 +39,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
       {message.summary && <div className="insight-card"><span className="insight-icon"><Sparkles size={15} /></span><p>{message.summary}</p></div>}
       <dl className="message-meta">{message.company && <div><dt>Company</dt><dd>{message.company}</dd></div>}{message.role && <div><dt>Role</dt><dd>{message.role}</dd></div>}<div><dt>Inbox</dt><dd>{message.account_label}</dd></div>{message.confidence > 0 && message.confidence < .5 && <div><dt>Confidence</dt><dd>Low ({Math.round(message.confidence * 100)}%)</dd></div>}{message.source === "prefilter" && <div><dt>Classified by</dt><dd>Local rule</dd></div>}</dl>
       <div className="reader-divider" />
-      {isPending ? <Loading label="Opening message…" /> : error ? <div className="inline-error">{error instanceof Error ? error.message : "Could not open this message."}</div> : <div className="email-body" dangerouslySetInnerHTML={{ __html: data?.body_html || "<p>No message body was stored.</p>" }} />}
+      {isPending ? <Loading label="Opening message…" /> : error ? <div className="inline-error">{error instanceof Error ? error.message : "Could not open this message."}</div> : data?.original_html ? <EmailContent html={data.original_html} /> : <div className="email-body" dangerouslySetInnerHTML={{ __html: data?.body_html || "<p>No message body was stored.</p>" }} />}
     </div>
   </article>
 }

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import threading
+import sqlite3
 import time
 import tomllib
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
@@ -17,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets, interviews
+from .. import db, outlook_auth, secrets, interviews, payments
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -238,6 +239,7 @@ class AccountsResponse(BaseModel):
 class ReaderResponse(BaseModel):
     message: MessageSummary
     body_html: str
+    original_html: str | None = None
 
 
 class BootstrapReadiness(BaseModel):
@@ -569,7 +571,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 if role == "guest":
                     if path == "/" and request.method in ("GET", "HEAD"):
                         return RedirectResponse("/dashboard", status_code=303)
-                    guest_read = path in ("/dashboard", "/api/bootstrap", "/api/dashboard", "/api/dashboard/accounts")
+                    guest_read = path in ("/dashboard", "/api/bootstrap", "/api/dashboard", "/api/dashboard/accounts", "/payments", "/api/payments")
                     # The dashboard's reader is read-only. All mutations and
                     # account/settings/triage APIs require admin on the server.
                     guest_read |= path.startswith("/api/messages/") and path.removeprefix("/api/messages/").isdigit()
@@ -578,7 +580,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/payments", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -661,6 +663,64 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err(str(exc),404)
         except (ValueError,TypeError) as exc:
             return _err(str(exc))
+
+    @app.get("/payments")
+    def payments_page():
+        return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
+
+    @app.get("/api/payments")
+    def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
+        with db.session() as conn:
+            return payments.report(conn, week, admin=request.state.role == "admin")
+
+    def payment_write(action):
+        try:
+            with db.session() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                action(conn)
+            return {"ok": True}
+        except LookupError as exc:
+            return _err(str(exc), 404)
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            return _err("A bidder with that name or payment already exists." if isinstance(exc, sqlite3.IntegrityError) else str(exc), 400)
+
+    @app.post("/api/payments/bidders")
+    def create_bidder(body: payments.BidderBody):
+        return payment_write(lambda conn: conn.execute(
+            "INSERT INTO bidders(name,created_at) VALUES(?,?)",
+            (body.name, datetime.now(timezone.utc).isoformat())))
+
+    @app.post("/api/payments/bidders/{bidder_id}")
+    def update_bidder(bidder_id: int, body: payments.BidderBody):
+        def update(conn):
+            payments.bidder(conn, bidder_id)
+            conn.execute("UPDATE bidders SET name=? WHERE id=?", (body.name, bidder_id))
+        return payment_write(update)
+
+    @app.post("/api/payments/bidders/{bidder_id}/assignments")
+    def assign_bidder(bidder_id: int, body: payments.AssignmentBody):
+        return payment_write(lambda conn: payments.assign(conn, bidder_id, body))
+
+    @app.post("/api/payments/assignments/{assignment_id}/end")
+    def end_assignment(assignment_id: int, body: payments.EndAssignmentBody):
+        def finish(conn):
+            row = conn.execute("SELECT * FROM bidder_assignments WHERE id=?", (assignment_id,)).fetchone()
+            if not row:
+                raise LookupError("Assignment not found")
+            if body.end_date.isoformat() < row["start_date"]:
+                raise ValueError("End date must be on or after start date")
+            previous = date.fromisoformat(row["end_date"]) if row["end_date"] else date.max
+            if previous != body.end_date:
+                payments.reject_paid_overlap(conn, min(previous, body.end_date) + timedelta(days=1), max(previous, body.end_date), row["bidder_id"])
+            if conn.execute("SELECT 1 FROM bidder_assignments WHERE account_id=? AND id!=? AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?",
+                (row["account_id"],assignment_id,body.end_date.isoformat(),row["start_date"])).fetchone():
+                raise ValueError("This end date overlaps another assignment")
+            conn.execute("UPDATE bidder_assignments SET end_date=? WHERE id=?", (body.end_date.isoformat(), assignment_id))
+        return payment_write(finish)
+
+    @app.post("/api/payments/bidders/{bidder_id}/paid")
+    def pay_bidder(bidder_id: int, body: payments.PayBody):
+        return payment_write(lambda conn: payments.record_payment(conn, bidder_id, body))
 
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():
@@ -768,7 +828,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             if not row:
                 return _err("No such message.", 404)
             body_html = bodyhtml.render_body(row["body_text"])
-        return {"message": _decorate(row), "body_html": str(body_html)}
+        return {"message": _decorate(row), "body_html": str(body_html),
+                "original_html": bodyhtml.sanitize_original(row["original_html"]) if row["original_html"] else None}
 
     @app.get("/api/accounts", response_model=AccountsResponse)
     def api_accounts():

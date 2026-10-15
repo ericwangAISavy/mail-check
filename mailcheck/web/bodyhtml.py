@@ -255,3 +255,19 @@ def _tidy_rules(blocks: list[str]) -> list[str]:
     while out and out[-1] == "<hr>":
         out.pop()
     return out
+
+
+def sanitize_original(source: str) -> str:
+    """Retain email layout; the client isolates CSS and blocks remote resources."""
+    import nh3
+
+    tags = set(nh3.ALLOWED_TAGS) | {"style", "center", "font"}
+    attributes = {tag: set(attrs) for tag, attrs in nh3.ALLOWED_ATTRIBUTES.items()}
+    attributes["*"] = {"style", "class", "id", "dir", "lang", "align", "width", "height", "valign", "bgcolor", "color"}
+    attributes["table"] = {"cellpadding", "cellspacing", "border", "width", "height", "align", "role"}
+    attributes["font"] = {"face", "size", "color"}
+    attributes.setdefault("a", set()).add("target")
+    return nh3.clean(source, tags=tags, attributes=attributes,
+        clean_content_tags={"script", "iframe", "object", "embed", "form", "svg", "math", "noscript"},
+        url_schemes={"http", "https", "mailto", "tel"},
+        set_tag_attribute_values={"a": {"target": "_blank"}})

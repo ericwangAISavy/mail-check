@@ -52,7 +52,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <main className="sign-in-page"><Card className="sign-in-card">
     <span className="brand-mark"><MailCheck /></span>
     <p className="eyebrow">MAIL-CHECK</p><h1>Sign in</h1>
-    <p className="page-description">Guests can view the Dashboard. Admins can manage the full workspace.</p>
+    <p className="page-description">Guests can view the Dashboard and bidder payment totals. Admins can manage the full workspace.</p>
     {session.error ? <div role="alert" className="inline-error">Could not reach sign-in. <button onClick={() => void session.refetch()}>Try again</button></div> : <form onSubmit={(event) => void signIn(event)}>
       <label className="setting-field"><span>Sign in as</span><select name="username" autoComplete="username" value={role} onChange={(event) => { setRole(event.target.value as Role); setError("") }}><option value="guest">Guest</option><option value="admin">Admin</option></select></label>
       <label className="setting-field"><span>Password</span><input name="password" type="password" autoComplete="current-password" required maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} /></label>

@@ -307,7 +307,7 @@ class InterviewBackfillTests(unittest.TestCase):
         self.conn.execute('PRAGMA user_version=7');self.conn.commit()
         upgraded=db.connect(self.path)
         try:
-            self.assertEqual(upgraded.execute('PRAGMA user_version').fetchone()[0],8)
+            self.assertEqual(upgraded.execute('PRAGMA user_version').fetchone()[0],db.SCHEMA_VERSION)
             self.assertIsNotNone(db.get_message(upgraded,pk)['handled_at'])
             self.assertEqual(db.get_cached(upgraded,pk,'1').category,'interview_invite')
             self.assertEqual(upgraded.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
