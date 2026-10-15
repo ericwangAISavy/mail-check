@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 from .. import config as cfgmod
 from .. import db, outlook_auth, secrets, interviews
 from ..analytics import DashboardFilters, dashboard_data
-from ..pipeline import build_source, reclassify
+from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -115,6 +115,7 @@ class PasswordBody(LoginBody):
 
 
 class CheckBody(BaseModel):
+    mode: Literal["mail", "calendar"] = "mail"
     account: str | None = None
     since_days: int | None = Field(default=None, ge=1, le=3650)
     no_cache: bool = False
@@ -342,6 +343,63 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
 
 
 def _run_check(body: CheckBody) -> None:
+    if body.mode == "calendar":
+        _run_calendar_check(body)
+        return
+
+    def work():
+        cfg = cfgmod.load()
+
+        def event(values: dict) -> None:
+            if values.get("type") == "llm_request_started":
+                _job.update(
+                    message=(f"Classifying batch {values['batch_index']} of "
+                             f"{values['total_batches']} · {values['completed']} of "
+                             f"{values.get('total', '?')} complete"),
+                    stage_started=time.time(),
+                )
+            elif values.get("type") == "model_loading":
+                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
+                            stage_started=time.time())
+            elif values.get("type") == "llm_request" and values.get("outcome") in {
+                "timeout", "busy", "deadline"
+            }:
+                _job.update(message="Ollama busy; remaining mail will retry next check")
+
+        with db.session() as conn:
+            result = check_once(
+                conn,
+                cfg,
+                account_label=body.account,
+                since_days=body.since_days,
+                use_cache=not body.no_cache,
+                status=lambda m: _job.update(message=m),
+                progress=lambda done, total: _job.update(
+                    message=f"Classifying… {done} of {total}"
+                ),
+                event=event,
+            )
+        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
+        bits = [f"{result.fetched} unread", f"{result.classified} classified"]
+        if result.from_cache:
+            bits.append(f"{result.from_cache} cached")
+        if result.prefiltered:
+            bits.append(f"{result.prefiltered} filtered locally")
+        if result.pruned:
+            bits.append(f"{result.pruned} aged out")
+        if result.retryable:
+            bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
+        _job.update(
+            message=" · ".join(bits),
+            detail="\n".join(result.errors[:5]),
+            ok=not result.errors or result.retryable > 0,
+        )
+
+    # A manual check counts as a check: restart the clock from now.
+    _start_job(work, failed="Check failed", on_finish=_reschedule)
+
+
+def _run_calendar_check(body: CheckBody) -> None:
     def work():
         cfg = cfgmod.load()
         with db.session() as conn:
@@ -585,7 +643,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/interviews/sync")
     def interview_sync(body: CheckBody | None = None):
-        return api_check(body or CheckBody())
+        return api_check((body or CheckBody()).model_copy(update={"mode": "calendar"}))
 
     @app.get("/api/interviews/{event_id}")
     def interview_detail(event_id: int):
@@ -1001,6 +1059,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         state = _state()
         if not state["has_accounts"]:
             return _err("Add a mail account first.")
+        if body.mode == "mail" and not state["llm_ready"]:
+            return _err("The model endpoint is not configured yet.")
         if not _job_lock.acquire(blocking=False):
             return _err("A check is already running.", 409)
         _run_check(body)

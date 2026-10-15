@@ -226,11 +226,11 @@ class InterviewApiTests(unittest.TestCase):
             self.assertEqual(self.client.get(path).status_code,403)
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"No"}).status_code,403)
 
-    def test_web_check_collects_events_without_configured_model(self):
+    def test_calendar_check_collects_events_without_configured_model(self):
         cfg=config.Config();cfg.llm.base_url="";config.save(cfg)
         result={"changes":[],"errors":[],"accounts":2}
         with patch.object(interviews,"collect_calendar_events",return_value=result) as collect:
-            self.assertEqual(self.client.post("/api/check",json={}).status_code,200)
+            self.assertEqual(self.client.post("/api/check",json={"mode":"calendar"}).status_code,200)
             self.assertTrue(web._job_lock.acquire(timeout=2));web._job_lock.release()
             self.assertEqual(collect.call_count,1)
             self.assertEqual(self.client.post("/api/interviews/sync").status_code,200)

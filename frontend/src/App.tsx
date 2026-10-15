@@ -73,6 +73,7 @@ function Countdown({ nextIn, receivedAt, onDue }: { nextIn: number; receivedAt: 
 }
 
 function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
+  const calendarOnly = useLocation().pathname === "/interviews"
   const queryClient = useQueryClient()
   const toast = useToast()
   const [status, setStatusValue] = useState<Awaited<ReturnType<typeof api.status>> | null>(null)
@@ -142,8 +143,8 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 
   const runCheck = async () => {
     try {
-      await api.startCheck()
-      toast("Check started. Your inbox stays read-only.", "info")
+      await api.startCheck(calendarOnly ? "calendar" : "mail")
+      toast(calendarOnly ? "Calendar collection started." : "Email check started. Your inbox stays read-only.", "info")
       pollNow.current()
     } catch (error) { toast(error instanceof Error ? error.message : "Could not start the check.", "error") }
   }
@@ -169,7 +170,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
       {!status?.running && scheduled && status?.next_in != null && <Countdown nextIn={status.next_in} receivedAt={receivedAt} onDue={onDue} />}
     </span>
     <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} title={status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>
-    <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.accounts}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>
+    <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.accounts || (!calendarOnly && !bootstrap.readiness.model)}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>
   </div>
 }
 

@@ -6,7 +6,10 @@ seeded, and existing mail history is preserved.
 
 ## Collection
 
-Web Check now (`/api/check` and `/api/interviews/sync`) and automatic web checks
+On Triage, Check now (`/api/check`, default `mode: "mail"`) and automatic web
+checks fetch unread emails from all enabled accounts and classify them into the
+existing categories. On Interview, both Check now buttons use calendar-only
+collection (`/api/check` with `mode: "calendar"`, or `/api/interviews/sync`) and
 read native calendar events using Microsoft Graph. The collector lists every
 accessible calendar and reads each calendar's `calendarView`, following calendar
 and event pagination. The date window runs from the configured lookback through

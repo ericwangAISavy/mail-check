@@ -41,10 +41,12 @@ python -m mailcheck web
 It opens `127.0.0.1:8765` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
 
-Web **Check now** and automatic web checks collect native calendar bookings from
+On Triage, **Check now** and automatic web checks fetch and classify unread mail
+from all enabled accounts using the existing categories. On Interview, both
+**Check now** buttons collect native calendar bookings from
 connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
 phone and in-person bookings are included without reading inbox messages or running
-classification. Existing Dashboard/Triage history remains available. Calendar
+classification. Calendar
 collection requires read-only `Calendars.Read`; reconnect existing Outlook accounts
 in Accounts after adding that permission to your Microsoft application. IMAP does
 not expose calendar events and is not used as a fallback. See

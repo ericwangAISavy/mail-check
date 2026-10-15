@@ -143,3 +143,29 @@ class NativeCalendarTests(unittest.TestCase):
         with patch.object(pipeline,"build_source",side_effect=AssertionError("No mail source should be opened")):
             result=interviews.collect_calendar_events(self.conn,config.Config(),account_label="personal")
         self.assertIn('IMAP cannot read calendar events',result['errors'][0])
+
+
+class CheckDispatchTests(unittest.TestCase):
+    def run_check(self, mode):
+        from mailcheck.web import app as web
+        from mailcheck.models import RunResult
+        with patch.object(web, "_start_job", side_effect=lambda work, **kwargs: work()), \
+             patch.object(web.cfgmod, "load", return_value=config.Config()), \
+             patch.object(web.db, "session"), \
+             patch.object(web, "check_once", return_value=RunResult(started_at=datetime.now(timezone.utc))) as mail, \
+             patch.object(web.interviews, "collect_calendar_events", return_value={"changes": [], "accounts": 2, "errors": []}) as calendar:
+            web._run_check(web.CheckBody(**mode))
+        return mail, calendar
+
+    def test_default_check_classifies_mail_for_all_enabled_accounts(self):
+        mail, calendar = self.run_check({})
+        mail.assert_called_once()
+        self.assertIsNone(mail.call_args.kwargs["account_label"])
+        self.assertTrue(mail.call_args.kwargs["use_cache"])
+        calendar.assert_not_called()
+
+    def test_calendar_check_never_runs_mail_classification(self):
+        mail, calendar = self.run_check({"mode": "calendar"})
+        mail.assert_not_called()
+        calendar.assert_called_once()
+        self.assertIsNone(calendar.call_args.kwargs["account_label"])

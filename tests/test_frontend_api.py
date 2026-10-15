@@ -46,6 +46,29 @@ class FrontendApiTests(unittest.TestCase):
         self.assertIn("Starting mail-check", response.text)
         self.assertIn("reload this page", response.text)
 
+    def test_check_routes_select_mail_or_calendar_and_share_lock(self):
+        with patch.object(web_app, "_state", return_value={"has_accounts": True, "llm_ready": True}), \
+             patch.object(web_app, "_job_lock") as lock, \
+             patch.object(web_app, "_run_check") as run:
+            lock.acquire.return_value = True
+            for path, body, expected in [
+                ("/api/check", {}, "mail"),
+                ("/api/check", {"mode": "calendar"}, "calendar"),
+                ("/api/interviews/sync", {"mode": "mail"}, "calendar"),
+            ]:
+                self.assertEqual(self.client.post(path, json=body).status_code, 200)
+                self.assertEqual(run.call_args.args[0].mode, expected)
+            lock.acquire.return_value = False
+            self.assertEqual(self.client.post("/api/check", json={}).status_code, 409)
+
+    def test_only_mail_checks_require_a_model(self):
+        with patch.object(web_app, "_state", return_value={"has_accounts": True, "llm_ready": False}), \
+             patch.object(web_app, "_job_lock"), patch.object(web_app, "_run_check") as run:
+            self.assertEqual(self.client.post("/api/check", json={}).status_code, 400)
+            run.assert_not_called()
+            self.assertEqual(self.client.post("/api/interviews/sync").status_code, 200)
+            self.assertEqual(run.call_args.args[0].mode, "calendar")
+
     def add_message(self, key, *, category="interview_invite", done=False):
         message = NormalizedMessage(
             account_id=self.account_id,

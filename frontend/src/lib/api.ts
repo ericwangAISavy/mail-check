@@ -20,8 +20,8 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
 }
 
 export const api = {
-  startCheck: async (): Promise<{ ok: boolean }> => {
-    const result = await api.post<{ ok: boolean }>("/api/check", {})
+  startCheck: async (mode: "mail" | "calendar" = "mail"): Promise<{ ok: boolean }> => {
+    const result = await api.post<{ ok: boolean }>("/api/check", { mode })
     window.dispatchEvent(new Event("mailcheck:check-started"))
     return result
   },
