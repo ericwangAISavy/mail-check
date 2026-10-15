@@ -19,7 +19,8 @@ def reorder(conn, ids):
     )
 
 
-def insert_rows(conn, tab_id, count, at=None):
+def insert_rows(conn, tab_id, count, at=None, work_date="all"):
+    scope = sheets.date_scope(work_date)
     ids = ordered_rows(conn, tab_id)
     if not 1 <= count <= 10_000 or len(ids) + count > sheets.MAX_ROWS:
         raise ValueError(
@@ -30,8 +31,8 @@ def insert_rows(conn, tab_id, count, at=None):
     offset = ids.index(at) if at else len(ids)
     new = [sheets.new_id() for _ in range(count)]
     conn.executemany(
-        "INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,0)",
-        [(key, tab_id) for key in new],
+        "INSERT INTO native_rows(id,tab_id,position,work_date) VALUES(?,?,0,?)",
+        [(key, tab_id, None if scope == "all" else scope) for key in new],
     )
     reorder(conn, ids[:offset] + new + ids[offset:])
     return new
@@ -57,7 +58,11 @@ def structure(conn, tab, operation, revision, command):
                 if not 1 <= command.get("count", 20) <= 1000:
                     raise ValueError("Insert 1–1,000 rows at a time.")
                 insert_rows(
-                    conn, tab["id"], command.get("count", 20), command.get("at_row_id")
+                    conn,
+                    tab["id"],
+                    command.get("count", 20),
+                    command.get("at_row_id"),
+                    command.get("work_date", "all"),
                 )
             elif action == "delete_rows":
                 ids = command.get("ids", [])
@@ -73,6 +78,20 @@ def structure(conn, tab, operation, revision, command):
                 if len(rows) == len(set(ids)):
                     insert_rows(conn, tab["id"], 1)
                 reorder(conn, ordered_rows(conn, tab["id"]))
+            elif action == "move_date":
+                ids = command.get("ids", [])
+                rows = set(ordered_rows(conn, tab["id"]))
+                if not ids or len(ids) > 1000 or not set(ids) <= rows:
+                    raise ValueError(
+                        "Choose up to 1,000 existing rows from this sheet."
+                    )
+                scope = sheets.date_scope(command.get("work_date", ""))
+                if scope == "all":
+                    raise ValueError("Choose a date or Undated.")
+                conn.executemany(
+                    "UPDATE native_rows SET work_date=? WHERE id=?",
+                    [(scope, key) for key in set(ids)],
+                )
             elif action == "add_column":
                 columns = conn.execute(
                     "SELECT * FROM native_columns WHERE tab_id=? ORDER BY position",
@@ -137,7 +156,7 @@ def structure(conn, tab, operation, revision, command):
         return sheets.snapshot(conn, tab)
 
 
-def append_cells(conn, tab, rows, *, validated_import=False):
+def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
     columns = conn.execute(
         "SELECT id FROM native_columns WHERE tab_id=? ORDER BY position,id",
         (tab["id"],),
@@ -161,7 +180,7 @@ def append_cells(conn, tab, rows, *, validated_import=False):
     existing = ordered_rows(conn, tab["id"])
     at_index = (last + 1) if last is not None else 0
     at = existing[at_index] if at_index < len(existing) else None
-    ids = insert_rows(conn, tab["id"], len(rows), at)
+    ids = insert_rows(conn, tab["id"], len(rows), at, work_date)
     conn.executemany(
         "INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)",
         [
@@ -173,12 +192,18 @@ def append_cells(conn, tab, rows, *, validated_import=False):
     )
 
 
-def append(conn, tab, operation, revision, rows):
-    payload = {"action": "append", "revision": revision, "rows": rows}
+def append(conn, tab, operation, revision, rows, *, work_date="all"):
+    sheets.date_scope(work_date)
+    payload = {
+        "action": "append",
+        "revision": revision,
+        "rows": rows,
+        **({"work_date": work_date} if work_date != "all" else {}),
+    }
     with sheets.atomic(conn):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
-            append_cells(conn, tab, rows)
+            append_cells(conn, tab, rows, work_date=work_date)
             sheets.record_operation(
                 conn, tab["id"], operation, payload, structural=True
             )

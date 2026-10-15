@@ -30,6 +30,8 @@ export function SheetGrid({
   onSelection,
   onResize,
   onEditingChange,
+  onHeaderChange,
+  headersEditable = true,
 }: {
   snapshot: Snapshot;
   headerRow?: number;
@@ -41,6 +43,8 @@ export function SheetGrid({
   onSelection?: (selection: Selection) => void;
   onResize?: (col: number, width: number) => void;
   onEditingChange?: (active: boolean) => void;
+  onHeaderChange?: (col: number, title: string) => void;
+  headersEditable?: boolean;
 }) {
   const grid = useRef<DataGridHandle>(null),
     anchor = useRef({ row: 1, col: 0 }),
@@ -97,11 +101,13 @@ export function SheetGrid({
   useEffect(() => {
     const index =
       highlightRow === undefined ? -1 : visible.indexOf(highlightRow);
-    if (index >= 0) {
-      grid.current?.scrollToCell({ rowIdx: index, idx: 1 });
-      grid.current?.setActivePosition({ rowIdx: index, idx: 1 });
-    }
-  }, [highlightRow]);
+    const rowIdx = index >= 0 ? index : Math.min(1, visible.length - 1);
+    anchor.current = { row: rowIdx, col: 0 };
+    selected.current = anchor.current;
+    setPosition(anchor.current);
+    grid.current?.scrollToCell({ rowIdx, idx: 1 });
+    grid.current?.setActivePosition({ rowIdx, idx: 1 });
+  }, [highlightRow, view.day]);
   useEffect(() => () => stopDrag.current(), []);
   const apply = (values: Change[]) => {
     if (disabled) return;
@@ -139,7 +145,7 @@ export function SheetGrid({
       frozen: true,
       renderCell: ({ row }) => (
         <span className="sheet-row-number">
-          {(indices.get(row.id) ?? row.id) + 1}
+          {row.id === 0 ? "" : (indices.get(row.id) ?? row.id)}
         </span>
       ),
     },
@@ -148,7 +154,8 @@ export function SheetGrid({
       name: columnName(c),
       width: definition.width || 220,
       resizable: !disabled,
-      editable: (row) => !disabled && row.id > 0,
+      editable: (row) =>
+        !disabled && (row.id > 0 || (!!onHeaderChange && headersEditable)),
       renderEditCell: (props) => (
         <NativeCellEditor {...props} onEditingChange={onEditingChange} />
       ),
@@ -200,7 +207,7 @@ export function SheetGrid({
       <div className="sheet-formula-bar">
         <span>
           {columnName(position.col)}
-          {position.row + 1}
+          {position.row || ""}
         </span>
         <i>fx</i>
         <span>{String(rows[position.row]?.[String(position.col)] ?? "")}</span>
@@ -257,15 +264,23 @@ export function SheetGrid({
           document.addEventListener("mousemove", move);
           document.addEventListener("mouseup", stop);
         }}
-        onRowsChange={(next, { indexes, column }) =>
-          apply(
-            indexes.map((index) => ({
-              row: next[index].id,
-              col: Number(column.key),
-              value: String(next[index][column.key]),
-            })),
-          )
-        }
+        onRowsChange={(next, { indexes, column }) => {
+          if (indexes.length === 1 && next[indexes[0]].id === 0) {
+            const title = String(next[indexes[0]][column.key]).trim();
+            if (!title) {
+              window.alert("Enter a column title of 1–100 characters.");
+              return;
+            }
+            onHeaderChange?.(Number(column.key), title);
+          } else
+            apply(
+              indexes.map((index) => ({
+                row: next[index].id,
+                col: Number(column.key),
+                value: String(next[index][column.key]),
+              })),
+            );
+        }}
         onColumnResize={(column, width) => {
           if (column.key !== "id")
             onResize?.(Number(column.key), Math.round(width));
@@ -302,6 +317,12 @@ export function SheetGrid({
         onCellPaste={({ row, column }, event) => {
           event.preventDefault();
           if (disabled) return row;
+          if (row.id === 0) {
+            window.alert(
+              "Double-click a column title to rename it. Paste job rows below the titles.",
+            );
+            return row;
+          }
           const matrix = parseTSV(event.clipboardData.getData("text/plain")),
             start = indices.get(row.id) ?? 0;
           if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {
@@ -367,7 +388,7 @@ function NativeCellEditor({
       ref={input}
       className="native-cell-input"
       aria-label="Edit cell"
-      maxLength={50000}
+      maxLength={row.id === 0 ? 100 : 50000}
       value={String(row[column.key])}
       onChange={(e) => onRowChange({ ...row, [column.key]: e.target.value })}
       onBlur={() => onClose(true, false)}

@@ -29,8 +29,29 @@ change their own password with their current password. Admins can reset a passwo
 or disable sign-in; old sessions lose access. Bidder payment totals remain based on
 classified application-confirmation emails, independently of the job sheets.
 
+## Daily job lists
+
+Each profile opens on **Today** in America/Chicago. Use the date picker, previous /
+next arrows, or **History** to work on another day. Only that day's jobs appear;
+earlier jobs remain saved. Blank template rows are available for new jobs. Typing,
+pasting, inserting or importing jobs assigns them to the selected day.
+
+Existing jobs have no inferred date. Open **Undated**, select a job or a rectangle
+of jobs, click **Assign date**, choose their intended day and confirm. The editor
+opens that day after moving them. Assign date can also reschedule jobs from one day
+to another, or return them to Undated. Select at most 1,000 jobs per move.
+
+CSV import appends to the selected day. **Replace existing rows** replaces only
+that day's rows; other days and Undated remain intact. CSV export includes only
+the selected day and includes the day in its filename. Search covers every saved
+day and opens a match on its own day. Profile tabs and column titles are shared
+across all days. Switching days is blocked while edits or imports are pending;
+undo history clears on a day change so it cannot affect another day's jobs.
+
 ## Everyday spreadsheet editing
 
+- Double-click a column title to rename it directly; its Company/Role/Job link
+  identity stays intact. The title row has no number; job rows start at 1.
 - Double-click, Enter or F2 to edit. Escape cancels; Enter/Tab commits. Arrows and
   Tab navigate. Shift-click or drag selects a rectangle. Copy/paste supports TSV,
   quoted multiline values and blanks from Google Sheets or Excel.
@@ -62,11 +83,11 @@ headers create custom columns. Duplicate destinations or malformed CSV are rejec
 before any rows change. With headers disabled, values follow the sheet’s column order.
 
 Choose **Append jobs** to keep existing rows, or **Replace existing rows** and check
-its confirmation to replace the data. Replacement preserves column definitions and
+its confirmation to replace the selected day’s data. Replacement preserves column definitions and
 runs atomically. Failed imports keep the source visible for retry or correction.
 Import/save operation IDs prevent duplicate writes if a response is lost.
 
-**Export CSV** includes the current saved sheet in stored row order, without view
+**Export CSV** includes the selected day’s saved rows in stored order, without view
 filters or formatting. Values beginning with spreadsheet formula characters are
 prefixed with an apostrophe so spreadsheet programs treat them as text on opening.
 An exported CSV is an interchange file; use a database backup to preserve styles,

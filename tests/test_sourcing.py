@@ -126,3 +126,38 @@ class SourcingTests(unittest.TestCase):
             },
         )
         self.assertEqual(bad.status_code, 422)
+
+    def test_daily_save_and_export_use_the_requested_date(self):
+        tab = self.setup_tab()
+        base = self.client.get(f"/api/sourcing/tabs/{tab}").json()
+        change = {
+            "row_id": base["row_ids"][1],
+            "column_id": base["columns"][0]["id"],
+            "expected_version": 0,
+            "value": "Dated job",
+        }
+        body = {
+            "operation": "00000000-0000-0000-0000-000000000011",
+            "changes": [change],
+            "work_date": "2026-10-15",
+        }
+        response = self.client.post(f"/api/sourcing/tabs/{tab}/save", json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["row_dates"][1], "2026-10-15")
+        exported = self.client.get(
+            f"/api/sourcing/tabs/{tab}/export?work_date=2026-10-15"
+        )
+        self.assertIn("Dated job", exported.text)
+        self.assertIn("2026-10-15.csv", exported.headers["content-disposition"])
+        self.assertNotIn(
+            "Dated job",
+            self.client.get(f"/api/sourcing/tabs/{tab}/export?work_date=undated").text,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/api/sourcing/tabs/{tab}/export?work_date=2026-02-30"
+            ).status_code,
+            400,
+        )
+        matches = self.client.get("/api/sourcing/search?q=Dated").json()["results"]
+        self.assertEqual(matches[0]["work_date"], "2026-10-15")

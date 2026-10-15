@@ -29,8 +29,17 @@ def parse(text):
 
 
 def import_rows(
-    conn, tab, operation, revision, *, text, mode="append", has_header=True
+    conn,
+    tab,
+    operation,
+    revision,
+    *,
+    text,
+    mode="append",
+    has_header=True,
+    work_date="all",
 ):
+    scope = sheets.date_scope(work_date)
     rows = parse(text)
     headers = rows[0] if has_header else []
     data = rows[1:] if has_header else rows
@@ -42,6 +51,7 @@ def import_rows(
         "text": text,
         "mode": mode,
         "has_header": has_header,
+        **({"work_date": work_date} if work_date != "all" else {}),
     }
     with sheets.atomic(conn):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
@@ -123,17 +133,31 @@ def import_rows(
                         (sheets.new_id(), tab["id"], number, f"Column {number+1}"),
                     )
             if mode == "replace":
-                conn.execute("DELETE FROM native_rows WHERE tab_id=?", (tab["id"],))
-            append_cells(conn, tab, data, validated_import=True)
+                if scope == "all":
+                    conn.execute("DELETE FROM native_rows WHERE tab_id=?", (tab["id"],))
+                else:
+                    conn.execute(
+                        "DELETE FROM native_rows WHERE tab_id=? AND work_date IS ?",
+                        (tab["id"], scope),
+                    )
+                from .sourcing_structure import reorder, ordered_rows
+
+                reorder(conn, ordered_rows(conn, tab["id"]))
+            append_cells(conn, tab, data, validated_import=True, work_date=work_date)
             sheets.record_operation(
                 conn, tab["id"], operation, payload, structural=True
             )
         return sheets.snapshot(conn, tab)
 
 
-def export_rows(conn, tab):
+def export_rows(conn, tab, *, work_date="all"):
+    scope = sheets.date_scope(work_date)
     result = sheets.snapshot(conn, tab)
-    rows = result["rows"]
+    rows = [
+        row
+        for i, row in enumerate(result["rows"])
+        if i == 0 or scope == "all" or result["row_dates"][i] == scope
+    ]
     while len(rows) > 1 and not any(cell["value"] for cell in rows[-1]):
         rows.pop()
     output = io.StringIO(newline="")

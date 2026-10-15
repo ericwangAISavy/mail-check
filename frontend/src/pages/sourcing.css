@@ -557,3 +557,60 @@
   font-size: 12px;
   color: var(--muted-foreground);
 }
+
+.sheet-days {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.sheet-days > svg {
+  color: var(--muted-foreground);
+}
+.sheet-days .btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 3px 7px;
+}
+.sheet-days input,
+.sheet-days select {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  height: 28px;
+  padding: 2px 5px;
+  max-width: 145px;
+}
+.sheet-days input {
+  width: 126px;
+  color-scheme: dark;
+}
+.light .sheet-days input {
+  color-scheme: light;
+}
+.sheet-days button[aria-pressed="true"] {
+  color: var(--primary);
+  background: var(--accent);
+}
+.sheet-day-count {
+  color: var(--muted-foreground);
+  margin-left: 6px;
+}
+.sheet-assign-date {
+  margin-left: auto;
+}
+@media (max-width: 700px) {
+  .sheet-days {
+    padding: 4px;
+    gap: 2px;
+  }
+  .sheet-day-count {
+    margin-left: 0;
+  }
+}

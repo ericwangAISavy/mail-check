@@ -291,3 +291,114 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.assertEqual(len(result["rows"]), 2001)
         self.assertEqual(result["rows"][2000][0]["value"], "Company 1999")
+
+    def test_dated_save_claims_blank_rows_and_prevents_cross_day_edits(self):
+        base = self.snapshot()
+        result = self.native.save(
+            self.conn,
+            self.tab(),
+            "today-save",
+            [self.change(base=base)],
+            work_date="2026-10-15",
+        )
+        self.assertEqual(result["row_dates"][1], "2026-10-15")
+        with self.assertRaises(FileExistsError):
+            self.native.save(
+                self.conn,
+                self.tab(),
+                "wrong-day",
+                [self.change("Wrong", col=1, base=base)],
+                work_date="2026-10-16",
+            )
+        self.assertEqual(self.snapshot()["rows"][1][1]["value"], "")
+        with self.assertRaises(ValueError):
+            self.native.save(
+                self.conn,
+                self.tab(),
+                "invalid-date",
+                [self.change("Bad")],
+                work_date="2026-02-30",
+            )
+
+    def test_existing_jobs_stay_undated_and_date_moves_are_checked_and_idempotent(self):
+        base = self.native.save(self.conn, self.tab(), "old-job", [self.change()])
+        self.assertIsNone(base["row_dates"][1])
+        command = {
+            "action": "move_date",
+            "ids": [base["row_ids"][1]],
+            "work_date": "2026-10-15",
+        }
+        moved = self.native.structure(
+            self.conn, self.tab(), "move-date", base["revision"], command
+        )
+        again = self.native.structure(
+            self.conn, self.tab(), "move-date", base["revision"], command
+        )
+        self.assertEqual(again["revision"], moved["revision"])
+        self.assertEqual(again["row_dates"][1], "2026-10-15")
+        with self.assertRaises(FileExistsError):
+            self.native.structure(
+                self.conn,
+                self.tab(),
+                "stale-date",
+                base["revision"],
+                {**command, "work_date": "2026-10-16"},
+            )
+        self.assertEqual(self.snapshot()["rows"][1][0]["value"], "Acme")
+
+    def test_daily_replace_and_export_leave_other_days_and_undated_jobs_intact(self):
+        from mailcheck import sourcing_csv
+
+        self.native.save(self.conn, self.tab(), "legacy", [self.change("Undated")])
+        for day, name in [("2026-10-15", "Thursday"), ("2026-10-16", "Friday")]:
+            base = self.snapshot()
+            self.native.append(
+                self.conn, self.tab(), day, base["revision"], [[name]], work_date=day
+            )
+        base = self.snapshot()
+        replaced = sourcing_csv.import_rows(
+            self.conn,
+            self.tab(),
+            "daily-replace",
+            base["revision"],
+            text="Company,Role\nReplacement,Engineer",
+            mode="replace",
+            work_date="2026-10-15",
+        )
+        values = [r[0]["value"] for r in replaced["rows"][1:]]
+        self.assertIn("Undated", values)
+        self.assertIn("Friday", values)
+        self.assertNotIn("Thursday", values)
+        csv = sourcing_csv.export_rows(self.conn, self.tab(), work_date="2026-10-15")
+        self.assertIn("Replacement", csv)
+        self.assertNotIn("Friday", csv)
+        self.assertNotIn("Undated", csv)
+
+    def test_upgrade_adds_dates_without_reassigning_existing_native_jobs(self):
+        from mailcheck import db
+
+        self.native.save(
+            self.conn, self.tab(), "before-dates", [self.change("Existing job")]
+        )
+        self.conn.execute("ALTER TABLE native_rows DROP COLUMN work_date")
+        self.conn.execute("PRAGMA user_version=15")
+        self.conn.commit()
+        upgraded = db.connect()
+        try:
+            result = self.native.snapshot(upgraded, self.tab())
+            self.assertEqual(result["rows"][1][0]["value"], "Existing job")
+            self.assertIsNone(result["row_dates"][1])
+        finally:
+            upgraded.close()
+
+    def test_pre_date_operation_can_be_retried_after_upgrade(self):
+        changes = [self.change("Saved before upgrade")]
+        saved = self.native.save(self.conn, self.tab(), "legacy-save-id", changes)
+        old_payload = {"action": "save", "changes": changes}
+        self.conn.execute(
+            "UPDATE native_operations SET fingerprint=? WHERE id=?",
+            (self.native.fingerprint(old_payload), "legacy-save-id"),
+        )
+        self.conn.commit()
+        retried = self.native.save(self.conn, self.tab(), "legacy-save-id", changes)
+        self.assertEqual(retried["revision"], saved["revision"])

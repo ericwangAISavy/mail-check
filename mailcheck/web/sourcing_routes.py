@@ -46,6 +46,7 @@ class Change(BaseModel):
 
 class Operation(BaseModel):
     operation: uuid.UUID
+    work_date: str = Field(default="all", max_length=10)
 
 
 class Save(Operation):
@@ -68,6 +69,7 @@ class Structure(Versioned):
         "delete_column",
         "rename_column",
         "resize_column",
+        "move_date",
     ]
     at_row_id: Key | None = None
     ids: list[Key] = Field(default_factory=list, max_length=1000)
@@ -224,6 +226,7 @@ def install(app, frontend_page, secure_cookies):
                 tab,
                 str(body.operation),
                 [c.model_dump(exclude_none=True) for c in body.changes],
+                work_date=body.work_date,
             ),
         )
 
@@ -237,7 +240,11 @@ def install(app, frontend_page, secure_cookies):
                 tab,
                 str(body.operation),
                 body.revision,
-                body.model_dump(exclude={"operation", "revision"}, exclude_none=True),
+                body.model_dump(
+                    exclude={"operation", "revision"}
+                    | ({"work_date"} if body.work_date == "all" else set()),
+                    exclude_none=True,
+                ),
             ),
         )
 
@@ -247,7 +254,12 @@ def install(app, frontend_page, secure_cookies):
             tab_id,
             req,
             lambda conn, tab: sheets.append(
-                conn, tab, str(body.operation), body.revision, body.rows
+                conn,
+                tab,
+                str(body.operation),
+                body.revision,
+                body.rows,
+                work_date=body.work_date,
             ),
         )
 
@@ -264,18 +276,24 @@ def install(app, frontend_page, secure_cookies):
                 text=body.text,
                 mode=body.mode,
                 has_header=body.has_header,
+                work_date=body.work_date,
             ),
         )
 
     @router.get("/api/sourcing/tabs/{tab_id}/export")
-    def export_csv(tab_id: int, req: Request):
+    def export_csv(tab_id: int, req: Request, work_date: str = "all"):
         with db.session() as conn:
-            content = sourcing_csv.export_rows(conn, owned(conn, tab_id, req))
+            tab = owned(conn, tab_id, req)
+            try:
+                content = sourcing_csv.export_rows(conn, tab, work_date=work_date)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+            suffix = "" if work_date == "all" else "-" + work_date
             return Response(
                 "\ufeff" + content,
                 media_type="text/csv; charset=utf-8",
                 headers={
-                    "Content-Disposition": f'attachment; filename="jobs-{tab_id}.csv"'
+                    "Content-Disposition": f'attachment; filename="jobs-{tab_id}{suffix}.csv"'
                 },
             )
 
@@ -318,6 +336,7 @@ def install(app, frontend_page, secure_cookies):
                                 "account_id": tab["account_id"],
                                 "row": i,
                                 "row_id": data["row_ids"][i],
+                                "work_date": data["row_dates"][i],
                                 "company": values[0],
                                 "role": values[1],
                                 "link": values[2],

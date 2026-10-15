@@ -8,6 +8,7 @@ import json
 import sqlite3
 import time
 import uuid
+from datetime import date
 
 MAX_ROWS = 100_000
 MAX_COLUMNS = 101
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS native_columns (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS native_column_kind ON native_columns(tab_id,kind) WHERE kind IS NOT NULL;
 CREATE TABLE IF NOT EXISTS native_rows (
- id TEXT PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES native_tabs(id) ON DELETE CASCADE, position INTEGER NOT NULL
+ id TEXT PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES native_tabs(id) ON DELETE CASCADE, position INTEGER NOT NULL, work_date TEXT
 );
 CREATE INDEX IF NOT EXISTS native_row_order ON native_rows(tab_id,position);
 CREATE TABLE IF NOT EXISTS native_cells (
@@ -167,13 +168,14 @@ def _snapshot(conn, tab):
             (tab["id"],),
         )
     ]
-    row_ids = [
-        r[0]
+    row_records = [
+        dict(r)
         for r in conn.execute(
-            "SELECT id FROM native_rows WHERE tab_id=? ORDER BY position,id",
+            "SELECT id,work_date FROM native_rows WHERE tab_id=? ORDER BY position,id",
             (tab["id"],),
         )
     ]
+    row_ids = [r["id"] for r in row_records]
     cells = {
         (r["row_id"], r["column_id"]): r
         for r in conn.execute(
@@ -221,6 +223,7 @@ def _snapshot(conn, tab):
         "revision": str(tab["revision"]),
         "structure_revision": tab["structure_revision"],
         "row_ids": ["", *row_ids],
+        "row_dates": [None, *[r["work_date"] for r in row_records]],
         "columns": columns,
         "rows": rows,
         "header_row": 1,
@@ -270,10 +273,29 @@ def record_operation(conn, tab_id, operation, payload, *, structural=False):
     )
 
 
-def save(conn, tab, operation, changes):
+def date_scope(value):
+    """None is the explicitly undated bucket; 'all' retains legacy API behavior."""
+    if value == "all":
+        return value
+    if value == "undated":
+        return None
+    try:
+        if date.fromisoformat(value).isoformat() != value:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("Choose a valid date (YYYY-MM-DD) or Undated.")
+    return value
+
+
+def save(conn, tab, operation, changes, *, work_date="all"):
+    scope = date_scope(work_date)
     if not 1 <= len(changes) <= MAX_CELLS:
         raise ValueError("Save between 1 and 10,000 cells at a time.")
-    payload = {"action": "save", "changes": changes}
+    payload = {
+        "action": "save",
+        "changes": changes,
+        **({"work_date": work_date} if work_date != "all" else {}),
+    }
     with atomic(conn):
         if not check_operation(conn, tab["id"], operation, payload):
             seen = set()
@@ -295,6 +317,23 @@ def save(conn, tab, operation, changes):
                     raise FileExistsError(
                         "A row or column changed or was removed. Your draft has been preserved."
                     )
+                if scope != "all":
+                    row_date = conn.execute(
+                        "SELECT work_date FROM native_rows WHERE id=?", (row_id,)
+                    ).fetchone()[0]
+                    nonempty = conn.execute(
+                        "SELECT 1 FROM native_cells WHERE row_id=? AND value!='' LIMIT 1",
+                        (row_id,),
+                    ).fetchone()
+                    if row_date != scope and (row_date is not None or nonempty):
+                        raise FileExistsError(
+                            "This job was assigned to another day. Your draft is preserved."
+                        )
+                    if row_date != scope:
+                        conn.execute(
+                            "UPDATE native_rows SET work_date=? WHERE id=?",
+                            (scope, row_id),
+                        )
                 cell = conn.execute(
                     "SELECT * FROM native_cells WHERE row_id=? AND column_id=?",
                     (row_id, column_id),
@@ -442,7 +481,7 @@ def structure(conn, tab, operation, revision, command):
     return apply_structure(conn, tab, operation, revision, command)
 
 
-def append(conn, tab, operation, revision, rows):
+def append(conn, tab, operation, revision, rows, *, work_date="all"):
     from .sourcing_structure import append as apply_append
 
-    return apply_append(conn, tab, operation, revision, rows)
+    return apply_append(conn, tab, operation, revision, rows, work_date=work_date)

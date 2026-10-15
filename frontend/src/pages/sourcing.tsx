@@ -20,6 +20,7 @@ import "./sourcing.css";
 interface SearchResult {
   tab_id: number;
   row_id: string;
+  work_date?: string | null;
   bidder: string;
   profile: string;
   company: string;
@@ -166,6 +167,7 @@ export default function SourcingPage() {
                   <th>Company</th>
                   <th>Role</th>
                   <th>Bidder / profile</th>
+                  <th>Date</th>
                   <th>Application</th>
                   <th>Last updated</th>
                 </tr>
@@ -181,9 +183,10 @@ export default function SourcingPage() {
                           setParams({ tab: String(r.tab_id), row_id: r.row_id })
                         }
                       >
-                        {r.bidder} · {r.profile} · row {r.row + 1}
+                        {r.bidder} · {r.profile} · row {r.row}
                       </button>
                     </td>
+                    <td>{r.work_date || "Undated"}</td>
                     <td>
                       {/^https?:\/\//i.test(r.link) ? (
                         <a href={r.link} target="_blank" rel="noreferrer">

@@ -13,7 +13,9 @@ export default function SourcingImport({
   onSaved,
   onDirty,
   onBusy,
+  day = "all",
 }: {
+  day?: string;
   snapshot: Snapshot;
   onSaved: (snapshot: Snapshot) => void;
   onDirty: (dirty: boolean) => void;
@@ -98,6 +100,7 @@ export default function SourcingImport({
       text,
       mode,
       has_header: header,
+      work_date: day,
     };
     const key = JSON.stringify(payload);
     if (operation.current?.payload !== key)
@@ -222,7 +225,7 @@ export default function SourcingImport({
             disabled={locked}
             onChange={(e) => setConfirmed(e.target.checked)}
           />
-          Replace all existing job rows in this sheet
+          Replace all job rows for this selected day
         </label>
       )}
       {(error || preview.error) && (

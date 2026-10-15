@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTSV, serializeTSV } from "./sourcing";
+import { defaultView, parseTSV, serializeTSV } from "./sourcing";
 describe("spreadsheet clipboard", () => {
   it("round trips tabs, line breaks and quotes", () => {
     const rows = [
@@ -74,4 +74,27 @@ it("previews semantic CSV aliases even when reordered and mixed with new columns
   expect(
     csvDestinations(["Role", "Company", "Job URL", "Notes"], columns)[3].isNew,
   ).toBe(true);
+});
+
+it("shows only the chosen day plus empty template rows, preserving base identities", () => {
+  const base = {
+    rows: [
+      [],
+      [{ value: "Old" }],
+      [{ value: "Today" }],
+      [{ value: "Tomorrow" }],
+      [{ value: "" }],
+    ],
+    row_dates: [null, null, "2026-10-15", "2026-10-16", null],
+    columns: [{ id: "company" }],
+  } as any;
+  expect(visibleRows(base, [], { ...defaultView, day: "2026-10-15" })).toEqual([
+    0, 2, 4,
+  ]);
+  expect(visibleRows(base, [], { ...defaultView, day: "undated" })).toEqual([
+    0, 1, 4,
+  ]);
+  expect(visibleRows(base, [], { ...defaultView, day: "2026-10-16" })).toEqual([
+    0, 3, 4,
+  ]);
 });

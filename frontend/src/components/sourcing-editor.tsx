@@ -1,5 +1,12 @@
 import { operationId } from "@/lib/operation-id";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { UNSAFE_DataRouterContext } from "react-router-dom";
 import {
   AlignCenter,
@@ -21,6 +28,8 @@ import {
 import { api, request } from "@/lib/api";
 import {
   defaultView,
+  chicagoDay,
+  visibleRows,
   hasUnexpectedEdits,
   mergeChanges,
   nativeChanges,
@@ -42,6 +51,7 @@ import {
 } from "@/components/ui/dialog";
 import SourcingDraftGuard from "./sourcing-draft-guard";
 import SourcingImport from "./sourcing-import";
+import SourcingDays from "./sourcing-days";
 import { SheetGrid } from "./sourcing-grid";
 type History = { undo: Change[]; redo: Change[] };
 type StructureAction =
@@ -55,11 +65,13 @@ export default function SourcingEditor({
   onDirty,
   highlightId,
   highlightRow,
+  initialDay,
 }: {
   tab: Tab;
   onDirty: (dirty: boolean) => void;
   highlightId?: string;
   highlightRow?: number;
+  initialDay?: string;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [changes, setChanges] = useState<Change[]>([]),
@@ -78,6 +90,18 @@ export default function SourcingEditor({
     [appendOpen, setAppendOpen] = useState(false),
     [appendText, setAppendText] = useState(""),
     [typing, setTyping] = useState(false);
+  const [day, setDay] = useState(initialDay || chicagoDay());
+  const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
+  const [headerDraft, setHeaderDraft] = useState<{
+    col: number;
+    title: string;
+  } | null>(null);
+  const [assignOpen, setAssignOpen] = useState(false),
+    [assignDay, setAssignDay] = useState(chicagoDay());
+  const assignContext = useRef<{ revision: string; ids: string[] } | null>(
+    null,
+  );
+  const resolvedHighlight = useRef("");
   const typingRef = useRef(typing);
   typingRef.current = typing;
   const structureContext = useRef<{
@@ -101,8 +125,14 @@ export default function SourcingEditor({
     resizeTimer = useRef(0);
   draft.current = changes;
   base.current = snapshot;
-  auxDirty.current = importDirty || !!appendText;
-  const dirty = changes.length > 0 || importDirty || !!appendText || typing,
+  auxDirty.current = importDirty || !!appendText || !!headerDraft || assignOpen;
+  const dirty =
+      changes.length > 0 ||
+      importDirty ||
+      !!appendText ||
+      typing ||
+      !!headerDraft ||
+      assignOpen,
     locked = saving || !!error || importOpen || appendOpen;
   const load = useCallback(async () => {
     if (
@@ -230,7 +260,11 @@ export default function SourcingEditor({
         body = JSON.stringify(changes);
       if (saveOperation.current?.body !== body)
         saveOperation.current = { body, id: operationId() };
-      const payload = { operation: saveOperation.current.id, changes };
+      const payload = {
+        operation: saveOperation.current.id,
+        changes,
+        work_date: day,
+      };
       await execute(
         () => api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/save`, payload),
         false,
@@ -239,7 +273,7 @@ export default function SourcingEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
     }
-  }, [execute, tab.id]);
+  }, [execute, tab.id, day]);
   useEffect(() => {
     if (
       !changes.length ||
@@ -345,6 +379,7 @@ export default function SourcingEditor({
       operation: operationId(),
       revision:
         structureContext.current?.snapshot.revision || snapshot.revision,
+      work_date: day,
       ...command,
     };
     await execute(
@@ -389,6 +424,7 @@ export default function SourcingEditor({
     setChanges([]);
     draft.current = [];
     setAppendText("");
+    setHeaderDraft(null);
     setImportDirty(false);
     auxDirty.current = false;
     setAppendOpen(false);
@@ -410,6 +446,8 @@ export default function SourcingEditor({
               columns: snapshot?.columns,
               changes,
               appendRows: appendText,
+              work_date: day,
+              headerDraft,
             },
             null,
             2,
@@ -434,6 +472,7 @@ export default function SourcingEditor({
     const payload = {
       operation: operationId(),
       revision: snapshot.revision,
+      work_date: day,
       rows,
     };
     await execute(async () => {
@@ -452,6 +491,106 @@ export default function SourcingEditor({
     highlightId && snapshot
       ? snapshot.row_ids.indexOf(highlightId)
       : highlightRow;
+  useEffect(() => {
+    if (!snapshot) return;
+    if (highlightId && resolvedHighlight.current !== highlightId) {
+      const index = snapshot.row_ids.indexOf(highlightId);
+      if (index > 0) {
+        setDay(snapshot.row_dates?.[index] || "undated");
+        resolvedHighlight.current = highlightId;
+      }
+    }
+    const visible = visibleRows(snapshot, [], { ...defaultView, day }).slice(1);
+    setSelection((previous) =>
+      previous.rows.length > 0 &&
+      previous.rows.every((r) => visible.includes(r))
+        ? previous
+        : { rows: visible.slice(0, 1), columns: previous.columns },
+    );
+  }, [day, snapshot, highlightId]);
+  const selectedJobs = snapshot
+    ? selection.rows.filter(
+        (r) =>
+          r > 0 &&
+          snapshot.rows[r]?.some((c) => String(c.value)) &&
+          (!snapshot.row_dates ||
+            snapshot.row_dates[r] === (day === "undated" ? null : day)),
+      )
+    : [];
+  const renameHeader = async (col: number, title: string) => {
+    const current = base.current;
+    if (
+      !current ||
+      draft.current.length ||
+      inFlight.current ||
+      title === current.columns[col].title
+    )
+      return;
+    setHeaderDraft({ col, title });
+    const payload = {
+      operation: operationId(),
+      revision: current.revision,
+      action: "rename_column",
+      column_id: current.columns[col].id,
+      title,
+    };
+    await execute(async () => {
+      const result = await api.post<Snapshot>(
+        `/api/sourcing/tabs/${tab.id}/structure`,
+        payload,
+      );
+      if (alive.current) setHeaderDraft(null);
+      return result;
+    }, true);
+  };
+  const openAssign = () => {
+    if (!snapshot || !selectedJobs.length) return;
+    assignContext.current = {
+      revision: snapshot.revision,
+      ids: selectedJobs.map((r) => snapshot.row_ids[r]),
+    };
+    setAssignDay(day === "undated" ? chicagoDay() : day);
+    setAssignOpen(true);
+  };
+  const assignDate = async () => {
+    const context = assignContext.current;
+    if (!context || !assignDay) return;
+    const payload = {
+      operation: operationId(),
+      revision: context.revision,
+      action: "move_date",
+      ids: context.ids,
+      work_date: assignDay,
+    };
+    setAssignOpen(false);
+    await execute(async () => {
+      const result = await api.post<Snapshot>(
+        `/api/sourcing/tabs/${tab.id}/structure`,
+        payload,
+      );
+      if (alive.current) setDay(payload.work_date);
+      return result;
+    }, true);
+  };
+  const displaySnapshot =
+    snapshot && headerDraft
+      ? {
+          ...snapshot,
+          rows: snapshot.rows.map((row, r) =>
+            r === 0
+              ? row.map((cell, c) =>
+                  c === headerDraft.col
+                    ? {
+                        ...cell,
+                        value: headerDraft.title,
+                        display: headerDraft.title,
+                      }
+                    : cell,
+                )
+              : row,
+          ),
+        }
+      : snapshot;
   const keyboard = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (
       !(e.metaKey || e.ctrlKey) ||
@@ -477,6 +616,19 @@ export default function SourcingEditor({
       {dataRouter && (
         <SourcingDraftGuard dirty={dirty || saving} saving={saving} />
       )}
+      <SourcingDays
+        day={day}
+        onChange={(next) => {
+          history.current = [];
+          future.current = [];
+          setDay(next);
+          setView(defaultView);
+        }}
+        disabled={locked || dirty || loading || !!structureOpen}
+        snapshot={snapshot}
+        onAssign={openAssign}
+        canAssign={selectedJobs.length > 0 && selectedJobs.length <= 1000}
+      />
       <div className="sheet-edit-toolbar native-sheet-toolbar">
         <div className="sheet-toolbar-group">
           <Button
@@ -619,7 +771,7 @@ export default function SourcingEditor({
           className={`sheet-export ${dirty || saving ? "is-disabled" : ""}`}
           aria-label="Export CSV"
           aria-disabled={dirty || saving}
-          href={`/api/sourcing/tabs/${tab.id}/export`}
+          href={`/api/sourcing/tabs/${tab.id}/export?work_date=${encodeURIComponent(day)}`}
           download
           onClick={(e) => {
             if (dirty || saving) e.preventDefault();
@@ -755,16 +907,18 @@ export default function SourcingEditor({
       )}
       {snapshot ? (
         <SheetGrid
-          snapshot={snapshot}
+          snapshot={displaySnapshot!}
           headerRow={1}
           changes={changes}
           onChange={edit}
           disabled={locked}
           highlightRow={focusRow}
-          view={view}
+          view={scopedView}
           onSelection={setSelection}
           onResize={resize}
           onEditingChange={setTyping}
+          onHeaderChange={(col, title) => void renameHeader(col, title)}
+          headersEditable={!changes.length}
         />
       ) : (
         <div className="sourcing-empty">
@@ -773,6 +927,39 @@ export default function SourcingEditor({
       )}
       {snapshot && (
         <>
+          <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+            <DialogContent>
+              <DialogTitle>Assign job date</DialogTitle>
+              <DialogDescription>
+                Move {assignContext.current?.ids.length || 0} selected jobs to
+                one day. Other jobs stay where they are.
+              </DialogDescription>
+              <label>
+                Job date
+                <input
+                  type="date"
+                  aria-label="Assign jobs to date"
+                  value={assignDay === "undated" ? "" : assignDay}
+                  onChange={(e) => setAssignDay(e.target.value)}
+                />
+              </label>
+              <div className="sheet-actions">
+                <Button
+                  disabled={!assignDay || saving}
+                  onClick={() => void assignDate()}
+                >
+                  Assign date
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => setAssignDay("undated")}
+                >
+                  Keep undated
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog
             open={structureOpen !== null}
             onOpenChange={(open) => {
@@ -805,6 +992,7 @@ export default function SourcingEditor({
             {importOpen && (
               <SourcingImport
                 snapshot={snapshot}
+                day={day}
                 onBusy={(busy) => {
                   if (busy) loadSequence.current++;
                   inFlight.current = busy;

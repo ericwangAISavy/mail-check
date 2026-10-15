@@ -22,6 +22,7 @@ export interface Snapshot {
   id: number;
   rows: Cell[][];
   row_ids: string[];
+  row_dates?: (string | null)[];
   columns: SheetColumn[];
   title: string;
   revision: string;
@@ -63,6 +64,7 @@ export interface Selection {
   columns: number[];
 }
 export interface SheetView {
+  day?: string;
   find: string;
   filterColumn: number;
   filter: string;
@@ -205,6 +207,12 @@ export function visibleRows(
     .map((_, i) => i + 1)
     .filter(
       (r) =>
+        (!view.day ||
+          !snapshot.row_dates ||
+          snapshot.row_dates[r] ===
+            (view.day === "undated" ? null : view.day) ||
+          (snapshot.row_dates[r] == null &&
+            snapshot.columns.every((_, c) => !value(r, c)))) &&
         (!find ||
           snapshot.columns.some((_, c) =>
             value(r, c).toLocaleLowerCase().includes(find),
@@ -282,4 +290,20 @@ export function hasUnexpectedEdits(
           (row[c]?.version || 0) + (edited.has(`${r}:${c}`) ? 1 : 0),
       ),
   );
+}
+
+export function chicagoDay(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const get = (key: string) => parts.find((p) => p.type === key)!.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+export function offsetDay(day: string, delta: number) {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
 }

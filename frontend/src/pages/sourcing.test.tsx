@@ -12,6 +12,7 @@ import { MemoryRouter } from "react-router-dom";
 import SourcingPage from "./sourcing";
 import { api } from "@/lib/api";
 vi.mock("@/components/auth", () => ({ useAuth: () => ({ role: "admin" }) }));
+const gridViews = vi.hoisted(() => ({ values: [] as unknown[] }));
 vi.mock("@/components/sourcing-grid", () => ({
   SheetGrid: ({
     snapshot,
@@ -19,33 +20,40 @@ vi.mock("@/components/sourcing-grid", () => ({
     onChange,
     disabled,
     onEditingChange,
+    view,
   }: {
+    view?: unknown;
     snapshot: { rows: { value: string }[][] };
     changes: { value: string }[];
     onChange: (changes: unknown[]) => void;
     disabled: boolean;
     onEditingChange?: (active: boolean) => void;
-  }) => (
-    <div>
-      <output aria-label="Saved company">{snapshot.rows[1]?.[0]?.value}</output>
-      <output aria-label="Draft value">
-        {changes[0]?.value || "No draft"}
-      </output>
-      <button
-        disabled={disabled}
-        onClick={() => onChange([{ row: 1, col: 0, value: "New company" }])}
-      >
-        Edit company
-      </button>
-      <button
-        disabled={disabled}
-        onClick={() => onChange([{ row: 1, col: 1, value: "Engineer" }])}
-      >
-        Edit role
-      </button>
-      <button onClick={() => onEditingChange?.(true)}>Start typing</button>
-    </div>
-  ),
+  }) => {
+    gridViews.values.push(view);
+    return (
+      <div>
+        <output aria-label="Saved company">
+          {snapshot.rows[1]?.[0]?.value}
+        </output>
+        <output aria-label="Draft value">
+          {changes[0]?.value || "No draft"}
+        </output>
+        <button
+          disabled={disabled}
+          onClick={() => onChange([{ row: 1, col: 0, value: "New company" }])}
+        >
+          Edit company
+        </button>
+        <button
+          disabled={disabled}
+          onClick={() => onChange([{ row: 1, col: 1, value: "Engineer" }])}
+        >
+          Edit role
+        </button>
+        <button onClick={() => onEditingChange?.(true)}>Start typing</button>
+      </div>
+    );
+  },
 }));
 const snapshot = {
   row_ids: ["", "row-one"],
@@ -464,4 +472,32 @@ it("autosaves on HTTP browsers without crypto.randomUUID", async () => {
       },
     ],
   });
+});
+
+it("keeps the daily grid view stable while typing so the editor stays open", async () => {
+  mount();
+  await screen.findByRole("button", { name: "Start typing" });
+  const view = gridViews.values.at(-1);
+  fireEvent.click(screen.getByRole("button", { name: "Start typing" }));
+  expect(gridViews.values.at(-1)).toBe(view);
+});
+
+it("clears undo when switching job days", async () => {
+  vi.spyOn(api, "post").mockResolvedValue({
+    ...snapshot,
+    revision: "two",
+    rows: [[], [{ ...snapshot.rows[1][0], value: "New company", version: 2 }]],
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit company" }));
+  await screen.findByText("Saved", {}, { timeout: 3000 });
+  expect(
+    screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
+  ).toBe(false);
+  fireEvent.change(screen.getByLabelText("Job date"), {
+    target: { value: "2026-10-20" },
+  });
+  expect(
+    screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
+  ).toBe(true);
 });
