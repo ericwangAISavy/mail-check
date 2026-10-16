@@ -131,8 +131,8 @@ reconnect instruction, without a message-based fallback.
 Provider-neutral `CalendarBooking` records feed the existing local event/source
 SQLite tables. No new message or classification rows are created. Source rows
 contain the native event identifier and account association, with no stored email.
-Previous event history is preserved. Schema 18 retains organization pins and adds
-removal records without deleting events or messages;
+Previous event history is preserved. Schema 19 retains organization pins and removal records and adds
+manual process names without deleting events or messages;
 timelines continue to derive events and messages from their existing tables.
 
 Event UID plus occurrence identity deduplicates repeat imports. Provider revision
@@ -177,3 +177,20 @@ drag-to-reschedule and provider write synchronization are not implemented.
 These checks use isolated provider fixtures, not live Microsoft credentials or
 production mailbox/calendar data. A real Microsoft account must grant the new
 permission before its native events can be fetched.
+
+### Manual processes and elapsed time
+
+Use **Add process** with only a company or organization name. The process appears
+immediately, including when it has no milestones. Names are unique ignoring case
+and whitespace. Saved and subsequently collected events and messages match when
+any word or number in the name appears in their details, ignoring case. Matching
+checks event company/role/notes/participants and message subject, sender, full saved
+body, snippet and summary. A single manual match takes priority over domain grouping;
+multiple manual matches go to Unassigned. Matching is literal substring matching,
+so short or generic names can collect broad results. Removed manual processes keep
+their matching rules and stay hidden until restored. Pinning works for manual names.
+
+Each panel shows elapsed days or weeks from its earliest event or message to today,
+with the first milestone date available on hover. Future bookings do not extend the
+age. Empty processes show **No milestones yet**; processes containing only future
+milestones show **Not started yet**. The age is independent of the selected window.

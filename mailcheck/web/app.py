@@ -142,6 +142,10 @@ class ReclassifyBody(BaseModel):
     days: int | None = Field(default=None, ge=1, le=3650)
 
 
+class ProcessCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=253)
+
+
 class ProcessPinBody(BaseModel):
     organization: str | None = Field(default=None, max_length=253)
     pinned: bool
@@ -687,6 +691,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_password(body: PasswordBody):
         auth.change_password(body.role, body.password)
         return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
+
+    @app.post("/api/interview-processes")
+    def api_process_create(body: ProcessCreateBody):
+        try:
+            with db.session() as conn:
+                interview_processes.create_process(conn, body.name)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
 
     @app.post("/api/interview-processes/pin")
     def api_process_pin(body: ProcessPinBody):

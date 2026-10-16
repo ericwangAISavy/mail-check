@@ -93,3 +93,16 @@
 .process-message-content { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; min-width: 0; overflow-x: auto; }
 .process-message-content .email-body { overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }
 .process-message-content .email-original { width: 100%; border: 0; }
+.process-create-card { padding: 14px 18px; }
+.process-create-card form { display: grid; gap: 8px; }
+.process-create-card label { font-size: 12px; font-weight: 600; }
+.process-create-fields { display: flex; gap: 10px; }
+.process-create-fields input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: inherit; padding: 8px 10px; }
+.process-create-card p { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.process-age { font-size: 11px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+.process-create-card form { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.process-create-fields { min-width: 0; }
+@media (max-width: 480px) {
+  .process-create-fields { flex-direction: column; }
+  .process-create-fields input { width: 100%; }
+}

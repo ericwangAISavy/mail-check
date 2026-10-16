@@ -35,6 +35,47 @@ class ProcessCollectionTests(unittest.TestCase):
     source = calendar_fixtures.NativeCalendarTests.source
     collect = calendar_fixtures.NativeCalendarTests.collect
 
+    def test_manual_process_matches_saved_and_new_content_and_handles_ambiguity(self):
+        from mailcheck import interview_processes as processes
+        booking = calendar_fixtures.event("manual")
+        booking["subject"] = "Interview with ACME"
+        self.collect(self.source([booking]))
+        pk = db.upsert_message(self.conn, NormalizedMessage(
+            account_id=self.a, account_label="work", message_id="manual-mail", uid="manual-mail",
+            folder="INBOX", from_addr="recruiter@agency.test", from_name="Recruiter",
+            subject="Availability", date_utc=datetime(2026, 9, 18, tzinfo=timezone.utc),
+            body="x" * 1500 + " Labs follow-up"))
+        processes.create_process(self.conn, "Acme Labs")
+        report = processes.list_processes(self.conn)
+        manual = next(p for p in report if p["organization"] == "Acme Labs")
+        self.assertEqual(manual["event_count"], 1)
+        self.assertEqual(manual["message_count"], 1)
+        self.assertEqual(manual["milestones"][0]["id"], f"message:{pk}")
+        with self.assertRaises(ValueError):
+            processes.create_process(self.conn, "  ACME labs  ")
+        later = calendar_fixtures.event("manual-new")
+        later["subject"] = "Acme next round"
+        self.collect(self.source([later]))
+        self.assertEqual(next(p for p in processes.list_processes(self.conn) if p["organization"] == "Acme Labs")["event_count"], 2)
+        processes.set_pin(self.conn, "Acme Labs", True)
+        processes.set_removed(self.conn, "Acme Labs", True)
+        self.assertFalse(any(p["organization"] == "Acme Labs" for p in processes.list_processes(self.conn)))
+        processes.set_removed(self.conn, "Acme Labs", False)
+        processes.create_process(self.conn, "Acme Other")
+        report = processes.list_processes(self.conn)
+        ambiguous = next(p for p in report if p["organization"] is None)
+        self.assertEqual(ambiguous["event_count"], 2)
+        self.assertEqual(ambiguous["milestones"][0]["assignment_reason"], "Multiple matching manual processes")
+        processes.create_process(self.conn, "Empty Company")
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            empty = next(p for p in processes.list_processes(conn) if p["organization"] == "Empty Company")
+            self.assertEqual(empty["milestones"], [])
+            self.assertTrue(next(p for p in processes.list_processes(conn) if p["organization"] == "Acme Labs")["pinned"])
+        for name in ("", "   ", "!!!", "x" * 254):
+            with self.assertRaises(ValueError):
+                processes.create_process(self.conn, name)
+
     def test_removal_persists_through_collection_without_deleting_events_and_can_be_restored(self):
         from mailcheck import interview_processes
         booking = calendar_fixtures.event("remove", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
@@ -52,6 +93,17 @@ class ProcessCollectionTests(unittest.TestCase):
         self.assertEqual(len(interview_processes.list_processes(self.conn)), 1)
         with self.assertRaises(ValueError):
             interview_processes.set_removed(self.conn, "invalid domain", True)
+
+    def test_version_18_upgrade_preserves_history_and_adds_manual_processes(self):
+        from mailcheck import interview_processes as processes
+        self.collect(self.source([calendar_fixtures.event("manual-upgrade")]))
+        self.conn.execute("DROP TABLE interview_manual_processes")
+        self.conn.execute("PRAGMA user_version=18")
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            self.assertEqual(len(processes.list_processes(conn)), 1)
+            processes.create_process(conn, "Upgrade Company")
+            self.assertEqual(len(processes.list_processes(conn)), 2)
 
     def test_version_17_upgrade_preserves_pins_and_events_and_adds_removals(self):
         from mailcheck import interview_processes
@@ -154,10 +206,14 @@ class ProcessCollectionTests(unittest.TestCase):
                 self.assertEqual(client.get("/api/interview-processes").json()["processes"], [])
                 self.assertEqual(client.get("/api/interview-processes").json()["removed"][0]["organization"], "appian.com")
                 self.assertEqual(client.post("/api/interview-processes/remove", json={"organization": "appian.com", "removed": False}).status_code, 200)
+                self.assertEqual(client.post("/api/interview-processes", json={"name": "Manual Company"}).status_code, 200)
+                self.assertTrue(any(p["organization"] == "Manual Company" and p["milestones"] == [] for p in client.get("/api/interview-processes").json()["processes"]))
+                self.assertEqual(client.post("/api/interview-processes", json={"name": "manual company"}).status_code, 400)
                 page = client.get("/interview-processes")
                 self.assertEqual(page.status_code, 200)
                 self.assertIn("no-store", page.headers["cache-control"])
                 sign_in_bidder(client)
+                self.assertEqual(client.post("/api/interview-processes", json={"name": "Forbidden"}).status_code, 403)
                 self.assertEqual(client.get("/api/interview-processes").status_code, 403)
                 self.assertEqual(client.post("/api/interview-processes/pin", json={"organization": "appian.com", "pinned": False}).status_code, 403)
                 self.assertEqual(client.post("/api/interview-processes/remove", json={"organization": "appian.com", "removed": True}).status_code, 403)

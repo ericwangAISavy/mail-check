@@ -188,3 +188,36 @@ it("shows every process and full history in All, retaining full history in narro
  fireEvent.click(screen.getByRole("button", { name: "All" }))
  expect(screen.getAllByRole("button", { name: /^(Event|Email):/ })).toHaveLength(5)
 })
+
+it("creates a named empty process and shows elapsed time on existing processes", async () => {
+ const data = report()
+ data.processes[0].milestones = [{ ...milestone("message:1", 16), occurred_at: "2026-09-18T12:00:00Z" }]
+ vi.mocked(request).mockImplementation(async (url, init) => {
+  if (url === "/api/interview-processes" && init?.method === "POST") {
+   const { name } = JSON.parse(String(init.body))
+   data.processes.push({ organization: name, pinned: false, event_count: 0, message_count: 0, next_interview: null, events: [], milestones: [] })
+   return { ok: true } as never
+  }
+  return { ...data, processes: [...data.processes] } as never
+ })
+ mount()
+ await screen.findByText("4 weeks")
+ fireEvent.change(screen.getByRole("textbox", { name: "Company or organization name" }), { target: { value: "Acme Labs" } })
+ fireEvent.click(screen.getByRole("button", { name: "Add process" }))
+ await screen.findByRole("heading", { name: "Acme Labs" })
+ expect(screen.getByText("No milestones yet")).toBeTruthy()
+ expect(vi.mocked(request)).toHaveBeenCalledWith("/api/interview-processes", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Acme Labs" }) }))
+})
+
+it("keeps the entered name and reports creation failures", async () => {
+ vi.mocked(request).mockImplementation(async (_url, init) => {
+  if (init?.method === "POST") throw new Error("An interview process with this name already exists")
+  return report() as never
+ })
+ mount()
+ const input = screen.getByRole("textbox", { name: "Company or organization name" })
+ fireEvent.change(input, { target: { value: "Acme Labs" } })
+ fireEvent.click(screen.getByRole("button", { name: "Add process" }))
+ expect((await screen.findByRole("alert")).textContent).toContain("already exists")
+ expect((input as HTMLInputElement).value).toBe("Acme Labs")
+})

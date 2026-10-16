@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowRight, ArrowUpRight, Building2, CalendarDays, Flag, Mail, Pin, PinOff, RotateCcw, Search, Trash2, X } from "lucide-react"
 import { request } from "@/lib/api"
 import type { InterviewProcess, ProcessMilestone } from "@/lib/types"
-import { dateInput, movePeriod, periodWindow, positionMilestones, inPeriod, milestoneTiming, needsFollowUp, type TimelinePeriod } from "@/lib/process-timeline"
+import { dateInput, movePeriod, periodWindow, positionMilestones, processAge, inPeriod, milestoneTiming, needsFollowUp, type TimelinePeriod } from "@/lib/process-timeline"
 import { InterviewDetails } from "@/components/interview-details"
 import { MessageDetails } from "@/components/message-details"
 import { Dialog } from "@/components/ui/dialog"
@@ -20,6 +20,7 @@ const periods: [TimelinePeriod, string][] = [["all", "All"], ["daily", "Daily"],
 type Preview = { milestone: ProcessMilestone; trigger: HTMLButtonElement; timing: ReturnType<typeof milestoneTiming> }
 
 export default function InterviewProcessesPage() {
+  const [companyName, setCompanyName] = useState("")
   const [search, setSearch] = useState("")
   const [showRemoved, setShowRemoved] = useState(false)
   const [anchor, setAnchor] = useState(() => dateInput(new Date(Date.now())))
@@ -30,6 +31,10 @@ export default function InterviewProcessesPage() {
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const client = useQueryClient()
   const query = useQuery({ queryKey: ["interviews", "processes"], queryFn: () => request<{ processes: InterviewProcess[]; removed: { organization: string | null; removed_at: string }[] }>("/api/interview-processes"), refetchInterval: 30_000 })
+  const creation = useMutation({
+    mutationFn: (name: string) => request("/api/interview-processes", { method: "POST", body: JSON.stringify({ name }) }),
+    onSuccess: async () => { setCompanyName(""); setPeriod("all"); setSearch(""); await client.invalidateQueries({ queryKey: ["interviews", "processes"] }) },
+  })
   const pin = useMutation({
     mutationFn: ({ organization, pinned }: { organization: string | null; pinned: boolean }) => request("/api/interview-processes/pin", { method: "POST", body: JSON.stringify({ organization, pinned }) }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["interviews", "processes"] }),
@@ -64,13 +69,18 @@ export default function InterviewProcessesPage() {
     .filter(process => period === "all" || process.milestones.some(milestone => inPeriod(milestone, window)))
     .map(process => {
       const followUp = needsFollowUp(process.milestones, now, process.events)
-      return { process, followUp, layout: positionMilestones(process.milestones, followUp).map(item => ({ ...item, timing: milestoneTiming(item.milestone, window, now) })), matchingCount: process.milestones.filter(milestone => inPeriod(milestone, window)).length }
+      return { process, followUp, age: processAge(process.milestones, now), layout: positionMilestones(process.milestones, followUp).map(item => ({ ...item, timing: milestoneTiming(item.milestone, window, now) })), matchingCount: process.milestones.filter(milestone => inPeriod(milestone, window)).length }
     })
     .sort((a, b) => Number(b.process.pinned) - Number(a.process.pinned))
   const endDay = new Date(window.end); endDay.setDate(endDay.getDate() - 1)
   const rangeLabel = period === "all" ? "All time" : period === "daily" ? window.start.toLocaleDateString(undefined, { dateStyle: "long" }) : `${window.start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${endDay.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
   return <div className="page-wrap processes-page">
     <PageHeading title="Interview processes" description="Every conversation, one step at a time." action={<Link className="process-calendar-link" to="/interviews"><CalendarDays size={16} />Open Interview calendar<ArrowUpRight size={15} /></Link>} />
+    <Card className="process-create-card"><form onSubmit={event => { event.preventDefault(); if (companyName.trim()) creation.mutate(companyName.trim()) }}>
+      <label htmlFor="process-company-name">Company or organization name</label><div className="process-create-fields"><input id="process-company-name" value={companyName} maxLength={253} required placeholder="e.g. Acme Labs" onChange={event => setCompanyName(event.target.value)} /><Button type="submit" disabled={creation.isPending || !companyName.trim()}>{creation.isPending ? "Adding…" : "Add process"}</Button></div>
+      <p>Events and messages mentioning any part of this name are grouped automatically.</p>
+      {creation.error && <p role="alert" className="inline-error">{creation.error.message}</p>}
+    </form></Card>
     <Card className="timeline-controls">
       <div className="timeline-periods" role="group" aria-label="Timeline period">{periods.map(([value, label]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>)}</div>
       {period !== "all" && <div className="timeline-date-controls"><Button variant="ghost" size="icon" aria-label="Previous period" onClick={() => setAnchor(movePeriod(anchor, period, -1))}><ArrowLeft size={16} /></Button><label><span className="sr-only">Timeline date</span><input aria-label="Timeline date" type="date" min="1971-01-01" max="2100-12-31" value={anchor} onChange={event => { if (event.target.value && event.target.validity.valid) setAnchor(event.target.value) }} /></label><Button variant="ghost" size="icon" aria-label="Next period" onClick={() => setAnchor(movePeriod(anchor, period, 1))}><ArrowRight size={16} /></Button><Button variant="outline" size="sm" onClick={() => setAnchor(dateInput(new Date(Date.now())))}>Today</Button></div>}
@@ -80,8 +90,8 @@ export default function InterviewProcessesPage() {
     {pin.error && <p role="alert" className="inline-error">{pin.error.message}</p>}
     {removal.error && <p role="alert" className="inline-error">{removal.error.message}</p>}
     {query.isPending ? <Loading label="Loading interview processes…" /> : query.error ? <div className="process-empty"><p role="alert" className="inline-error">{query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Try again</Button></div> : processes.length === 0 ? <Card className="process-empty"><Building2 size={30} /><h2>No interview processes yet</h2><p>Use Check now on Interview to collect calendar events.</p></Card> : <>
-      <div className="process-groups">{rows.map(({ process, layout, matchingCount, followUp }) => <Card className={`process-timeline-card process-tone-${processTone(process.organization)}${process.pinned ? " is-pinned" : ""}`} key={process.organization || "unassigned"}>
-        <div className="process-row-heading"><div className="process-identity"><Building2 size={18} aria-hidden="true" /><h2>{process.organization || "Unassigned"}</h2>{process.pinned && <span className="pinned-label">Pinned</span>}{followUp && <span className="process-follow-up-label">Follow up</span>}<span className="process-milestone-count">{layout.length} milestones{period !== "all" && ` · ${matchingCount} in window`}</span></div><div className="process-row-actions"><button type="button" className="process-pin" aria-label={`${process.pinned ? "Unpin" : "Pin"} ${process.organization || "Unassigned"}`} aria-pressed={process.pinned} disabled={pin.isPending} onClick={() => pin.mutate({ organization: process.organization, pinned: !process.pinned })}>{process.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button><button type="button" className="process-remove" aria-label={`Remove ${process.organization || "Unassigned"}`} title="Remove process" disabled={removal.isPending} onClick={() => removal.mutate({ organization: process.organization, removed: true })}><Trash2 size={15} /></button></div></div>
+      <div className="process-groups">{rows.map(({ process, layout, matchingCount, followUp, age }) => <Card className={`process-timeline-card process-tone-${processTone(process.organization)}${process.pinned ? " is-pinned" : ""}`} key={process.organization === null ? "unassigned" : `organization:${process.organization}`}>
+        <div className="process-row-heading"><div className="process-identity"><Building2 size={18} aria-hidden="true" /><h2>{process.organization || "Unassigned"}</h2>{process.pinned && <span className="pinned-label">Pinned</span>}{followUp && <span className="process-follow-up-label">Follow up</span>}<span className="process-age" title={age.title}>{age.label}</span><span className="process-milestone-count">{layout.length} milestones{period !== "all" && ` · ${matchingCount} in window`}</span></div><div className="process-row-actions"><button type="button" className="process-pin" aria-label={`${process.pinned ? "Unpin" : "Pin"} ${process.organization || "Unassigned"}`} aria-pressed={process.pinned} disabled={pin.isPending} onClick={() => pin.mutate({ organization: process.organization, pinned: !process.pinned })}>{process.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button><button type="button" className="process-remove" aria-label={`Remove ${process.organization || "Unassigned"}`} title="Remove process" disabled={removal.isPending} onClick={() => removal.mutate({ organization: process.organization, removed: true })}><Trash2 size={15} /></button></div></div>
         {layout.length ? <div className="timeline-scroll" tabIndex={0} role="region" aria-label={`${process.organization || "Unassigned"} timeline`}><div className="timeline-canvas">
           <div className="timeline-track" style={{ minWidth: Math.max(0, (layout.length - 1 + Number(followUp)) * 48) }}>
             {layout.length + Number(followUp) > 1 && <div className="timeline-line" aria-hidden="true" />}
@@ -92,7 +102,7 @@ export default function InterviewProcessesPage() {
       </Card>)}</div>
       {!rows.length && <Card className="process-empty"><CalendarDays size={26} /><h3>No milestones in this period</h3><p>Choose another date or a wider time window. Matching processes show their complete history.</p></Card>}
     </>}
-    {removed.length > 0 && <section className="removed-processes"><Button variant="ghost" size="sm" aria-expanded={showRemoved} onClick={() => setShowRemoved(value => !value)}>Removed processes ({removed.length})</Button>{showRemoved && <Card className="removed-process-list"><p>Removed processes stay hidden after collection. Restore one to show its history again.</p>{removed.map(process => <div key={process.organization || "unassigned"}><span>{process.organization || "Unassigned"}</span><Button variant="outline" size="sm" aria-label={`Restore ${process.organization || "Unassigned"}`} disabled={removal.isPending} onClick={() => removal.mutate({ organization: process.organization, removed: false })}><RotateCcw size={13} />Restore</Button></div>)}</Card>}</section>}
+    {removed.length > 0 && <section className="removed-processes"><Button variant="ghost" size="sm" aria-expanded={showRemoved} onClick={() => setShowRemoved(value => !value)}>Removed processes ({removed.length})</Button>{showRemoved && <Card className="removed-process-list"><p>Removed processes stay hidden after collection. Restore one to show its history again.</p>{removed.map(process => <div key={process.organization === null ? "unassigned" : `organization:${process.organization}`}><span>{process.organization || "Unassigned"}</span><Button variant="outline" size="sm" aria-label={`Restore ${process.organization || "Unassigned"}`} disabled={removal.isPending} onClick={() => removal.mutate({ organization: process.organization, removed: false })}><RotateCcw size={13} />Restore</Button></div>)}</Card>}</section>}
     {active && !detail && <MilestonePreview active={active} onClose={closePreview} onEnter={keepPreview} onLeave={hidePreview} onOpen={() => openDetails(active.milestone, active.trigger)} />}
     <Dialog open={detail !== null} onOpenChange={open => { if (!open) setDetail(null) }}>{detail && (detail.milestone.kind === "event" ? <InterviewDetails key={detail.milestone.id} id={Number(detail.milestone.id.split(":")[1])} onCloseAutoFocus={restoreMilestoneFocus} /> : <MessageDetails key={detail.milestone.id} id={Number(detail.milestone.id.split(":")[1])} onCloseAutoFocus={restoreMilestoneFocus} />)}</Dialog>
   </div>

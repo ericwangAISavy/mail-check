@@ -59,3 +59,11 @@ it("reserves an equal final segment for the follow-up reminder without changing 
   expect(layout.map(item => item.position)).toEqual([0, .5])
   expect(milestones).toHaveLength(2)
 })
+
+it("measures process age from first milestone to now without future bookings extending it", async () => {
+ const { processAge } = await import("./process-timeline")
+ const now = new Date("2026-10-16T12:00:00Z").getTime()
+ expect(processAge([{ occurred_at: "2026-09-18T12:00:00Z" }, { occurred_at: "2026-11-20T12:00:00Z" }], now).label).toBe("4 weeks")
+ expect(processAge([], now).label).toBe("No milestones yet")
+ expect(processAge([{ occurred_at: "2026-11-20T12:00:00Z" }], now).label).toBe("Not started yet")
+})
