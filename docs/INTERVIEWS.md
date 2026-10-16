@@ -9,8 +9,29 @@ seeded, and existing mail history is preserved.
 Open **Interview processes** in the sidebar to follow calendar events by organization.
 Use **Check now** on Interview to collect bookings; the process page's header also
 uses calendar collection. When collection finishes, the organization timelines refresh.
-Each organization shows its event count, next scheduled interview and chronological
-history. **View event** opens the original Interview details and local corrections.
+Each organization is a compact horizontal timeline. Calendar events use circular
+milestones and saved emails use square milestones. Hover, keyboard-focus or tap
+a point to preview its title, time, status and summary. **View event** opens the
+original Interview details and local corrections. Where a saved email has a safe
+provider link, its preview can open the original email.
+
+Use **Daily**, **Weekly**, **Monthly** or **Two months** to choose the visible date
+window. Weeks start on Monday; monthly windows start on the first of the selected
+month, and Two months spans that month and the following month. The date picker,
+previous/next arrows and Today move the window. Times and boundaries use your
+browser's timezone. Milestones are placed proportionally by time; overlapping
+points occupy separate lanes. Small screens can scroll each timeline horizontally.
+
+**Pin** keeps a process above unpinned processes and visible even when there are no
+milestones in the selected period. Pins are stored in the local SQLite database
+and shared across admin sessions/devices. Unpin reverses this. Processes without
+milestones in the current window are otherwise hidden. Search still applies to
+pinned processes.
+
+Emails already saved by mail triage join an existing calendar organization's
+timeline when their sender domain matches that organization exactly. They use the
+latest saved classification summary, or a short saved text preview. Unrelated
+mail does not create processes; no email or model requests are made by this page.
 
 Organization identity is the full domain after `@` in participant and organizer
 email addresses, normalized to lowercase: `HR@Appian.com` becomes `appian.com`.
@@ -82,7 +103,8 @@ reconnect instruction, without a message-based fallback.
 Provider-neutral `CalendarBooking` records feed the existing local event/source
 SQLite tables. No new message or classification rows are created. Source rows
 contain the native event identifier and account association, with no stored email.
-The database schema and previous event history are preserved.
+Previous event history is preserved. Schema 17 adds only the organization pin table;
+timelines continue to derive events and messages from their existing tables.
 
 Event UID plus occurrence identity deduplicates repeat imports. Provider revision
 timestamps order native updates. Native events supersede older attachment-derived

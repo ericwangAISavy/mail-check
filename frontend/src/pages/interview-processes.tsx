@@ -1,57 +1,114 @@
-import { useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { Link } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
-import { ArrowUpRight, Building2, CalendarDays, Search } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowLeft, ArrowRight, ArrowUpRight, Building2, CalendarDays, Mail, Pin, PinOff, Search, X } from "lucide-react"
 import { request } from "@/lib/api"
-import type { InterviewProcess } from "@/lib/types"
+import type { InterviewProcess, ProcessMilestone } from "@/lib/types"
+import { dateInput, movePeriod, periodWindow, positionMilestones, type TimelinePeriod } from "@/lib/process-timeline"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loading, PageHeading } from "@/components/common"
 import "./interview-processes.css"
 
-const dateTime = (value: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Time unknown"
+const dateTime = (value: string) => new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+const periods: [TimelinePeriod, string][] = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["two-months", "Two months"]]
+type Preview = { milestone: ProcessMilestone; trigger: HTMLButtonElement; interactive: boolean }
 
 export default function InterviewProcessesPage() {
   const [search, setSearch] = useState("")
-  // The shared interview key refreshes this view when collection or corrections finish.
+  const [anchor, setAnchor] = useState(() => dateInput(new Date(Date.now())))
+  const [period, setPeriod] = useState<TimelinePeriod>("monthly")
+  const [active, setActive] = useState<Preview | null>(null)
+  const suppressFocus = useRef(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const client = useQueryClient()
   const query = useQuery({ queryKey: ["interviews", "processes"], queryFn: () => request<{ processes: InterviewProcess[] }>("/api/interview-processes"), refetchInterval: 30_000 })
+  const pin = useMutation({
+    mutationFn: ({ organization, pinned }: { organization: string | null; pinned: boolean }) => request("/api/interview-processes/pin", { method: "POST", body: JSON.stringify({ organization, pinned }) }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["interviews", "processes"] }),
+  })
+  const keepPreview = () => { if (closeTimer.current) clearTimeout(closeTimer.current) }
+  const hidePreview = () => { if (active?.interactive) return; keepPreview(); closeTimer.current = setTimeout(() => setActive(null), 180) }
+  const showPreview = (milestone: ProcessMilestone, trigger: HTMLButtonElement, interactive = false) => { if (suppressFocus.current) return; keepPreview(); setActive({ milestone, trigger, interactive }) }
+  const closePreview = () => {
+    keepPreview()
+    setActive(null)
+    if (active?.interactive && active.trigger.isConnected) {
+      suppressFocus.current = true
+      active.trigger.focus({ preventScroll: true })
+      requestAnimationFrame(() => { suppressFocus.current = false })
+    }
+  }
+  useEffect(() => { setActive(null) }, [anchor, period, search])
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
+  const window = periodWindow(anchor, period)
   const processes = query.data?.processes || []
   const needle = search.trim().toLowerCase()
-  const visible = processes.filter(process => !needle || (process.organization || "Unassigned").toLowerCase().includes(needle) || process.events.some(event => event.organization_domains.some(domain => domain.includes(needle))))
-  const unassigned = processes.find(process => !process.organization)?.event_count || 0
+  const rows = processes.filter(process => !needle || (process.organization || "Unassigned").toLowerCase().includes(needle) || process.milestones.some(m => m.organization_domains.some(domain => domain.includes(needle))))
+    .map(process => ({ process, layout: positionMilestones(process.milestones, window) }))
+    .filter(({ process, layout }) => process.pinned || layout.length > 0)
+    .sort((a, b) => Number(b.process.pinned) - Number(a.process.pinned))
+  const endDay = new Date(window.end); endDay.setDate(endDay.getDate() - 1)
+  const rangeLabel = period === "daily" ? window.start.toLocaleDateString(undefined, { dateStyle: "long" }) : `${window.start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${endDay.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
   return <div className="page-wrap processes-page">
-    <PageHeading title="Interview processes" description="Follow each organization’s interview history, from the first booking to the next conversation." action={<Link className="process-calendar-link" to="/interviews"><CalendarDays size={16} />Open Interview calendar<ArrowUpRight size={15} /></Link>} />
-    <p className="process-explanation">Use Check now on Interview to collect new calendar events. Events join the same organization by participant or organizer email domain. Multiple eligible domains stay Unassigned.</p>
-    {query.isPending ? <Loading label="Loading interview processes…" /> : query.error ? <div className="process-empty"><p role="alert" className="inline-error">{query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Try again</Button></div> : <>
-      <div className="process-overview" aria-label="Process totals">
-        <Card><span>Organizations</span><strong>{processes.filter(process => process.organization).length}</strong></Card>
-        <Card><span>Calendar events</span><strong>{processes.reduce((count, process) => count + process.event_count, 0)}</strong></Card>
-        <Card><span>With upcoming interviews</span><strong>{processes.filter(process => process.organization && process.next_interview).length}</strong></Card>
-        <Card><span>Unassigned events</span><strong>{unassigned}</strong></Card>
-      </div>
-      {processes.length === 0 ? <Card className="process-empty"><Building2 size={30} /><h2>No interview processes yet</h2><p>Collect events from your Interview calendar to start tracking organizations here.</p></Card> : <>
-        <label className="process-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Find organization</span><input type="search" placeholder="Find an organization or domain…" value={search} onChange={event => setSearch(event.target.value)} /></label>
-        <div className="process-groups">{visible.map(process => <ProcessCard key={process.organization || "unassigned"} process={process} />)}</div>
-        {!visible.length && <p className="process-empty">No matching organizations. Try another domain.</p>}
-      </>}
+    <PageHeading title="Interview processes" description="Every conversation, one step at a time." action={<Link className="process-calendar-link" to="/interviews"><CalendarDays size={16} />Open Interview calendar<ArrowUpRight size={15} /></Link>} />
+    <Card className="timeline-controls">
+      <div className="timeline-periods" role="group" aria-label="Timeline period">{periods.map(([value, label]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>)}</div>
+      <div className="timeline-date-controls"><Button variant="ghost" size="icon" aria-label="Previous period" onClick={() => setAnchor(movePeriod(anchor, period, -1))}><ArrowLeft size={16} /></Button><label><span className="sr-only">Timeline date</span><input aria-label="Timeline date" type="date" min="1971-01-01" max="2100-12-31" value={anchor} onChange={event => { if (event.target.value && event.target.validity.valid) setAnchor(event.target.value) }} /></label><Button variant="ghost" size="icon" aria-label="Next period" onClick={() => setAnchor(movePeriod(anchor, period, 1))}><ArrowRight size={16} /></Button><Button variant="outline" size="sm" onClick={() => setAnchor(dateInput(new Date(Date.now())))}>Today</Button></div>
+    </Card>
+    <div className="timeline-toolbar"><label className="process-search"><Search size={16} aria-hidden="true" /><span className="sr-only">Find organization</span><input type="search" placeholder="Find organization…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="timeline-legend"><span><CalendarDays size={13} />Event</span><span><Mail size={13} />Email</span><span className="timeline-hover-hint">Hover or tap a milestone</span></div></div>
+    <div className="timeline-range"><h2>{rangeLabel}</h2><span>{rows.length} {rows.length === 1 ? "process" : "processes"} · Times in your timezone</span></div>
+    {pin.error && <p role="alert" className="inline-error">{pin.error.message}</p>}
+    {query.isPending ? <Loading label="Loading interview processes…" /> : query.error ? <div className="process-empty"><p role="alert" className="inline-error">{query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Try again</Button></div> : processes.length === 0 ? <Card className="process-empty"><Building2 size={30} /><h2>No interview processes yet</h2><p>Use Check now on Interview to collect calendar events.</p></Card> : <>
+      <div className="process-groups">{rows.map(({ process, layout }) => <Card className={`process-timeline-card${process.pinned ? " is-pinned" : ""}`} key={process.organization || "unassigned"}>
+        <div className="process-row-heading"><div className="process-identity"><Building2 size={18} aria-hidden="true" /><h2>{process.organization || "Unassigned"}</h2>{process.pinned && <span className="pinned-label">Pinned</span>}<span className="process-milestone-count">{layout.length} milestones</span></div><button type="button" className="process-pin" aria-label={`${process.pinned ? "Unpin" : "Pin"} ${process.organization || "Unassigned"}`} aria-pressed={process.pinned} disabled={pin.isPending} onClick={() => pin.mutate({ organization: process.organization, pinned: !process.pinned })}>{process.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button></div>
+        {layout.length ? <div className="timeline-scroll" tabIndex={0} role="region" aria-label={`${process.organization || "Unassigned"} timeline`}><div className="timeline-canvas">
+          <div className="timeline-ruler" aria-hidden="true">{window.ticks.map(tick => <span key={tick.date.toISOString()} style={{ left: `${tick.position * 100}%` }}>{tick.label}</span>)}</div>
+          <div className="timeline-track" style={{ height: Math.max(62, 30 + (Math.max(...layout.map(item => item.lane)) + 1) * 32) }}>
+            <div className="timeline-line" aria-hidden="true" />
+            {window.ticks.map(tick => <div className="timeline-gridline" key={tick.date.toISOString()} style={{ left: `${tick.position * 100}%` }} aria-hidden="true" />)}
+            {layout.filter(item => item.lane > 0).map(({ milestone, position, lane }) => <span key={`stem:${milestone.id}`} className={`timeline-stem timeline-stem-${milestone.kind}`} style={{ left: `${position * 100}%`, height: lane * 32 }} aria-hidden="true" />)}
+            {layout.map(({ milestone, position, lane }) => <button key={milestone.id} type="button" className={`timeline-milestone milestone-${milestone.kind} milestone-${milestone.status.toLowerCase().replaceAll(" ", "-")}`} style={{ left: `${position * 100}%`, top: 18 + lane * 32 }} aria-label={`${milestone.kind === "event" ? "Event" : "Email"}: ${milestone.title}, ${dateTime(milestone.occurred_at)}`} aria-haspopup="dialog" aria-expanded={active?.milestone.id === milestone.id} onMouseEnter={event => showPreview(milestone, event.currentTarget)} onMouseLeave={hidePreview} onFocus={event => showPreview(milestone, event.currentTarget)} onBlur={hidePreview} onClick={event => showPreview(milestone, event.currentTarget, true)}>{milestone.kind === "event" ? <CalendarDays size={12} /> : <Mail size={12} />}</button>)}
+          </div>
+        </div></div> : <p className="timeline-no-milestones">No milestones in this period. This process stays here because it is pinned.</p>}
+      </Card>)}</div>
+      {!rows.length && <Card className="process-empty"><CalendarDays size={26} /><h3>No milestones in this period</h3><p>Choose another date or a wider time window.</p></Card>}
     </>}
+    {active && <MilestonePreview active={active} onClose={closePreview} onEnter={keepPreview} onLeave={hidePreview} />}
   </div>
 }
 
-function ProcessCard({ process }: { process: InterviewProcess }) {
-  const name = process.organization || "Unassigned"
-  return <Card className={`process-card${process.organization ? "" : " process-unassigned"}`}>
-    <div className="process-card-heading"><div className="process-identity"><span className="process-icon"><Building2 size={20} aria-hidden="true" /></span><div><h2>{name}</h2><p>{process.event_count} {process.event_count === 1 ? "event" : "events"}{!process.organization && " · Organization needs review"}</p></div></div>
-      <div className="process-next"><span>Next interview</span><strong>{process.next_interview ? dateTime(process.next_interview.start_at) : "No upcoming interview"}</strong></div>
-    </div>
-    <details className="process-history" open><summary>Event history <span>Earliest first · Times in your timezone</span></summary>
-      <ol>{process.events.map(event => <li key={event.id}>
-        <div className="process-event-time"><time dateTime={event.start_at || undefined}>{dateTime(event.start_at)}</time><span className={`process-status process-status-${event.display_status.toLowerCase().replaceAll(" ", "-")}`}>{event.display_status}</span></div>
-        <div className="process-event-body"><h3>{event.company || event.stage}{event.role ? ` · ${event.role}` : ""}</h3><p>{event.company && event.stage !== "Other" ? `${event.stage} · ` : ""}{event.organizer_email || "Organizer unknown"}{event.account_labels?.length ? ` · ${event.account_labels.join(", ")}` : ""}</p>
-          {event.assignment_reason && <div className="process-assignment"><strong>{event.assignment_reason}</strong>{event.organization_domains.length > 0 && <span>{event.organization_domains.join(", ")}</span>}</div>}
-        </div>
-        <Link className="process-event-link" to={`/interviews?event=${event.id}`} aria-label={`View event ${event.id}: ${event.stage}`}>View event<ArrowUpRight size={14} /></Link>
-      </li>)}</ol>
-    </details>
-  </Card>
+function MilestonePreview({ active, onClose, onEnter, onLeave }: { active: Preview; onClose: () => void; onEnter: () => void; onLeave: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ left: 12, top: 12 })
+  const milestone = active.milestone
+  useLayoutEffect(() => {
+    const place = () => {
+      const rect = active.trigger.getBoundingClientRect(), panel = ref.current!
+      const width = panel.offsetWidth, height = panel.offsetHeight
+      const left = Math.min(Math.max(12, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 12)
+      const top = rect.bottom + height + 14 < window.innerHeight ? rect.bottom + 10 : Math.max(12, rect.top - height - 10)
+      setPosition({ left, top })
+    }
+    place()
+    if (active.interactive) ref.current!.focus({ preventScroll: true })
+    window.addEventListener("resize", place)
+    window.addEventListener("scroll", place, true)
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true) }
+  }, [active])
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose() }
+    const outside = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node) && !active.trigger.contains(event.target as Node)) onClose() }
+    document.addEventListener("keydown", key); document.addEventListener("pointerdown", outside)
+    return () => { document.removeEventListener("keydown", key); document.removeEventListener("pointerdown", outside) }
+  }, [active, onClose])
+  return createPortal(<div ref={ref} tabIndex={-1} role="dialog" aria-label="Milestone preview" className="milestone-preview" style={position} onMouseEnter={onEnter} onMouseLeave={onLeave} onFocus={onEnter} onBlur={onLeave}>
+    <div className="milestone-preview-top"><span>{milestone.kind === "event" ? <CalendarDays size={14} /> : <Mail size={14} />}{milestone.kind === "event" ? "Calendar event" : "Email"}{milestone.status !== "Email" && <span className="milestone-preview-status">{milestone.status}</span>}</span><button type="button" aria-label="Close preview" onClick={onClose}><X size={15} /></button></div>
+    <h3>{milestone.title}</h3><time dateTime={milestone.occurred_at}>{dateTime(milestone.occurred_at)}</time>
+    {milestone.summary && <p className="milestone-summary">{milestone.summary}</p>}
+    <p className="milestone-sender">{milestone.sender || "Sender unknown"}{milestone.account_labels.length ? ` · ${milestone.account_labels.join(", ")}` : ""}</p>
+    {milestone.assignment_reason && <p className="milestone-assignment">{milestone.assignment_reason}{milestone.organization_domains.length > 0 && <span>{milestone.organization_domains.join(", ")}</span>}</p>}
+    {milestone.href && (milestone.kind === "event" ? <Link to={milestone.href} onClick={onClose}>View event<ArrowUpRight size={14} /></Link> : <a href={milestone.href} target="_blank" rel="noopener noreferrer">Open original email<ArrowUpRight size={14} /></a>)}
+  </div>, document.body)
 }

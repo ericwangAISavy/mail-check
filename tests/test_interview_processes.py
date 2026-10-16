@@ -9,7 +9,8 @@ import pytest
 
 from tests import test_calendar_collection as calendar_fixtures
 from tests.web_client import TestClient, sign_in_bidder
-from mailcheck import config
+from mailcheck import config, db
+from mailcheck.models import NormalizedMessage, Classification
 from mailcheck.web.app import create_app
 
 
@@ -33,6 +34,57 @@ class ProcessCollectionTests(unittest.TestCase):
     setUp = calendar_fixtures.NativeCalendarTests.setUp
     source = calendar_fixtures.NativeCalendarTests.source
     collect = calendar_fixtures.NativeCalendarTests.collect
+
+    def test_saved_email_summaries_join_the_matching_timeline(self):
+        from mailcheck import interview_processes
+        self.collect(self.source([calendar_fixtures.event("mail", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        def message(sender, subject, summary=None):
+            pk = db.upsert_message(self.conn, NormalizedMessage(
+                account_id=self.a, account_label="work", message_id=subject,
+                uid=subject, folder="INBOX", from_addr=sender, from_name="Recruiter",
+                subject=subject, date_utc=datetime(2026, 10, 17, 12, tzinfo=timezone.utc),
+                body="Saved email preview"))
+            if summary:
+                db.save_classification(self.conn, pk, Classification(category="interview_invite", summary=summary), "test", "1")
+            return pk
+        first = message("HR@Appian.com", "Choose a time", "Recruiter asks for availability.")
+        message("hr@appian.com", "Follow up")
+        message("hr@unrelated.test", "Unrelated")
+        report = interview_processes.list_processes(self.conn)
+        self.assertEqual(len(report), 1)
+        process = report[0]
+        self.assertEqual(process["message_count"], 2)
+        self.assertEqual([m["kind"] for m in process["milestones"]], ["message", "message", "event"])
+        self.assertEqual(process["milestones"][0]["summary"], "Recruiter asks for availability.")
+        self.assertIn("Saved email preview", process["milestones"][1]["summary"])
+        self.assertEqual(process["milestones"][0]["id"], f"message:{first}")
+        self.assertEqual(len({m["id"] for m in process["milestones"]}), 3)
+
+    def test_pins_survive_reopening_and_unpinning(self):
+        from mailcheck import interview_processes
+        self.collect(self.source([calendar_fixtures.event("pin", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        interview_processes.set_pin(self.conn, "appian.com", True)
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            self.assertTrue(interview_processes.list_processes(conn)[0]["pinned"])
+            interview_processes.set_pin(conn, "appian.com", False)
+        self.assertFalse(interview_processes.list_processes(self.conn)[0]["pinned"])
+        with self.assertRaises(ValueError):
+            interview_processes.set_pin(self.conn, "not a domain", True)
+
+    def test_version_16_upgrade_preserves_events_and_adds_pin_storage(self):
+        from mailcheck import interview_processes
+        self.collect(self.source([calendar_fixtures.event("upgrade", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        original = self.conn.execute("SELECT id,calendar_uid FROM interview_events").fetchone()
+        self.conn.execute("DROP TABLE interview_process_pins")
+        self.conn.execute("PRAGMA user_version=16")
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            preserved = conn.execute("SELECT id,calendar_uid FROM interview_events").fetchone()
+            self.assertEqual(tuple(preserved), tuple(original))
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
+            interview_processes.set_pin(conn, "appian.com", True)
+        self.assertTrue(interview_processes.list_processes(self.conn)[0]["pinned"])
 
     def test_new_organizations_and_calendar_updates_rebuild_the_right_process(self):
         from mailcheck import interview_processes
@@ -59,11 +111,14 @@ class ProcessCollectionTests(unittest.TestCase):
                 response = client.get("/api/interview-processes")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["processes"][0]["organization"], "appian.com")
+                self.assertEqual(client.post("/api/interview-processes/pin", json={"organization": "appian.com", "pinned": True}).status_code, 200)
+                self.assertTrue(client.get("/api/interview-processes").json()["processes"][0]["pinned"])
                 page = client.get("/interview-processes")
                 self.assertEqual(page.status_code, 200)
                 self.assertIn("no-store", page.headers["cache-control"])
                 sign_in_bidder(client)
                 self.assertEqual(client.get("/api/interview-processes").status_code, 403)
+                self.assertEqual(client.post("/api/interview-processes/pin", json={"organization": "appian.com", "pinned": False}).status_code, 403)
                 self.assertEqual(client.get("/interview-processes").status_code, 403)
                 client.post("/api/auth/logout")
                 self.assertEqual(client.get("/api/interview-processes").status_code, 401)

@@ -9,6 +9,27 @@ from . import db, interviews
 
 SERVICE_DOMAINS = ("google.com", "teams.microsoft.com", "teams.live.com", "teams.com", "zoom.us", "zoom.com")
 DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS interview_process_pins (
+    organization TEXT PRIMARY KEY NOT NULL,
+    pinned_at TEXT NOT NULL
+);
+"""
+
+
+def set_pin(conn, organization: str | None, pinned: bool) -> None:
+    key = organization.strip().casefold() if organization else ""
+    if key and not DOMAIN.fullmatch(key):
+        raise ValueError("Use a valid organization domain")
+    if pinned:
+        conn.execute("INSERT INTO interview_process_pins(organization,pinned_at) VALUES(?,?) ON CONFLICT(organization) DO NOTHING", (key, db._now()))
+    else:
+        conn.execute("DELETE FROM interview_process_pins WHERE organization=?", (key,))
+
+
+def _instant(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
 
 
 def organization_domains(participants: list[str], organizer: str | None, *, own_emails: set[str]) -> list[str]:
@@ -35,6 +56,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     own = {account.email for account in db.list_accounts(conn)}
     groups: dict[str | None, dict] = {}
+    pins = {row[0] for row in conn.execute("SELECT organization FROM interview_process_pins")}
     labels: dict[int, list[str]] = {}
     for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
         labels.setdefault(source["event_id"], []).append(source["label"])
@@ -47,14 +69,51 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         event["organization_domains"] = domains
         event["assignment_reason"] = None if organization else "Multiple organization domains" if domains else "No eligible organization domain"
         event["account_labels"] = labels.get(event["id"], [])
-        group = groups.setdefault(organization, {"organization": organization, "events": []})
+        group = groups.setdefault(organization, {"organization": organization, "events": [], "milestones": [], "message_count": 0, "pinned": (organization or "") in pins})
         group["events"].append(event)
+        group["milestones"].append({
+            "id": f"event:{event['id']}", "kind": "event", "occurred_at": event["start_at"],
+            "title": event["company"] or event["stage"], "summary": (event["notes"] or "")[:1000],
+            "status": event["display_status"], "sender": event["organizer_email"],
+            "account_labels": event["account_labels"], "href": f"/interviews?event={event['id']}",
+            "organization_domains": domains, "assignment_reason": event["assignment_reason"],
+        })
+
+    # Add saved mail only to an established calendar organization. A newsletter
+    # alone must not create an interview process. No mailbox or model calls.
+    messages = conn.execute("""SELECT m.id,m.from_addr,m.subject,
+        COALESCE(m.date_utc,m.fetched_at) AS occurred_at,
+        substr(COALESCE(NULLIF(c.summary,''),NULLIF(m.snippet,''),m.body_text,''),1,1000) AS summary,
+        m.provider_url,a.label,c.category
+        FROM messages m JOIN accounts a ON a.id=m.account_id AND a.enabled=1
+        LEFT JOIN classifications c ON c.id=(SELECT id FROM classifications
+            WHERE message_pk=m.id ORDER BY created_at DESC,id DESC LIMIT 1)
+        ORDER BY m.id"""
+    )
+    for message in messages:
+        domains = organization_domains([], message["from_addr"], own_emails=own)
+        if len(domains) != 1 or domains[0] not in groups:
+            continue
+        try:
+            occurred_at = _instant(message["occurred_at"]).isoformat()
+        except (TypeError, ValueError):
+            continue
+        group = groups[domains[0]]
+        group["message_count"] += 1
+        group["milestones"].append({
+            "id": f"message:{message['id']}", "kind": "message", "occurred_at": occurred_at,
+            "title": message["subject"] or "(No subject)", "summary": message["summary"][:1000],
+            "status": "Email", "sender": message["from_addr"], "account_labels": [message["label"]],
+            "href": interviews.safe_url(message["provider_url"]),
+            "organization_domains": domains, "assignment_reason": None,
+        })
 
     result = []
     for key in sorted(groups, key=lambda value: (value is None, value or "")):
         group = groups[key]
         group["events"].sort(key=lambda event: (datetime.fromisoformat(event["start_at"].replace("Z", "+00:00")), event["id"]))
         group["event_count"] = len(group["events"])
+        group["milestones"].sort(key=lambda milestone: (_instant(milestone["occurred_at"]), milestone["id"]))
         group["next_interview"] = next((event for event in group["events"] if event["display_status"] in ("Scheduled", "Rescheduled") and datetime.fromisoformat(event["start_at"].replace("Z", "+00:00")) >= now), None)
         result.append(group)
-    return result
+    return sorted(result, key=lambda group: not group["pinned"])

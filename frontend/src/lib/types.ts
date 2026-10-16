@@ -47,4 +47,9 @@ export type InterviewSource = {
 }
 export type InterviewData = { companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }
 export type ProcessEvent = InterviewEvent & { organization_domains: string[]; assignment_reason: string | null }
-export type InterviewProcess = { organization: string | null; event_count: number; next_interview: ProcessEvent | null; events: ProcessEvent[] }
+export type ProcessMilestone = {
+  id: string; kind: "event" | "message"; occurred_at: string; title: string; summary: string
+  status: string; sender: string | null; account_labels: string[]; href: string | null
+  organization_domains: string[]; assignment_reason: string | null
+}
+export type InterviewProcess = { organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }
