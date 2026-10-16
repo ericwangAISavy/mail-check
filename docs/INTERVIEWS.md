@@ -9,8 +9,9 @@ seeded, and existing mail history is preserved.
 Open **Interview processes** in the sidebar to follow calendar events by organization.
 Use **Check now** on Interview to collect bookings; the process page's header also
 uses calendar collection. When collection finishes, the organization timelines refresh.
-Each organization is a compact horizontal sequence of equally spaced circular
-milestones connected by a line. The first and last milestones sit at the endpoints;
+Each organization is a compact horizontal sequence of equally spaced milestones
+connected by a line. Meetings are circles with calendar icons; messages are rounded
+squares with envelope icons. The first and last milestones sit at the endpoints;
 spacing shows process progression rather than elapsed time. Events and saved emails
 stay in chronological order. Each process has a stable accent color and tinted
 background. Hover, keyboard-focus or tap
@@ -18,17 +19,24 @@ a point to preview its title, time, status and summary. **View event** opens the
 original Interview details and local corrections. Where a saved email has a safe
 provider link, its preview can open the original email.
 
-Use **Daily**, **Weekly**, **Monthly** or **Two months** to choose the visible date
-window. Weeks start on Monday; monthly windows start on the first of the selected
+Use **Daily**, **Weekly**, **Two weeks**, **Monthly** or **Two months** to choose the
+date window. A process appears if at least one of its milestones falls in the
+window, and its entire saved history is then shown. Weeks start on Monday; Two
+weeks spans fourteen days from that Monday. Monthly windows start on the first of the selected
 month, and Two months spans that month and the following month. The date picker,
 previous/next arrows and Today move the window. Times and boundaries use your
 browser's timezone. Dates appear in previews rather than along a time ruler.
 Small screens can scroll longer milestone sequences horizontally.
 
-**Pin** keeps a process above unpinned processes and visible even when there are no
-milestones in the selected period. Pins are stored in the local SQLite database
+Milestones before the window are muted; milestones inside it are highlighted.
+Upcoming Scheduled/Rescheduled meetings after the window use a danger color.
+Cancelled/completed meetings and messages after a historical window remain muted,
+with their relation to the selected window explained in the preview. Timing labels
+and distinct meeting/message shapes also convey meaning without relying on color.
+
+**Pin** keeps a matching process above unpinned processes. Pins are stored in the local SQLite database
 and shared across admin sessions/devices. Unpin reverses this. Processes without
-milestones in the current window are otherwise hidden. Search still applies to
+milestones in the current window are hidden, including pinned processes. Search still applies to
 pinned processes.
 
 Emails already saved by mail triage join an existing calendar organization's

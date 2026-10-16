@@ -10,7 +10,7 @@
 .process-search { display: flex; align-items: center; gap: 10px; width: min(100%, 340px); padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); background: var(--card); }
 .process-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .process-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--foreground); font-size: 12px; }
-.timeline-legend { display: flex; align-items: center; gap: 17px; font-size: 11px; color: var(--muted-foreground); }
+.timeline-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; font-size: 11px; color: var(--muted-foreground); }
 .timeline-legend > span { display: flex; align-items: center; gap: 5px; }
 .timeline-range { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .timeline-range h2 { font-size: 15px; font-weight: 600; }
@@ -38,10 +38,18 @@
 .timeline-canvas { padding: 6px 0; }
 .timeline-track { position: relative; height: 48px; }
 .timeline-line { position: absolute; top: 23px; left: 0; right: 0; height: 2px; background: color-mix(in srgb, var(--process-accent) 55%, transparent); }
-.timeline-milestone { position: absolute; top: 10px; transform: translateX(-50%); width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--card); border: 2px solid var(--process-accent); color: var(--process-accent); z-index: 1; cursor: pointer; transition: box-shadow .15s, background .15s; }
-.milestone-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.timeline-milestone { position: absolute; top: 10px; transform: translateX(-50%); width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--card); border: 2px solid var(--milestone-color); color: var(--milestone-color); z-index: 1; cursor: pointer; transition: box-shadow .15s, background .15s; }
+.milestone-message { border-radius: 6px; }
+.milestone-past { --milestone-color: var(--muted-foreground); }
+.milestone-present { --milestone-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent); }
+.milestone-future { --milestone-color: var(--destructive); background: color-mix(in srgb, var(--destructive) 12%, var(--card)); }
+.timeline-legend .legend-past { color: var(--muted-foreground); }
+.timeline-legend .legend-present, .milestone-timing-present { color: var(--primary); }
+.timeline-legend .legend-future, .milestone-timing-future { color: var(--destructive); }
+.milestone-timing { margin-top: 8px; font-size: 11px; }
+.milestone-timing-past { color: var(--muted-foreground); }
 .timeline-milestone.milestone-cancelled { border-style: dashed; }
-.timeline-milestone:hover, .timeline-milestone:focus-visible, .timeline-milestone[aria-expanded="true"] { outline: 2px solid var(--foreground); outline-offset: 3px; background: color-mix(in srgb, var(--process-accent) 20%, var(--card)); }
+.timeline-milestone:hover, .timeline-milestone:focus-visible, .timeline-milestone[aria-expanded="true"] { outline: 2px solid var(--foreground); outline-offset: 3px; background: color-mix(in srgb, var(--milestone-color) 20%, var(--card)); }
 .timeline-no-milestones { color: var(--muted-foreground); font-size: 12px; padding: 15px 0 24px; }
 .process-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 36px 24px; text-align: center; color: var(--muted-foreground); }
 .process-empty h2, .process-empty h3 { color: var(--foreground); font-size: 17px; font-weight: 600; }
@@ -60,7 +68,7 @@
 @media (max-width: 700px) {
   .processes-page .page-heading { flex-direction: column; align-items: flex-start; gap: 14px; }
   .timeline-controls { padding: 10px; gap: 10px; }
-  .timeline-periods { width: 100%; }
+  .timeline-periods { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .timeline-periods button { flex: 1; padding: 8px; }
   .timeline-date-controls { width: 100%; justify-content: space-between; }
   .timeline-hover-hint { display: none!important; }
