@@ -19,10 +19,20 @@ export function movePeriod(anchor: string, period: TimelinePeriod, direction: nu
   return dateInput(date)
 }
 
-export function positionMilestones<T extends { id: string; occurred_at: string }>(milestones: T[]) {
+export function positionMilestones<T extends { id: string; occurred_at: string }>(milestones: T[], followUp = false) {
   const ordered = [...milestones]
     .sort((a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime() || a.id.localeCompare(b.id))
-  return ordered.map((milestone, index) => ({ milestone, position: ordered.length > 1 ? index / (ordered.length - 1) : 0 }))
+  const segments = ordered.length - 1 + Number(followUp)
+  return ordered.map((milestone, index) => ({ milestone, position: segments > 0 ? index / segments : 0 }))
+}
+
+export function needsFollowUp(milestones: { id: string; occurred_at: string }[], now = Date.now(), events: { id: number; end_at: string | null }[] = []) {
+  const endings = new Map(events.map(event => [`event:${event.id}`, event.end_at]))
+  return milestones.length > 0 && milestones.every(milestone => {
+    const start = new Date(milestone.occurred_at).getTime()
+    const end = endings.get(milestone.id)
+    return start <= now && (!end || new Date(end).getTime() <= now)
+  })
 }
 
 export function inPeriod(milestone: { occurred_at: string }, window: { start: Date; end: Date }) {

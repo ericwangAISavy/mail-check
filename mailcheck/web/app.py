@@ -729,7 +729,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             row = conn.execute("SELECT * FROM interview_events WHERE id=?",(event_id,)).fetchone()
             if not row: return _err("Interview not found",404)
-            return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id)}
+            return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id),"stages":interviews.STAGES,"statuses":interviews.STATUSES}
 
     @app.post("/api/interviews/{event_id}")
     def interview_update(event_id: int, changes: dict):

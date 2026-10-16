@@ -111,6 +111,10 @@ class ProcessCollectionTests(unittest.TestCase):
                 response = client.get("/api/interview-processes")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["processes"][0]["organization"], "appian.com")
+                event_id = response.json()["processes"][0]["events"][0]["id"]
+                detail = client.get(f"/api/interviews/{event_id}").json()
+                self.assertIn("Other", detail["stages"])
+                self.assertIn("Cancelled", detail["statuses"])
                 self.assertEqual(client.post("/api/interview-processes/pin", json={"organization": "appian.com", "pinned": True}).status_code, 200)
                 self.assertTrue(client.get("/api/interview-processes").json()["processes"][0]["pinned"])
                 page = client.get("/interview-processes")

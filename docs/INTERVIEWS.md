@@ -14,13 +14,15 @@ connected by a line. Meetings are circles with calendar icons; messages are roun
 squares with envelope icons. The first and last milestones sit at the endpoints;
 spacing shows process progression rather than elapsed time. Events and saved emails
 stay in chronological order. Each process has a stable accent color and tinted
-background. Hover, keyboard-focus or tap
-a point to preview its title, time, status and summary. **View event** opens the
-original Interview details and local corrections. Where a saved email has a safe
-provider link, its preview can open the original email.
+background. Hover or keyboard-focus a point to preview its title, time, status and
+summary. Click, tap or press Enter on a meeting milestone to open the same event
+dialog as Interview, including local corrections. Message milestones open a
+matching dialog with sender/mailbox/date details, summary and full saved message
+content. Both dialogs close back to the originating milestone. Where a saved email
+has a safe provider link, its details can open the original email.
 
 Use **Daily**, **Weekly**, **Two weeks**, **Monthly** or **Two months** to choose the
-date window. A process appears if at least one of its milestones falls in the
+date window. Weekly is selected by default. A process appears if at least one of its milestones falls in the
 window, and its entire saved history is then shown. Weeks start on Monday; Two
 weeks spans fourteen days from that Monday. Monthly windows start on the first of the selected
 month, and Two months spans that month and the following month. The date picker,
@@ -33,6 +35,14 @@ Upcoming Scheduled/Rescheduled meetings after the window use a danger color.
 Cancelled/completed meetings and messages after a historical window remain muted,
 with their relation to the selected window explained in the preview. Timing labels
 and distinct meeting/message shapes also convey meaning without relying on color.
+
+If every saved milestone in a displayed process is already in the past, an amber
+flag milestone appears at the end with a **Follow up** badge. This uses actual
+timestamps rather than the window's colors; an already-past milestone can still be
+highlighted because it falls within the selected window. A meeting that is still
+in progress or any later milestone prevents the reminder. The flag is a visual
+status hint, not a saved calendar event or message; it does not change counts or
+window matching. Real milestones and the flag retain equal spacing.
 
 **Pin** keeps a matching process above unpinned processes. Pins are stored in the local SQLite database
 and shared across admin sessions/devices. Unpin reverses this. Processes without

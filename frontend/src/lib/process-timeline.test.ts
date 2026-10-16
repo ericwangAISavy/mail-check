@@ -1,5 +1,5 @@
 import { expect, it } from "vitest"
-import { dateInput, periodWindow, movePeriod, positionMilestones, inPeriod, milestoneTiming } from "./process-timeline"
+import { dateInput, periodWindow, movePeriod, positionMilestones, inPeriod, milestoneTiming, needsFollowUp } from "./process-timeline"
 
 it("uses calendar boundaries for daily, Monday weekly, monthly and two-month windows", () => {
   for (const [period, first, last] of [["daily", "2026-10-16", "2026-10-17"], ["weekly", "2026-10-12", "2026-10-19"], ["two-weeks", "2026-10-12", "2026-10-26"], ["monthly", "2026-10-01", "2026-11-01"], ["two-months", "2026-10-01", "2026-12-01"]] as const) {
@@ -43,4 +43,19 @@ it("places the first and last milestones at the endpoints regardless of time gap
 it("places a single milestone at the beginning", () => {
   const layout = positionMilestones([{ id: "one", occurred_at: "2026-10-16T10:00:00Z" }])
   expect(layout[0].position).toBe(0)
+})
+it("needs follow-up only when every real milestone has finished", () => {
+  const now = new Date("2026-10-16T12:00:00Z").getTime()
+  const past = { id: "event:1", occurred_at: "2026-10-15T12:00:00Z" }
+  expect(needsFollowUp([past], now)).toBe(true)
+  expect(needsFollowUp([], now)).toBe(false)
+  expect(needsFollowUp([past, { id: "message:2", occurred_at: "2026-10-17T12:00:00Z" }], now)).toBe(false)
+  expect(needsFollowUp([{ ...past, occurred_at: "invalid" }], now)).toBe(false)
+  expect(needsFollowUp([past], now, [{ id: 1, end_at: "2026-10-16T13:00:00Z" }])).toBe(false)
+})
+it("reserves an equal final segment for the follow-up reminder without changing saved milestones", () => {
+  const milestones = [{ id: "one", occurred_at: "2026-10-14T12:00:00Z" }, { id: "two", occurred_at: "2026-10-15T12:00:00Z" }]
+  const layout = positionMilestones(milestones, true)
+  expect(layout.map(item => item.position)).toEqual([0, .5])
+  expect(milestones).toHaveLength(2)
 })

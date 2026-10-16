@@ -13,7 +13,11 @@ const report = () => ({ processes: [
   { organization: null, pinned: false, event_count: 1, message_count: 0, next_interview: null, events: [], milestones: [milestone("event:3", 18, "Multiple organization domains")] },
 ] })
 beforeEach(() => {
-  vi.mocked(request).mockResolvedValue(report())
+  vi.mocked(request).mockImplementation(async (url) => {
+    if (url === "/api/interviews/1") return { event: { id: 1, company: "Meeting with Appian", role: "Engineer", stage: "Technical Interview", status: "Scheduled", display_status: "Scheduled", start_at: "2026-10-18T15:30:00Z", end_at: "2026-10-18T16:30:00Z", timezone: "UTC", meeting_platform: "Zoom", meeting_url: "https://zoom.us/j/123", location: null, organizer_email: "hr@appian.com", participants: ["hr@appian.com"], notes: "Event details from calendar", needs_review: false, manual_fields: [], updated_at: "2026-10-16T12:00:00Z" }, sources: [], stages: ["Technical Interview", "Other"], statuses: ["Scheduled", "Cancelled"] } as never
+    if (url === "/api/messages/1") return { message: { pk: 1, subject: "Choose a time", from_name: "Recruiter", from_addr: "hr@appian.com", account_label: "Work", date_utc: "2026-10-16T15:30:00Z", summary: "Recruiter asks for your availability.", open_url: null }, body_html: "<p>Full message details beyond the milestone summary.</p>" } as never
+    return report() as never
+  })
   vi.spyOn(Date, "now").mockReturnValue(new Date("2026-10-16T12:00:00Z").getTime())
 })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks(); vi.restoreAllMocks() })
@@ -32,7 +36,7 @@ it("shows compact milestones and reveals summaries on hover and keyboard focus",
   fireEvent.keyDown(document, { key: "Escape" })
   expect(screen.queryByRole("dialog")).toBeNull()
   fireEvent.focus(screen.getAllByRole("button", { name: /Event: Technical interview/ })[0])
-  expect(await screen.findByRole("link", { name: "View event" })).toHaveProperty("href", expect.stringContaining("/interviews?event=1"))
+  expect(await screen.findByRole("button", { name: "View event" })).toBeTruthy()
 })
 it("selects processes by period and retains their entire history", async () => {
   mount()
@@ -72,18 +76,42 @@ it("keeps pins as priority without including processes outside the selected wind
   fireEvent.click(screen.getByRole("button", { name: "Daily" }))
   expect(screen.queryByRole("heading", { name: "Unassigned" })).toBeNull()
 })
-it("moves focus into activated previews and restores the milestone on Escape", async () => {
+it("adds a highlighted Follow up endpoint only for processes whose entire history has passed", async () => {
+  const data = report()
+  data.processes[0].milestones = [milestone("event:1", 13), milestone("message:1", 14)]
+  vi.mocked(request).mockResolvedValue(data)
+  mount()
+  const reminder = await screen.findByRole("status", { name: "Follow up needed for appian.com" })
+  expect(reminder.style.left).toBe("100%")
+  expect(screen.getByText("Follow up")).toBeTruthy()
+  expect(screen.queryByRole("status", { name: "Follow up needed for Unassigned" })).toBeNull()
+  expect(screen.getAllByRole("button", { name: /^(Event|Email):/ })).toHaveLength(3)
+})
+it("defaults to Weekly and opens the shared interview dialog directly on click", async () => {
   mount()
   const trigger = (await screen.findAllByRole("button", { name: /Event: Technical interview/ }))[0]
+  expect(screen.getByRole("button", { name: "Weekly" }).getAttribute("aria-pressed")).toBe("true")
   trigger.focus()
   fireEvent.click(trigger, { detail: 0 })
-  const preview = await screen.findByRole("dialog", { name: "Milestone preview" })
-  expect(document.activeElement).toBe(preview)
-  fireEvent.scroll(window)
-  expect(screen.getByRole("dialog", { name: "Milestone preview" })).toBe(preview)
-  fireEvent.keyDown(document, { key: "Escape" })
-  expect(screen.queryByRole("dialog")).toBeNull()
+  const dialog = await screen.findByRole("dialog", { name: "Meeting with Appian" })
+  expect(dialog.textContent).toContain("Calendar event details and local corrections.")
+  expect(screen.getByRole("button", { name: "Edit details" })).toBeTruthy()
+  expect(screen.getByText("Event details from calendar")).toBeTruthy()
+  expect(screen.queryByRole("dialog", { name: "Milestone preview" })).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+  expect(screen.getByRole("option", { name: "Other" })).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", { name: "Close" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   expect(document.activeElement).toBe(trigger)
+})
+it("opens full saved message content in the same dialog shell", async () => {
+  mount()
+  fireEvent.click(await screen.findByRole("button", { name: /Email: Choose a time/ }))
+  const dialog = await screen.findByRole("dialog", { name: "Choose a time" })
+  expect(dialog.textContent).toContain("Full message details beyond the milestone summary.")
+  expect(screen.getByText("hr@appian.com")).toBeTruthy()
+  expect(screen.queryByRole("button", { name: "Edit details" })).toBeNull()
+  expect(dialog.classList.contains("interview-dialog")).toBe(true)
 })
 it("pins a process persistently, reorders rows and reports write failures", async () => {
   const data = report()
@@ -105,7 +133,7 @@ it("searches ambiguous domains and previews why the event is Unassigned", async 
   await screen.findByRole("heading", { name: "appian.com" })
   fireEvent.change(screen.getByRole("searchbox", { name: "Find organization" }), { target: { value: "RAVA" } })
   expect(screen.queryByRole("heading", { name: "appian.com" })).toBeNull()
-  fireEvent.click(screen.getByRole("button", { name: /Event: Technical interview/ }))
+  fireEvent.mouseEnter(screen.getByRole("button", { name: /Event: Technical interview/ }))
   expect(await screen.findByText("Multiple organization domains")).toBeTruthy()
 })
 it("offers collection for an empty workspace and retries load failures", async () => {
