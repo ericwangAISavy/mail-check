@@ -172,3 +172,118 @@ Automated outcomes:
 - [x] Full-view and focused visual comparisons reviewed after fixes.
 - [x] Desktop, narrow desktop, tablet, mobile, role restrictions and core interactions checked.
 - [x] Tests completed, with the existing smoke failure distinguished from passing checks.
+
+## Interview feature follow-up
+
+The new `/interviews` route uses the existing cyan/navy panel, Geist typography,
+shared four-size scale, buttons, dialogs, sidebar and message reader. Month is the
+default; Week and Day use the same styling. Today has a cyan outline, rescheduled
+and review records use purple, and cancelled records are muted with strike-through.
+No demo events are seeded into the application.
+
+Browser QA uses a separate, explicitly synthetic fixture database and deterministic
+mailbox/model stand-ins. The real automatic scheduler and mail-processing pipeline
+create, reschedule and cancel the same record; navigation, filtering, details,
+source-email reading, manual correction and incremental historical scanning pass.
+All existing primary routes still render. The Interview route and API remain admin-only.
+
+Widths checked: 1672, 1280, 900 and 390px in Month/Week/Day views; no document
+horizontal overflow or browser errors. At narrower widths the upcoming/review rail
+stacks beneath the calendar and Week becomes a daily agenda. Month cells remain
+compact; event buttons have full descriptive accessible labels and open the same
+detail modal as the rail. Keyboard focus styles and native labelled controls are used.
+Small header action labels now wrap with their controls rather than being clipped.
+
+Evidence: `/tmp/mailcheck-interviews-1672.png`, `/tmp/mailcheck-interviews-1280.png`,
+`/tmp/mailcheck-interviews-900.png`, `/tmp/mailcheck-interviews-390.png`.
+Full architecture, files, validation and limitations are in `docs/INTERVIEWS.md`.
+
+## Interview review regression checks
+
+Verified corrections with a missing original timezone in a browser configured for
+America/Chicago: 10:30 AM remained 15:30 UTC after saving. Navigating to another
+event resets the editor rather than carrying an unsaved company draft. Clearing an
+event's date leaves it accessible in Needs Review. Month/Week/Day remain usable at
+1440, 900 and 390px without document overflow. Existing metric-card alignment
+changes are preserved. Full regression findings are in `docs/INTERVIEWS.md`.
+
+## Outlook calendar reference — first comparison
+
+Source: user's inline Outlook screenshot, 1616 × 938 pixels (no separate local
+reference file was supplied). Implementation: `/tmp/mailcheck-outlook-first.png`,
+1616 × 938 CSS pixels, device scale 1, expanded Work week, October 12–16, 2026,
+dark theme, America/Chicago. Synthetic fixture data is isolated from the normal app.
+
+- [P1] Review notice inserted 40px above day headers, shifting the time grid below
+  the reference. Move it to a compact footer and let the expanded canvas flex.
+- [P2] A 45-minute event can clip its third line. Use two lines for medium blocks,
+  one for short blocks, and full details in accessible labels/tooltips and the modal.
+- Typography uses Segoe UI with Arial fallback inside the calendar; the existing
+  Mailcheck font remains outside it. No image assets occur in the calendar reference.
+- The source has uneven day widths; the implementation uses equal Outlook-style
+  day columns so all five weekdays fit without horizontal scrolling.
+
+Comparison is from the inline visual target and the rendered screenshot in the
+conversation; no local source/implementation pixel montage is claimed.
+
+## Outlook calendar — final comparison and QA
+
+The second same-size expanded capture `/tmp/mailcheck-outlook-second.png` was
+visually inspected against the inline 1616 × 938 reference. Both initial findings
+are resolved: the review notice now sits below the grid, and medium appointment
+blocks show two unclipped lines. No unresolved P1/P2 visual findings remain.
+
+Fidelity surfaces checked: Segoe UI/Arial calendar type; compact toolbar/date/header
+rhythm and 80px hourly rows; charcoal backgrounds, subtle dashed guides, blue today
+accent and green/blue appointments; no image assets required; real record titles,
+times and source-account labels rather than screenshot placeholder content.
+Equal weekday widths, readable minimum type, an additional Day view and the local
+review footer are intentional differences. No pixel-perfect or full Outlook service
+parity is claimed. Reference provenance remains the user's inline image; no local
+source file or pixel montage was fabricated.
+
+Responsive evidence: `/tmp/mailcheck-outlook-1616.png`,
+`/tmp/mailcheck-outlook-1280.png`, `/tmp/mailcheck-outlook-900.png`,
+`/tmp/mailcheck-outlook-390.png`, `/tmp/mailcheck-outlook-350.png`.
+The 390px capture was visually inspected: controls wrap, dates remain navigable,
+and the calendar fits without document overflow. Dense event text truncates with
+full accessible labels and click-through details; Day view provides more space.
+
+Chromium workflow checks pass for Work week/Week/Month/Day, date picker, Today,
+previous/next and history, filters, real account split and synchronized scrolling,
+event/source details, copy URL, actual ICS download, printing and expanded mode.
+No browser errors or horizontal document overflow at the five widths. Export was
+parsed as 22 unique events; `/tmp/mailcheck-outlook-print.pdf` is one A4 landscape
+page. Toast overlays are hidden by print CSS. 85 frontend and 124 backend tests,
+strict TypeScript, production bundling and diff whitespace checks pass.
+
+## Joined navigation and calendar-only simplification
+
+Sidebar and topbar now meet the top/left viewport edges and each other with zero
+outer padding or column gap. Tablet navigation uses the same grid; mobile navigation
+opens flush to the viewport. Dashboard Recent Mail Events and Interview upcoming,
+review, and metric panels are removed. The calendar retains its full available width.
+
+Chromium geometry assertions and screenshots at 1616, 1280, 900, 390 and 350px pass;
+desktop 1616px and mobile 390px screenshots were visually inspected. Evidence:
+`/tmp/mailcheck-edge-calendar-1616.png`, `/tmp/mailcheck-edge-calendar-390.png`,
+and corresponding 1280/900/350 captures. No document overflow or page errors.
+130 backend tests, 85 frontend tests, strict TypeScript/Vite build and whitespace
+checks pass. The normal app was restarted with the calendar-only web collector.
+Production data was not seeded or deleted; event fixtures remain isolated.
+
+Existing smoke validation: 331 assertions pass with an isolated in-memory test keyring.
+
+## Native calendar event collection
+
+The calendar now reads native Graph calendarView bookings instead of inbox
+attachments. Saved-mail import and the calendar's source-email reader are removed.
+Accounts adds Reconnect for in-place read-only calendar consent. Existing chrome,
+views and responsive calendar layout are preserved.
+
+Validation: 134 backend tests, 86 frontend tests, 331 smoke assertions, production
+TypeScript/Vite build. Browser evidence `/tmp/mailcheck-native-calendar-desktop.png`
+and `/tmp/mailcheck-native-calendar-mobile.png` comes from an isolated native Graph
+transport fixture with seven bookings across two calendars. The real web job, local
+database and UI handle Teams links and native reschedule/cancellation updates.
+Live Microsoft consent and provider credentials are not exercised by the fixture.

@@ -70,3 +70,16 @@ it("does not overwrite a manually edited server with a delayed preset", async ()
   await act(async () => finish(json({ preset: { host: "imap.gmail.com", port: 993, note: "Gmail" } })))
   expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("custom.example.test")
 })
+
+it("reconnects Outlook in place to grant read-only calendar access",async()=>{
+  accounts[0].provider="outlook"
+  const post=vi.spyOn(api,"post").mockResolvedValue({user_code:"TEST",verification_uri:"https://microsoft.com/devicelogin"})
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(json({state:"waiting",message:""})))
+  mount();fireEvent.click(await screen.findByRole("button",{name:"Reconnect"}))
+  const label=screen.getByLabelText("Account label") as HTMLInputElement
+  expect(label.value).toBe("personal");expect(label.readOnly).toBe(true)
+  expect(screen.getByText(/Calendars.Read/)).toBeTruthy()
+  fireEvent.click(screen.getByRole("button",{name:"Continue with Microsoft"}))
+  await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/outlook/start",{label:"personal",reconnect:true}))
+  expect(await screen.findByText("TEST")).toBeTruthy()
+})

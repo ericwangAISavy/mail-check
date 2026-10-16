@@ -15,6 +15,7 @@ from imap_tools import AND, MailBox, MailBoxUnencrypted
 from imap_tools.errors import ImapToolsError
 
 from ..models import RawMessage
+from ..interview_metadata import imap_calendars, message_references
 from ..secrets import clean_password
 from .base import SourceError
 
@@ -66,10 +67,14 @@ class IMAPSource:
         finally:
             _quiet_logout(box)
 
-    def fetch_unread(self, since: date) -> Iterator[RawMessage]:
+    def fetch_calendar(self, since: date):
+        """IMAP has no calendar event API. Never fall back to reading email."""
+        raise SourceError("IMAP cannot read calendar events. Connect this Outlook account with Microsoft sign-in and grant Calendars.Read access.")
+
+    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
         box = self._open()
         try:
-            criteria = AND(seen=False, date_gte=since)
+            criteria = AND(date_gte=since) if include_read else AND(seen=False, date_gte=since)
             for msg in box.fetch(criteria, mark_seen=False, bulk=True):
                 yield _to_raw(msg, self.folder)
         except (ImapToolsError, OSError) as exc:
@@ -118,6 +123,8 @@ def _to_raw(msg, folder: str) -> RawMessage:
         subject=msg.subject or "(no subject)",
         date_utc=dt,
         text=msg.text or msg.html or "",
+        calendar_data=imap_calendars(msg),
+        references=message_references(headers),
     )
 
 

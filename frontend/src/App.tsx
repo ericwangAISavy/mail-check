@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, BarChart3, ChevronRight, CircleHelp, Inbox, LoaderCircle, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, UsersRound } from "lucide-react"
+import { Activity, BarChart3, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, UsersRound } from "lucide-react"
 import { api, request } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -11,12 +11,14 @@ import TriagePage from "@/pages/triage"
 import { AuthGate, useAuth } from "@/components/auth"
 
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
+const InterviewsPage = lazy(() => import("@/pages/interviews"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
 
 const sections = [
   { to: "/", label: "Triage", icon: Inbox },
   { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { to: "/interviews", label: "Interview", icon: CalendarDays },
   { to: "/accounts", label: "Accounts", icon: UsersRound },
   { to: "/settings", label: "Settings", icon: Settings2 },
 ]
@@ -102,8 +104,13 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
             queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
             queryClient.invalidateQueries({ queryKey: ["reader"] }),
+            queryClient.invalidateQueries({ queryKey: ["interviews"] }),
           ])
           toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
+          for (const item of current.interview_changes || []) {
+            const label = item.status === "Cancelled" ? "Meeting cancelled" : item.status === "Rescheduled" ? "Meeting rescheduled" : "Meeting added"
+            toast(`${label} · ${item.company || "Company unknown"}${item.start_at ? " · " + new Date(item.start_at).toLocaleString() : " · Needs review"}`, "info")
+          }
           try {
             const pref = localStorage.getItem("mailcheck.notify") === "on" && typeof Notification !== "undefined" && Notification.permission === "granted"
             if (pref) {
@@ -124,16 +131,18 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
       if (!stopped) timer = window.setTimeout(poll, status?.running ? 1000 : Date.now() < fastPollUntil.current ? 2000 : 30000)
     }
     const focus = () => { window.clearTimeout(timer); void poll() }
+    const checkStarted = () => { fastPollUntil.current = Date.now() + 10_000; focus() }
+    window.addEventListener("mailcheck:check-started", checkStarted)
     pollNow.current = focus
     void poll()
     window.addEventListener("focus", focus)
     window.addEventListener("mailcheck:settings-updated", focus)
-    return () => { stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
+    return () => { window.removeEventListener("mailcheck:check-started", checkStarted); stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
   }, [queryClient, toast, setStatus, status?.running])
 
   const runCheck = async () => {
     try {
-      await api.post("/api/check", {})
+      await api.startCheck()
       toast("Check started. Your inbox stays read-only.", "info")
       pollNow.current()
     } catch (error) { toast(error instanceof Error ? error.message : "Could not start the check.", "error") }
@@ -160,7 +169,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
       {!status?.running && scheduled && status?.next_in != null && <Countdown nextIn={status.next_in} receivedAt={receivedAt} onDue={onDue} />}
     </span>
     <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} title={status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>
-    <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.model || !bootstrap.readiness.accounts}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>
+    <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.accounts}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>
   </div>
 }
 
@@ -194,10 +203,11 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname)?.label || "Triage"}</strong></div></div>
         <div className="top-right"><ThemeControl /><span className="signed-in-role">{admin ? "Admin" : "Guest"}</span><Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
-      {admin && (!bootstrap.readiness.model || !bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>{!bootstrap.readiness.model ? "Connect your Ollama model" : "Connect an email account"}</span><Button variant="outline" size="sm" onClick={() => navigate(!bootstrap.readiness.model ? "/settings" : "/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
+      {admin && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} readOnly={!admin} />} />
+        <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/accounts" element={admin ? <AccountsPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/settings" element={admin ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />

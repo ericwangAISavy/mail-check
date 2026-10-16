@@ -401,7 +401,7 @@ def watch(
 
 @app.command()
 def web(
-    port: int = typer.Option(8765, help="Port to listen on."),
+    port: int = typer.Option(52400, help="Port to listen on."),
     open_browser: bool = typer.Option(True, "--open/--no-open"),
     host: str = typer.Option("127.0.0.1", help="Bind address. Use 0.0.0.0 for network access."),
     allow_host: list[str] = typer.Option([], "--allow-host", help="Allowed public hostname or IP, without scheme or port. Repeat as needed."),

@@ -557,8 +557,10 @@ def test_web_console(msgs):
                                                  "host": "h", "password": "passéword"})
         check("non-ASCII password refused at the API", "U+00E9" in bad.json()["error"])
 
-        check("check refused before setup",
+        client.post("/api/accounts/gmail/toggle?enabled=false")
+        check("calendar check refused without enabled accounts",
               client.post("/api/check", json={}).status_code == 400)
+        client.post("/api/accounts/gmail/toggle?enabled=true")
 
         check("save settings", client.post(
             "/api/settings", json={"base_url": "http://x", "batch_size": 4}

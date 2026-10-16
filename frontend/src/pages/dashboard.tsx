@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { CartesianGrid, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, Inbox, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
+import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Bootstrap, Message } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -135,7 +135,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       { label: "Need your attention", value: summary?.pending_attention, caption: "still in your queue", Icon: Clock3 },
       { label: "Completed", value: summary?.completed, caption: "finished by you", Icon: CheckCircle2 },
       { label: "Unclassified", value: summary?.unclassified, caption: `${summary?.retryable ?? 0} can be retried`, Icon: HelpCircle },
-    ].map(({ label, value, caption, Icon }, index) => <Card key={label} className={`stat-card stat-${index + 1}`}><span className="stat-index">0{index + 1}</span><span className="stat-label"><Icon size={20} />{label}</span><strong className="stat-value tabular">{value == null ? "—" : value.toLocaleString()}</strong><span className="stat-caption">{caption}</span></Card>)}</div>
+    ].map(({ label, value, caption, Icon }, index) => <Card key={label} className={`stat-card stat-${index + 1}`}><span className="stat-label"><span>{label}</span><Icon size={20} aria-hidden="true" /></span><strong className="stat-value tabular">{value == null ? "—" : value.toLocaleString()}</strong><span className="stat-caption">{caption}</span></Card>)}</div>
     {focusDate || focusCategory ? <div className="focus-banner"><span>Focused on {focusDate || "all dates"}{focusCategory ? ` · ${categories.find((category) => category.name === focusCategory)?.label || focusCategory}` : ""}</span><Button variant="ghost" size="sm" onClick={() => update({ focus_date: null, focus_category: null })}>Clear focus</Button></div> : null}
     <div className="analytics-main-grid"><Card className="chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{params.get("interval") === "week" ? "Select a segment to focus its first visible day." : "Select a bar to focus on that date. Colors follow the filters below."}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
       <div className="timeline-ranges" role="group" aria-label="Timeline range">{[["7", "1 week"], ["14", "2 weeks"], ["30", "1 month"], ["90", "3 months"]].map(([days, label]) => <Button key={days} type="button" size="sm" variant={!params.has("start") && params.get("days") === days ? "secondary" : "ghost"} aria-pressed={!params.has("start") && params.get("days") === days} onClick={() => update({ days, start: null, end: null })}>{label}</Button>)}</div>
@@ -145,10 +145,6 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     </Card>
       </div></div>
       <aside className="dashboard-rail" aria-label="Mail information">
-        <Card className="recent-events"><div className="rail-heading"><p className="eyebrow">RECENT MAIL EVENTS</p><a href="#message-explorer" onClick={() => setExplorerOpen(true)}>View all <ArrowRight size={14} /></a></div><p className="rail-context">Stored mail in this view · received time</p>
-          {pageInfo?.items.length ? <ol className="mail-timeline">{pageInfo.items.slice(0, 4).map((row) => <li key={row.pk}><Mail size={19} /><button onClick={() => openMessage(row)}><strong>{row.subject || "(no subject)"}</strong><span>{row.category_label} · {row.account_label}</span></button><time dateTime={row.received_at}>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</time></li>)}</ol> : <div className="rail-empty"><Inbox size={24} /><p>No stored mail in this view.</p></div>}
-          <p className="last-check-label">{bootstrap.last_run}</p>
-        </Card>
         <Card className="account-status-panel"><div className="rail-heading"><p className="eyebrow">ACCOUNT STATUS</p>{!readOnly && <Link to="/accounts">Manage accounts <ArrowRight size={14} /></Link>}</div>
           {!readOnly && accountDetails.error && <p role="alert" className="inline-error">Account status could not be loaded.</p>}
           {accounts?.accounts.length ? <ul className="account-status-list">{accounts.accounts.map((account) => {

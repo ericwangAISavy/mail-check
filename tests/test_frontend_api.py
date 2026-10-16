@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -56,7 +56,7 @@ class FrontendApiTests(unittest.TestCase):
             from_addr="recruiter@example.test",
             from_name="Recruiter",
             subject=f"Interview at Acme {key}",
-            date_utc=datetime(2026, 9, 15, 12),
+            date_utc=(datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None),
             body="Hello <script>alert(1)</script> applicant.\n\nChoose a time.",
         )
         pk = db.upsert_message(self.conn, message)

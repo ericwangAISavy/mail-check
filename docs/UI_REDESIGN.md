@@ -108,7 +108,7 @@ Populated browser checks use a separate SQLite/config directory under
 `/workspace/.mail-check-design/fixture-runtime`, served on port 8766. Its synthetic
 messages, process-local test keyring, and mailbox stand-in are test fixtures only;
 they are not production application data or application code. The normal runtime
-on port 8765 keeps its existing data and credentials.
+on port 52400 keeps its existing data and credentials.
 
 The full smoke suite retains its pre-existing Outlook failure: `fetch_unread` does
 not include `isRead eq false` in the Graph filter. That unrelated provider behavior

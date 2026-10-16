@@ -17,9 +17,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets
+from .. import db, outlook_auth, secrets, interviews
 from ..analytics import DashboardFilters, dashboard_data
-from ..pipeline import build_source, check_once, reclassify
+from ..pipeline import build_source, reclassify
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -72,6 +72,7 @@ TEMPLATES.env.globals["asset_v"] = _asset_version
 #: network, so allowing it costs nothing.
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
 
+_interview_scan = {"running":False,"processed":0,"total":0,"found":0,"errors":0}
 _job_lock = threading.Lock()
 _job: dict = {"running": False, "message": "", "detail": "", "at": None,
               "ok": True, "stage_started": None, "completion_id": 0}
@@ -140,6 +141,7 @@ class AccountBody(BaseModel):
 
 class OutlookStartBody(BaseModel):
     label: str
+    reconnect: bool = False
 
 
 class SettingsBody(BaseModel):
@@ -323,7 +325,7 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
     """
 
     def runner():
-        _job.update(running=True, message="Connecting…", detail="", ok=True,
+        _job.update(running=True, message="Connecting…", detail="", ok=True, interview_changes=[],
                     stage_started=time.time())
         try:
             work()
@@ -342,53 +344,13 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
 def _run_check(body: CheckBody) -> None:
     def work():
         cfg = cfgmod.load()
-
-        def event(values: dict) -> None:
-            if values.get("type") == "llm_request_started":
-                _job.update(
-                    message=(f"Classifying batch {values['batch_index']} of "
-                             f"{values['total_batches']} · {values['completed']} of "
-                             f"{values.get('total', '?')} complete"),
-                    stage_started=time.time(),
-                )
-            elif values.get("type") == "model_loading":
-                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
-                            stage_started=time.time())
-            elif values.get("type") == "llm_request" and values.get("outcome") in {
-                "timeout", "busy", "deadline"
-            }:
-                _job.update(message="Ollama busy; remaining mail will retry next check")
-
         with db.session() as conn:
-            result = check_once(
-                conn,
-                cfg,
-                account_label=body.account,
-                since_days=body.since_days,
-                use_cache=not body.no_cache,
-                status=lambda m: _job.update(message=m),
-                progress=lambda done, total: _job.update(
-                    message=f"Classifying… {done} of {total}"
-                ),
-                event=event,
-            )
-        bits = [f"{result.fetched} unread", f"{result.classified} classified"]
-        if result.from_cache:
-            bits.append(f"{result.from_cache} cached")
-        if result.prefiltered:
-            bits.append(f"{result.prefiltered} filtered locally")
-        if result.pruned:
-            bits.append(f"{result.pruned} aged out")
-        if result.retryable:
-            bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
-        _job.update(
-            message=" · ".join(bits),
-            detail="\n".join(result.errors[:5]),
-            ok=not result.errors or result.retryable > 0,
-        )
-
-    # A manual check counts as a check: restart the clock from now.
-    _start_job(work, failed="Check failed", on_finish=_reschedule)
+            result = interviews.collect_calendar_events(conn, cfg, account_label=body.account,
+                since_days=body.since_days, status=lambda message: _job.update(message=message))
+        _job.update(interview_changes=list({item["id"]:item for item in result["changes"]}.values()),
+            message=f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts",
+            detail="\n".join(result["errors"][:5]),ok=not result["errors"])
+    _start_job(work, failed="Calendar collection failed", on_finish=_reschedule)
 
 
 def _run_reclassify(body: ReclassifyBody) -> None:
@@ -424,6 +386,7 @@ def _run_reclassify(body: ReclassifyBody) -> None:
                 ),
                 event=event,
             )
+        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
         if not result.fetched:
             _job.update(message="Nothing left to re-classify.", detail="", ok=True)
             return
@@ -463,7 +426,7 @@ def _scheduler() -> None:
                 continue
 
             state = _state()
-            if not (state["llm_ready"] and state["has_accounts"]):
+            if not state["has_accounts"]:
                 _reschedule(cfg)  # not set up yet; try again next interval
                 continue
             if _job_lock.acquire(blocking=False):
@@ -557,7 +520,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -596,6 +559,50 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_password(body: PasswordBody):
         auth.change_password(body.role, body.password)
         return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
+
+    @app.get("/api/interviews")
+    def api_interviews(account: str | None = None, status: str | None = None, company: str | None = None):
+        if status and status not in interviews.STATUSES:
+            return _err("Unknown interview status")
+        with db.session() as conn:
+            events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] >= 2 and event["start_at"]]
+            labels: dict[int, list[str]] = {}
+            for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
+                labels.setdefault(source["event_id"],[]).append(source["label"])
+            for event in events:
+                event["account_labels"] = labels.get(event["id"],[])
+            accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
+            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
+        return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
+
+    @app.get("/api/interviews/scan")
+    def interview_scan_status():
+        return dict(_interview_scan)
+
+    @app.post("/api/interviews/scan")
+    def interview_scan():
+        return _err("Saved-mail scanning has been retired. Use calendar collection to read native meeting events.", 410)
+
+    @app.post("/api/interviews/sync")
+    def interview_sync(body: CheckBody | None = None):
+        return api_check(body or CheckBody())
+
+    @app.get("/api/interviews/{event_id}")
+    def interview_detail(event_id: int):
+        with db.session() as conn:
+            row = conn.execute("SELECT * FROM interview_events WHERE id=?",(event_id,)).fetchone()
+            if not row: return _err("Interview not found",404)
+            return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id)}
+
+    @app.post("/api/interviews/{event_id}")
+    def interview_update(event_id: int, changes: dict):
+        try:
+            with db.session() as conn:
+                return {"event":interviews.correct_event(conn,event_id,changes)}
+        except LookupError as exc:
+            return _err(str(exc),404)
+        except (ValueError,TypeError) as exc:
+            return _err(str(exc))
 
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():
@@ -992,8 +999,6 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.post("/api/check")
     def api_check(body: CheckBody):
         state = _state()
-        if not state["llm_ready"]:
-            return _err("The model endpoint is not configured yet.")
         if not state["has_accounts"]:
             return _err("Add a mail account first.")
         if not _job_lock.acquire(blocking=False):
@@ -1158,8 +1163,11 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if not label:
             return _err("Give the account a label first.")
         with db.session() as conn:
-            if db.get_account(conn, label):
+            existing = db.get_account(conn, label)
+            if existing and not (body.reconnect and existing.provider == "outlook"):
                 return _err(f"An account labelled “{label}” already exists.")
+            if body.reconnect and not existing:
+                return _err("This Outlook account no longer exists.",404)
 
         # A new attempt supersedes whatever was in flight — for this label or
         # any other — so two browser tabs, or a restarted attempt, cannot leave
@@ -1204,7 +1212,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     outlook_auth.delete_cache(label)
                     return
                 with db.session() as conn:
-                    if not db.get_account(conn, label):
+                    current = db.get_account(conn, label)
+                    if body.reconnect and (not current or not email or email.casefold() != current.email.casefold()):
+                        outlook_auth.delete_cache(label)
+                        _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
+                        return
+                    if not current:
                         db.add_account(
                             conn, label=label, email=email or label, provider="outlook"
                         )

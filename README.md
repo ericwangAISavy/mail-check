@@ -38,8 +38,18 @@ running checks, and reading results:
 python -m mailcheck web
 ```
 
-It opens `127.0.0.1:8765` and walks you through setup if nothing is configured yet.
+It opens `127.0.0.1:52400` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
+
+Web **Check now** and automatic web checks collect native calendar bookings from
+connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
+phone and in-person bookings are included without reading inbox messages or running
+classification. Existing Dashboard/Triage history remains available. Calendar
+collection requires read-only `Calendars.Read`; reconnect existing Outlook accounts
+in Accounts after adding that permission to your Microsoft application. IMAP does
+not expose calendar events and is not used as a fallback. See
+[Interview tracking](docs/INTERVIEWS.md). CLI mail-triage commands retain their
+existing behavior.
 
 The web console requires sign-in. Initially use role **Admin** with password
 `admin`, or role **Guest** with password `guest`. Admin can use Triage, Dashboard,
@@ -58,18 +68,18 @@ than resetting passwords. Use one app process with this file.
 ### Share from your own server or computer
 
 For other devices on your local network, use your computer's actual LAN IP in
-`--allow-host`, and allow inbound TCP port 8765 through its firewall:
+`--allow-host`, and allow inbound TCP port 52400 through its firewall:
 
 ```bash
 python -m mailcheck web --no-open --host 0.0.0.0 --allow-host 192.168.1.50
 ```
 
-Other devices can then use `http://192.168.1.50:8765`. Replace the example IP with
+Other devices can then use `http://192.168.1.50:52400`. Replace the example IP with
 your own. `0.0.0.0` is the listening address, not the address visitors enter. Repeat
 `--allow-host` to allow additional hostnames/IPs; unknown Host headers are rejected.
 
 For internet access, point a domain at your server's public IP, put an HTTPS reverse
-proxy in front of the app, and keep port 8765 private. For example, with Caddy on the
+proxy in front of the app, and keep port 52400 private. For example, with Caddy on the
 same computer, replace `mail.example.com` with your domain:
 
 ```bash
@@ -78,7 +88,7 @@ python -m mailcheck web --no-open --allow-host mail.example.com --secure-cookies
 
 ```caddyfile
 mail.example.com {
-    reverse_proxy 127.0.0.1:8765
+    reverse_proxy 127.0.0.1:52400
 }
 ```
 
@@ -176,7 +186,7 @@ mail-check check --json           # machine-readable output
 mail-check watch                  # re-check every 10 min, notify on urgent mail
 mail-check watch -i 30
 
-mail-check web                    # management console on 127.0.0.1:8765
+mail-check web                    # management console on 127.0.0.1:52400
 
 mail-check account list | test <label> | remove <label> | enable <label> --off
 mail-check config show | set llm.batch_size 5 | set check.retain_days 30 | test
@@ -352,7 +362,7 @@ Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft inste
 mailbox password — Microsoft disabled basic-auth IMAP, so app passwords cannot work there.
 
 One-time setup: register a **public client** application in the Microsoft Entra admin
-center with delegated `Mail.Read` permission and device-code flow enabled, then paste its
+center with delegated `Calendars.Read` and `Mail.Read` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
 shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are

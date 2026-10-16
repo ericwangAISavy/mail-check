@@ -22,6 +22,9 @@ class RawMessage:
     provider_url: str | None = None
     """Deep link to the original, when the provider supplies one (Graph webLink).
     IMAP has no equivalent, so Gmail falls back to a Message-ID search URL."""
+    calendar_data: list[str] = field(default_factory=list)
+    thread_id: str | None = None
+    references: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -40,6 +43,10 @@ class NormalizedMessage:
     body: str
     """Cleaned, truncated plain text."""
     provider_url: str | None = None
+    calendar_data: list[str] = field(default_factory=list)
+    thread_id: str | None = None
+    references: list[str] = field(default_factory=list)
+    interview_text: str | None = None
 
     @property
     def snippet(self) -> str:
@@ -88,6 +95,7 @@ class RunResult:
     llm_retries: int = 0
     items: list[TriagedMessage] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    interview_changes: list[dict] = field(default_factory=list)
 
     @property
     def urgent(self) -> list[TriagedMessage]:
