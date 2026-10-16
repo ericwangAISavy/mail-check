@@ -4,6 +4,35 @@ The admin-only Interview page displays local calendar bookings in Work week, Wee
 Month and Day views. Named bidders are limited to their own sourcing sheets and payments. No production events are
 seeded, and existing mail history is preserved.
 
+## Interview processes
+
+Open **Interview processes** in the sidebar to follow calendar events by organization.
+Use **Check now** on Interview to collect bookings; the process page's header also
+uses calendar collection. When collection finishes, the organization timelines refresh.
+Each organization shows its event count, next scheduled interview and chronological
+history. **View event** opens the original Interview details and local corrections.
+
+Organization identity is the full domain after `@` in participant and organizer
+email addresses, normalized to lowercase: `HR@Appian.com` becomes `appian.com`.
+Subdomains remain distinct (`jobs.appian.com` is its own organization). All connected
+mailbox addresses, including disabled ones, are excluded as your own identities.
+Google (`google.com`), Teams (`teams.microsoft.com`, `teams.live.com`, `teams.com`)
+and Zoom (`zoom.us`, `zoom.com`), including their subdomains, are excluded as meeting
+services. Meeting URLs and extracted company names do not determine a process.
+
+- Exactly one eligible domain: the event joins that organization's process.
+- Multiple eligible domains: the event appears only under **Unassigned**, with the
+  candidate domains shown for review.
+- No eligible domain: the event appears under **Unassigned** with an explanation.
+
+Existing calendar events appear immediately. Processes are derived from the saved
+event records, so collecting the same booking again does not duplicate an event or
+process. Updated participant metadata changes its group; cancellation stays in the
+history and is excluded from the next scheduled interview. As on Interview, only
+calendar events with a start time and an enabled source account are included.
+This page is available only to admins. Search finds organization domains and also
+matches candidate domains in Unassigned events.
+
 ## Collection
 
 On Triage, Check now (`/api/check`, default `mode: "mail"`) and automatic web

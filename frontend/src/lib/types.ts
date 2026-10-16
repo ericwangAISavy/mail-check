@@ -46,3 +46,5 @@ export type InterviewSource = {
   source_subject: string; source_sender: string; source_received_at: string; account_enabled: boolean
 }
 export type InterviewData = { companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }
+export type ProcessEvent = InterviewEvent & { organization_domains: string[]; assignment_reason: string | null }
+export type InterviewProcess = { organization: string | null; event_count: number; next_interview: ProcessEvent | null; events: ProcessEvent[] }

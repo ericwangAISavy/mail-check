@@ -463,7 +463,7 @@ def event_sources(conn, event_id: int) -> list[dict]:
     return [dict(r) for r in conn.execute("SELECT s.*, a.label AS account_label,a.email AS account_email,a.enabled AS account_enabled FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=? ORDER BY julianday(s.source_received_at) DESC,s.id DESC", (event_id,))]
 
 
-def list_events(conn, *, account: str | None=None, status: str | None=None, company: str | None=None) -> list[dict]:
+def list_events(conn, *, account: str | None=None, status: str | None=None, company: str | None=None, now=None) -> list[dict]:
     # Date-window filtering and aggregates operate on event records only, never mail bodies.
     rows = conn.execute("""SELECT e.* FROM interview_events e WHERE EXISTS (
       SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id
@@ -471,7 +471,7 @@ def list_events(conn, *, account: str | None=None, status: str | None=None, comp
       AND (? IS NULL OR e.company=?) ORDER BY e.start_at IS NULL,e.start_at,e.id""", (account,account,company,company))
     result = []
     for row in rows:
-        value = display_event(dict(row))
+        value = display_event(dict(row), now=now)
         if status and value["display_status"] != status: continue
         result.append(value)
     return result

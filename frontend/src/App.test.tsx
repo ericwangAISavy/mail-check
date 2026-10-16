@@ -66,13 +66,13 @@ describe("header status after external text replacement", () => {
     await waitFor(() => expect(vi.mocked(api.bootstrap).mock.calls.length).toBeGreaterThan(previous))
     expect(api.post).toHaveBeenCalledWith("/api/check", { mode: "mail" })
   })
-  it("uses calendar collection for the Interview header button without a model", async () => {
+  it.each(["/interviews", "/interview-processes"])("uses calendar collection on %s without a model", async (path) => {
     vi.spyOn(api, "status").mockResolvedValue(idle)
     vi.spyOn(api, "post").mockResolvedValue({ ok: true })
     vi.mocked(api.bootstrap).mockResolvedValue({ readiness: { model: false, accounts: true, privacy_ack: true, outlook: true }, counts: { actionable: 0 }, taxonomy: [], presets: [], last_run: "Never checked", account_count: 1 })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     clients.push(client)
-    const { container } = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/interviews"]}><App /></MemoryRouter></QueryClientProvider>)
+    const { container } = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
     await waitFor(() => expect(container.querySelector(".top-actions button:last-child")).toBeTruthy())
     const button = container.querySelector<HTMLButtonElement>(".top-actions button:last-child")!
     expect(button.disabled).toBe(false)

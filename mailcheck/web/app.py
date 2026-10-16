@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets, interviews, payments
+from .. import db, outlook_auth, secrets, interviews, interview_processes, payments
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -600,7 +600,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/payments", "/sourcing", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -677,6 +677,11 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_password(body: PasswordBody):
         auth.change_password(body.role, body.password)
         return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
+
+    @app.get("/api/interview-processes")
+    def api_interview_processes():
+        with db.session() as conn:
+            return {"processes": interview_processes.list_processes(conn)}
 
     @app.get("/api/interviews")
     def api_interviews(account: str | None = None, status: str | None = None, company: str | None = None):

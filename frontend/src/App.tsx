@@ -14,6 +14,7 @@ const SourcingPage = lazy(() => import("@/pages/sourcing"))
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
 const PaymentsPage = lazy(() => import("@/pages/payments"))
 const InterviewsPage = lazy(() => import("@/pages/interviews"))
+const InterviewProcessesPage = lazy(() => import("@/pages/interview-processes"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
 
@@ -21,6 +22,7 @@ const sections = [
   { to: "/", label: "Triage", icon: Inbox },
   { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { to: "/interviews", label: "Interview", icon: CalendarDays },
+  { to: "/interview-processes", label: "Interview processes", icon: UsersRound },
   { to: "/sourcing", label: "Job sourcing", icon: MailCheck },
   { to: "/payments", label: "Bidder payments", icon: Banknote },
   { to: "/accounts", label: "Accounts", icon: UsersRound },
@@ -77,7 +79,7 @@ function Countdown({ nextIn, receivedAt, onDue }: { nextIn: number; receivedAt: 
 }
 
 function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
-  const calendarOnly = useLocation().pathname === "/interviews"
+  const calendarOnly = ["/interviews", "/interview-processes"].includes(useLocation().pathname)
   const queryClient = useQueryClient()
   const toast = useToast()
   const [status, setStatusValue] = useState<Awaited<ReturnType<typeof api.status>> | null>(null)
@@ -214,6 +216,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/dashboard" element={admin ? <DashboardPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/sourcing" replace />} />
         <Route path="/sourcing" element={<SourcingPage />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage /> : <Navigate to="/sourcing" replace />} />

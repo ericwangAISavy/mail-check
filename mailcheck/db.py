@@ -225,15 +225,19 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             # the database while this one was waiting.
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                from .payments import SCHEMA as PAYMENT_SCHEMA
+                from .sourcing import SCHEMA as SOURCING_SCHEMA
+                from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in SCHEMA.split(";"):
+                for statement in (SCHEMA + PAYMENT_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
                 for statement in INDEXES.split(";"):
                     if statement.strip():
                         conn.execute(statement)
+                migrate_native(conn)
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:

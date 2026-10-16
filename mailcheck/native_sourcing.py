@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import sqlite3
@@ -361,7 +361,8 @@ def save(conn, tab, operation, changes, *, work_date="all"):
 
 def migrate(conn):
     """Copy available legacy snapshots once; never call Google or modify legacy data."""
-    with atomic(conn):
+    # Database upgrades already own the write transaction and its commit.
+    with nullcontext() if conn.in_transaction else atomic(conn):
         for old_book in conn.execute("SELECT * FROM sourcing_books").fetchall():
             book_id = _create_book(
                 conn, old_book["bidder_id"], old_book["title"], old_book["id"]
