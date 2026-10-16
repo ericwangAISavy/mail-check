@@ -35,6 +35,39 @@ class ProcessCollectionTests(unittest.TestCase):
     source = calendar_fixtures.NativeCalendarTests.source
     collect = calendar_fixtures.NativeCalendarTests.collect
 
+    def test_removal_persists_through_collection_without_deleting_events_and_can_be_restored(self):
+        from mailcheck import interview_processes
+        booking = calendar_fixtures.event("remove", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
+        self.collect(self.source([booking]))
+        interview_processes.set_removed(self.conn, "Appian.COM", True)
+        self.conn.commit()
+        second = calendar_fixtures.event("new-after-removal", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
+        self.collect(self.source([booking, second]))
+        self.assertEqual(interview_processes.list_processes(self.conn), [])
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM interview_events").fetchone()[0], 2)
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            self.assertEqual(interview_processes.list_removed(conn)[0]["organization"], "appian.com")
+            interview_processes.set_removed(conn, "appian.com", False)
+        self.assertEqual(len(interview_processes.list_processes(self.conn)), 1)
+        with self.assertRaises(ValueError):
+            interview_processes.set_removed(self.conn, "invalid domain", True)
+
+    def test_version_17_upgrade_preserves_pins_and_events_and_adds_removals(self):
+        from mailcheck import interview_processes
+        self.collect(self.source([calendar_fixtures.event("upgrade-removal", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        interview_processes.set_pin(self.conn, "appian.com", True)
+        self.conn.execute("DROP TABLE interview_process_removals")
+        self.conn.execute("PRAGMA user_version=17")
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            self.assertEqual(interview_processes.list_removed(conn), [])
+            process = interview_processes.list_processes(conn)[0]
+            self.assertTrue(process["pinned"])
+            self.assertEqual(process["event_count"], 1)
+            interview_processes.set_removed(conn, "appian.com", True)
+        self.assertEqual(interview_processes.list_processes(self.conn), [])
+
     def test_saved_email_summaries_join_the_matching_timeline(self):
         from mailcheck import interview_processes
         self.collect(self.source([calendar_fixtures.event("mail", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
@@ -117,12 +150,17 @@ class ProcessCollectionTests(unittest.TestCase):
                 self.assertIn("Cancelled", detail["statuses"])
                 self.assertEqual(client.post("/api/interview-processes/pin", json={"organization": "appian.com", "pinned": True}).status_code, 200)
                 self.assertTrue(client.get("/api/interview-processes").json()["processes"][0]["pinned"])
+                self.assertEqual(client.post("/api/interview-processes/remove", json={"organization": "appian.com", "removed": True}).status_code, 200)
+                self.assertEqual(client.get("/api/interview-processes").json()["processes"], [])
+                self.assertEqual(client.get("/api/interview-processes").json()["removed"][0]["organization"], "appian.com")
+                self.assertEqual(client.post("/api/interview-processes/remove", json={"organization": "appian.com", "removed": False}).status_code, 200)
                 page = client.get("/interview-processes")
                 self.assertEqual(page.status_code, 200)
                 self.assertIn("no-store", page.headers["cache-control"])
                 sign_in_bidder(client)
                 self.assertEqual(client.get("/api/interview-processes").status_code, 403)
                 self.assertEqual(client.post("/api/interview-processes/pin", json={"organization": "appian.com", "pinned": False}).status_code, 403)
+                self.assertEqual(client.post("/api/interview-processes/remove", json={"organization": "appian.com", "removed": True}).status_code, 403)
                 self.assertEqual(client.get("/interview-processes").status_code, 403)
                 client.post("/api/auth/logout")
                 self.assertEqual(client.get("/api/interview-processes").status_code, 401)

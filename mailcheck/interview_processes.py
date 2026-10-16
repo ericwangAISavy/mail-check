@@ -14,17 +14,39 @@ CREATE TABLE IF NOT EXISTS interview_process_pins (
     organization TEXT PRIMARY KEY NOT NULL,
     pinned_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS interview_process_removals (
+    organization TEXT PRIMARY KEY NOT NULL,
+    removed_at TEXT NOT NULL
+);
 """
 
 
-def set_pin(conn, organization: str | None, pinned: bool) -> None:
+def _organization_key(organization: str | None) -> str:
     key = organization.strip().casefold() if organization else ""
     if key and not DOMAIN.fullmatch(key):
         raise ValueError("Use a valid organization domain")
+    return key
+
+
+def set_pin(conn, organization: str | None, pinned: bool) -> None:
+    key = _organization_key(organization)
     if pinned:
         conn.execute("INSERT INTO interview_process_pins(organization,pinned_at) VALUES(?,?) ON CONFLICT(organization) DO NOTHING", (key, db._now()))
     else:
         conn.execute("DELETE FROM interview_process_pins WHERE organization=?", (key,))
+
+
+def set_removed(conn, organization: str | None, removed: bool) -> None:
+    key = _organization_key(organization)
+    if removed:
+        conn.execute("INSERT INTO interview_process_removals(organization,removed_at) VALUES(?,?) ON CONFLICT(organization) DO NOTHING", (key, db._now()))
+    else:
+        conn.execute("DELETE FROM interview_process_removals WHERE organization=?", (key,))
+
+
+def list_removed(conn) -> list[dict]:
+    return [{"organization": row["organization"] or None, "removed_at": row["removed_at"]}
+            for row in conn.execute("SELECT * FROM interview_process_removals ORDER BY removed_at DESC,organization")]
 
 
 def _instant(value: str) -> datetime:
@@ -57,6 +79,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     own = {account.email for account in db.list_accounts(conn)}
     groups: dict[str | None, dict] = {}
     pins = {row[0] for row in conn.execute("SELECT organization FROM interview_process_pins")}
+    removed = {row[0] for row in conn.execute("SELECT organization FROM interview_process_removals")}
     labels: dict[int, list[str]] = {}
     for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
         labels.setdefault(source["event_id"], []).append(source["label"])
@@ -66,6 +89,8 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             continue
         domains = organization_domains(event["participants"], event["organizer_email"], own_emails=own)
         organization = domains[0] if len(domains) == 1 else None
+        if (organization or "") in removed:
+            continue
         event["organization_domains"] = domains
         event["assignment_reason"] = None if organization else "Multiple organization domains" if domains else "No eligible organization domain"
         event["account_labels"] = labels.get(event["id"], [])

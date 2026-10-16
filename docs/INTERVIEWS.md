@@ -21,8 +21,8 @@ matching dialog with sender/mailbox/date details, summary and full saved message
 content. Both dialogs close back to the originating milestone. Where a saved email
 has a safe provider link, its details can open the original email.
 
-Use **Daily**, **Weekly**, **Two weeks**, **Monthly** or **Two months** to choose the
-date window. Weekly is selected by default. A process appears if at least one of its milestones falls in the
+Use **All**, **Daily**, **Weekly**, **Two weeks**, **Monthly** or **Two months** to choose the
+date window. All is selected by default and shows every process with its complete milestone history. With a narrower window, a process appears if at least one of its milestones falls in the
 window, and its entire saved history is then shown. Weeks start on Monday; Two
 weeks spans fourteen days from that Monday. Monthly windows start on the first of the selected
 month, and Two months spans that month and the following month. The date picker,
@@ -48,6 +48,13 @@ window matching. Real milestones and the flag retain equal spacing.
 and shared across admin sessions/devices. Unpin reverses this. Processes without
 milestones in the current window are hidden, including pinned processes. Search still applies to
 pinned processes.
+
+Each process has a **Remove** control beside its pin. Removal hides that organization
+from this page across reloads and subsequent calendar collections; saved events and
+messages remain available in Interview and Triage. Open **Removed processes** below
+the list and choose **Restore** to bring a process back, including its pin state.
+Removal and restoration are admin-only. All remains the default when this page
+opens.
 
 Emails already saved by mail triage join an existing calendar organization's
 timeline when their sender domain matches that organization exactly. They use the
@@ -124,7 +131,8 @@ reconnect instruction, without a message-based fallback.
 Provider-neutral `CalendarBooking` records feed the existing local event/source
 SQLite tables. No new message or classification rows are created. Source rows
 contain the native event identifier and account association, with no stored email.
-Previous event history is preserved. Schema 17 adds only the organization pin table;
+Previous event history is preserved. Schema 18 retains organization pins and adds
+removal records without deleting events or messages;
 timelines continue to derive events and messages from their existing tables.
 
 Event UID plus occurrence identity deduplicates repeat imports. Provider revision

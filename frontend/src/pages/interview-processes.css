@@ -34,6 +34,14 @@
 .pinned-label { font-size: 10px; color: var(--process-accent); border-radius: 4px; background: var(--accent); padding: 2px 5px; }
 .process-pin { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; color: var(--muted-foreground); flex-shrink: 0; }
 .process-pin[aria-pressed="true"], .process-pin:hover { color: var(--primary); background: var(--accent); }
+.process-row-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.process-remove { display: grid; place-items: center; width: 30px; height: 32px; border-radius: 6px; color: var(--muted-foreground); }
+.process-remove:hover { color: var(--destructive); background: var(--danger-bg); }
+.process-remove:disabled { opacity: .5; }
+.removed-processes > button { color: var(--muted-foreground); }
+.removed-process-list { padding: 12px 16px; margin-top: 8px; }
+.removed-process-list > p { font-size: 12px; color: var(--muted-foreground); margin-bottom: 8px; }
+.removed-process-list > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; font-size: 13px; overflow-wrap: anywhere; }
 .timeline-scroll { overflow-x: auto; padding: 0 14px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .timeline-canvas { padding: 2px 0; }
 .timeline-track { position: relative; height: 36px; }

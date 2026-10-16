@@ -147,6 +147,11 @@ class ProcessPinBody(BaseModel):
     pinned: bool
 
 
+class ProcessRemovalBody(BaseModel):
+    organization: str | None = Field(default=None, max_length=253)
+    removed: bool
+
+
 class AccountBody(BaseModel):
     label: str
     email: str
@@ -692,10 +697,19 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         except ValueError as exc:
             return _err(str(exc))
 
+    @app.post("/api/interview-processes/remove")
+    def api_process_remove(body: ProcessRemovalBody):
+        try:
+            with db.session() as conn:
+                interview_processes.set_removed(conn, body.organization, body.removed)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
+
     @app.get("/api/interview-processes")
     def api_interview_processes():
         with db.session() as conn:
-            return {"processes": interview_processes.list_processes(conn)}
+            return {"processes": interview_processes.list_processes(conn), "removed": interview_processes.list_removed(conn)}
 
     @app.get("/api/interviews")
     def api_interviews(account: str | None = None, status: str | None = None, company: str | None = None):
