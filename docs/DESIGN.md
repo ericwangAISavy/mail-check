@@ -258,7 +258,7 @@ mail-check account add              # wizard: label, email, provider preset, app
 mail-check account list | remove | test
 mail-check check [--account L] [--since 7d] [--no-cache] [--json]
 mail-check watch [--interval 10]
-mail-check web [--port 8765]
+mail-check web [--port 52400]
 ```
 
 Provider presets for `account add`: gmail, yahoo, icloud, fastmail, custom.

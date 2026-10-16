@@ -53,8 +53,8 @@ class ReviewFixTests(unittest.TestCase):
 
     def test_foreign_host_header_is_rejected(self):
         self.assertEqual(self.client.get("/api/bootstrap", headers={"host": "evil.example"}).status_code, 403)
-        self.assertEqual(self.client.get("/api/bootstrap", headers={"host": "127.0.0.1:8765"}).status_code, 200)
-        self.assertEqual(self.client.get("/api/bootstrap", headers={"host": "[::1]:8765"}).status_code, 200)
+        self.assertEqual(self.client.get("/api/bootstrap", headers={"host": "127.0.0.1:52400"}).status_code, 200)
+        self.assertEqual(self.client.get("/api/bootstrap", headers={"host": "[::1]:52400"}).status_code, 200)
 
     # -- undated mail ----------------------------------------------------------
 

@@ -19,6 +19,6 @@ export default defineConfig({
     strictPort: true,
     // Preserve the browser's Host so the backend can compare the full Origin
     // (including its port) without granting a separate development exception.
-    proxy: { "/api": { target: "http://127.0.0.1:8765", changeOrigin: false } },
+    proxy: { "/api": { target: "http://127.0.0.1:52400", changeOrigin: false } },
   },
 })
