@@ -189,7 +189,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # None. Such rows were being pruned as ancient and hidden from every date
     # window; an unknown date is NULL, which falls back to fetched_at.
     conn.execute("UPDATE messages SET date_utc = NULL WHERE date_utc < '1971'")
-    conn.commit()
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
@@ -215,11 +214,27 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA temp_store = MEMORY")
 
     if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-        conn.executescript(SCHEMA)
-        _migrate(conn)
-        conn.executescript(INDEXES)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
+        try:
+            # Serialize upgrades across request threads and processes. Recheck
+            # after acquiring the lock: another connection may have upgraded
+            # the database while this one was waiting.
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                # executescript commits an existing transaction, so execute
+                # these simple DDL statements individually to retain the lock.
+                for statement in SCHEMA.split(";"):
+                    if statement.strip():
+                        conn.execute(statement)
+                _migrate(conn)
+                for statement in INDEXES.split(";"):
+                    if statement.strip():
+                        conn.execute(statement)
+                conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            conn.close()
+            raise
     return conn
 
 
