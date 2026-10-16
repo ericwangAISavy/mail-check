@@ -9,8 +9,11 @@ seeded, and existing mail history is preserved.
 Open **Interview processes** in the sidebar to follow calendar events by organization.
 Use **Check now** on Interview to collect bookings; the process page's header also
 uses calendar collection. When collection finishes, the organization timelines refresh.
-Each organization is a compact horizontal timeline. Calendar events use circular
-milestones and saved emails use square milestones. Hover, keyboard-focus or tap
+Each organization is a compact horizontal sequence of equally spaced circular
+milestones connected by a line. The first and last milestones sit at the endpoints;
+spacing shows process progression rather than elapsed time. Events and saved emails
+stay in chronological order. Each process has a stable accent color and tinted
+background. Hover, keyboard-focus or tap
 a point to preview its title, time, status and summary. **View event** opens the
 original Interview details and local corrections. Where a saved email has a safe
 provider link, its preview can open the original email.
@@ -19,8 +22,8 @@ Use **Daily**, **Weekly**, **Monthly** or **Two months** to choose the visible d
 window. Weeks start on Monday; monthly windows start on the first of the selected
 month, and Two months spans that month and the following month. The date picker,
 previous/next arrows and Today move the window. Times and boundaries use your
-browser's timezone. Milestones are placed proportionally by time; overlapping
-points occupy separate lanes. Small screens can scroll each timeline horizontally.
+browser's timezone. Dates appear in previews rather than along a time ruler.
+Small screens can scroll longer milestone sequences horizontally.
 
 **Pin** keeps a process above unpinned processes and visible even when there are no
 milestones in the selected period. Pins are stored in the local SQLite database
