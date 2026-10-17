@@ -70,7 +70,10 @@ export default function InterviewProcessesPage() {
       const followUp = needsFollowUp(process.milestones, now, process.events)
       return { process, followUp, age: processAge(process.milestones.filter(milestone => milestone.kind === "event"), now), layout: positionMilestones(process.milestones, followUp).map(item => ({ ...item, timing: milestoneTiming(item.milestone, window, now) })), matchingCount: process.milestones.filter(milestone => inPeriod(milestone, window)).length }
     })
-    .sort((a, b) => Number(b.process.pinned) - Number(a.process.pinned))
+    .sort((a, b) => Number(b.process.pinned) - Number(a.process.pinned)
+      || b.age.elapsedDays - a.age.elapsedDays
+      || b.process.event_count - a.process.event_count
+      || (a.process.organization || "Unassigned").localeCompare(b.process.organization || "Unassigned"))
   const endDay = new Date(window.end); endDay.setDate(endDay.getDate() - 1)
   const rangeLabel = period === "all" ? "All time" : period === "daily" ? window.start.toLocaleDateString(undefined, { dateStyle: "long" }) : `${window.start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${endDay.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
   return <div className="page-wrap processes-page">

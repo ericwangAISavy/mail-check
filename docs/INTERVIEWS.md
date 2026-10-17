@@ -206,3 +206,8 @@ from 4 to under 6 weeks, and rose at 6 weeks or more. Empty and future-only
 processes use slate. The panel border, background, line, and age label share this
 color; milestone colors still indicate their timing. The age legend explains the
 ranges, and changing the time window does not change a process's age or color.
+
+Processes sort with pinned processes first, then oldest first by completed days
+since the first calendar event. Equal ages sort by calendar-event count, highest
+first, then organization name for a stable order. Empty and future-only processes
+come after started processes within each pin group. Messages do not affect sorting.

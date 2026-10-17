@@ -223,3 +223,26 @@ it("keeps the entered name and reports creation failures", async () => {
  expect((await screen.findByRole("alert")).textContent).toContain("already exists")
  expect((input as HTMLInputElement).value).toBe("Acme Labs")
 })
+
+it("sorts pinned first, then oldest by elapsed days, then most calendar events for equal ages", async () => {
+ const base = report().processes[0]
+ const make = (organization: string, date: string | null, event_count: number, pinned = false) => ({
+  ...base, organization, event_count, pinned,
+  milestones: date ? [{ ...milestone(`event:${organization}`, 16), occurred_at: date }] : [],
+ })
+ const data = { processes: [
+  make("newer", "2026-10-15T12:00:00Z", 20),
+  make("old-fewer", "2026-09-01T10:00:00Z", 2),
+  make("future", "2026-11-01T12:00:00Z", 10),
+  make("empty", null, 0),
+  make("old-more", "2026-09-01T11:00:00Z", 5),
+  make("pinned", "2026-10-16T11:00:00Z", 1, true),
+ ] }
+ vi.mocked(request).mockResolvedValue(data)
+ mount()
+ await screen.findByRole("heading", { name: "old-more" })
+ const names = () => [...document.querySelectorAll('.process-identity h2')].map(el => el.textContent)
+ expect(names()).toEqual(["pinned", "old-more", "old-fewer", "newer", "future", "empty"])
+ fireEvent.change(screen.getByRole("searchbox", { name: "Find organization" }), { target: { value: "old-" } })
+ expect(names()).toEqual(["old-more", "old-fewer"])
+})
