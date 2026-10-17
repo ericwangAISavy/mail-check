@@ -70,7 +70,7 @@
 .milestone-preview-status { color: var(--muted-foreground); font-size: 10px; margin-left: 4px; }
 .milestone-preview h3 { font-size: 14px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
 .milestone-preview time { display: block; font-size: 11px; color: var(--muted-foreground); margin-top: 6px; }
-.milestone-summary { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin-top: 14px; }
+.milestone-summary { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin-top: 14px; }
 .milestone-sender { overflow-wrap: anywhere; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; margin-top: 12px; }
 .milestone-assignment { margin-top: 10px; color: var(--warning); font-size: 11px; }
 .milestone-assignment span { display: block; margin-top: 3px; overflow-wrap: anywhere; }

@@ -35,6 +35,25 @@ class ProcessCollectionTests(unittest.TestCase):
     source = calendar_fixtures.NativeCalendarTests.source
     collect = calendar_fixtures.NativeCalendarTests.collect
 
+    def test_existing_event_and_message_html_are_cleaned_in_preview_without_changing_storage(self):
+        from mailcheck import interview_processes as processes
+        self.collect(self.source([calendar_fixtures.event("html-preview", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        html = '<p>Interview <strong>Details:</strong></p><p>Engineering &amp; Research</p><a href="https://example.test/meeting">Join meeting</a>'
+        self.conn.execute("UPDATE interview_events SET notes=?", (html,))
+        pk = db.upsert_message(self.conn, NormalizedMessage(
+            account_id=self.a, account_label="work", message_id="html-preview", uid="html-preview",
+            folder="INBOX", from_addr="hr@appian.com", from_name="Recruiter",
+            subject="Interview details", date_utc=datetime(2026, 10, 16, tzinfo=timezone.utc), body="Saved mail"))
+        db.save_classification(self.conn, pk, Classification(category="interview_invite", summary=html), "test", "1")
+        milestones = processes.list_processes(self.conn)[0]["milestones"]
+        self.assertEqual(len(milestones), 2)
+        for milestone in milestones:
+            self.assertIn("Interview Details:", milestone["summary"])
+            self.assertIn("Engineering & Research", milestone["summary"])
+            self.assertIn("https://example.test/meeting", milestone["summary"])
+            self.assertNotIn("<p>", milestone["summary"])
+        self.assertEqual(self.conn.execute("SELECT notes FROM interview_events").fetchone()[0], html)
+
     def test_manual_process_matches_saved_and_new_content_and_handles_ambiguity(self):
         from mailcheck import interview_processes as processes
         booking = calendar_fixtures.event("manual")
@@ -253,3 +272,17 @@ class ProcessCollectionTests(unittest.TestCase):
         self.assertEqual(unassigned["events"][1]["assignment_reason"], "No eligible organization domain")
         self.conn.execute("UPDATE accounts SET enabled=0")
         self.assertEqual(interview_processes.list_processes(self.conn), [])
+
+@pytest.mark.parametrize("description,expected", [
+    ('<p>Interview <strong>Details:</strong></p><ul><li>Position: Sr. ML Engineer</li><li>Date: Thu, Oct 1</li></ul><p><a href="https://example.test/reschedule">Reschedule</a></p><script>hidden_script()</script>', ['Interview Details:', 'Position: Sr. ML Engineer', 'Date: Thu, Oct 1', 'https://example.test/reschedule']),
+    ('<strong>Engineering &amp; Research</strong><br>Room &lt;3', ['Engineering & Research', 'Room <3']),
+    ('Plain notes: use x < 3.\nRecruiter <hr@example.test>', ['Plain notes: use x < 3.', 'Recruiter <hr@example.test>']),
+])
+def test_milestone_preview_summary_is_readable_text(description, expected):
+    from mailcheck.interview_processes import _preview_summary
+    result = _preview_summary(description)
+    for text in expected:
+        assert text in result
+    for markup in ('<p>', '<strong>', '<li>', '<a ', '<script>', 'hidden_script()'):
+        assert markup not in result
+    assert len(result) <= 1000

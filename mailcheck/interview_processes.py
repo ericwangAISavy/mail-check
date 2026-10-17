@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from email.utils import parseaddr
 
 from . import db, interviews
+from .normalize import _html_to_text
 
 SERVICE_DOMAINS = ("google.com", "teams.microsoft.com", "teams.live.com", "teams.com", "zoom.us", "zoom.com")
 DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -73,6 +74,14 @@ def list_removed(conn) -> list[dict]:
             for row in conn.execute("SELECT r.*,m.name FROM interview_process_removals r LEFT JOIN interview_manual_processes m USING(organization) ORDER BY removed_at DESC,organization")]
 
 
+def _preview_summary(value: str | None) -> str:
+    """Normalize saved HTML before truncation; never render provider markup."""
+    text = value or ""
+    if re.search(r"</?(?:html|head|body|div|span|p|br|a|ul|ol|li|table|tr|td|th|strong|em|b|i|script|style)\b", text, re.I):
+        text = _html_to_text(text).strip()
+    return text[:1000]
+
+
 def _instant(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
@@ -132,7 +141,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         group["events"].append(event)
         group["milestones"].append({
             "id": f"event:{event['id']}", "kind": "event", "occurred_at": event["start_at"],
-            "title": event["company"] or event["stage"], "summary": (event["notes"] or "")[:1000],
+            "title": event["company"] or event["stage"], "summary": _preview_summary(event["notes"]),
             "status": event["display_status"], "sender": event["organizer_email"],
             "account_labels": event["account_labels"], "href": f"/interviews?event={event['id']}",
             "organization_domains": domains, "assignment_reason": event["assignment_reason"],
@@ -142,7 +151,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     # mail still requires an established calendar group. No provider/model calls.
     messages = conn.execute("""SELECT m.id,m.from_addr,m.from_name,m.subject,m.body_text,m.snippet,c.summary AS classification_summary,
         COALESCE(m.date_utc,m.fetched_at) AS occurred_at,
-        substr(COALESCE(NULLIF(c.summary,''),NULLIF(m.snippet,''),m.body_text,''),1,1000) AS summary,
+        COALESCE(NULLIF(c.summary,''),NULLIF(m.snippet,''),m.body_text,'') AS summary,
         m.provider_url,a.label,c.category
         FROM messages m JOIN accounts a ON a.id=m.account_id AND a.enabled=1
         LEFT JOIN classifications c ON c.id=(SELECT id FROM classifications
@@ -166,7 +175,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         group["message_count"] += 1
         group["milestones"].append({
             "id": f"message:{message['id']}", "kind": "message", "occurred_at": occurred_at,
-            "title": message["subject"] or "(No subject)", "summary": message["summary"][:1000],
+            "title": message["subject"] or "(No subject)", "summary": _preview_summary(message["summary"]),
             "status": "Email", "sender": message["from_addr"], "account_labels": [message["label"]],
             "href": interviews.safe_url(message["provider_url"]),
             "organization_domains": domains, "assignment_reason": "Multiple matching manual processes" if len(matches) > 1 else None,
