@@ -199,3 +199,10 @@ Processes start at their first calendar event. Messages before that event are ex
 from the timeline and its counts; saved mail is preserved. Manual processes without
 a calendar event remain empty until one matches. Age also starts at the first
 calendar event.
+
+Panel colors represent elapsed process age from the first calendar event: green
+under 1 week, teal from 1 to under 2 weeks, amber from 2 to under 4 weeks, orange
+from 4 to under 6 weeks, and rose at 6 weeks or more. Empty and future-only
+processes use slate. The panel border, background, line, and age label share this
+color; milestone colors still indicate their timing. The age legend explains the
+ranges, and changing the time window does not change a process's age or color.

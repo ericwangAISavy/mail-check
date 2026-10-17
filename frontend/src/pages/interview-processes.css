@@ -17,13 +17,22 @@
 .timeline-range > span { font-size: 11px; color: var(--muted-foreground); }
 .process-groups { display: flex; flex-direction: column; gap: 8px; }
 .process-timeline-card { --process-accent: var(--primary); min-width: 0; padding: 0 14px 4px; border-color: color-mix(in srgb, var(--process-accent) 32%, transparent); border-left: 3px solid var(--process-accent); background: color-mix(in srgb, var(--process-accent) 7%, var(--card)); }
-.process-tone-1 { --process-accent: var(--purple); }
-.process-tone-2 { --process-accent: #62d6a1; }
-.process-tone-3 { --process-accent: #efbe6d; }
-.process-tone-4 { --process-accent: #f08bb6; }
-:root[data-theme="light"] .process-tone-2 { --process-accent: #187347; }
-:root[data-theme="light"] .process-tone-3 { --process-accent: #986118; }
-:root[data-theme="light"] .process-tone-4 { --process-accent: #a53169; }
+.process-age-pending { --process-accent: #94a3b8; }
+.process-age-new { --process-accent: #62d6a1; }
+.process-age-progressing { --process-accent: #5ed3cf; }
+.process-age-established { --process-accent: #efbe6d; }
+.process-age-extended { --process-accent: #f49a64; }
+.process-age-long-running { --process-accent: #f08ba0; }
+:root[data-theme="light"] .process-age-pending { --process-accent: #53647c; }
+:root[data-theme="light"] .process-age-new { --process-accent: #187347; }
+:root[data-theme="light"] .process-age-progressing { --process-accent: #0f7775; }
+:root[data-theme="light"] .process-age-established { --process-accent: #986118; }
+:root[data-theme="light"] .process-age-extended { --process-accent: #b54c16; }
+:root[data-theme="light"] .process-age-long-running { --process-accent: #ab3454; }
+.process-age-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: var(--muted-foreground); font-size: 11px; }
+.process-age-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.process-age-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--process-accent); }
+
 .process-timeline-card::before, .process-timeline-card::after { border-color: var(--process-accent); }
 .process-timeline-card.is-pinned { border-color: var(--process-accent); }
 .process-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0 2px; }
@@ -103,7 +112,7 @@ button.milestone-message { width: 20px; height: 14px; top: 11px; border-radius: 
 .process-create-fields { display: flex; gap: 10px; }
 .process-create-fields input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: inherit; padding: 8px 10px; }
 .process-create-card p { margin: 0; font-size: 12px; color: var(--muted-foreground); }
-.process-age { font-size: 11px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+.process-age { font-size: 11px; font-weight: 600; color: var(--process-accent); white-space: nowrap; }
 .process-create-card form { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .process-create-fields { min-width: 0; }
 @media (max-width: 480px) {

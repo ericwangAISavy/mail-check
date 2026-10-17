@@ -12,6 +12,9 @@ const event=():InterviewEvent=>({id:1,calendar_uid:"uid",company:"Acme",role:"En
 const clients:QueryClient[]=[]
 let current=event()
 beforeEach(()=>{
+  // Keep the fixture inside the default work-week view, including on weekends.
+  vi.useFakeTimers({toFake:["Date"]})
+  vi.setSystemTime(new Date("2026-10-16T12:00:00Z"))
   current=event()
   vi.mocked(api.status).mockResolvedValue({running:false,completion_id:0,auto:false,next_in:null,message:"",detail:"",ok:true,stage_elapsed:null})
   vi.mocked(api.startCheck).mockResolvedValue({ok:true})
@@ -22,7 +25,7 @@ beforeEach(()=>{
     return {events:[current],accounts:[{id:1,label:"work",email:"work@example.test"},{id:2,label:"personal",email:"me@example.test"}],companies:["Acme"],stages:["Technical Interview","Other"],statuses:["Scheduled","Cancelled","Needs review"]} as any
   })
 })
-afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.clearAllMocks()})
+afterEach(()=>{vi.useRealTimers();cleanup();clients.splice(0).forEach(c=>c.clear());vi.clearAllMocks()})
 function ChangeInterview() { const navigate=useNavigate(); return <button data-testid="other-interview" onClick={()=>navigate("/interviews?event=2")}>Navigate to another interview</button> }
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client);render(<QueryClientProvider client={client}><MemoryRouter><ChangeInterview/><ToastProvider><InterviewsPage bootstrap={bootstrap}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
 it("renders real records in month, week, and day views with date navigation",async()=>{

@@ -202,6 +202,8 @@ it("creates a named empty process and shows elapsed time on existing processes",
  })
  mount()
  await screen.findByText("4 weeks")
+ expect(screen.getByRole("heading", { name: "appian.com" }).closest(".process-timeline-card")?.classList.contains("process-age-extended")).toBe(true)
+ expect(screen.getByRole("group", { name: "Process age colors" })).toBeTruthy()
  fireEvent.change(screen.getByRole("textbox", { name: "Company or organization name" }), { target: { value: "Acme Labs" } })
  fireEvent.click(screen.getByRole("button", { name: "Add process" }))
  await screen.findByRole("heading", { name: "Acme Labs" })

@@ -58,11 +58,12 @@ export function milestoneTiming(milestone: { occurred_at: string; kind: string; 
 
 export function processAge(milestones: { occurred_at: string }[], now = Date.now()) {
   const dates = milestones.map(m => new Date(m.occurred_at).getTime()).filter(Number.isFinite)
-  if (!dates.length) return { label: "No milestones yet", title: "Age starts with the first event or message" }
+  if (!dates.length) return { label: "No milestones yet", title: "Age starts with the first calendar event", tone: "pending" }
   const first = Math.min(...dates)
-  const title = `First milestone: ${new Date(first).toLocaleDateString(undefined, { dateStyle: "long" })}`
-  if (first > now) return { label: "Not started yet", title }
+  const title = `First calendar event: ${new Date(first).toLocaleDateString(undefined, { dateStyle: "long" })}`
+  if (first > now) return { label: "Not started yet", title, tone: "pending" }
   const days = Math.floor((now - first) / 86_400_000)
   const weeks = Math.floor(days / 7)
-  return { label: weeks ? `${weeks} ${weeks === 1 ? "week" : "weeks"}` : days ? `${days} ${days === 1 ? "day" : "days"}` : "Started today", title }
+  const tone = days < 7 ? "new" : days < 14 ? "progressing" : days < 28 ? "established" : days < 42 ? "extended" : "long-running"
+  return { tone, label: weeks ? `${weeks} ${weeks === 1 ? "week" : "weeks"}` : days ? `${days} ${days === 1 ? "day" : "days"}` : "Started today", title }
 }
