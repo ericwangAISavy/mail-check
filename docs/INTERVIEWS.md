@@ -190,7 +190,12 @@ multiple manual matches go to Unassigned. Matching is literal substring matching
 so short or generic names can collect broad results. Removed manual processes keep
 their matching rules and stay hidden until restored. Pinning works for manual names.
 
-Each panel shows elapsed days or weeks from its earliest event or message to today,
-with the first milestone date available on hover. Future bookings do not extend the
+Each panel shows elapsed days or weeks from its earliest calendar event to today,
+with the first event date available on hover. Future bookings do not extend the
 age. Empty processes show **No milestones yet**; processes containing only future
 milestones show **Not started yet**. The age is independent of the selected window.
+
+Processes start at their first calendar event. Messages before that event are excluded
+from the timeline and its counts; saved mail is preserved. Manual processes without
+a calendar event remain empty until one matches. Age also starts at the first
+calendar event.

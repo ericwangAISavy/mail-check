@@ -191,7 +191,7 @@ it("shows every process and full history in All, retaining full history in narro
 
 it("creates a named empty process and shows elapsed time on existing processes", async () => {
  const data = report()
- data.processes[0].milestones = [{ ...milestone("message:1", 16), occurred_at: "2026-09-18T12:00:00Z" }]
+ data.processes[0].milestones = [{ ...milestone("event:1", 16), occurred_at: "2026-09-18T12:00:00Z" }, { ...milestone("message:1", 16), occurred_at: "2026-08-01T12:00:00Z" }]
  vi.mocked(request).mockImplementation(async (url, init) => {
   if (url === "/api/interview-processes" && init?.method === "POST") {
    const { name } = JSON.parse(String(init.body))

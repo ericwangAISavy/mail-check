@@ -35,6 +35,21 @@ class ProcessCollectionTests(unittest.TestCase):
     source = calendar_fixtures.NativeCalendarTests.source
     collect = calendar_fixtures.NativeCalendarTests.collect
 
+    def test_process_starts_at_first_calendar_event_and_waits_for_one_if_manual(self):
+        from mailcheck import interview_processes as processes
+        processes.create_process(self.conn, "Appian")
+        for identity, hour in (("before", 14), ("same", 15), ("after", 16)):
+            db.upsert_message(self.conn, NormalizedMessage(
+                account_id=self.a, account_label="work", message_id=identity, uid=identity,
+                folder="INBOX", from_addr="hr@appian.com", from_name="Recruiter",
+                subject="Appian follow-up", date_utc=datetime(2026, 10, 18, hour, 30, tzinfo=timezone.utc), body="Details"))
+        self.assertEqual(processes.list_processes(self.conn)[0]["milestones"], [])
+        self.collect(self.source([calendar_fixtures.event("first-calendar", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        process = processes.list_processes(self.conn)[0]
+        self.assertEqual([m["kind"] for m in process["milestones"]], ["event", "message", "message"])
+        self.assertEqual(process["message_count"], 2)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 3)
+
     def test_existing_event_and_message_html_are_cleaned_in_preview_without_changing_storage(self):
         from mailcheck import interview_processes as processes
         self.collect(self.source([calendar_fixtures.event("html-preview", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
@@ -43,7 +58,7 @@ class ProcessCollectionTests(unittest.TestCase):
         pk = db.upsert_message(self.conn, NormalizedMessage(
             account_id=self.a, account_label="work", message_id="html-preview", uid="html-preview",
             folder="INBOX", from_addr="hr@appian.com", from_name="Recruiter",
-            subject="Interview details", date_utc=datetime(2026, 10, 16, tzinfo=timezone.utc), body="Saved mail"))
+            subject="Interview details", date_utc=datetime(2026, 10, 19, tzinfo=timezone.utc), body="Saved mail"))
         db.save_classification(self.conn, pk, Classification(category="interview_invite", summary=html), "test", "1")
         milestones = processes.list_processes(self.conn)[0]["milestones"]
         self.assertEqual(len(milestones), 2)
@@ -62,14 +77,14 @@ class ProcessCollectionTests(unittest.TestCase):
         pk = db.upsert_message(self.conn, NormalizedMessage(
             account_id=self.a, account_label="work", message_id="manual-mail", uid="manual-mail",
             folder="INBOX", from_addr="recruiter@agency.test", from_name="Recruiter",
-            subject="Availability", date_utc=datetime(2026, 9, 18, tzinfo=timezone.utc),
+            subject="Availability", date_utc=datetime(2026, 10, 19, tzinfo=timezone.utc),
             body="x" * 1500 + " Labs follow-up"))
         processes.create_process(self.conn, "Acme Labs")
         report = processes.list_processes(self.conn)
         manual = next(p for p in report if p["organization"] == "Acme Labs")
         self.assertEqual(manual["event_count"], 1)
         self.assertEqual(manual["message_count"], 1)
-        self.assertEqual(manual["milestones"][0]["id"], f"message:{pk}")
+        self.assertEqual(manual["milestones"][1]["id"], f"message:{pk}")
         with self.assertRaises(ValueError):
             processes.create_process(self.conn, "  ACME labs  ")
         later = calendar_fixtures.event("manual-new")
@@ -146,7 +161,7 @@ class ProcessCollectionTests(unittest.TestCase):
             pk = db.upsert_message(self.conn, NormalizedMessage(
                 account_id=self.a, account_label="work", message_id=subject,
                 uid=subject, folder="INBOX", from_addr=sender, from_name="Recruiter",
-                subject=subject, date_utc=datetime(2026, 10, 17, 12, tzinfo=timezone.utc),
+                subject=subject, date_utc=datetime(2026, 10, 19, 12, tzinfo=timezone.utc),
                 body="Saved email preview"))
             if summary:
                 db.save_classification(self.conn, pk, Classification(category="interview_invite", summary=summary), "test", "1")
@@ -158,10 +173,10 @@ class ProcessCollectionTests(unittest.TestCase):
         self.assertEqual(len(report), 1)
         process = report[0]
         self.assertEqual(process["message_count"], 2)
-        self.assertEqual([m["kind"] for m in process["milestones"]], ["message", "message", "event"])
-        self.assertEqual(process["milestones"][0]["summary"], "Recruiter asks for availability.")
-        self.assertIn("Saved email preview", process["milestones"][1]["summary"])
-        self.assertEqual(process["milestones"][0]["id"], f"message:{first}")
+        self.assertEqual([m["kind"] for m in process["milestones"]], ["event", "message", "message"])
+        self.assertEqual(process["milestones"][1]["summary"], "Recruiter asks for availability.")
+        self.assertIn("Saved email preview", process["milestones"][2]["summary"])
+        self.assertEqual(process["milestones"][1]["id"], f"message:{first}")
         self.assertEqual(len({m["id"] for m in process["milestones"]}), 3)
 
     def test_pins_survive_reopening_and_unpinning(self):
