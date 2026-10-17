@@ -169,7 +169,7 @@ class FakeLLM:
 # ------------------------------------------------------------------------ tests
 
 
-def test_normalize():
+def normalize_messages():
     print("\nnormalize")
     msgs = [
         normalize.normalize(r, account_id=1, account_label="test", max_body_chars=1200)
@@ -184,6 +184,10 @@ def test_normalize():
     check("quoted reply stripped", "Please find my CV" not in ack, repr(ack))
     check("body above the quote kept", "Thank you for applying" in ack)
     return msgs
+
+
+def test_normalize():
+    normalize_messages()
 
 
 def test_prefilter(msgs):
@@ -1154,7 +1158,7 @@ def test_review_fixes(msgs):
         # accounts. Keep provider/auth routing real while making that boundary
         # deterministic and offline.
         from unittest.mock import Mock, patch
-        with patch.object(oa, "_app", return_value=Mock(get_accounts=lambda: [])):
+        with patch.object(oa, "_app", return_value=Mock(get_accounts=lambda: [])), patch.object(oa, "_read_blob", return_value=""):
             r = client.post("/api/accounts/ol/test")
         # No cache exists for this label, so the real Graph path must fail with
         # a sign-in-reconnect message — never an IMAP host/password error, which
@@ -1205,36 +1209,39 @@ def test_review_fixes(msgs):
                 clock.sleep(0.02)
             return "someone@outlook.com"  # only reached if abort() never worked
 
-        real_begin, real_complete = oa.begin_device_flow, oa.complete_device_flow
-        oa.begin_device_flow = fake_begin
-        oa.complete_device_flow = fake_complete
-        try:
-            client = TestClient(W.create_app())
-            r = client.post("/api/outlook/start", json={"label": "ol2"})
-            check("start succeeds", r.json()["ok"])
+        # No token is issued in this cancellation test; keep its OS-store
+        # boundary offline just like its Microsoft polling boundary.
+        with patch.object(oa.keyring, "get_password", return_value=None), patch.object(oa.keyring, "delete_password", return_value=None):
+            real_begin, real_complete = oa.begin_device_flow, oa.complete_device_flow
+            oa.begin_device_flow = fake_begin
+            oa.complete_device_flow = fake_complete
+            try:
+                client = TestClient(W.create_app())
+                r = client.post("/api/outlook/start", json={"label": "ol2"})
+                check("start succeeds", r.json()["ok"])
 
-            t0 = clock.time()
-            r = client.post("/api/outlook/cancel")
-            check("cancel responds immediately, not after the fake delay",
-                  clock.time() - t0 < 1.0)
-            check("cancel itself reports success", r.json()["ok"])
+                t0 = clock.time()
+                r = client.post("/api/outlook/cancel")
+                check("cancel responds immediately, not after the fake delay",
+                      clock.time() - t0 < 1.0)
+                check("cancel itself reports success", r.json()["ok"])
 
-            # Give the background thread a moment to actually unblock and run
-            # its (now-stale) completion path.
-            for _ in range(100):
-                if completed_calls["n"] and W._outlook.get("pending") is None:
-                    break
-                clock.sleep(0.02)
+                # Give the background thread a moment to actually unblock and run
+                # its (now-stale) completion path.
+                for _ in range(100):
+                    if completed_calls["n"] and W._outlook.get("pending") is None:
+                        break
+                    clock.sleep(0.02)
 
-            with db.session(tmp / "t.db") as c2:
-                check("cancelled sign-in never creates the account",
-                      db.get_account(c2, "ol2") is None)
-            check("no token cache is left behind after cancelling",
-                  not oa.has_cache("ol2"))
-            check("UI state returns to idle", W._outlook["state"] == "idle")
-        finally:
-            oa.begin_device_flow, oa.complete_device_flow = real_begin, real_complete
-            oa.delete_cache("ol2")
+                with db.session(tmp / "t.db") as c2:
+                    check("cancelled sign-in never creates the account",
+                          db.get_account(c2, "ol2") is None)
+                check("no token cache is left behind after cancelling",
+                      not oa.has_cache("ol2"))
+                check("UI state returns to idle", W._outlook["state"] == "idle")
+            finally:
+                oa.begin_device_flow, oa.complete_device_flow = real_begin, real_complete
+                oa.delete_cache("ol2")
     finally:
         cfgmod.db_path, cfgmod.config_path = (
             orig[0], orig[1]
@@ -1465,8 +1472,8 @@ def test_graph_source():
         check("paged through @odata.nextLink", len(got) == 2, f"got {len(got)}")
         check("  bearer token sent",
               any(h.get("Authorization") == "Bearer fake-token" for h in seen["headers"]))
-        check("  asks Graph for text bodies",
-              any('outlook.body-content-type="text"' in (h.get("Prefer") or "")
+        check("  asks Graph for original HTML bodies",
+              any('outlook.body-content-type="html"' in (h.get("Prefer") or "")
                   for h in seen["headers"]))
         check("  filters to unread within the window",
               any("isRead+eq+false" in p or "isRead%20eq%20false" in p
@@ -2035,7 +2042,7 @@ def main() -> int:
     test_password_repair()
     test_migration()
     test_graph_source()
-    msgs = test_normalize()
+    msgs = normalize_messages()
     test_prefilter(msgs)
     test_parsing()
     test_ollama_and_reasoning()

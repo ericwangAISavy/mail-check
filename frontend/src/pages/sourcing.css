@@ -1,0 +1,616 @@
+.sourcing-page {
+  height: calc(100dvh - 122px);
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  overflow: hidden;
+  margin: 12px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.sourcing-toolbar {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sourcing-toolbar > svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.sourcing-toolbar > select {
+  font-size: 16px;
+  font-weight: 600;
+  max-width: 220px;
+  border: none;
+  background: transparent;
+}
+.sourcing-book-title {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sourcing-search {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 400px;
+  min-width: 190px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding-left: 9px;
+}
+.sourcing-search input {
+  border: none !important;
+  background: transparent !important;
+  min-width: 0;
+  width: 210px;
+  font-size: 13px;
+}
+.sheet-editor {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.sheet-edit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--border);
+}
+.sheet-save-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.sheet-toolbar-spacer {
+  flex: 1;
+}
+.sheet-google-link {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sheet-formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 31px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sheet-formula-bar > span:first-child {
+  min-width: 73px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.sheet-formula-bar i {
+  color: var(--muted-foreground);
+  font-family: serif;
+}
+.sheet-formula-bar > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sourcing-grid {
+  flex: 1;
+  height: 100%;
+  min-height: 100px;
+  border: none;
+  font-size: 13px;
+  --rdg-color: var(--foreground);
+  --rdg-border-color: var(--border);
+  --rdg-background-color: var(--background);
+  --rdg-header-background-color: var(--surface);
+  --rdg-row-hover-background-color: var(--surface);
+  --rdg-row-selected-background-color: var(--surface);
+  --rdg-selection-color: var(--primary);
+  --rdg-cell-frozen-box-shadow: none;
+  color-scheme: inherit;
+}
+.sourcing-grid .rdg-cell {
+  padding: 0 9px;
+}
+.sourcing-grid .sheet-heading-cell {
+  font-weight: 600;
+  background: var(--surface);
+}
+.sheet-row-number {
+  display: block;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.sheet-formula-cell {
+  color: var(--muted-foreground);
+}
+.sourcing-grid input {
+  padding: 0 6px !important;
+  border-radius: 0 !important;
+  color: var(--foreground);
+  background: var(--background);
+}
+.sourcing-tabs {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  overflow: auto;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0 8px;
+}
+.sourcing-tabs > button {
+  padding: 10px 19px;
+  white-space: nowrap;
+  font-size: 13px;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  border-bottom: 2px solid transparent;
+}
+.sourcing-tabs > button[aria-selected="true"] {
+  color: var(--primary);
+  background: var(--background);
+  border-bottom-color: var(--primary);
+}
+.sourcing-tabs > button:disabled {
+  opacity: 0.6;
+}
+.sourcing-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+  padding: 30px;
+  color: var(--muted-foreground);
+}
+.sourcing-empty h2 {
+  color: var(--foreground);
+  font-size: 20px;
+}
+.sourcing-empty p {
+  max-width: 470px;
+}
+.sourcing-settings {
+  max-width: 760px !important;
+  max-height: 85dvh;
+  overflow: auto;
+}
+.sourcing-settings section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sourcing-settings h3 {
+  font-weight: 650;
+  margin-bottom: 9px;
+}
+.sourcing-settings p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  margin: 8px 0;
+}
+.sourcing-settings form,
+.sourcing-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.sourcing-settings label,
+.sourcing-password-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+.sourcing-settings input,
+.sourcing-settings select,
+.sourcing-password-form input {
+  height: 36px;
+  min-width: 0;
+  width: 100%;
+  padding: 5px 9px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+.sheet-actions > label {
+  flex: 1;
+  min-width: 90px;
+}
+.book-mapping {
+  margin-top: 15px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.sourcing-settings summary {
+  cursor: pointer;
+  font-weight: 550;
+}
+.sourcing-settings .bidder-password-row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto auto;
+  align-items: center;
+}
+.sheet-sync-error {
+  padding: 10px 15px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--warning);
+  font-size: 13px;
+}
+.sheet-sync-error .sheet-actions {
+  margin-bottom: 0;
+}
+.sourcing-search-results {
+  overflow: auto;
+  padding: 15px;
+}
+.sourcing-search-results table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.sourcing-search-results th,
+.sourcing-search-results td {
+  text-align: left;
+  padding: 12px 9px;
+  border-bottom: 1px solid var(--border);
+}
+.sourcing-search-results th {
+  color: var(--muted-foreground);
+}
+.sourcing-search-results td button {
+  color: var(--primary);
+  text-align: left;
+}
+.sourcing-search-results td a {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+@media (max-width: 800px) {
+  .sourcing-page {
+    margin: 5px;
+    height: calc(100dvh - 125px);
+  }
+  .sourcing-toolbar {
+    gap: 6px;
+    padding: 6px;
+    flex-wrap: wrap;
+  }
+  .sourcing-book-title {
+    display: none;
+  }
+  .sourcing-search {
+    flex: 1;
+    min-width: 150px;
+  }
+  .sourcing-search input {
+    width: 100%;
+  }
+  .sheet-edit-toolbar small {
+    display: none;
+  }
+  .sourcing-settings .bidder-password-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sheet-google-link {
+    font-size: 11px;
+  }
+}
+.append-jobs-input {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  font-family: monospace;
+  font-size: 13px;
+}
+.sourcing-grid .sheet-highlight-row {
+  background: color-mix(in srgb, var(--primary) 14%, var(--background));
+}
+.sourcing-workspace {
+  height: 100dvh !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+.sourcing-workspace > .topbar {
+  flex-shrink: 0;
+}
+.sourcing-workspace > .page-content {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sourcing-workspace .sourcing-page {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+  margin-bottom: 12px;
+}
+.sourcing-workspace > .app-footer {
+  display: none;
+}
+.sourcing-grid .sheet-range-cell {
+  background: color-mix(in srgb, var(--primary) 10%, var(--background));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--primary) 30%, transparent);
+}
+.native-sheet-toolbar {
+  gap: 5px;
+  flex-wrap: wrap;
+  padding: 5px 9px;
+}
+.sheet-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border-right: 1px solid var(--border);
+  padding-right: 6px;
+}
+.native-sheet-toolbar .btn {
+  height: 30px;
+  min-height: 30px;
+  padding: 5px 7px;
+}
+.native-sheet-toolbar select {
+  max-width: 120px;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  height: 30px;
+  color: var(--foreground);
+}
+.native-sheet-toolbar button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--primary);
+}
+.sheet-export {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px;
+  border-radius: 4px;
+}
+.sheet-export:hover {
+  background: var(--accent);
+}
+.sheet-export.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.native-sheet-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+}
+.native-sheet-filters label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 150px;
+}
+.native-sheet-filters input,
+.native-sheet-filters select {
+  height: 30px;
+  padding: 4px 7px;
+  min-width: 0;
+  max-width: 180px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.native-sheet-filters label input {
+  flex: 1;
+  max-width: none;
+}
+.native-cell-content {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.native-cell-content.is-wrapped {
+  white-space: pre-wrap;
+  line-height: 20px;
+  padding-top: 4px;
+  max-height: 62px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.native-migration-notice {
+  padding: 5px 12px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
+}
+.native-migration-notice summary {
+  cursor: pointer;
+}
+.native-migration-notice p {
+  padding: 5px 0;
+}
+.sourcing-import {
+  max-width: 760px !important;
+  max-height: 90dvh;
+  overflow: auto;
+}
+.sourcing-import textarea {
+  width: 100%;
+  min-height: 120px;
+  max-height: 220px;
+  padding: 9px;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.sourcing-import .sheet-actions label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.sourcing-import select {
+  padding: 5px;
+  background: var(--background);
+  border: 1px solid var(--border);
+}
+.csv-preview {
+  overflow: auto;
+  max-height: 190px;
+  border: 1px solid var(--border);
+}
+.csv-preview table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+.csv-preview td {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  min-width: 120px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .native-sheet-toolbar {
+    gap: 4px;
+    padding: 4px;
+  }
+  .native-sheet-toolbar .sheet-toolbar-spacer {
+    display: none;
+  }
+  .sheet-toolbar-group {
+    padding-right: 3px;
+  }
+  .native-sheet-toolbar .sheet-save-status {
+    margin-left: auto;
+  }
+  .native-sheet-filters > * {
+    max-width: calc(50% - 5px) !important;
+    flex: 1;
+    min-width: 100px;
+  }
+  .native-sheet-filters label {
+    max-width: 100% !important;
+    flex-basis: 100%;
+  }
+  .sourcing-toolbar > select {
+    max-width: 170px;
+  }
+}
+.native-cell-input {
+  width: 100%;
+  height: 100%;
+  padding: 0 7px;
+  border: 0;
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  font: inherit;
+  background: var(--background);
+  color: var(--foreground);
+}
+.csv-column-map {
+  display: flex;
+  gap: 5px 15px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.sheet-days {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.sheet-days > svg {
+  color: var(--muted-foreground);
+}
+.sheet-days .btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 3px 7px;
+}
+.sheet-days input,
+.sheet-days select {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  height: 28px;
+  padding: 2px 5px;
+  max-width: 145px;
+}
+.sheet-days input {
+  width: 126px;
+  color-scheme: dark;
+}
+.light .sheet-days input {
+  color-scheme: light;
+}
+.sheet-days button[aria-pressed="true"] {
+  color: var(--primary);
+  background: var(--accent);
+}
+.sheet-day-count {
+  color: var(--muted-foreground);
+  margin-left: 6px;
+}
+.sheet-assign-date {
+  margin-left: auto;
+}
+@media (max-width: 700px) {
+  .sheet-days {
+    padding: 4px;
+    gap: 2px;
+  }
+  .sheet-day-count {
+    margin-left: 0;
+  }
+}

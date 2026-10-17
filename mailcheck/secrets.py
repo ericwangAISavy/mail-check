@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import wraps
 import unicodedata
 
 import keyring
@@ -12,6 +13,22 @@ SERVICE = "mail-check"
 
 class SecretError(RuntimeError):
     pass
+
+
+def credential_errors(error_type=SecretError):
+    """Translate unavailable/locked OS stores into errors callers can handle."""
+    def decorate(operation):
+        @wraps(operation)
+        def run(*args, **kwargs):
+            try:
+                return operation(*args, **kwargs)
+            except (keyring.errors.KeyringError, OSError) as exc:
+                raise error_type(
+                    "The operating system credential store is unavailable or locked. "
+                    "Unlock it or run mail-check in a session with an available credential store."
+                ) from exc
+        return run
+    return decorate
 
 
 _ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍⁠﻿"), None)
@@ -55,6 +72,7 @@ def _key_for_account(label: str) -> str:
     return f"account:{label}"
 
 
+@credential_errors()
 def set_account_password(label: str, password: str) -> None:
     """Store a password, repaired and validated so a bad paste fails here with
     a clear message rather than deep inside imaplib."""
@@ -63,6 +81,7 @@ def set_account_password(label: str, password: str) -> None:
     keyring.set_password(SERVICE, _key_for_account(label), cleaned)
 
 
+@credential_errors()
 def get_account_password(label: str) -> str:
     value = keyring.get_password(SERVICE, _key_for_account(label))
     if not value:
@@ -73,6 +92,7 @@ def get_account_password(label: str) -> str:
     return value
 
 
+@credential_errors()
 def delete_account_password(label: str) -> None:
     try:
         keyring.delete_password(SERVICE, _key_for_account(label))

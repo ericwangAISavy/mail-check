@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import threading
+import sqlite3
 import time
 import tomllib
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
@@ -17,9 +18,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets, interviews
+from .. import db, outlook_auth, secrets, interviews, interview_processes, payments
 from ..analytics import DashboardFilters, dashboard_data
-from ..pipeline import build_source, reclassify
+from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -106,15 +107,27 @@ def _reschedule(cfg=None) -> None:
 
 
 class LoginBody(BaseModel):
-    role: Literal["admin", "guest"]
+    role: Literal["admin", "bidder"]
+    bidder_id: int | None = None
     password: str = Field(min_length=1, max_length=256)
 
 
-class PasswordBody(LoginBody):
-    pass
+class PasswordBody(BaseModel):
+    role: Literal["admin"]
+    password: str = Field(min_length=1, max_length=256)
+
+
+class BidderPasswordBody(BaseModel):
+    password: str | None = Field(default=None,min_length=8,max_length=256)
+    enabled: bool = True
+
+class OwnPasswordBody(BaseModel):
+    current_password: str = Field(min_length=1,max_length=256)
+    password: str = Field(min_length=8,max_length=256)
 
 
 class CheckBody(BaseModel):
+    mode: Literal["mail", "calendar"] = "mail"
     account: str | None = None
     since_days: int | None = Field(default=None, ge=1, le=3650)
     no_cache: bool = False
@@ -127,6 +140,20 @@ class ReclassifyBody(BaseModel):
     pks: list[int] | None = None
     account: str | None = None
     days: int | None = Field(default=None, ge=1, le=3650)
+
+
+class ProcessCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=253)
+
+
+class ProcessPinBody(BaseModel):
+    organization: str | None = Field(default=None, max_length=253)
+    pinned: bool
+
+
+class ProcessRemovalBody(BaseModel):
+    organization: str | None = Field(default=None, max_length=253)
+    removed: bool
 
 
 class AccountBody(BaseModel):
@@ -237,6 +264,7 @@ class AccountsResponse(BaseModel):
 class ReaderResponse(BaseModel):
     message: MessageSummary
     body_html: str
+    original_html: str | None = None
 
 
 class BootstrapReadiness(BaseModel):
@@ -342,6 +370,63 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
 
 
 def _run_check(body: CheckBody) -> None:
+    if body.mode == "calendar":
+        _run_calendar_check(body)
+        return
+
+    def work():
+        cfg = cfgmod.load()
+
+        def event(values: dict) -> None:
+            if values.get("type") == "llm_request_started":
+                _job.update(
+                    message=(f"Classifying batch {values['batch_index']} of "
+                             f"{values['total_batches']} · {values['completed']} of "
+                             f"{values.get('total', '?')} complete"),
+                    stage_started=time.time(),
+                )
+            elif values.get("type") == "model_loading":
+                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
+                            stage_started=time.time())
+            elif values.get("type") == "llm_request" and values.get("outcome") in {
+                "timeout", "busy", "deadline"
+            }:
+                _job.update(message="Ollama busy; remaining mail will retry next check")
+
+        with db.session() as conn:
+            result = check_once(
+                conn,
+                cfg,
+                account_label=body.account,
+                since_days=body.since_days,
+                use_cache=not body.no_cache,
+                status=lambda m: _job.update(message=m),
+                progress=lambda done, total: _job.update(
+                    message=f"Classifying… {done} of {total}"
+                ),
+                event=event,
+            )
+        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
+        bits = [f"{result.fetched} unread", f"{result.classified} classified"]
+        if result.from_cache:
+            bits.append(f"{result.from_cache} cached")
+        if result.prefiltered:
+            bits.append(f"{result.prefiltered} filtered locally")
+        if result.pruned:
+            bits.append(f"{result.pruned} aged out")
+        if result.retryable:
+            bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
+        _job.update(
+            message=" · ".join(bits),
+            detail="\n".join(result.errors[:5]),
+            ok=not result.errors or result.retryable > 0,
+        )
+
+    # A manual check counts as a check: restart the clock from now.
+    _start_job(work, failed="Check failed", on_finish=_reschedule)
+
+
+def _run_calendar_check(body: CheckBody) -> None:
     def work():
         cfg = cfgmod.load()
         with db.session() as conn:
@@ -443,6 +528,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     app = FastAPI(title="mail-check", docs_url=None, redoc_url=None)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
+    from .sourcing_routes import install as install_sourcing
+    # Register after the local frontend helper is defined below.
     trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     if (FRONTEND_DIST / "assets").is_dir():
@@ -455,6 +542,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             # shell so a browser cannot keep references from an older build.
             return FileResponse(index, headers={"Cache-Control": "no-cache, must-revalidate"})
         return None
+
+    install_sourcing(app, frontend_page, secure_cookies)
 
     @app.exception_handler(tomllib.TOMLDecodeError)
     async def unreadable_config(request: Request, exc: tomllib.TOMLDecodeError):
@@ -499,28 +588,33 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
         path = request.url.path
-        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
+        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
         try:
-            role = auth.role(request.cookies.get(COOKIE))
+            identity = auth.identity(request.cookies.get(COOKIE))
+            if identity and identity["role"] == "bidder":
+                with db.session() as conn:
+                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND login_enabled=1", (identity["bidder_id"],)).fetchone()
+                if not enabled:
+                    identity = None
+            role = identity["role"] if identity else None
             request.state.role = role
+            request.state.bidder_id = identity.get("bidder_id") if identity else None
             if not public:
                 if role is None:
                     if path.startswith("/api/"):
                         return _err("Sign in to continue.", 401)
                     return RedirectResponse("/login", status_code=303)
-                if role == "guest":
+                if role == "bidder":
                     if path == "/" and request.method in ("GET", "HEAD"):
-                        return RedirectResponse("/dashboard", status_code=303)
-                    guest_read = path in ("/dashboard", "/api/bootstrap", "/api/dashboard", "/api/dashboard/accounts")
-                    # The dashboard's reader is read-only. All mutations and
-                    # account/settings/triage APIs require admin on the server.
-                    guest_read |= path.startswith("/api/messages/") and path.removeprefix("/api/messages/").isdigit()
-                    if path != "/api/auth/logout" and not (guest_read and request.method in ("GET", "HEAD")):
+                        return RedirectResponse("/sourcing", status_code=303)
+                    allowed = path in ("/sourcing", "/api/sourcing", "/payments", "/api/bootstrap", "/api/payments", "/api/auth/password/self")
+                    allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
+                    if not allowed:
                         return _err("Admin access is required.", 403)
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -533,20 +627,58 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.get("/api/auth/session")
     def auth_session(request: Request):
-        return {"role": request.state.role}
+        return {"role": request.state.role, **({"bidder_id": request.state.bidder_id} if request.state.bidder_id else {})}
 
     @app.post("/api/auth/login")
     def auth_login(body: LoginBody, request: Request):
-        token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown")
+        if body.role == "bidder":
+            with db.session() as conn:
+                enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND login_enabled=1", (body.bidder_id,)).fetchone()
+            if not enabled:
+                # Still hash/rate-limit a failed request, without allowing disabled credentials.
+                token, limited = auth.login("invalid", body.password, request.client.host if request.client else "unknown")
+            else:
+                token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown", body.bidder_id)
+        else:
+            token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown")
         if limited:
             response = _err("Too many sign-in attempts. Try again in a minute.", 429)
             response.headers["Retry-After"] = "60"
             return response
         if token is None:
             return _err("Incorrect role or password.", 401)
-        response = JSONResponse({"role": body.role})
+        response = JSONResponse({"role": body.role, **({"bidder_id": body.bidder_id} if body.role == "bidder" else {})})
         response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
                             secure=secure_cookies, samesite="strict", path="/")
+        return response
+
+    @app.get("/api/auth/bidders")
+    def bidder_names():
+        with db.session() as conn:
+            return {"bidders": [dict(row) for row in conn.execute("SELECT id,name FROM bidders WHERE login_enabled=1 ORDER BY name")]}
+
+    @app.post("/api/auth/bidders/{bidder_id}/password")
+    def bidder_password(bidder_id: int, body: BidderPasswordBody):
+        with db.session() as conn:
+            if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+                return _err("Bidder not found",404)
+            if body.enabled and not body.password:
+                return _err("Enter an initial password to enable sign-in.")
+            if body.password:
+                auth.set_bidder_password(bidder_id, body.password)
+            conn.execute("UPDATE bidders SET login_enabled=? WHERE id=?", (int(body.enabled),bidder_id))
+        return {"ok": True}
+
+    @app.post("/api/auth/password/self")
+    def own_password(body: OwnPasswordBody, request: Request):
+        if request.state.role != "bidder":
+            return _err("Use the admin password setting.")
+        try:
+            token=auth.change_bidder_password(request.state.bidder_id,body.current_password,body.password)
+        except ValueError as exc:
+            return _err(str(exc))
+        response=JSONResponse({"ok":True})
+        response.set_cookie(COOKIE,token,max_age=SESSION_SECONDS,httponly=True,secure=secure_cookies,samesite="strict",path="/")
         return response
 
     @app.post("/api/auth/logout")
@@ -559,6 +691,38 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_password(body: PasswordBody):
         auth.change_password(body.role, body.password)
         return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
+
+    @app.post("/api/interview-processes")
+    def api_process_create(body: ProcessCreateBody):
+        try:
+            with db.session() as conn:
+                interview_processes.create_process(conn, body.name)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
+
+    @app.post("/api/interview-processes/pin")
+    def api_process_pin(body: ProcessPinBody):
+        try:
+            with db.session() as conn:
+                interview_processes.set_pin(conn, body.organization, body.pinned)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
+
+    @app.post("/api/interview-processes/remove")
+    def api_process_remove(body: ProcessRemovalBody):
+        try:
+            with db.session() as conn:
+                interview_processes.set_removed(conn, body.organization, body.removed)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
+
+    @app.get("/api/interview-processes")
+    def api_interview_processes():
+        with db.session() as conn:
+            return {"processes": interview_processes.list_processes(conn), "removed": interview_processes.list_removed(conn)}
 
     @app.get("/api/interviews")
     def api_interviews(account: str | None = None, status: str | None = None, company: str | None = None):
@@ -585,14 +749,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/interviews/sync")
     def interview_sync(body: CheckBody | None = None):
-        return api_check(body or CheckBody())
+        return api_check((body or CheckBody()).model_copy(update={"mode": "calendar"}))
 
     @app.get("/api/interviews/{event_id}")
     def interview_detail(event_id: int):
         with db.session() as conn:
             row = conn.execute("SELECT * FROM interview_events WHERE id=?",(event_id,)).fetchone()
             if not row: return _err("Interview not found",404)
-            return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id)}
+            return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id),"stages":interviews.STAGES,"statuses":interviews.STATUSES}
 
     @app.post("/api/interviews/{event_id}")
     def interview_update(event_id: int, changes: dict):
@@ -603,6 +767,63 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err(str(exc),404)
         except (ValueError,TypeError) as exc:
             return _err(str(exc))
+
+    @app.get("/payments")
+    def payments_page():
+        return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
+
+    @app.get("/api/payments")
+    def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
+        with db.session() as conn:
+            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id)
+
+    def payment_write(action):
+        try:
+            with db.session() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                action(conn)
+            return {"ok": True}
+        except LookupError as exc:
+            return _err(str(exc), 404)
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            return _err("A bidder with that name or payment already exists." if isinstance(exc, sqlite3.IntegrityError) else str(exc), 400)
+
+    @app.post("/api/payments/bidders")
+    def create_bidder(body: payments.BidderBody):
+        return payment_write(lambda conn: conn.execute(
+            "INSERT INTO bidders(name,created_at) VALUES(?,?)",
+            (body.name, datetime.now(timezone.utc).isoformat())))
+
+    @app.post("/api/payments/bidders/{bidder_id}")
+    def update_bidder(bidder_id: int, body: payments.BidderBody):
+        def update(conn):
+            payments.bidder(conn, bidder_id)
+            conn.execute("UPDATE bidders SET name=? WHERE id=?", (body.name, bidder_id))
+        return payment_write(update)
+
+    @app.post("/api/payments/bidders/{bidder_id}/assignments")
+    def assign_bidder(bidder_id: int, body: payments.AssignmentBody):
+        return payment_write(lambda conn: payments.assign(conn, bidder_id, body))
+
+    @app.post("/api/payments/assignments/{assignment_id}")
+    def edit_bidder_assignment(assignment_id: int, body: payments.AssignmentBody):
+        return payment_write(lambda conn: payments.edit_assignment(conn, assignment_id, body))
+
+    @app.post("/api/payments/assignments/{assignment_id}/remove")
+    def remove_bidder_assignment(assignment_id: int):
+        return payment_write(lambda conn: payments.remove_assignment(conn, assignment_id))
+
+    @app.post("/api/payments/assignments/{assignment_id}/end")
+    def end_assignment(assignment_id: int, body: payments.EndAssignmentBody):
+        def finish(conn):
+            row = payments.assignment_row(conn, assignment_id)
+            payments.edit_assignment(conn, assignment_id, payments.AssignmentBody(
+                account_id=row["account_id"], start_date=row["start_date"], end_date=body.end_date))
+        return payment_write(finish)
+
+    @app.post("/api/payments/bidders/{bidder_id}/paid")
+    def pay_bidder(bidder_id: int, body: payments.PayBody):
+        return payment_write(lambda conn: payments.record_payment(conn, bidder_id, body))
 
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():
@@ -638,8 +859,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return dashboard_data(conn, filters, retention_days=cfg.check.retain_days)
 
     @app.get("/api/bootstrap", response_model=BootstrapResponse)
-    def api_bootstrap():
+    def api_bootstrap(request: Request):
         """Small, non-sensitive shell data shared by every React page."""
+        if request.state.role == "bidder":
+            return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[],"presets":[],"last_run":"","account_count":0}
         with db.session() as conn:
             accounts = db.list_accounts(conn)
             state = _state(conn, accounts)
@@ -710,7 +933,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             if not row:
                 return _err("No such message.", 404)
             body_html = bodyhtml.render_body(row["body_text"])
-        return {"message": _decorate(row), "body_html": str(body_html)}
+        return {"message": _decorate(row), "body_html": str(body_html),
+                "original_html": bodyhtml.sanitize_original(row["original_html"]) if row["original_html"] else None}
 
     @app.get("/api/accounts", response_model=AccountsResponse)
     def api_accounts():
@@ -1001,6 +1225,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         state = _state()
         if not state["has_accounts"]:
             return _err("Add a mail account first.")
+        if body.mode == "mail" and not state["llm_ready"]:
+            return _err("The model endpoint is not configured yet.")
         if not _job_lock.acquire(blocking=False):
             return _err("A check is already running.", 409)
         _run_check(body)
@@ -1106,7 +1332,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 folder=body.folder,
             ).test()
         except (SourceError, secrets.SecretError) as exc:
-            secrets.delete_account_password(label)  # never keep a bad credential
+            try:
+                secrets.delete_account_password(label)
+            except secrets.SecretError as cleanup_error:
+                return _err(f"{exc} Could not remove the stored credential: {cleanup_error}")
             return _err(str(exc))
 
         with db.session() as conn:
@@ -1143,13 +1372,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.post("/api/accounts/{label}/delete")
     def api_delete_account(label: str):
         with db.session() as conn:
-            if not db.remove_account(conn, label):
+            if not db.get_account(conn, label):
                 return _err("No such account.", 404)
-        secrets.delete_account_password(label)
-        outlook_auth.delete_cache(label)  # a token must not outlive its account
+        # Keep the account recoverable if credential cleanup cannot finish.
+        try:
+            secrets.delete_account_password(label)
+            outlook_auth.delete_cache(label)
+        except (secrets.SecretError, outlook_auth.OutlookAuthError) as exc:
+            return _err(str(exc))
+        with db.session() as conn:
+            db.remove_account(conn, label)
         return {"ok": True, "message": f"Removed {label}."}
 
     # ------------------------------------------------------- outlook sign-in
+
+    def cleanup_outlook_cache(label: str) -> str:
+        try:
+            outlook_auth.delete_cache(label)
+            return ""
+        except outlook_auth.OutlookAuthError as exc:
+            return f" Credential cleanup failed: {exc}"
 
     @app.post("/api/outlook/start")
     def api_outlook_start(body: OutlookStartBody):
@@ -1191,16 +1433,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             try:
                 email = outlook_auth.complete_device_flow(pending)
             except outlook_auth.OutlookAuthError as exc:
-                outlook_auth.delete_cache(label)
+                cleanup_error = cleanup_outlook_cache(label)
                 if _outlook.get("active_id") == flow_id:
-                    _outlook.update(pending=None, state="failed", message=str(exc))
+                    _outlook.update(pending=None, state="failed", message=str(exc) + cleanup_error)
                 return
             except Exception as exc:  # noqa: BLE001 - report, never crash the thread
-                outlook_auth.delete_cache(label)
+                cleanup_error = cleanup_outlook_cache(label)
                 if _outlook.get("active_id") == flow_id:
                     _outlook.update(
                         pending=None, state="failed",
-                        message=f"{type(exc).__name__}: {exc}",
+                        message=f"{type(exc).__name__}: {exc}" + cleanup_error,
                     )
                 return
 
@@ -1209,7 +1451,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             # just saved must not survive, and the account must not appear.
             with _outlook_lock:
                 if _outlook.get("active_id") != flow_id:
-                    outlook_auth.delete_cache(label)
+                    cleanup_outlook_cache(label)
                     return
                 with db.session() as conn:
                     current = db.get_account(conn, label)
@@ -1263,7 +1505,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             pending = _outlook.get("pending")
             if pending is not None:
                 outlook_auth.abort(pending)              # unblocks the background thread
-                outlook_auth.delete_cache(pending.label)  # in case it already wrote one
+                cleanup_error = cleanup_outlook_cache(pending.label)
+                if cleanup_error:
+                    _outlook.update(pending=None, active_id=None, state="failed", message=cleanup_error.strip(), email="")
+                    return _err(cleanup_error.strip())
             _outlook.update(pending=None, active_id=None, state="idle", message="", email="")
         return {"ok": True, "message": "Sign-in cancelled."}
 

@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 19
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -162,6 +162,11 @@ CREATE INDEX IF NOT EXISTS idx_class_latest
 #: Columns added after v1. SQLite cannot add them inside CREATE TABLE IF NOT
 #: EXISTS on a database that already exists, so they are applied separately.
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    ("native_rows", "work_date", "TEXT"),
+    ("native_tabs", "archived", "INTEGER NOT NULL DEFAULT 0"),
+    ("sourcing_operations", "google_result", "TEXT"),
+    ("bidders", "login_enabled", "INTEGER NOT NULL DEFAULT 0"),
+    ("messages", "original_html", "TEXT"),
     ("messages", "calendar_data", "TEXT NOT NULL DEFAULT '[]'"),
     ("messages", "thread_id", "TEXT"),
     ("messages", "references_json", "TEXT NOT NULL DEFAULT '[]'"),
@@ -220,15 +225,20 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             # the database while this one was waiting.
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                from .payments import SCHEMA as PAYMENT_SCHEMA
+                from .sourcing import SCHEMA as SOURCING_SCHEMA
+                from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
+                from .interview_processes import SCHEMA as PROCESS_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in SCHEMA.split(";"):
+                for statement in (SCHEMA + PAYMENT_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
                 for statement in INDEXES.split(";"):
                     if statement.strip():
                         conn.execute(statement)
+                migrate_native(conn)
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
@@ -267,8 +277,10 @@ def add_account(
     provider: str = "imap",
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO accounts (label, email, provider, imap_host, imap_port, use_ssl,"
-        " folder, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO accounts (id, label, email, provider, imap_host, imap_port, use_ssl,"
+        " folder, created_at) VALUES ((SELECT COALESCE(MAX(id),0)+1 FROM ("
+        "SELECT id FROM accounts UNION ALL SELECT account_id AS id FROM application_receipts "
+        "UNION ALL SELECT account_id AS id FROM bidder_assignments)), ?, ?, ?, ?, ?, ?, ?, ?)",
         (label, email, provider, imap_host, imap_port, int(use_ssl), folder, _now()),
     )
     conn.commit()
@@ -304,6 +316,8 @@ def get_account(conn: sqlite3.Connection, label: str) -> Account | None:
 
 
 def remove_account(conn: sqlite3.Connection, label: str) -> bool:
+    from .payments import sync_receipts
+    sync_receipts(conn)
     cur = conn.execute("DELETE FROM accounts WHERE label = ?", (label,))
     conn.commit()
     return cur.rowcount > 0
@@ -324,14 +338,15 @@ _UPSERT_MESSAGE = """
         INSERT INTO messages
             (account_id, message_id, uid, folder, from_addr, from_name,
              subject, date_utc, body_text, snippet, provider_url, fetched_at,
-             calendar_data, thread_id, references_json, interview_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             calendar_data, thread_id, references_json, interview_text, original_html)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(account_id, message_id) DO UPDATE SET
             uid = excluded.uid,
             calendar_data = excluded.calendar_data,
             thread_id = COALESCE(excluded.thread_id, messages.thread_id),
             references_json = excluded.references_json,
             interview_text = excluded.interview_text,
+            original_html = COALESCE(excluded.original_html, messages.original_html),
             body_text = excluded.body_text,
             snippet = excluded.snippet,
             provider_url = COALESCE(excluded.provider_url, messages.provider_url)
@@ -361,6 +376,7 @@ def upsert_message(conn: sqlite3.Connection, msg: NormalizedMessage) -> int:
         msg.thread_id,
         json.dumps(msg.references),
         msg.interview_text,
+        msg.original_html,
     )
     if _HAS_RETURNING:
         # DO UPDATE always fires on conflict, so a row comes back either way.
@@ -464,6 +480,8 @@ def prune_messages(conn: sqlite3.Connection, *, before_iso: str) -> int:
     order correctly as text at the precision a cutoff needs — the same
     comparison every query in this module already makes against a cutoff.
     """
+    from .payments import sync_receipts
+    sync_receipts(conn)
     cur = conn.execute(
         "DELETE FROM messages WHERE COALESCE(date_utc, fetched_at) < ?", (before_iso,)
     )
@@ -569,6 +587,8 @@ def save_classification(
             _now(),
         ),
     )
+    from .payments import sync_receipts
+    sync_receipts(conn, message_pk)
     if commit:
         conn.commit()
 
@@ -765,7 +785,7 @@ def get_triaged(conn: sqlite3.Connection, pk: int) -> sqlite3.Row | None:
     return conn.execute(
         """
         SELECT m.id AS pk, m.message_id, m.subject, m.from_addr, m.from_name,
-               m.date_utc, m.fetched_at, m.snippet, m.body_text, m.provider_url, m.handled_at,
+               m.date_utc, m.fetched_at, m.snippet, m.body_text, m.original_html, m.provider_url, m.handled_at,
                a.label AS account_label, a.email AS account_email, a.provider, a.imap_host,
                c.category, c.confidence, c.company, c.role, c.deadline,
                c.action_required, c.summary, c.source, c.retryable, c.created_at

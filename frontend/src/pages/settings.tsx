@@ -12,7 +12,7 @@ import { useAuth } from "@/components/auth"
 export function PasswordSettings() {
   const { signOut } = useAuth()
   const toast = useToast()
-  const [role, setRole] = useState<"admin" | "guest">("guest")
+  const [role, setRole] = useState<"admin">("admin")
   const [password, setPassword] = useState("")
   const [confirmation, setConfirmation] = useState("")
   const [busy, setBusy] = useState(false)
@@ -29,8 +29,8 @@ export function PasswordSettings() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not change the password.") }
     finally { setBusy(false) }
   }
-  return <section id="sign-in" className="settings-section"><div className="settings-section-title"><span className="section-symbol"><ShieldCheck size={17} /></span><div><h2>Sign-in passwords</h2><p>Only admins can change these passwords.</p></div></div><Card className="settings-card"><p className="form-hint">Admin can use every page. Guest can only view the Dashboard. Change the initial admin / admin and guest / guest passwords before sharing internet access.</p><form className="password-form" onSubmit={(event) => void save(event)}>
-    <Field label="Account role"><select name="username" autoComplete="username" value={role} onChange={(event) => { setRole(event.target.value as "admin" | "guest"); setPassword(""); setConfirmation(""); setError("") }}><option value="guest">Guest</option><option value="admin">Admin</option></select></Field>
+  return <section id="sign-in" className="settings-section"><div className="settings-section-title"><span className="section-symbol"><ShieldCheck size={17} /></span><div><h2>Sign-in passwords</h2><p>Only admins can change these passwords.</p></div></div><Card className="settings-card"><p className="form-hint">Change the initial admin password before sharing access. Manage individual bidder passwords in Job sourcing.</p><form className="password-form" onSubmit={(event) => void save(event)}>
+    <Field label="Account role"><select name="username" autoComplete="username" value={role} onChange={(event) => { setRole(event.target.value as "admin"); setPassword(""); setConfirmation(""); setError("") }}><option value="admin">Admin</option></select></Field>
     <Field label="New password"><input type="password" autoComplete="new-password" required maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} /></Field>
     <Field label="Confirm new password"><input type="password" autoComplete="new-password" required maxLength={256} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></Field>
     {error && <p role="alert" className="inline-error">{error}</p>}
@@ -111,7 +111,7 @@ export default function SettingsPage({ bootstrap }: { bootstrap: Bootstrap }) {
   if (isPending) return <div className="page-wrap"><Loading label="Opening your local settings…" /></div>
   if (error || !data || !settings) return <div className="page-wrap"><EmptyState title="Settings could not be loaded" description={error instanceof Error ? error.message : "Try again shortly."} action={<Button onClick={() => void queryClient.invalidateQueries({ queryKey: ["settings"] })}>Try again</Button>} /></div>
   return <div className="page-wrap settings-page">
-    <PageHeading eyebrow="YOUR LOCAL SETUP" title="Settings" description="Make mail-check feel at home on your machine." action={<Button onClick={() => save.mutate(settings)} disabled={!dirty || save.isPending}><Save size={15} />{save.isPending ? "Saving…" : dirty ? "Save changes" : "All saved"}</Button>} />
+    <PageHeading title="Settings" description="Make mail-check feel at home on your machine." action={<Button onClick={() => save.mutate(settings)} disabled={!dirty || save.isPending}><Save size={15} />{save.isPending ? "Saving…" : dirty ? "Save changes" : "All saved"}</Button>} />
     {!bootstrap.readiness.model || !bootstrap.readiness.accounts ? <Card className="setup-checklist"><span className="setup-icon"><Sparkles size={17} /></span><div><p className="eyebrow">A SMALL FIRST-RUN CHECKLIST</p><h2>Three little steps to begin</h2><p>Connect a model, add a mailbox, and run your first check when you’re ready.</p><div className="checklist-steps"><a href="#model"><span className={bootstrap.readiness.model ? "step-done" : ""}>{bootstrap.readiness.model ? <Check size={13} /> : "1"}</span>Connect Ollama</a><a href="/accounts"><span className={bootstrap.readiness.accounts ? "step-done" : ""}>{bootstrap.readiness.accounts ? <Check size={13} /> : "2"}</span>Connect a mailbox</a><a href="/"><span>3</span>Review your triage</a></div></div></Card> : null}
     <div className="settings-layout"><nav className="settings-nav" aria-label="Settings sections">{[["sign-in", "Sign-in"], ["model", "Model"], ["checking", "Checking"], ["notifications", "Notifications"], ["outlook", "Outlook"], ["rules", "Local rules"], ["privacy", "Privacy"]].map(([id, label]) => <a href={`#${id}`} key={id}>{label}</a>)}</nav>
       <div className="settings-sections">

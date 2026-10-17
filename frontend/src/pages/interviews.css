@@ -208,3 +208,72 @@
 .outlook-calendar-notices { border-top: 1px solid var(--oc-line); border-bottom: 0; padding: 3px 12px; font-size: var(--text-small); }
 .outlook-time-event.is-medium > span:last-child { display: none; }
 .outlook-calendar .outlook-time-event.needs-review, .outlook-calendar .outlook-time-event.duration-unknown { background: color-mix(in srgb,#087444 13%,var(--oc-bg)); border-color: #1aaf78; color: var(--oc-muted); }
+
+/* Keep the calendar inside the workspace, with scrolling confined to its grid. */
+@media screen {
+  .app-content:has(.interviews-page) { height: 100dvh; min-height: 0; }
+  .app-frame:has(.interviews-page) > .sidebar { overflow-y: auto; overscroll-behavior: contain; }
+  .app-content:has(.interviews-page) > .topbar,
+  .app-content:has(.interviews-page) > .setup-ribbon,
+  .app-content:has(.interviews-page) > .app-footer { flex-shrink: 0; }
+  .page-content:has(> .interviews-page) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .interviews-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    padding-bottom: 20px;
+  }
+  .interviews-page > .page-heading { flex-shrink: 0; }
+  .outlook-calendar {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border-radius: 6px;
+  }
+  .outlook-command-bar,
+  .outlook-date-bar,
+  .outlook-filter-panel,
+  .outlook-calendar-notices { flex-shrink: 0; }
+  .outlook-command-bar { border-radius: 5px 5px 0 0; }
+  .outlook-calendars {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .outlook-account-calendar {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .outlook-account-name { flex-shrink: 0; }
+  .outlook-scroll {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    scrollbar-gutter: stable;
+  }
+  .outlook-calendars.is-split { grid-auto-rows: minmax(220px, 1fr); }
+  .outlook-calendar:not(.calendar-expanded) .outlook-month-grid {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    align-content: start;
+  }
+}
+
+@media screen and (max-width: 700px) {
+  .outlook-command-bar { position: relative; padding-right: 38px; }
+  .outlook-command-bar .calendar-expand-button { position: absolute; top: 4px; right: 4px; margin-left: 0; }
+}

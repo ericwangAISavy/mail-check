@@ -13,24 +13,29 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
   const value = contentType.includes("json") ? await response.json() : await response.text()
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mailcheck:unauthorized"))
-    const message = typeof value === "string" ? value : value?.error || "Something went wrong."
+    const detail = value?.detail
+    const validation = Array.isArray(detail) ? detail.map((item: { loc?: (string | number)[]; msg?: string }) => {
+      const field = (item.loc || []).filter(part => part !== "body" && part !== "query").join(".")
+      return item.msg ? `${field ? field + ": " : ""}${item.msg}` : ""
+    }).filter(Boolean).join("; ") : typeof detail === "string" ? detail : ""
+    const message = typeof value === "string" ? value : value?.error || validation || "Something went wrong."
     throw new ApiError(message, response.status)
   }
   return value as T
 }
 
 export const api = {
-  startCheck: async (): Promise<{ ok: boolean }> => {
-    const result = await api.post<{ ok: boolean }>("/api/check", {})
+  startCheck: async (mode: "mail" | "calendar" = "mail"): Promise<{ ok: boolean }> => {
+    const result = await api.post<{ ok: boolean }>("/api/check", { mode })
     window.dispatchEvent(new Event("mailcheck:check-started"))
     return result
   },
-  session: () => request<{ role: "admin" | "guest" | null }>("/api/auth/session"),
-  login: (role: "admin" | "guest", password: string) => request<{ role: "admin" | "guest" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password }) }),
+  session: () => request<{ role: "admin" | "bidder" | null; bidder_id?: number }>("/api/auth/session"),
+  login: (role: "admin" | "bidder", password: string, bidder_id?: number) => request<{ role: "admin" | "bidder" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, bidder_id }) }),
   dashboardAccounts: () => request<{ accounts: { label: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
-  reader: (pk: number) => request<{ message: import("./types").Message; body_html: string }>(`/api/messages/${pk}`),
+  reader: (pk: number) => request<{ message: import("./types").Message; body_html: string; original_html?: string | null }>(`/api/messages/${pk}`),
   accounts: () => request<{ accounts: Account[]; outlook_ready: boolean }>("/api/accounts"),
   settings: () => request<{ settings: Settings; rules: { category: string; sender: string | null; sender_domain: string | null; subject_contains: string | null }[]; categories: { name: string; label: string }[]; config_path: string; db_path: string }>("/api/settings"),
   activeModel: () => request<{ model: string | null; loaded: boolean; message: string }>("/api/settings/model"),

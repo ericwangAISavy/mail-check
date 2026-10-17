@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type Ref } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowUpRight, CalendarClock, Check, ChevronDown, Clock3, Filter, LoaderCircle, RefreshCw, RotateCcw, Sparkles } from "lucide-react"
+import { EmailContent } from "@/components/email-content"
 import { api, triageParams } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -38,7 +39,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
       {message.summary && <div className="insight-card"><span className="insight-icon"><Sparkles size={15} /></span><p>{message.summary}</p></div>}
       <dl className="message-meta">{message.company && <div><dt>Company</dt><dd>{message.company}</dd></div>}{message.role && <div><dt>Role</dt><dd>{message.role}</dd></div>}<div><dt>Inbox</dt><dd>{message.account_label}</dd></div>{message.confidence > 0 && message.confidence < .5 && <div><dt>Confidence</dt><dd>Low ({Math.round(message.confidence * 100)}%)</dd></div>}{message.source === "prefilter" && <div><dt>Classified by</dt><dd>Local rule</dd></div>}</dl>
       <div className="reader-divider" />
-      {isPending ? <Loading label="Opening message…" /> : error ? <div className="inline-error">{error instanceof Error ? error.message : "Could not open this message."}</div> : <div className="email-body" dangerouslySetInnerHTML={{ __html: data?.body_html || "<p>No message body was stored.</p>" }} />}
+      {isPending ? <Loading label="Opening message…" /> : error ? <div className="inline-error">{error instanceof Error ? error.message : "Could not open this message."}</div> : data?.original_html ? <EmailContent html={data.original_html} /> : <div className="email-body" dangerouslySetInnerHTML={{ __html: data?.body_html || "<p>No message body was stored.</p>" }} />}
     </div>
   </article>
 }
@@ -167,7 +168,7 @@ export default function TriagePage({ bootstrap }: { bootstrap: Bootstrap }) {
   const activeFilters = (normalized.has("account") ? 1 : 0) + (normalized.has("category") ? 1 : 0) + (normalized.get("days") !== "30" ? 1 : 0)
   const unclassifiedCount = data?.counts.unclassified ?? 0
   return <div className="page-wrap triage-page" onKeyDown={actKey}>
-    <PageHeading eyebrow={view === "queue" ? "YOUR NEXT MOVE" : view === "all" ? "THE FULL PICTURE" : "A JOB WELL DONE"} title={title || "Your triage"} description={data?.last_run || bootstrap.last_run || undefined} action={<Button variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>} />
+    <PageHeading title={title || "Your triage"} description={data?.last_run || bootstrap.last_run || undefined} action={<Button variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>} />
     {(view === "queue" || view === "all") && unclassifiedCount > 0 && bootstrap.readiness.model && <ReclassifyBanner count={unclassifiedCount} />}
     <div className="triage-bar"><div className="view-tabs" role="tablist" aria-label="Mail views">{(["queue", "all", "completed"] as const).map((key) => <button type="button" role="tab" aria-selected={view === key} className={view === key ? "selected" : ""} key={key} onClick={() => setFilter("view", key)}>{key === "queue" ? "Queue" : key === "all" ? "All mail" : "Completed"}{key === "queue" && data?.summary.actionable ? <span className="tab-count">{data.summary.actionable}</span> : null}</button>)}</div>
       <div className="triage-tools"><Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>

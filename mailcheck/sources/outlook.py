@@ -98,9 +98,9 @@ class OutlookGraphSource:
             headers={
                 "Authorization": f"Bearer {self._token(calendar=calendar)}",
                 "Accept": "application/json",
-                # Ask Graph to convert HTML bodies to text server-side; saves us
-                # the conversion and a lot of payload.
-                "Prefer": 'outlook.timezone="UTC", IdType="ImmutableId"' if calendar else 'outlook.body-content-type="text"',
+                # Keep original HTML for the reader; normalization separately
+                # produces the short plain-text input used for classification.
+                "Prefer": 'outlook.timezone="UTC", IdType="ImmutableId"' if calendar else 'outlook.body-content-type="html"',
             },
         )
 
@@ -206,6 +206,7 @@ def _to_raw(item: dict) -> RawMessage:
         subject=item.get("subject") or "(no subject)",
         date_utc=dt,
         text=text,
+        original_html=text if body.get("contentType", "").lower() == "html" else None,
         calendar_data=graph_calendars(item),
         thread_id=item.get("conversationId"),
         references=message_references({h["name"].lower(): h.get("value", "") for h in item.get("internetMessageHeaders") or []}),
