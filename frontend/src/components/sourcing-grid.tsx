@@ -185,9 +185,9 @@ export function SheetGrid({
           text = String(row[String(c)]);
         if (definition.kind === "check" && row.id > 0) return <input
           type="checkbox" aria-label={`Check row ${indices.get(row.id) ?? row.id}`}
-          className="sourcing-check" checked={text === "true"} disabled={disabled || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
+          className="sourcing-check" checked={text === "true"} disabled={disabled || text === "true" || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
           onClick={event => event.stopPropagation()}
-          onChange={event => apply([{row: row.id, col: c, value: String(event.target.checked)}])}
+          onChange={event => { if (!disabled && text !== "true") apply([{row: row.id, col: c, value: String(event.target.checked)}]); }}
         />;
         return (
           <span

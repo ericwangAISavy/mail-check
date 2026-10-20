@@ -36,8 +36,8 @@ Daily cells show **received confirmations / checked sourcing links**, for exampl
 checked rows with a job link on that bidder's account tabs and work date; the account
 must have been assigned to that bidder on that date. Archived sheets retain their
 historical checked counts. Use **Check applications** on a dated sourcing tab to
-compare company and account against confirmations received during that Chicago day.
-Checkboxes may also be edited manually. Weekly totals and recorded payment counts
+compare company, role and account against confirmations received in the seven-day Chicago window beginning on that sourcing
+date. Checks are permanent once set, including manually checked links. Weekly totals and recorded payment counts
 continue to use received confirmations.
 
 ## Counting rules
@@ -65,7 +65,7 @@ continue to use received confirmations.
 ## History and payment integrity
 
 A separate ledger stores account/message identities, received timestamps, and
-categories and extracted company names. Email bodies are not stored in the ledger. Entries survive normal
+categories and extracted company names and roles. Email bodies are not stored in the ledger. Entries survive normal
 email retention cleanup and account removal. New accounts cannot reuse an accounting
 account identity. Existing retained classifications populate the ledger automatically.
 Emails already removed before this feature was installed cannot be recovered by it.

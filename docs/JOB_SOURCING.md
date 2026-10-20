@@ -59,22 +59,27 @@ undo history clears on a day change so it cannot affect another day's jobs.
 
 Select the account tab and job date, wait for **Saved**, then click
 **Check applications**. For each job link on that tab and date, mail-check compares
-its company with saved **Application received** confirmations from the same account.
-Only confirmations received during that Chicago day count: midnight inclusive to
-the following midnight exclusive. Choose a date first; Undated rows cannot be checked.
+its company and role with a single saved **Application received** confirmation from
+the same account. Both fields must be present and match; a company-only match is
+not sufficient. Missing roles in older receipts are filled from retained email
+classifications when available.
+Confirmations received during the seven-day window beginning on the sourcing date
+count: Chicago midnight on that date inclusive to midnight seven days later exclusive. Choose a date first; Undated rows cannot be checked.
 
 The top-level **Check now** button and each scheduled **Auto-check** run also
 verify all dated jobs on every active tab in every workbook after collection and
-classification finish. Each row is compared against confirmations received on its
-own work date, including earlier dates. Archived tabs and tabs whose accounts have
+classification finish. Each row is compared against confirmations received within its
+own seven-day window beginning on its work date, including earlier dates. Archived tabs and tabs whose accounts have
 been removed are skipped. The completion message includes the matched-link and tab
 counts. An open, saved sheet refreshes immediately; active edits remain protected.
-Automatic verification replaces manual marks with the current receipt evidence.
+Automatic verification adds new matches and never clears existing checks.
 
-Company matching ignores case, punctuation and common legal suffixes. It does not
-use fuzzy similarity. Rechecking replaces that day's checks, including clearing rows
-that no longer match. Editing a checked company's name or link, or moving the row to
-another date, clears its check. Checkboxes can also be changed manually.
+Company matching ignores case, punctuation and common legal suffixes. Role matching
+ignores case, spacing and punctuation, while keeping + and # meaningful. It does not
+expand abbreviations or guess equivalent titles. Neither field uses fuzzy similarity.
+Once checked, a job link stays checked, even after reclassification,
+company or link edits, or date changes. Unchecked links may also be marked manually;
+checked boxes cannot be cleared.
 
 On **Bidder payments**, daily cells show **received confirmations / checked sourcing
 links**. For example, **112 / 60** means 112 confirmations received for the bidder's

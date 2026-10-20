@@ -14,6 +14,17 @@ def company_key(value):
     return "".join(char for char in name if char.isalnum())
 
 
+def role_key(value):
+    # Keep + and # meaningful so C++, C#, and C roles do not collapse together.
+    name = unicodedata.normalize("NFKC", value or "").casefold()
+    return " ".join(re.sub(r"[^\w+#]+", " ", name).split())
+
+
+def match_key(company, role):
+    company, role = company_key(company), role_key(role)
+    return (company, role) if company and role else None
+
+
 def verify(conn, tab, operation, revision, work_date):
     day = sheets.date_scope(work_date)
     if day in (None, "all"):
@@ -22,29 +33,30 @@ def verify(conn, tab, operation, revision, work_date):
         raise ValueError("This sheet needs a connected account before checking applications.")
     selected = date.fromisoformat(day)
     lower = datetime.combine(selected, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-    upper = datetime.combine(selected + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+    upper = datetime.combine(selected + timedelta(days=7), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     payload = {"action": "verify", "revision": revision, "work_date": day}
     with sheets.atomic(conn):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
             sync_receipts(conn)
-            companies = {company_key(row["company"]) for row in conn.execute("""
-                SELECT company FROM application_receipts WHERE account_id=? AND category='application_ack'
+            matches = {match_key(row["company"], row["role"]) for row in conn.execute("""
+                SELECT company,role FROM application_receipts WHERE account_id=? AND category='application_ack'
                 AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)
                 """, (tab["account_id"], lower, upper))}
-            companies.discard("")
+            matches.discard(None)
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
-            if not all(kind in columns for kind in ("company", "link", "check")):
-                raise ValueError("The sheet needs Company, Job link and Check columns.")
-            for row in conn.execute("""SELECT r.id,company.value AS company,link.value AS link
+            if not all(kind in columns for kind in ("company", "role", "link", "check")):
+                raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
+            for row in conn.execute("""SELECT r.id,company.value AS company,role.value AS role,link.value AS link
                 FROM native_rows r LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=?
                 LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=?
-                WHERE r.tab_id=? AND r.work_date=?""", (columns["company"], columns["link"], tab["id"], day)).fetchall():
+                LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=?
+                WHERE r.tab_id=? AND r.work_date=?""", (columns["company"], columns["link"], columns["role"], tab["id"], day)).fetchall():
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
                     continue
-                checked = bool((row["link"] or "").strip() and company_key(row["company"]) in companies)
+                checked = bool((row["link"] or "").strip() and match_key(row["company"], row["role"]) in matches)
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
-                    ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1""",
+                    ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true'""",
                     (row["id"], columns["check"], str(checked).lower()))
             sheets.record_operation(conn, tab["id"], operation, payload)
         result = sheets.snapshot(conn, tab)
@@ -55,7 +67,7 @@ def verify(conn, tab, operation, revision, work_date):
 
 
 def verify_all(conn):
-    """Refresh every active account sheet against receipts on each row's work day.
+    """Refresh active account sheets against receipts in each row’s seven-day window.
 
     Read and update under one write transaction so edits cannot move a job between
     comparison and write. Unchanged cells retain their versions and tab revision.
@@ -65,33 +77,36 @@ def verify_all(conn):
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
             JOIN accounts a ON a.id=t.account_id WHERE t.archived=0""")}
         rows = conn.execute("""SELECT r.id,r.tab_id,r.work_date,t.account_id,check_col.id AS check_column,
-            company.value AS company,link.value AS link,checked.value AS checked
+            company.value AS company,role.value AS role,link.value AS link,checked.value AS checked
             FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id
             JOIN accounts a ON a.id=t.account_id
             JOIN native_columns company_col ON company_col.tab_id=t.id AND company_col.kind='company'
+            JOIN native_columns role_col ON role_col.tab_id=t.id AND role_col.kind='role'
             JOIN native_columns link_col ON link_col.tab_id=t.id AND link_col.kind='link'
             JOIN native_columns check_col ON check_col.tab_id=t.id AND check_col.kind='check'
             LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=company_col.id
+            LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=role_col.id
             LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=link_col.id
             LEFT JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id
             WHERE t.archived=0 AND r.work_date IS NOT NULL
             AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='')""").fetchall()
         relevant = {(row["account_id"], row["work_date"]) for row in rows}
-        companies = {}
-        for receipt in conn.execute("SELECT account_id,received_at,company FROM application_receipts WHERE category='application_ack' AND company!=''"):
+        matches = {}
+        for receipt in conn.execute("SELECT account_id,received_at,company,role FROM application_receipts WHERE category='application_ack' AND company!=''"):
             try:
                 received = datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 continue
-            day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
-            key = (receipt["account_id"], day)
-            company = company_key(receipt["company"])
-            if key in relevant and company:
-                companies.setdefault(key, set()).add(company)
+            received_day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
+            match = match_key(receipt["company"], receipt["role"])
+            for offset in range(7):
+                key = (receipt["account_id"], (received_day - timedelta(days=offset)).isoformat())
+                if key in relevant and match:
+                    matches.setdefault(key, set()).add(match)
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
-            checked = bool((row["link"] or "").strip() and company_key(row["company"]) in companies.get((row["account_id"], row["work_date"]), set()))
+            checked = row["checked"] == "true" or bool((row["link"] or "").strip() and match_key(row["company"], row["role"]) in matches.get((row["account_id"], row["work_date"]), set()))
             checked_count += int(checked)
             value = str(checked).lower()
             if row["checked"] == value:

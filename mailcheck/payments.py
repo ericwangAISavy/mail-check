@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS bidder_assignments (
 CREATE INDEX IF NOT EXISTS idx_bidder_assignments_account ON bidder_assignments(account_id, start_date);
 CREATE TABLE IF NOT EXISTS application_receipts (
  account_id INTEGER NOT NULL, message_id TEXT NOT NULL, received_at TEXT NOT NULL,
- category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', PRIMARY KEY(account_id, message_id)
+ category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', PRIMARY KEY(account_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_week ON application_receipts(category, julianday(received_at));
 CREATE TABLE IF NOT EXISTS bidder_payments (
@@ -65,16 +65,16 @@ class PayBody(BaseModel):
 
 
 def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None) -> None:
-    """Upsert receipt metadata, including company; never store email bodies."""
+    """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
-    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company)
-        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,'')
+    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
+        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,'')
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category = 'application_ack' OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
         """ + (" AND m.id=? " if message_pk is not None else "") + """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category, company=excluded.company""", (message_pk,) if message_pk is not None else ())
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role""", (message_pk,) if message_pk is not None else ())
 
 
 def monday(value: date) -> date:

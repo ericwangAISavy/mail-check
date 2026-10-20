@@ -128,6 +128,15 @@ def install(app, frontend_page, secure_cookies):
     def index(req: Request):
         with db.session() as conn:
             is_admin = req.state.role == "admin"
+            # Older bidders predate automatic workbook creation. Reconcile only
+            # missing workbooks so the picker always represents active bidders.
+            conn.execute(
+                "INSERT OR IGNORE INTO native_books(bidder_id,title) "
+                "SELECT p.id,'Applications' FROM bidders p WHERE p.removed_at IS NULL "
+                "AND (? OR p.id=?) AND NOT EXISTS ("
+                "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id)",
+                (is_admin, req.state.bidder_id),
+            )
             books = [
                 dict(r)
                 for r in conn.execute(

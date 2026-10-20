@@ -784,10 +784,10 @@ export default function SourcingEditor({
           </Button>
         </div>
         <Button variant="outline" size="sm" disabled={locked || dirty || loading || !snapshot || day === "undated" || day === "all"}
-          title="Compare company and account with confirmations received on the selected day, midnight to midnight in America/Chicago"
+          title="Match company, role and account over seven days starting on the selected date in America/Chicago. Checks are permanent."
           onClick={() => void checkApplications()}><Check size={14} />Check applications</Button>
         {snapshot?.verification && snapshot.verification.day === day && <span className="sheet-verification-result" role="status">
-          {snapshot.verification.checked} links checked · {day} · Chicago
+          {snapshot.verification.checked} links checked · 7 days from {day} · Chicago
         </span>}
         <span className="sheet-toolbar-spacer" />
         <span className="sheet-save-status" role="status">

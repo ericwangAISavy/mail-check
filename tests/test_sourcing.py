@@ -54,7 +54,9 @@ class SourcingTests(unittest.TestCase):
     def test_all_sheet_capabilities_reject_other_bidders(self):
         tab = self.setup_tab()
         sign_in_bidder(self.client, 2)
-        self.assertEqual(self.client.get("/api/sourcing").json()["books"], [])
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual([book["bidder_id"] for book in books], [2])
+        self.assertEqual(books[0]["tabs"], [])
         self.assertEqual(self.client.get(f"/api/sourcing/tabs/{tab}").status_code, 404)
         self.assertEqual(
             self.client.get(f"/api/sourcing/tabs/{tab}/export").status_code, 404

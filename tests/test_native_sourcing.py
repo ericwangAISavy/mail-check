@@ -25,6 +25,23 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_index_backfills_existing_bidders_without_replacing_workbooks(self):
+        before = self.snapshot()
+        result = self.client.get("/api/sourcing")
+        self.assertEqual(result.status_code, 200, result.text)
+        books = result.json()["books"]
+        self.assertEqual([b["name"] for b in books], ["Alex", "Blair"])
+        alex = next(b for b in books if b["bidder_id"] == 1)
+        self.assertEqual(alex["id"], self.book)
+        self.assertEqual(alex["tabs"][0]["id"], self.tab_id)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.client.get("/api/sourcing").json()["books"], books)
+        self.conn.execute("UPDATE bidders SET name='Renamed' WHERE id=2")
+        self.conn.commit()
+        self.assertIn("Renamed", [b["name"] for b in self.client.get("/api/sourcing").json()["books"]])
+        self.client.post("/api/payments/bidders/2/remove", json={})
+        self.assertEqual([b["name"] for b in self.client.get("/api/sourcing").json()["books"]], ["Alex"])
+
     def tab(self):
         return self.native.owned(self.conn, self.tab_id, self.principal)
 

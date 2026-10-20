@@ -77,3 +77,14 @@ it("keeps Delete inside a text editor from deleting job rows", () => {
   fireEvent.keyDown(input, {key:"Delete"});
   expect(remove).not.toHaveBeenCalled();
 });
+
+it("prevents clearing an already checked job", () => {
+  const data = snapshot(); data.rows[1][3] = cell("true");
+  const change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change}/>);
+  const check = screen.getByRole("checkbox", {name:"Check row 1"}) as HTMLInputElement;
+  expect(check.checked).toBe(true);
+  expect(check.disabled).toBe(true);
+  fireEvent.click(check);
+  expect(change).not.toHaveBeenCalled();
+});

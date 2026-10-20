@@ -16,8 +16,8 @@ const accessible = (event: InterviewEvent) => `${event.company || "Unknown compa
 const accountColor = (event: InterviewEvent, accounts: Account[], account?: string) => Math.max(0,accounts.findIndex(a=>a.label===(account || event.account_labels?.[0]))) % 3
 
 type Account = {id:number;label:string;email:string}
-type Props = { events: InterviewEvent[]; accounts: Account[]; account: string; filterCount: number; filters: ReactNode; onSelect:(id:number)=>void }
-export default function InterviewCalendar({events,accounts,account,filterCount,filters,onSelect}:Props) {
+type Props = { events: InterviewEvent[]; accounts: Account[]; account: string; filterCount: number; filters: ReactNode; actions?: ReactNode; onSelect:(id:number)=>void }
+export default function InterviewCalendar({events,accounts,account,filterCount,filters,actions,onSelect}:Props) {
   const [params,setParams]=useSearchParams(), toast=useToast()
   const initialDay=useRef(startOfDay(new Date()))
   const viewParam=params.get("calendar_view"), dayParam=params.get("calendar_date")
@@ -56,6 +56,7 @@ export default function InterviewCalendar({events,accounts,account,filterCount,f
       <Button variant="ghost" size="sm" aria-pressed={split} onClick={()=>setSplit(!split)} title="Show each connected account’s calendar side by side"><Columns2 size={15}/>Split view</Button><span className="outlook-command-divider"/>
       <Button variant="ghost" size="sm" aria-expanded={filterOpen} aria-controls="calendar-filter-panel" onClick={()=>setFilterOpen(!filterOpen)}><Filter size={15}/>Filter{filterCount>0&&<span className="calendar-filter-count">{filterCount}</span>}<ChevronDown size={12}/></Button>
       <div className="outlook-menu-anchor" ref={shareRef}><Button variant="ghost" size="sm" aria-expanded={shareOpen} aria-controls="calendar-share-menu" onClick={()=>setShareOpen(!shareOpen)}><Share2 size={15}/>Share<ChevronDown size={12}/></Button>{shareOpen&&<div className="outlook-menu" id="calendar-share-menu"><button onClick={()=>void copyLink()}><Link size={15}/>Copy calendar link</button><button onClick={download}><Download size={15}/>Download calendar (.ics)</button></div>}</div>
+      {actions}
       <Button variant="ghost" size="sm" onClick={()=>window.print()}><Printer size={15}/>Print</Button><Button className="calendar-expand-button" variant="ghost" size="icon" aria-label={expanded?"Restore calendar size":"Expand calendar"} aria-pressed={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?<Minimize size={16}/>:<Expand size={16}/>}</Button>
     </div>
     {filterOpen&&<div id="calendar-filter-panel" className="outlook-filter-panel">{filters}</div>}

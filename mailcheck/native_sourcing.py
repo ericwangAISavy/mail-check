@@ -305,7 +305,6 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
     with atomic(conn):
         if not check_operation(conn, tab["id"], operation, payload):
             seen = set()
-            changed_jobs = set()
             for change in changes:
                 row_id, column_id = change["row_id"], change["column_id"]
                 if (row_id, column_id) in seen:
@@ -357,8 +356,8 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                 kind = conn.execute("SELECT kind FROM native_columns WHERE id=?", (column_id,)).fetchone()[0]
                 if kind == "check" and value not in ("", "true", "false"):
                     raise ValueError("Check cells must be checked or unchecked.")
-                if kind in ("company", "link") and value != (cell["value"] if cell else ""):
-                    changed_jobs.add(row_id)
+                if kind == "check" and cell and cell["value"] == "true" and value != "true":
+                    raise ValueError("Checked job links cannot be unchecked.")
                 style = {
                     **(json.loads(cell["style"]) if cell else {}),
                     **(change.get("style") or {}),
@@ -367,9 +366,6 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     "INSERT INTO native_cells(row_id,column_id,value,style,version) VALUES(?,?,?,?,1) ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,style=excluded.style,version=native_cells.version+1",
                     (row_id, column_id, value, json.dumps(style)),
                 )
-            for row_id in changed_jobs:
-                conn.execute("""UPDATE native_cells SET value='false',version=version+1 WHERE row_id=? AND value='true'
-                    AND column_id=(SELECT id FROM native_columns WHERE tab_id=? AND kind='check')""", (row_id, tab["id"]))
             if compact_rows:
                 compact_blank_rows(conn, tab["id"])
             record_operation(conn, tab["id"], operation, payload, structural=compact_rows)

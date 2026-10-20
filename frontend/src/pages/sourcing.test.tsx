@@ -512,7 +512,7 @@ it("checks applications for the selected day and displays the verified count", a
   fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}})
   fireEvent.click(screen.getByRole("button", {name: "Check applications"}))
   await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/verify", expect.objectContaining({revision: "one", work_date: "2026-10-20"})))
-  expect(await screen.findByText("1 links checked · 2026-10-20 · Chicago")).toBeTruthy()
+  expect(await screen.findByText("1 links checked · 7 days from 2026-10-20 · Chicago")).toBeTruthy()
 })
 it("requires a dated sheet before checking applications", async () => {
   mount()
