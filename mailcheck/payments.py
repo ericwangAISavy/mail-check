@@ -119,7 +119,10 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
         "daily": [sum(b["daily"][i] for b in bidders) for i in range(7)],
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
-        "unassigned": sum(counts.values()) - sum(b["total"] for b in bidders) if admin else 0,
+        "unassigned": sum(count for (account_id, day), count in counts.items()
+                          if not any(a["account_id"] == account_id and a["start_date"] <= day
+                                     and (not a["end_date"] or a["end_date"] >= day)
+                                     for a in assignments)) if admin else 0,
         "accounts": [{"id": a["id"], "label": a["label"]} for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")] if admin else []}
 
 
@@ -135,10 +138,10 @@ def assign(conn, bidder_id: int, body: AssignmentBody):
     account = conn.execute("SELECT label FROM accounts WHERE id=?", (body.account_id,)).fetchone()
     if not account:
         raise ValueError("Account not found")
-    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=?
+    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND bidder_id=?
         AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?""",
-        (body.account_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
-        raise ValueError("This account already has an assignment during those dates. End that assignment first.")
+        (body.account_id, bidder_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
+        raise ValueError("This bidder already has an assignment for this account during those dates.")
     # Accounting for a paid week cannot be reassigned after settlement.
     reject_paid_overlap(conn, body.start_date, body.end_date, bidder_id)
     conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date,end_date) VALUES(?,?,?,?,?)",
@@ -181,10 +184,10 @@ def edit_assignment(conn, assignment_id: int, body: AssignmentBody):
     account = conn.execute("SELECT label FROM accounts WHERE id=?", (body.account_id,)).fetchone()
     if not account and body.account_id != old["account_id"]:
         raise ValueError("Account not found")
-    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND id!=?
+    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND bidder_id=? AND id!=?
         AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?""",
-        (body.account_id, assignment_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
-        raise ValueError("This account already has an assignment during those dates")
+        (body.account_id, old["bidder_id"], assignment_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
+        raise ValueError("This bidder already has an assignment for this account during those dates")
     protect_assignment_payments(conn, old, body)
     conn.execute("UPDATE bidder_assignments SET account_id=?,account_label=?,start_date=?,end_date=? WHERE id=?",
         (body.account_id, account["label"] if account else old["account_label"], body.start_date.isoformat(),

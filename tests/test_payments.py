@@ -65,7 +65,7 @@ class PaymentTests(unittest.TestCase):
         self.message("after", "2026-10-15T15:00:00Z")
         self.assertEqual([b["total"] for b in self.report()["bidders"]], [1,1])
         with self.assertRaisesRegex(ValueError, "already has an assignment"):
-            self.assign(who=2, start=date(2026,10,14), end=date(2026,10,14))
+            self.assign(who=2, start=date(2026,10,15), end=date(2026,10,15))
 
     def test_week_boundary_and_dst_use_chicago_calendar_days(self):
         self.assign(start=date(2026,10,1))
@@ -156,8 +156,25 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM application_receipts').fetchone()[0],1)
         self.assertEqual(self.client.post(url+'/remove',json={}).status_code,404)
 
-    def test_edit_rejects_overlaps_and_invalid_dates(self):
-        self.assign(end=date(2026,10,14));self.assign(who=2,start=date(2026,10,15))
+    def test_shared_account_creation_edit_and_unassigned_counts(self):
+        self.assign(end=date(2026,10,14))
+        response = self.client.post('/api/payments/bidders/2/assignments', json={
+            "account_id": self.account, "start_date": "2026-10-12"})
+        self.assertEqual(response.status_code, 200, response.text)
+        response = self.client.post('/api/payments/assignments/1', json={
+            "account_id": self.account, "start_date": "2026-10-12", "end_date": None})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.message("shared")
+        self.message("unassigned", account=self.other)
+        result = self.report()
+        self.assertEqual([b["total"] for b in result["bidders"]], [1, 1])
+        self.assertEqual(result["unassigned"], 1)
+        duplicate = self.client.post('/api/payments/bidders/2/assignments', json={
+            "account_id": self.account, "start_date": "2026-10-13"})
+        self.assertEqual(duplicate.status_code, 400)
+
+    def test_edit_rejects_same_bidder_overlaps_and_invalid_dates(self):
+        self.assign(end=date(2026,10,14));self.assign(start=date(2026,10,15))
         for body in ({"account_id":self.account,"start_date":"2026-10-12","end_date":None},
                      {"account_id":self.account,"start_date":"2026-10-14","end_date":"2026-10-12"}):
             self.assertEqual(self.client.post('/api/payments/assignments/1',json=body).status_code,400)

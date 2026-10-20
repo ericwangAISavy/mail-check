@@ -7,14 +7,18 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 
 ## Setup and use
 
-1. As admin, expand **Manage bidders and account assignments**, and add each bidder.
+1. As admin, open **Accounts**, expand **Manage bidders and account assignments**, and add each bidder.
 2. Assign one or more connected accounts to the bidder. Set the first assigned day
    to the date they actually started, including earlier dates when appropriate.
    Each assignment has **Edit** and **Remove** controls. Edit the account, first
    day, or optional last day; clear the last day to restore an ongoing rule.
    Removal requires confirmation and changes attribution, without deleting emails.
    Changes affecting a paid week are blocked; changes outside it remain editable.
-3. Use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
+   One account may be assigned to several bidders on the same day. Each bidder
+   receives the account’s full confirmation count during their assigned dates; checked
+   sourcing links remain attributed to the bidder who owns the document. Overlapping
+   rules for the same bidder and account are blocked.
+3. Open **Bidder payments** and use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
    The bidder selector narrows the table and summary to one bidder.
 4. After a week ends, select **Record payment**, enter the amount in USD and an
    optional reference, then select **Record as paid**. Amounts are entered manually;
@@ -40,9 +44,10 @@ continue to use received confirmations.
 - A confirmation belongs to the Chicago calendar day of its received timestamp.
   Missing timestamps use the original collection timestamp. Daylight-saving
   transitions use the timezone’s actual offsets.
-- A confirmation goes to the bidder assigned to its account on that calendar day.
-  One account cannot have overlapping assignments, including with the same bidder.
-  End dates are inclusive. For transfers, the next bidder starts the following day.
+- A confirmation counts for each bidder assigned to its account on that calendar
+  day. Different bidders may share an account; overlapping assignments for the same
+  bidder and account are blocked. End dates are inclusive. The all-bidder total sums
+  bidder credits, so shared confirmations contribute once per assigned bidder.
 - Unassigned confirmations are excluded from bidder totals. Admins see an unassigned
   count so they can add the missing dated assignments.
 - Counts are confirmation emails, not a direct audit of submitted applications.
