@@ -86,6 +86,10 @@ class Import(Versioned):
     has_header: bool = True
 
 
+class DeleteTab(BaseModel):
+    revision: str = Field(min_length=1, max_length=32)
+
+
 class Archive(BaseModel):
     archived: bool
 
@@ -211,6 +215,11 @@ def install(app, frontend_page, secure_cookies):
                 (body.archived, tab_id),
             )
         return {"ok": True}
+
+    @router.post("/api/sourcing/tabs/{tab_id}/delete")
+    def delete_tab(tab_id: int, body: DeleteTab, req: Request):
+        admin(req)
+        return mutation(tab_id, req, lambda conn, tab: sheets.delete_tab(conn, tab, body.revision))
 
     @router.get("/api/sourcing/tabs/{tab_id}")
     def snapshot(tab_id: int, req: Request):

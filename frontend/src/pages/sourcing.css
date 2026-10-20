@@ -616,3 +616,5 @@
 }
 
 .sourcing-check { width: 15px; height: 15px; margin: 5px auto; display: block; accent-color: var(--primary); cursor: pointer; }
+
+.sourcing-tabs .sourcing-delete-tab { display: inline-flex; align-items: center; gap: 6px; color: var(--destructive); margin-left: auto; }

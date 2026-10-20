@@ -517,3 +517,35 @@ it("requires a dated sheet before checking applications", async () => {
   fireEvent.click(screen.getByRole("button", {name: /^Undated/}))
   expect((screen.getByRole("button", {name: "Check applications"}) as HTMLButtonElement).disabled).toBe(true)
 })
+it("confirms deleting the selected tab and removes it from the document", async () => {
+  let deleted = false;
+  vi.mocked(fetch).mockImplementation(async (url: any) => ({
+    ok: true, headers: new Headers({"content-type": "application/json"}),
+    json: async () => String(url) === "/api/sourcing" ? {...index, books: index.books.map(book => ({...book, tabs: deleted ? [] : book.tabs}))} : snapshot,
+  }) as Response);
+  const post = vi.spyOn(api, "post").mockImplementation(async () => {deleted = true; return {ok: true} as any});
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Delete current profile sheet"}));
+  expect(await screen.findByRole("heading", {name: "Delete Profile tab?"})).toBeTruthy();
+  const confirm = await screen.findByRole("button", {name: "Delete tab permanently"});
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  await waitFor(() => expect(screen.queryByRole("tab", {name: "Profile"})).toBeNull());
+  expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/delete", {revision: "one"});
+});
+it("keeps the tab when deletion is cancelled or rejected", async () => {
+  const post = vi.spyOn(api, "post").mockRejectedValue(new Error("The sheet changed. Reload first."));
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Delete current profile sheet"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Cancel"}));
+  expect(post).not.toHaveBeenCalled();
+  expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Delete current profile sheet"}));
+  const confirm = await screen.findByRole("button", {name: "Delete tab permanently"});
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(confirm);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The sheet changed. Reload first.");
+  fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+  expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+});

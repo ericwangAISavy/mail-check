@@ -19,7 +19,11 @@ There is no Google account, OAuth configuration, API quota or synchronization se
 Admins can read and edit every workbook. Bidders can read, copy, edit, search and
 export only their own workbook. The server enforces these rules on direct API
 requests too. Admins can archive/restore profile sheets in settings. Archiving
-preserves their data. Historical sheets stay with their original bidder if a profile
+preserves their data. To permanently delete a tab, select it and click **Delete tab**
+beside the tab controls, review the row count, then confirm. Deletion is admin-only,
+removes all rows and checked-link counts from that sheet, and cannot be undone.
+Received emails and recorded payments remain saved. Finish saving edits before
+opening the delete confirmation. Historical sheets stay with their original bidder if a profile
 assignment ends or an email account is removed.
 
 ## Bidder sign-in

@@ -77,6 +77,18 @@ class NativeSheetTests(unittest.TestCase):
             self.assertEqual(migrated["title"], "personal")
             self.assertIn("company", [row["name"] for row in conn.execute("PRAGMA table_info(application_receipts)")])
 
+    def test_deleting_an_imported_tab_does_not_reimport_it_on_upgrade(self):
+        self.conn.execute("INSERT INTO sourcing_books(id,bidder_id,spreadsheet_id,title) VALUES(22,2,'legacy-delete','Legacy')")
+        self.conn.execute("INSERT INTO sourcing_tabs(id,book_id,sheet_id,account_id,account_label,title) VALUES(22,22,1,?,'personal','Old tab')", (self.account_id,))
+        self.native.migrate(self.conn)
+        self.conn.commit()
+        tab_id = self.conn.execute("SELECT id FROM native_tabs WHERE legacy_tab_id=22").fetchone()[0]
+        tab = self.native.owned(self.conn, tab_id, self.principal)
+        self.native.delete_tab(self.conn, tab, str(tab["revision"]))
+        self.native.migrate(self.conn)
+        self.assertIsNone(self.conn.execute("SELECT id FROM native_tabs WHERE legacy_tab_id=22").fetchone())
+        self.assertIsNone(self.conn.execute("SELECT id FROM sourcing_tabs WHERE id=22").fetchone())
+
     def test_native_sheet_saves_literal_values_and_retries_without_duplication(self):
         self.assertEqual(self.snapshot()["rows"][0][0]["display"], "Company")
         changes = [self.change("=literal")]

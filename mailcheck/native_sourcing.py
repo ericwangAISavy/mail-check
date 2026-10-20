@@ -530,3 +530,16 @@ def append(conn, tab, operation, revision, rows, *, work_date="all"):
     from .sourcing_structure import append as apply_append
 
     return apply_append(conn, tab, operation, revision, rows, work_date=work_date)
+
+
+def delete_tab(conn, tab, revision):
+    """Delete a local sheet and its retained import copy in one transaction."""
+    from .sourcing_structure import check_revision
+    with atomic(conn):
+        check_revision(conn, tab["id"], revision)
+        legacy_id = conn.execute("SELECT legacy_tab_id FROM native_tabs WHERE id=?", (tab["id"],)).fetchone()[0]
+        conn.execute("DELETE FROM native_tabs WHERE id=?", (tab["id"],))
+        # Prevent the one-time import migration from recreating a deleted sheet.
+        if legacy_id is not None:
+            conn.execute("DELETE FROM sourcing_tabs WHERE id=?", (legacy_id,))
+    return {"ok": True}

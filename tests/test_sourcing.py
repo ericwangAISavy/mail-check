@@ -100,6 +100,27 @@ class SourcingTests(unittest.TestCase):
         sign_in_bidder(self.client, 2)
         self.assertEqual(self.client.post(f"/api/sourcing/tabs/{tab}/verify", json=body).status_code, 404)
 
+    def test_delete_tab_checks_revision_removes_rows_and_allows_recreation(self):
+        tab = self.setup_tab()
+        base = self.client.get(f"/api/sourcing/tabs/{tab}").json()
+        stale = self.client.post(f"/api/sourcing/tabs/{tab}/delete", json={"revision": "0"})
+        self.assertEqual(stale.status_code, 409)
+        response = self.client.post(f"/api/sourcing/tabs/{tab}/delete", json={"revision": base["revision"]})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.client.get(f"/api/sourcing/tabs/{tab}").status_code, 404)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM native_rows WHERE tab_id=?", (tab,)).fetchone()[0], 0)
+        book = self.client.get("/api/sourcing").json()["books"][0]
+        self.assertEqual(book["tabs"], [])
+        replacement = self.client.post(f"/api/sourcing/books/{book['id']}/tabs", json={"account_id": self.account_id})
+        self.assertEqual(replacement.status_code, 200, replacement.text)
+
+    def test_bidder_cannot_delete_tabs_even_in_their_own_workbook(self):
+        tab = self.setup_tab()
+        sign_in_bidder(self.client, 1)
+        response = self.client.post(f"/api/sourcing/tabs/{tab}/delete", json={"revision": "1"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.client.get(f"/api/sourcing/tabs/{tab}").status_code, 200)
+
     def test_structure_conflicts_and_server_format_validation(self):
         tab = self.setup_tab()
         result = self.client.post(
