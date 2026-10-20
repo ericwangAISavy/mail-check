@@ -41,6 +41,7 @@ export default function SourcingPage() {
   const index = useQuery({
     queryKey: ["sourcing-index"],
     queryFn: () => request<Index>("/api/sourcing"),
+    refetchInterval: 15_000,
   });
   const client = useQueryClient();
   const [deleting, setDeleting] = useState<Tab | null>(null);

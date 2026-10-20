@@ -101,12 +101,12 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
         key = (row["account_id"], day)
         counts[key] = counts.get(key, 0) + 1
-    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE (? IS NULL OR bidder_id=?) ORDER BY start_date,id", (bidder_id,bidder_id))]
+    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) AND (? IS NULL OR bidder_id=?) ORDER BY start_date,id", (bidder_id,bidder_id))]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
     from .sourcing_verification import checked_counts
     checked = checked_counts(conn, start.isoformat(), end.isoformat())
     bidders = []
-    for row in conn.execute("SELECT * FROM bidders WHERE (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
+    for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
         daily = [sum(counts.get((a["account_id"], day), 0) for a in assigned
                      if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)) for day in dates]
@@ -133,8 +133,15 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
 
 
 def bidder(conn, bidder_id):
-    if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL", (bidder_id,)).fetchone():
         raise LookupError("Bidder not found")
+
+
+def remove_bidder(conn, bidder_id: int):
+    bidder(conn, bidder_id)
+    conn.execute("UPDATE bidders SET removed_at=?,login_enabled=0 WHERE id=?",
+                 (datetime.now(timezone.utc).isoformat(), bidder_id))
+    conn.execute("UPDATE native_tabs SET archived=1 WHERE book_id IN (SELECT id FROM native_books WHERE bidder_id=?)", (bidder_id,))
 
 
 def assign(conn, bidder_id: int, body: AssignmentBody):

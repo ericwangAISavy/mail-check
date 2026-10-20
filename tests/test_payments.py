@@ -124,7 +124,7 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual([b["name"] for b in report.json()["bidders"]],["Alex"])
         self.assertEqual(report.json()["accounts"],[])
         self.assertEqual(self.client.get('/payments').status_code,200)
-        for route in ('/api/payments/bidders','/api/payments/bidders/1','/api/payments/bidders/1/assignments','/api/payments/assignments/1/end','/api/payments/bidders/1/paid'):
+        for route in ('/api/payments/bidders','/api/payments/bidders/1','/api/payments/bidders/1/assignments','/api/payments/assignments/1/end','/api/payments/bidders/1/paid','/api/payments/bidders/1/remove'):
             self.assertEqual(self.client.post(route,json={}).status_code,403)
 
     def test_admin_creates_bidder_assigns_accounts_and_records_manual_amount(self):
@@ -135,6 +135,26 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         response=self.client.get('/api/payments?week=2026-10-12').json()
         self.assertEqual(next(b for b in response["bidders"] if b["id"]==3)["payment"]["amount_cents"],4205)
+
+    def test_bidder_removal_refreshes_sourcing_and_preserves_history(self):
+        from mailcheck import native_sourcing
+        self.assign(); self.message("one")
+        self.assertEqual(self.client.post('/api/payments/bidders/1/paid', json={
+            "week": "2026-10-12", "expected_count": 1, "amount": "10"}).status_code, 200)
+        book = native_sourcing.create_book(self.conn, 1)
+        native_sourcing.create_tab(self.conn, book, self.account, "Applications")
+        response = self.client.post('/api/payments/bidders/1/remove', json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        index = self.client.get('/api/sourcing').json()
+        self.assertNotIn(1, [b["id"] for b in index["bidders"]])
+        self.assertNotIn(1, [b["bidder_id"] for b in index["books"]])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM bidder_payments WHERE bidder_id=1').fetchone()[0], 1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM native_tabs WHERE book_id=? AND archived=1', (book,)).fetchone()[0], 1)
+        self.assertEqual(self.conn.execute('SELECT login_enabled FROM bidders WHERE id=1').fetchone()[0], 0)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/remove', json={}).status_code, 404)
+        self.assertEqual(self.client.post('/api/payments/bidders', json={"name": "New bidder"}).status_code, 200)
+        index = self.client.get('/api/sourcing').json()
+        self.assertIn("New bidder", [b["name"] for b in index["books"]])
 
     def test_end_assignment_api_protects_paid_periods(self):
         self.assign(); self.message("one")

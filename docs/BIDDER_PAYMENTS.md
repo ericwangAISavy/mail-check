@@ -8,6 +8,11 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 ## Setup and use
 
 1. As admin, open **Accounts**, expand **Manage bidders and account assignments**, and add each bidder.
+   Adding a bidder automatically creates their Job sourcing document. **Remove bidder**
+   asks for confirmation, disables sign-in, archives their documents, and hides them
+   from active lists. Saved documents, assignments, and payment records are retained.
+   Job sourcing refreshes its list after additions and removals, including changes
+   from other tabs within 15 seconds.
 2. Assign one or more connected accounts to the bidder. Set the first assigned day
    to the date they actually started, including earlier dates when appropriate.
    Each assignment has **Edit** and **Remove** controls. Edit the account, first

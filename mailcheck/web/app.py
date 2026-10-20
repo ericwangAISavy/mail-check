@@ -600,7 +600,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             identity = auth.identity(request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder":
                 with db.session() as conn:
-                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND login_enabled=1", (identity["bidder_id"],)).fetchone()
+                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (identity["bidder_id"],)).fetchone()
                 if not enabled:
                     identity = None
             role = identity["role"] if identity else None
@@ -640,7 +640,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_login(body: LoginBody, request: Request):
         if body.role == "bidder":
             with db.session() as conn:
-                enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND login_enabled=1", (body.bidder_id,)).fetchone()
+                enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (body.bidder_id,)).fetchone()
             if not enabled:
                 # Still hash/rate-limit a failed request, without allowing disabled credentials.
                 token, limited = auth.login("invalid", body.password, request.client.host if request.client else "unknown")
@@ -662,12 +662,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/auth/bidders")
     def bidder_names():
         with db.session() as conn:
-            return {"bidders": [dict(row) for row in conn.execute("SELECT id,name FROM bidders WHERE login_enabled=1 ORDER BY name")]}
+            return {"bidders": [dict(row) for row in conn.execute("SELECT id,name FROM bidders WHERE removed_at IS NULL AND login_enabled=1 ORDER BY name")]}
 
     @app.post("/api/auth/bidders/{bidder_id}/password")
     def bidder_password(bidder_id: int, body: BidderPasswordBody):
         with db.session() as conn:
-            if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+            if not conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL", (bidder_id,)).fetchone():
                 return _err("Bidder not found",404)
             if body.enabled and not body.password:
                 return _err("Enter an initial password to enable sign-in.")
@@ -806,9 +806,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/payments/bidders")
     def create_bidder(body: payments.BidderBody):
-        return payment_write(lambda conn: conn.execute(
-            "INSERT INTO bidders(name,created_at) VALUES(?,?)",
-            (body.name, datetime.now(timezone.utc).isoformat())))
+        def create(conn):
+            from ..native_sourcing import _create_book
+            cursor = conn.execute("INSERT INTO bidders(name,created_at) VALUES(?,?)",
+                                  (body.name, datetime.now(timezone.utc).isoformat()))
+            _create_book(conn, cursor.lastrowid, "Applications")
+        return payment_write(create)
+
+    @app.post("/api/payments/bidders/{bidder_id}/remove")
+    def remove_bidder(bidder_id: int):
+        return payment_write(lambda conn: payments.remove_bidder(conn, bidder_id))
 
     @app.post("/api/payments/bidders/{bidder_id}")
     def update_bidder(bidder_id: int, body: payments.BidderBody):
@@ -846,7 +853,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             return {
                 "accounts": [{"label": a.label} for a in db.list_accounts(conn)],
-                "bidders": [dict(row) for row in conn.execute("SELECT id, name FROM bidders ORDER BY name COLLATE NOCASE, id")],
+                "bidders": [dict(row) for row in conn.execute("SELECT id, name FROM bidders WHERE removed_at IS NULL ORDER BY name COLLATE NOCASE, id")],
             }
 
     # ------------------------------------------------------------------- pages

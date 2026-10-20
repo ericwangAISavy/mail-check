@@ -64,7 +64,7 @@ def atomic(conn):
 
 
 def _create_book(conn, bidder_id, title, legacy_id=None):
-    if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL", (bidder_id,)).fetchone():
         raise ValueError("Bidder not found.")
     conn.execute(
         "INSERT OR IGNORE INTO native_books(bidder_id,title,legacy_book_id) VALUES(?,?,?)",

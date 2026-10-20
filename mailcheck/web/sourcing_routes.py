@@ -131,7 +131,7 @@ def install(app, frontend_page, secure_cookies):
             books = [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE (? OR b.bidder_id=?) ORDER BY p.name",
+                    "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND (? OR b.bidder_id=?) ORDER BY p.name",
                     (is_admin, req.state.bidder_id),
                 )
             ]
@@ -149,7 +149,7 @@ def install(app, frontend_page, secure_cookies):
                 result["bidders"] = [
                     dict(r)
                     for r in conn.execute(
-                        "SELECT id,name,login_enabled FROM bidders ORDER BY name"
+                        "SELECT id,name,login_enabled FROM bidders WHERE removed_at IS NULL ORDER BY name"
                     )
                 ]
                 result["accounts"] = [
@@ -318,7 +318,7 @@ def install(app, frontend_page, secure_cookies):
     def search(req: Request, q: str = "", account: int | None = None):
         with db.session() as conn:
             tabs = conn.execute(
-                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
+                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
                 (req.state.role == "admin", req.state.bidder_id, account, account),
             ).fetchall()
             results = []
