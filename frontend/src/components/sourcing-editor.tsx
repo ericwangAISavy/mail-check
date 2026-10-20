@@ -22,6 +22,7 @@ import {
   Redo2,
   RefreshCw,
   Search,
+  Trash2,
   Undo2,
   Upload,
   WrapText,
@@ -93,6 +94,7 @@ export default function SourcingEditor({
     [typing, setTyping] = useState(false);
   const client = useQueryClient();
   const compactAfterPaste = useRef(false);
+  const [rowDeleteNotice, setRowDeleteNotice] = useState("");
   const [day, setDay] = useState(initialDay || chicagoDay());
   const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
   const [headerDraft, setHeaderDraft] = useState<{
@@ -206,9 +208,11 @@ export default function SourcingEditor({
     };
     const timer = window.setInterval(focus, 15000);
     window.addEventListener("focus", focus);
+    window.addEventListener("mailcheck:check-completed", focus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", focus);
+      window.removeEventListener("mailcheck:check-completed", focus);
     };
   }, [load]);
   const execute = useCallback(
@@ -392,6 +396,24 @@ export default function SourcingEditor({
         api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/structure`, payload),
       true,
     );
+  };
+  const deleteSelectedRows = async (rows = selection.rows) => {
+    const current = base.current;
+    if (!current || inFlight.current || locked) return;
+    if (draft.current.length || typingRef.current || auxDirty.current) {
+      setRowDeleteNotice("Wait for Saved before deleting selected rows.");
+      return;
+    }
+    const ids = [...new Set(rows.filter(row => row > 0).map(row => current.row_ids[row]).filter(Boolean))];
+    if (!ids.length) return;
+    if (ids.length > 1000) {setRowDeleteNotice("Select up to 1,000 rows to delete at a time."); return;}
+    setRowDeleteNotice("");
+    const payload = {operation: operationId(), revision: current.revision, action: "delete_rows", ids, work_date: day};
+    await execute(async () => {
+      const result = await api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/structure`, payload);
+      void client.invalidateQueries({queryKey: ["payments"]});
+      return result;
+    }, true);
   };
   const resize = (col: number, width: number) => {
     window.clearTimeout(resizeTimer.current);
@@ -726,6 +748,11 @@ export default function SourcingEditor({
             <Plus size={14} />
             Rows
           </Button>
+          <Button size="sm" variant="outline" className="sheet-delete-rows"
+            disabled={locked || dirty || !snapshot || !selection.rows.length || selection.rows.length > 1000}
+            onClick={() => void deleteSelectedRows()} title="Delete selected job rows (Delete)">
+            <Trash2 size={14} />Delete rows{selection.rows.length > 1 ? ` (${selection.rows.length})` : ""}
+          </Button>
           <select
             aria-label="Row and column actions"
             value=""
@@ -926,6 +953,7 @@ export default function SourcingEditor({
           </div>
         </div>
       )}
+      {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (
         <SheetGrid
           snapshot={displaySnapshot!}
@@ -935,7 +963,8 @@ export default function SourcingEditor({
           disabled={locked}
           highlightRow={focusRow}
           view={scopedView}
-          onSelection={setSelection}
+          onSelection={next => {setSelection(next); setRowDeleteNotice("")}}
+          onDeleteRows={rows => void deleteSelectedRows(rows)}
           onResize={resize}
           onEditingChange={setTyping}
           onHeaderChange={(col, title) => void renameHeader(col, title)}

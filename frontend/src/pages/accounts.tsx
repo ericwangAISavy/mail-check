@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, Loading, PageHeading, Switch, useToast } from "@/components/common"
 
+import BidderManagement from "@/components/bidder-management"
+
 function AccountRow({ account, onRefresh, onReconnect }: { account: Account; onRefresh: () => void; onReconnect: () => void }) {
   const [busy, setBusy] = useState("")
   const toast = useToast()
@@ -108,12 +110,13 @@ export default function AccountsPage() {
   const [reconnectLabel, setReconnectLabel] = useState<string>()
   const queryClient = useQueryClient()
   const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts })
-  const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); void queryClient.invalidateQueries({ queryKey: ["dashboard-accounts"] }) }, [queryClient])
+  const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bidder-management"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); void queryClient.invalidateQueries({ queryKey: ["dashboard-accounts"] }) }, [queryClient])
   if (isPending) return <div className="page-wrap"><Loading /></div>
   return <div className="page-wrap accounts-page"><PageHeading title="Accounts" description="Connect the inboxes behind your next opportunity." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect mailbox</Button>} />
     <div className="security-note"><ShieldCheck size={18} /><span><strong>Read-only by design.</strong> Mail-check never marks messages as read, sends replies, or changes your provider inbox.</span></div>
     {error && <p className="inline-error" role="alert">{error.message}</p>}
     {data?.accounts.length ? <><div className="section-title-line"><div><p className="eyebrow">CONNECTED INBOXES</p><h2>Your accounts</h2></div><span className="account-total">{data.accounts.length} total</span></div><Card className="account-card">{data.accounts.map((account) => <AccountRow key={account.id} account={account} onRefresh={refresh} onReconnect={()=>{setReconnectLabel(account.label);setOutlookOpen(true)}} />)}</Card></> : <EmptyState title="One inbox at a time" description="Connect a mailbox to begin building your private application queue." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect your first mailbox</Button>} />}
+    <BidderManagement />
     <div className="provider-heading"><div><p className="eyebrow">CONNECTION OPTIONS</p><h2>Choose your provider</h2></div><span>Credentials stay on your computer.</span></div>
     <div className="provider-grid"><button className="provider-card" onClick={() => setImapOpen(true)}><span className="provider-logo"><KeyRound /></span><span><strong>Gmail, Yahoo, iCloud &amp; more</strong><small>Connect with a secure app password over IMAP.</small></span><Plus size={17} className="provider-add" /></button><button className="provider-card" onClick={() => data?.outlook_ready ? (setReconnectLabel(undefined),setOutlookOpen(true)) : (window.location.href = "/settings#outlook")}><span className="provider-logo provider-microsoft">M</span><span><strong>Personal Outlook</strong><small>{data?.outlook_ready ? "Sign in with Microsoft. No password is stored." : "Add your Microsoft client ID in Settings first."}</small></span><Plus size={17} className="provider-add" /></button></div>
     <Card className="privacy-card"><ShieldCheck size={18} /><div><strong>Your mail stays yours.</strong><p>Messages and email bodies live in your local database. Only sender, subject, and the configured body excerpt go to your chosen Ollama model. Microsoft 365 work and school accounts are not supported.</p></div></Card>

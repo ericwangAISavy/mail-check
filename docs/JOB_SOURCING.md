@@ -63,6 +63,14 @@ its company with saved **Application received** confirmations from the same acco
 Only confirmations received during that Chicago day count: midnight inclusive to
 the following midnight exclusive. Choose a date first; Undated rows cannot be checked.
 
+The top-level **Check now** button and each scheduled **Auto-check** run also
+verify all dated jobs on every active tab in every workbook after collection and
+classification finish. Each row is compared against confirmations received on its
+own work date, including earlier dates. Archived tabs and tabs whose accounts have
+been removed are skipped. The completion message includes the matched-link and tab
+counts. An open, saved sheet refreshes immediately; active edits remain protected.
+Automatic verification replaces manual marks with the current receipt evidence.
+
 Company matching ignores case, punctuation and common legal suffixes. It does not
 use fuzzy similarity. Rechecking replaces that day's checks, including clearing rows
 that no longer match. Editing a checked company's name or link, or moving the row to
@@ -81,6 +89,12 @@ companies from messages already deleted before this upgrade cannot be recovered.
 - Double-click, Enter or F2 to edit. Escape cancels; Enter/Tab commits. Arrows and
   Tab navigate. Shift-click or drag selects a rectangle. Copy/paste supports TSV,
   quoted multiline values and blanks from Google Sheets or Excel.
+- Drag across cells to select the job rows they cover. Selected rows and row
+  numbers are highlighted. Click **Delete rows** (with the selection count), or
+  press **Delete** while the grid is focused, to remove those entire job rows.
+  Finish editing and wait for **Saved** first. Delete inside a cell editor still
+  edits its text; **Backspace** outside the editor clears selected cell values.
+  Filtered/sorted selections delete their original saved row identities.
 - Use the toolbar for bold, italic, alignment, wrapping and undo/redo. Formatting is
   stored separately from values. Text beginning with `=` remains literal text.
 - Insert rows and add/rename custom columns. Choose **Insert / edit** for append,

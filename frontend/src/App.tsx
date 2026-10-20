@@ -114,6 +114,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["reader"] }),
             queryClient.invalidateQueries({ queryKey: ["interviews"] }),
           ])
+          window.dispatchEvent(new Event("mailcheck:check-completed"))
           toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
           for (const item of current.interview_changes || []) {
             const label = item.status === "Cancelled" ? "Meeting cancelled" : item.status === "Rescheduled" ? "Meeting rescheduled" : "Meeting added"

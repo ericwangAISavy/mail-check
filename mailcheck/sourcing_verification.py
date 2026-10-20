@@ -2,6 +2,7 @@
 from datetime import date, datetime, timedelta, timezone
 import re
 import unicodedata
+import time
 from . import native_sourcing as sheets
 from .payments import ZONE, sync_receipts
 from .sourcing_structure import check_revision
@@ -51,6 +52,58 @@ def verify(conn, tab, operation, revision, work_date):
         result["verification"] = {"day": day, "timezone": ZONE.key,
             "checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1) if result["row_dates"][i] == day)}
         return result
+
+
+def verify_all(conn):
+    """Refresh every active account sheet against receipts on each row's work day.
+
+    Read and update under one write transaction so edits cannot move a job between
+    comparison and write. Unchanged cells retain their versions and tab revision.
+    """
+    with sheets.atomic(conn):
+        sync_receipts(conn)
+        tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
+            JOIN accounts a ON a.id=t.account_id WHERE t.archived=0""")}
+        rows = conn.execute("""SELECT r.id,r.tab_id,r.work_date,t.account_id,check_col.id AS check_column,
+            company.value AS company,link.value AS link,checked.value AS checked
+            FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id
+            JOIN accounts a ON a.id=t.account_id
+            JOIN native_columns company_col ON company_col.tab_id=t.id AND company_col.kind='company'
+            JOIN native_columns link_col ON link_col.tab_id=t.id AND link_col.kind='link'
+            JOIN native_columns check_col ON check_col.tab_id=t.id AND check_col.kind='check'
+            LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=company_col.id
+            LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=link_col.id
+            LEFT JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id
+            WHERE t.archived=0 AND r.work_date IS NOT NULL
+            AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='')""").fetchall()
+        relevant = {(row["account_id"], row["work_date"]) for row in rows}
+        companies = {}
+        for receipt in conn.execute("SELECT account_id,received_at,company FROM application_receipts WHERE category='application_ack' AND company!=''"):
+            try:
+                received = datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
+            key = (receipt["account_id"], day)
+            company = company_key(receipt["company"])
+            if key in relevant and company:
+                companies.setdefault(key, set()).add(company)
+        changed_tabs = set()
+        checked_count = changed_count = 0
+        for row in rows:
+            checked = bool((row["link"] or "").strip() and company_key(row["company"]) in companies.get((row["account_id"], row["work_date"]), set()))
+            checked_count += int(checked)
+            value = str(checked).lower()
+            if row["checked"] == value:
+                continue
+            conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
+                ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1""",
+                (row["id"], row["check_column"], value))
+            changed_tabs.add(row["tab_id"])
+            changed_count += 1
+        conn.executemany("UPDATE native_tabs SET revision=revision+1,updated_at=? WHERE id=?",
+            [(time.time(), tab_id) for tab_id in changed_tabs])
+        return {"tabs": len(tabs), "rows": len(rows), "checked": checked_count, "changed": changed_count}
 
 
 def checked_counts(conn, start, end):

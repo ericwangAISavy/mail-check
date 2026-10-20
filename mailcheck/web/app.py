@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets, interviews, interview_processes, payments
+from .. import db, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -359,6 +359,11 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
                     stage_started=time.time())
         try:
             work()
+            previous_message = _job["message"]
+            _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
+            with db.session() as conn:
+                sourcing = sourcing_verification.verify_all(conn)
+            _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
         except Exception as exc:  # noqa: BLE001 - surface it in the UI, never 500
             _job.update(message=failed, detail=str(exc), ok=False)
         finally:
@@ -839,7 +844,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():
         with db.session() as conn:
-            return {"accounts": [{"label": a.label} for a in db.list_accounts(conn)]}
+            return {
+                "accounts": [{"label": a.label} for a in db.list_accounts(conn)],
+                "bidders": [dict(row) for row in conn.execute("SELECT id, name FROM bidders ORDER BY name COLLATE NOCASE, id")],
+            }
 
     # ------------------------------------------------------------------- pages
 

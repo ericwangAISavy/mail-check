@@ -34,6 +34,7 @@ export function SheetGrid({
   headersEditable = true,
   onPaste,
   onAppendRows,
+  onDeleteRows,
 }: {
   snapshot: Snapshot;
   headerRow?: number;
@@ -49,6 +50,7 @@ export function SheetGrid({
   headersEditable?: boolean;
   onPaste?: () => void;
   onAppendRows?: (rows: string[][]) => void;
+  onDeleteRows?: (rows: number[]) => void;
 }) {
   const grid = useRef<DataGridHandle>(null),
     anchor = useRef({ row: 1, col: 0 }),
@@ -102,6 +104,7 @@ export function SheetGrid({
     setPosition(next);
     notify(anchor.current, next);
   };
+  const rowOrder = visible.map(row => snapshot.row_ids[row]).join(":");
   useEffect(() => {
     const index =
       highlightRow === undefined ? -1 : visible.indexOf(highlightRow);
@@ -109,9 +112,10 @@ export function SheetGrid({
     anchor.current = { row: rowIdx, col: 0 };
     selected.current = anchor.current;
     setPosition(anchor.current);
+    notify(anchor.current, anchor.current);
     grid.current?.scrollToCell({ rowIdx, idx: 1 });
     grid.current?.setActivePosition({ rowIdx, idx: 1 });
-  }, [highlightRow, view.day]);
+  }, [highlightRow, view.day, rowOrder]);
   useEffect(() => () => stopDrag.current(), []);
   const apply = (values: Change[]) => {
     if (disabled) return;
@@ -241,9 +245,11 @@ export function SheetGrid({
             : 30
         }
         headerRowHeight={28}
-        rowClass={(row) =>
-          row.id === highlightRow ? "sheet-highlight-row" : undefined
-        }
+        rowClass={(row) => {
+          const index = indices.get(row.id) ?? -1;
+          return [row.id === highlightRow ? "sheet-highlight-row" : "",
+            row.id > 0 && index >= Math.min(anchor.current.row, position.row) && index <= Math.max(anchor.current.row, position.row) ? "sheet-row-selected" : ""].filter(Boolean).join(" ") || undefined;
+        }}
         onActivePositionChange={({ rowIdx, column }) => {
           if (rowIdx >= 0 && column && column.key !== "id")
             select({ row: rowIdx, col: Number(column.key) }, extending.current);
@@ -372,11 +378,18 @@ export function SheetGrid({
         onCellKeyDown={(args, event) => {
           extending.current = event.shiftKey;
           if (
-            args.mode !== "ACTIVE" ||
+            disabled || args.mode !== "ACTIVE" ||
             !args.column ||
             args.column.key === "id"
           )
             return;
+          if (event.key === "Delete" && onDeleteRows) {
+            event.preventDefault();
+            event.preventGridDefault();
+            if (event.repeat) return;
+            onDeleteRows(visible.slice(Math.min(anchor.current.row, selected.current.row), Math.max(anchor.current.row, selected.current.row) + 1).filter(row => row > 0));
+            return;
+          }
           if (event.key === "Delete" || event.key === "Backspace") {
             event.preventDefault();
             apply(range());

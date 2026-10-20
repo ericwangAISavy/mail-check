@@ -32,7 +32,7 @@ export const api = {
   },
   session: () => request<{ role: "admin" | "bidder" | null; bidder_id?: number }>("/api/auth/session"),
   login: (role: "admin" | "bidder", password: string, bidder_id?: number) => request<{ role: "admin" | "bidder" }>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, bidder_id }) }),
-  dashboardAccounts: () => request<{ accounts: { label: string }[] }>("/api/dashboard/accounts"),
+  dashboardAccounts: () => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
   reader: (pk: number) => request<{ message: import("./types").Message; body_html: string; original_html?: string | null }>(`/api/messages/${pk}`),

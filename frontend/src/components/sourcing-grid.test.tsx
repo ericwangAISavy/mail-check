@@ -9,6 +9,10 @@ beforeEach(() => {
   vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(500);
   Element.prototype.scrollTo = vi.fn();
   Element.prototype.scrollIntoView = vi.fn();
+  const query = Element.prototype.querySelector;
+  vi.spyOn(Element.prototype, "querySelector").mockImplementation(function(this: Element, selector: string) {
+    return query.call(this, selector.startsWith("&") ? ":scope" + selector.slice(1) : selector);
+  } as typeof Element.prototype.querySelector);
 });
 afterEach(() => {cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks()});
 const cell = (value: string) => ({value, display: value, formula: false, link: "", version: 1, style: {}});
@@ -40,4 +44,36 @@ it("removes blank pasted rows before appending jobs beyond the input row", () =>
   const grid = screen.getByRole("grid", {name: "Job sourcing spreadsheet"});
   fireEvent.paste(grid, {clipboardData: {getData: () => "Acme\tEngineer\thttps://jobs.test/1\n\t\t\nBeta\tEngineer\thttps://jobs.test/2\n\t\t"}});
   expect(append).toHaveBeenCalledWith([["Acme", "Engineer", "https://jobs.test/1"], ["Beta", "Engineer", "https://jobs.test/2"]]);
+});
+it("deletes all dragged rows with Delete instead of clearing cell values", () => {
+  const data = snapshot();
+  data.rows.push([cell("Beta"),cell("Designer"),cell("https://jobs.test/2"),cell("false")]);
+  data.row_ids.push("row2");
+  const remove = vi.fn(), change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change} onDeleteRows={remove}/>);
+  const first = screen.getByRole("gridcell", {name: "Acme"});
+  const last = screen.getByRole("gridcell", {name: "Designer"});
+  fireEvent.mouseDown(first, {button:0, buttons:1});
+  fireEvent.mouseMove(last, {buttons:1});
+  fireEvent.mouseUp(document);
+  fireEvent.keyDown(screen.getByRole("grid"), {key:"Delete"});
+  expect(remove).toHaveBeenCalledWith([1,2]);
+  expect(change).not.toHaveBeenCalled();
+});
+it("uses the filtered job identity for keyboard deletion", () => {
+  const data = snapshot();
+  data.rows.push([cell("Beta"),cell("Designer"),cell("https://jobs.test/2"),cell("false")]); data.row_ids.push("row2");
+  const remove = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onDeleteRows={remove}
+    view={{find:"Beta",filterColumn:0,filter:"",sortColumn:0,direction:"none"}}/>);
+  fireEvent.keyDown(screen.getByRole("grid"), {key:"Delete"});
+  expect(remove).toHaveBeenCalledWith([2]);
+});
+it("keeps Delete inside a text editor from deleting job rows", () => {
+  const remove = vi.fn();
+  render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()} onDeleteRows={remove}/>);
+  fireEvent.doubleClick(screen.getByRole("gridcell", {name:"Acme"}));
+  const input = screen.getByRole("textbox", {name:"Edit cell"});
+  fireEvent.keyDown(input, {key:"Delete"});
+  expect(remove).not.toHaveBeenCalled();
 });

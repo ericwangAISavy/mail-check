@@ -20,6 +20,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     onChange,
     disabled,
     onEditingChange,
+    onSelection,
     view,
   }: {
     view?: unknown;
@@ -28,6 +29,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     onChange: (changes: unknown[]) => void;
     disabled: boolean;
     onEditingChange?: (active: boolean) => void;
+    onSelection?: (selection: {rows: number[]; columns: number[]}) => void;
   }) => {
     gridViews.values.push(view);
     return (
@@ -51,6 +53,7 @@ vi.mock("@/components/sourcing-grid", () => ({
           Edit role
         </button>
         <button onClick={() => onEditingChange?.(true)}>Start typing</button>
+        <button onClick={() => onSelection?.({rows: [1,2], columns: [0,1]})}>Select two job rows</button>
       </div>
     );
   },
@@ -548,4 +551,28 @@ it("keeps the tab when deletion is cancelled or rejected", async () => {
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The sheet changed. Reload first.");
   fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
   expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+});
+
+it("deletes selected job rows using their stable identities from the toolbar", async () => {
+  const data = {...snapshot, row_ids: ["", "row-one", "row-two"], rows: [...snapshot.rows, snapshot.rows[1]]};
+  vi.mocked(fetch).mockImplementation(async (url: any) => ({ok: true, headers: new Headers({"content-type": "application/json"}), json: async () => String(url) === "/api/sourcing" ? index : data}) as Response);
+  const post = vi.spyOn(api, "post").mockResolvedValue({...snapshot, revision: "two"});
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Select two job rows"}));
+  fireEvent.click(screen.getByRole("button", {name: "Delete rows (2)"}));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/structure", expect.objectContaining({action: "delete_rows", revision: "one", ids: ["row-one", "row-two"]})));
+});
+it("refreshes a clean sheet when the global check finishes", async () => {
+  mount();
+  await screen.findByText("Saved");
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBeGreaterThan(calls));
+});
+it("preserves active edits when the global check finishes", async () => {
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Start typing"}));
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
+  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBe(calls);
 });

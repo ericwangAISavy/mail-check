@@ -156,13 +156,33 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(last["messages"]["items"][0]["pk"], 1)
         self.assertEqual(self.data(sort="oldest")["messages"]["items"][0]["pk"], 1)
 
+    def test_bidder_filter_uses_dated_chicago_assignments_across_all_views(self):
+        self.conn.execute("INSERT INTO bidders(name,created_at) VALUES('Alex','2026-01-01')")
+        bidder = self.conn.execute("SELECT id FROM bidders").fetchone()[0]
+        self.conn.execute(
+            "INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date,end_date) VALUES(?,?,?,?,?)",
+            (bidder, self.account, "personal", "2026-09-15", "2026-09-15"))
+        self.conn.commit()
+        self.add("before", date="2026-09-15T04:59:59+00:00")
+        first = self.add("start", date="2026-09-15T05:00:00+00:00")
+        last = self.add("end", date="2026-09-16T04:59:59+00:00")
+        self.add("after", date="2026-09-16T05:00:00+00:00")
+        self.add("other-account", account=self.other)
+        result = self.data(bidder=bidder)
+        self.assertEqual(result["summary"]["total"], 2)
+        self.assertEqual(sum(day["total"] for day in result["daily"]), 2)
+        self.assertEqual(sum(cat["count"] for cat in result["categories"]), 2)
+        self.assertEqual({row["pk"] for row in result["messages"]["items"]}, {first, last})
+        self.assertEqual(self.data(bidder=bidder, account="work")["summary"]["total"], 0)
+        self.assertEqual(self.data(bidder=9999)["summary"]["total"], 0)
+
     def test_invalid_filters(self):
         for fields in (
             {"start": "2026-01-01", "end": "2026-04-01"},
             {"start": "2026-09-16", "end": "2026-09-14"},
             {"start": "2026-09-15"}, {"tz": "Invalid/Zone"},
             {"categories": ["unknown"]}, {"status": "invalid"},
-            {"page": 0}, {"page_size": 101}, {"q": "x" * 201},
+            {"bidder": 0}, {"bidder": "bad"}, {"page": 0}, {"page_size": 101}, {"q": "x" * 201},
         ):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 DashboardFilters(**fields)
@@ -183,6 +203,8 @@ class AnalyticsTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["summary"]["total"], 1)
             self.assertEqual(client.get("/api/dashboard?days=91").status_code, 400)
+            self.assertEqual(client.get("/api/dashboard?bidder=bad").status_code, 400)
+            self.assertEqual(client.get("/api/dashboard/accounts").json()["bidders"], [])
 
 
 if __name__ == "__main__":
