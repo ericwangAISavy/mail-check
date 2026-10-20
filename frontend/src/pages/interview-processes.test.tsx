@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
@@ -252,4 +252,38 @@ it("shows the assigned mailbox address before the process duration", async () =>
   const account = await screen.findByText("eric.wang.swe@outlook.com")
   expect(account.getAttribute("aria-label")).toBe("Assigned accounts")
   expect(account.nextElementSibling?.className).toBe("process-age")
+})
+
+it("keeps same-company account rows separate when pinning, removing and restoring", async () => {
+  const base = report().processes[0]
+  const first = { ...base, id: "1:appian.com", account_id: 1, account_emails: ["first@example.test"] }
+  const second = { ...base, id: "2:appian.com", account_id: 2, account_emails: ["second@example.test"] }
+  const data = { processes: [first, second], removed: [] as {organization: string; account_id: number; account_emails: string[]; removed_at: string}[] }
+  vi.mocked(request).mockImplementation(async (url, init) => {
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body))
+      if (url.endsWith("/pin")) data.processes = data.processes.map(p => p.account_id === body.account_id ? {...p, pinned: body.pinned} : p)
+      else if (body.removed) {
+        data.processes = data.processes.filter(p => p.account_id !== body.account_id)
+        data.removed = [{organization: "appian.com", account_id: 1, account_emails: first.account_emails, removed_at: "2026-10-16"}]
+      } else { data.processes.push(first); data.removed = [] }
+      return {ok: true} as never
+    }
+    return data as never
+  })
+  mount()
+  const row = (email: string) => screen.getByText(email).closest('.process-timeline-card') as HTMLElement
+  await screen.findByText("first@example.test")
+  expect(screen.getAllByRole("heading", {name: "appian.com"})).toHaveLength(2)
+  fireEvent.click(within(row("first@example.test")).getByRole("button", {name: "Pin appian.com"}))
+  await waitFor(() => expect(within(row("first@example.test")).getByRole("button", {name: "Unpin appian.com"})).toBeTruthy())
+  expect(within(row("second@example.test")).getByRole("button", {name: "Pin appian.com"})).toBeTruthy()
+  fireEvent.click(within(row("first@example.test")).getByRole("button", {name: "Remove appian.com"}))
+  await waitFor(() => expect(screen.queryByText("first@example.test")).toBeNull())
+  expect(screen.getByText("second@example.test")).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", {name: "Removed processes (1)"}))
+  expect(screen.getByText("appian.com · first@example.test")).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", {name: "Restore appian.com"}))
+  expect(await screen.findByText("first@example.test")).toBeTruthy()
+  expect(screen.getAllByRole("heading", {name: "appian.com"})).toHaveLength(2)
 })

@@ -147,11 +147,13 @@ class ProcessCreateBody(BaseModel):
 
 
 class ProcessPinBody(BaseModel):
+    account_id: int | None = Field(default=None, ge=1)
     organization: str | None = Field(default=None, max_length=253)
     pinned: bool
 
 
 class ProcessRemovalBody(BaseModel):
+    account_id: int | None = Field(default=None, ge=1)
     organization: str | None = Field(default=None, max_length=253)
     removed: bool
 
@@ -705,7 +707,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def api_process_pin(body: ProcessPinBody):
         try:
             with db.session() as conn:
-                interview_processes.set_pin(conn, body.organization, body.pinned)
+                interview_processes.set_pin(conn, body.organization, body.pinned, account_id=body.account_id)
             return {"ok": True}
         except ValueError as exc:
             return _err(str(exc))
@@ -714,7 +716,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def api_process_remove(body: ProcessRemovalBody):
         try:
             with db.session() as conn:
-                interview_processes.set_removed(conn, body.organization, body.removed)
+                interview_processes.set_removed(conn, body.organization, body.removed, account_id=body.account_id)
             return {"ok": True}
         except ValueError as exc:
             return _err(str(exc))

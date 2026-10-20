@@ -1,4 +1,4 @@
-"""Manual name matching and domain-based timelines from saved events and mail."""
+"""Account-specific timelines from saved events and company-matched mail."""
 from __future__ import annotations
 
 import re
@@ -12,6 +12,14 @@ from .normalize import _html_to_text
 SERVICE_DOMAINS = ("google.com", "teams.microsoft.com", "teams.live.com", "teams.com", "zoom.us", "zoom.com")
 DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS interview_account_process_state (
+    organization TEXT NOT NULL,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    pinned INTEGER,
+    removed INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(organization,account_id)
+);
 CREATE TABLE IF NOT EXISTS interview_manual_processes (
     organization TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
@@ -53,25 +61,40 @@ def _organization_key(conn, organization: str | None) -> str:
     return key
 
 
-def set_pin(conn, organization: str | None, pinned: bool) -> None:
+def set_pin(conn, organization: str | None, pinned: bool, *, account_id: int | None = None) -> None:
     key = _organization_key(conn, organization)
+    if account_id is not None:
+        _set_account_state(conn, key, account_id, "pinned", pinned)
+        return
     if pinned:
         conn.execute("INSERT INTO interview_process_pins(organization,pinned_at) VALUES(?,?) ON CONFLICT(organization) DO NOTHING", (key, db._now()))
     else:
         conn.execute("DELETE FROM interview_process_pins WHERE organization=?", (key,))
 
 
-def set_removed(conn, organization: str | None, removed: bool) -> None:
+def set_removed(conn, organization: str | None, removed: bool, *, account_id: int | None = None) -> None:
     key = _organization_key(conn, organization)
+    if account_id is not None:
+        _set_account_state(conn, key, account_id, "removed", removed)
+        return
     if removed:
         conn.execute("INSERT INTO interview_process_removals(organization,removed_at) VALUES(?,?) ON CONFLICT(organization) DO NOTHING", (key, db._now()))
     else:
         conn.execute("DELETE FROM interview_process_removals WHERE organization=?", (key,))
 
 
+def _set_account_state(conn, key: str, account_id: int, field: str, value: bool) -> None:
+    if not conn.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone():
+        raise ValueError("Account not found")
+    conn.execute(f"INSERT INTO interview_account_process_state(organization,account_id,{field},updated_at) VALUES(?,?,?,?) ON CONFLICT(organization,account_id) DO UPDATE SET {field}=excluded.{field},updated_at=excluded.updated_at", (key, account_id, value, db._now()))
+
+
 def list_removed(conn) -> list[dict]:
-    return [{"organization": row["name"] or row["organization"] or None, "removed_at": row["removed_at"]}
-            for row in conn.execute("SELECT r.*,m.name FROM interview_process_removals r LEFT JOIN interview_manual_processes m USING(organization) ORDER BY removed_at DESC,organization")]
+    result = [{"organization": row["name"] or row["organization"] or None, "account_id": None, "account_emails": [], "removed_at": row["removed_at"]}
+              for row in conn.execute("SELECT r.*,m.name FROM interview_process_removals r LEFT JOIN interview_manual_processes m USING(organization) ORDER BY removed_at DESC,organization")]
+    result.extend({"organization": row["name"] or row["organization"] or None, "account_id": row["account_id"], "account_emails": [row["email"]], "removed_at": row["updated_at"]}
+                  for row in conn.execute("SELECT s.*,a.email,m.name FROM interview_account_process_state s JOIN accounts a ON a.id=s.account_id LEFT JOIN interview_manual_processes m USING(organization) WHERE s.removed=1 AND a.enabled=1 ORDER BY s.updated_at DESC,s.organization,s.account_id"))
+    return result
 
 
 def _preview_summary(value: str | None) -> str:
@@ -110,20 +133,26 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     """Existing and newly collected events share groups without duplicate storage."""
     now = now or datetime.now(timezone.utc)
     own = {account.email for account in db.list_accounts(conn)}
-    groups: dict[str | None, dict] = {}
+    accounts = {account.id: account for account in db.list_accounts(conn, only_enabled=True)}
+    groups: dict[tuple[str | None, int | None], dict] = {}
     pins = {row[0] for row in conn.execute("SELECT organization FROM interview_process_pins")}
     removed = {row[0] for row in conn.execute("SELECT organization FROM interview_process_removals")}
     manual = {row["organization"]: row["name"] for row in conn.execute("SELECT organization,name FROM interview_manual_processes")}
-    def group_for(key):
-        return groups.setdefault(key, {"organization": manual.get(key, key), "events": [], "milestones": [], "account_emails": set(), "message_count": 0, "pinned": (key or "") in pins})
-    for key in manual:
-        if key not in removed:
-            group_for(key)
-    labels: dict[int, list[str]] = {}
-    emails: dict[int, set[str]] = {}
-    for source in conn.execute("SELECT DISTINCT s.event_id,a.label,a.email FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
-        labels.setdefault(source["event_id"], []).append(source["label"])
-        emails.setdefault(source["event_id"], set()).add(source["email"])
+    hidden_manual: set[str | None] = set()
+    states = {(row["organization"], row["account_id"]): dict(row) for row in conn.execute("SELECT * FROM interview_account_process_state")}
+    def is_removed(key, account_id):
+        value = states.get((key or "", account_id), {}).get("removed")
+        return bool(value) if value is not None else (key or "") in removed
+    def group_for(key, account_id):
+        pinned = states.get((key or "", account_id), {}).get("pinned")
+        return groups.setdefault((key, account_id), {
+            "id": f"{account_id}:{key or ''}", "account_id": account_id,
+            "organization": manual.get(key, key), "events": [], "milestones": [],
+            "account_emails": [accounts[account_id].email] if account_id is not None else [],
+            "message_count": 0, "pinned": bool(pinned) if pinned is not None else (key or "") in pins})
+    sources: dict[int, set[int]] = {}
+    for source in conn.execute("SELECT DISTINCT s.event_id,s.account_id FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1"):
+        sources.setdefault(source["event_id"], set()).add(source["account_id"])
     for event in interviews.list_events(conn, now=now):
         # Match the Interview page's calendar evidence boundary.
         if event["extraction_rank"] < 2 or not event["start_at"]:
@@ -134,28 +163,29 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             ("company", "role", "stage", "notes", "organizer_email", "participants", "location")))
         if matches:
             organization = matches[0] if len(matches) == 1 else None
-        if (organization or "") in removed:
-            continue
         event["organization_domains"] = domains
         event["assignment_reason"] = "Multiple matching manual processes" if len(matches) > 1 else None if organization else "Multiple organization domains" if domains else "No eligible organization domain"
-        event["account_labels"] = labels.get(event["id"], [])
-        group = group_for(organization)
-        group["account_emails"].update(emails.get(event["id"], set()))
-        group["events"].append(event)
-        group["milestones"].append({
-            "id": f"event:{event['id']}", "kind": "event", "occurred_at": event["start_at"],
-            "title": event["company"] or event["stage"], "summary": _preview_summary(event["notes"]),
-            "status": event["display_status"], "sender": event["organizer_email"],
-            "account_labels": event["account_labels"], "href": f"/interviews?event={event['id']}",
-            "organization_domains": domains, "assignment_reason": event["assignment_reason"],
-        })
+        for account_id in sorted(sources.get(event["id"], set())):
+            if is_removed(organization, account_id):
+                hidden_manual.add(organization)
+                continue
+            event = {**event, "account_labels": [accounts[account_id].label]}
+            group = group_for(organization, account_id)
+            group["events"].append(event)
+            group["milestones"].append({
+                "id": f"event:{event['id']}", "kind": "event", "occurred_at": event["start_at"],
+                "title": event["company"] or event["stage"], "summary": _preview_summary(event["notes"]),
+                "status": event["display_status"], "sender": event["organizer_email"],
+                "account_labels": event["account_labels"], "href": f"/interviews?event={event['id']}",
+                "organization_domains": domains, "assignment_reason": event["assignment_reason"],
+            })
 
     # Manual names can match saved mail without a calendar event. Domain-only
     # mail still requires an established calendar group. No provider/model calls.
     messages = conn.execute("""SELECT m.id,m.from_addr,m.from_name,m.subject,m.body_text,m.snippet,c.summary AS classification_summary,
         COALESCE(m.date_utc,m.fetched_at) AS occurred_at,
         COALESCE(NULLIF(c.summary,''),NULLIF(m.snippet,''),m.body_text,'') AS summary,
-        m.provider_url,a.label,a.email,c.category
+        m.provider_url,a.label,a.email,a.id AS account_id,c.category
         FROM messages m JOIN accounts a ON a.id=m.account_id AND a.enabled=1
         LEFT JOIN classifications c ON c.id=(SELECT id FROM classifications
             WHERE message_pk=m.id ORDER BY created_at DESC,id DESC LIMIT 1)
@@ -166,17 +196,18 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         matches = _manual_matches(manual, " ".join(str(message[field] or "") for field in
             ("from_addr", "from_name", "subject", "body_text", "snippet", "classification_summary")))
         organization = matches[0] if len(matches) == 1 else None if matches else domains[0] if len(domains) == 1 else None
-        if (organization or "") in removed:
+        account_id = message["account_id"]
+        if is_removed(organization, account_id):
+            hidden_manual.add(organization)
             continue
-        if not matches and (organization is None or organization not in groups):
+        if not matches and (organization is None or (organization, account_id) not in groups):
             continue
         try:
             occurred_at = _instant(message["occurred_at"]).isoformat()
         except (TypeError, ValueError):
             continue
-        group = group_for(organization)
+        group = group_for(organization, account_id)
         group["message_count"] += 1
-        group["account_emails"].add(message["email"])
         group["milestones"].append({
             "id": f"message:{message['id']}", "kind": "message", "occurred_at": occurred_at,
             "title": message["subject"] or "(No subject)", "summary": _preview_summary(message["summary"]),
@@ -185,10 +216,12 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             "organization_domains": domains, "assignment_reason": "Multiple matching manual processes" if len(matches) > 1 else None,
         })
 
+    for key in manual:
+        if key not in removed and key not in hidden_manual and not any(organization == key for organization, _ in groups):
+            group_for(key, None)
     result = []
-    for key in sorted(groups, key=lambda value: (value is None, value or "")):
-        group = groups[key]
-        group["account_emails"] = sorted(group["account_emails"], key=str.casefold)
+    for key, account_id in sorted(groups, key=lambda value: (value[0] is None, value[0] or "", value[1] or 0)):
+        group = groups[(key, account_id)]
         group["events"].sort(key=lambda event: (datetime.fromisoformat(event["start_at"].replace("Z", "+00:00")), event["id"]))
         group["event_count"] = len(group["events"])
         # A process starts with its first calendar event, never earlier mail.

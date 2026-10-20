@@ -35,6 +35,79 @@ class ProcessCollectionTests(unittest.TestCase):
     source = calendar_fixtures.NativeCalendarTests.source
     collect = calendar_fixtures.NativeCalendarTests.collect
 
+    def test_same_company_has_separate_timelines_and_mail_per_account(self):
+        from mailcheck import interview_processes as processes
+        self.conn.execute("UPDATE accounts SET provider='outlook'")
+        def booking(identity):
+            return calendar_fixtures.event(identity, attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
+        self.collect(self.source([booking("work-round")]), label="work")
+        self.collect(self.source([booking("personal-round")]), label="personal")
+        for account_id, label in ((self.a, "work"), (self.b, "personal")):
+            db.upsert_message(self.conn, NormalizedMessage(
+                account_id=account_id, account_label=label, message_id=label, uid=label,
+                folder="INBOX", from_addr="hr@appian.com", from_name="Recruiter",
+                subject=label + " follow-up", date_utc=datetime(2026, 10, 19, tzinfo=timezone.utc), body="Details"))
+        report = processes.list_processes(self.conn)
+        self.assertEqual(len(report), 2)
+        self.assertEqual({p["account_id"] for p in report}, {self.a, self.b})
+        self.assertEqual(len({p["id"] for p in report}), 2)
+        for process in report:
+            label = "work" if process["account_id"] == self.a else "personal"
+            self.assertEqual(process["organization"], "appian.com")
+            self.assertEqual(process["account_emails"], [label + "@example.test"])
+            self.assertEqual(process["event_count"], 1)
+            self.assertEqual(process["message_count"], 1)
+            self.assertEqual(process["milestones"][1]["title"], label + " follow-up")
+        processes.set_pin(self.conn, "appian.com", True, account_id=self.a)
+        processes.set_removed(self.conn, "appian.com", True, account_id=self.b)
+        remaining = processes.list_processes(self.conn)
+        self.assertEqual([p["account_id"] for p in remaining], [self.a])
+        self.assertTrue(remaining[0]["pinned"])
+        self.assertEqual(processes.list_removed(self.conn)[0]["account_id"], self.b)
+        processes.set_removed(self.conn, "appian.com", False, account_id=self.b)
+        self.assertFalse(next(p for p in processes.list_processes(self.conn) if p["account_id"] == self.b)["pinned"])
+
+    def test_shared_calendar_event_is_projected_into_each_source_account(self):
+        from mailcheck import interview_processes as processes
+        self.conn.execute("UPDATE accounts SET provider='outlook'")
+        booking = calendar_fixtures.event("shared", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
+        self.collect(self.source([booking]), label="work")
+        self.collect(self.source([booking]), label="personal")
+        report = processes.list_processes(self.conn)
+        self.assertEqual(len(report), 2)
+        self.assertEqual({tuple(p["account_emails"]) for p in report}, {("work@example.test",), ("personal@example.test",)})
+        self.assertTrue(all(len(p["milestones"][0]["account_labels"]) == 1 for p in report))
+        self.conn.execute("UPDATE accounts SET enabled=0 WHERE id=?", (self.b,))
+        self.assertEqual([p["account_id"] for p in processes.list_processes(self.conn)], [self.a])
+
+    def test_account_state_survives_upgrade_and_reopening(self):
+        from mailcheck import interview_processes as processes
+        self.collect(self.source([calendar_fixtures.event("upgrade-account", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        processes.set_pin(self.conn, "appian.com", True)
+        self.conn.execute("DROP TABLE interview_account_process_state")
+        self.conn.execute("PRAGMA user_version=20")
+        self.conn.commit()
+        with db.session(self.path) as conn:
+            self.assertTrue(processes.list_processes(conn)[0]["pinned"])
+            processes.set_pin(conn, "appian.com", False, account_id=self.a)
+            processes.set_removed(conn, "appian.com", True, account_id=self.a)
+        with db.session(self.path) as conn:
+            self.assertEqual(processes.list_processes(conn), [])
+            processes.set_removed(conn, "appian.com", False, account_id=self.a)
+            self.assertFalse(processes.list_processes(conn)[0]["pinned"])
+            self.assertEqual(processes.list_processes(conn)[0]["event_count"], 1)
+
+    def test_removing_all_account_matches_does_not_recreate_empty_manual_process(self):
+        from mailcheck import interview_processes as processes
+        processes.create_process(self.conn, "Appian")
+        booking = calendar_fixtures.event("manual-account")
+        booking["subject"] = "Appian interview"
+        self.collect(self.source([booking]))
+        processes.set_removed(self.conn, "Appian", True, account_id=self.a)
+        self.assertEqual(processes.list_processes(self.conn), [])
+        processes.set_removed(self.conn, "Appian", False, account_id=self.a)
+        self.assertEqual(processes.list_processes(self.conn)[0]["account_id"], self.a)
+
     def test_process_starts_at_first_calendar_event_and_waits_for_one_if_manual(self):
         from mailcheck import interview_processes as processes
         processes.create_process(self.conn, "Appian")
