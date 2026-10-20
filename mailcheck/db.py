@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -186,6 +186,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("runs", "llm_timeouts", "INTEGER DEFAULT 0"),
     ("runs", "llm_busy_responses", "INTEGER DEFAULT 0"),
     ("runs", "llm_retries", "INTEGER DEFAULT 0"),
+    ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

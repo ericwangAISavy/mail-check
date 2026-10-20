@@ -614,3 +614,5 @@
     margin-left: 0;
   }
 }
+
+.sourcing-check { width: 15px; height: 15px; margin: 5px auto; display: block; accent-color: var(--primary); cursor: pointer; }

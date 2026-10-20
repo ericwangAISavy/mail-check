@@ -14,7 +14,7 @@ it("shows daily and weekly totals to guests without management or payment contro
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Not recorded"])
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Not recorded"])
   expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
@@ -87,4 +87,15 @@ it("keeps the editor open and shows a rejected change beside the rule", async ()
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
   await screen.findByText("This change would affect a week with a recorded payment")
   expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy()
+})
+
+it("shows received confirmations alongside checked sourcing links", async () => {
+  const report = data() as any
+  report.bidders[0].daily[0] = 112
+  report.bidders[0].checked_daily = [60,0,0,0,0,0,0]
+  vi.mocked(request).mockResolvedValue(report)
+  mount(true)
+  const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
+  expect(within(row).getByText("112 / 60")).toBeTruthy()
+  expect(screen.getByText(/Received confirmations \/ checked sourcing links/)).toBeTruthy()
 })

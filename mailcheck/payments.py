@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS bidder_assignments (
 CREATE INDEX IF NOT EXISTS idx_bidder_assignments_account ON bidder_assignments(account_id, start_date);
 CREATE TABLE IF NOT EXISTS application_receipts (
  account_id INTEGER NOT NULL, message_id TEXT NOT NULL, received_at TEXT NOT NULL,
- category TEXT NOT NULL, PRIMARY KEY(account_id, message_id)
+ category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', PRIMARY KEY(account_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_week ON application_receipts(category, julianday(received_at));
 CREATE TABLE IF NOT EXISTS bidder_payments (
@@ -65,16 +65,16 @@ class PayBody(BaseModel):
 
 
 def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None) -> None:
-    """Upsert latest classifications; no email content enters the accounting ledger."""
+    """Upsert receipt metadata, including company; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
-    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category)
-        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category
+    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company)
+        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,'')
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category = 'application_ack' OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
         """ + (" AND m.id=? " if message_pk is not None else "") + """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category""", (message_pk,) if message_pk is not None else ())
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company""", (message_pk,) if message_pk is not None else ())
 
 
 def monday(value: date) -> date:
@@ -103,6 +103,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         counts[key] = counts.get(key, 0) + 1
     assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE (? IS NULL OR bidder_id=?) ORDER BY start_date,id", (bidder_id,bidder_id))]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
+    from .sourcing_verification import checked_counts
+    checked = checked_counts(conn, start.isoformat(), end.isoformat())
     bidders = []
     for row in conn.execute("SELECT * FROM bidders WHERE (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
@@ -111,10 +113,12 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         total = sum(daily)
         bidders.append({"id": row["id"], "name": row["name"],
             "assignments": assigned, "daily": daily, "total": total,
+            "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
         "daily": [sum(b["daily"][i] for b in bidders) for i in range(7)],
+        "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
         "unassigned": sum(counts.values()) - sum(b["total"] for b in bidders) if admin else 0,
         "accounts": [{"id": a["id"], "label": a["label"]} for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")] if admin else []}
 

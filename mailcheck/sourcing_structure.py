@@ -88,6 +88,10 @@ def structure(conn, tab, operation, revision, command):
                 scope = sheets.date_scope(command.get("work_date", ""))
                 if scope == "all":
                     raise ValueError("Choose a date or Undated.")
+                for row_id in set(ids):
+                    conn.execute("""UPDATE native_cells SET value='false',version=version+1 WHERE row_id=? AND value='true'
+                        AND column_id=(SELECT id FROM native_columns WHERE tab_id=? AND kind='check')
+                        AND EXISTS(SELECT 1 FROM native_rows WHERE id=? AND work_date IS NOT ?)""", (row_id, tab["id"], row_id, scope))
                 conn.executemany(
                     "UPDATE native_rows SET work_date=? WHERE id=?",
                     [(scope, key) for key in set(ids)],
@@ -113,6 +117,8 @@ def structure(conn, tab, operation, revision, command):
                 ).fetchone()
                 if not column:
                     raise ValueError("Choose a column from this sheet.")
+                if column["kind"] == "check" and action == "rename_column":
+                    raise ValueError("The Check column keeps its name.")
                 if action == "delete_column":
                     if column["kind"]:
                         raise ValueError(
@@ -173,6 +179,10 @@ def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
         for value in row
     ):
         raise ValueError("Each cell must be text with at most 50,000 characters.")
+    rows = [row for row in rows if any(value.strip() for value in row)]
+    if not rows:
+        sheets.compact_blank_rows(conn, tab["id"])
+        return
     last = conn.execute(
         "SELECT MAX(r.position) FROM native_rows r JOIN native_cells c ON c.row_id=r.id WHERE r.tab_id=? AND c.value!=''",
         (tab["id"],),
@@ -190,6 +200,8 @@ def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
             if value
         ],
     )
+
+    sheets.compact_blank_rows(conn, tab["id"])
 
 
 def append(conn, tab, operation, revision, rows, *, work_date="all"):

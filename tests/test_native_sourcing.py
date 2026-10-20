@@ -40,6 +40,43 @@ class NativeSheetTests(unittest.TestCase):
             "value": value,
         }
 
+    def test_tabs_use_account_names_and_have_a_compact_check_column(self):
+        base = self.snapshot()
+        label = self.conn.execute("SELECT label FROM accounts WHERE id=?", (self.account_id,)).fetchone()[0]
+        self.assertEqual(base["title"], label)
+        self.assertEqual([c["kind"] for c in base["columns"][:4]], ["company", "role", "link", "check"])
+        self.assertEqual(base["columns"][3]["title"], "Check")
+        self.assertLessEqual(base["columns"][3]["width"], 80)
+
+    def test_blank_pasted_rows_are_not_stored_between_jobs(self):
+        base = self.snapshot()
+        result = self.native.append(self.conn, self.tab(), "blank-append", base["revision"],
+            [["Acme", "Engineer", "https://jobs.test/1"], ["", "  ", ""],
+             ["Beta", "Engineer", "https://jobs.test/2"], ["", "", ""]], work_date="2026-10-20")
+        jobs = [r for r in result["rows"][1:] if any(str(c["value"]).strip() for c in r)]
+        self.assertEqual([r[0]["value"] for r in jobs], ["Acme", "Beta"])
+        self.assertEqual(len(result["row_ids"]), 4)  # header, two jobs, one input row
+        self.assertEqual(result["row_dates"][1:3], ["2026-10-20", "2026-10-20"])
+
+    def test_existing_sheet_upgrade_keeps_cells_and_adds_check_after_job_link(self):
+        self.native.save(self.conn, self.tab(), "original", [self.change("Acme")])
+        old = self.snapshot()
+        self.conn.execute("DELETE FROM native_columns WHERE tab_id=? AND kind='check'", (self.tab_id,))
+        self.conn.execute("UPDATE native_tabs SET title='Custom name' WHERE id=?", (self.tab_id,))
+        self.conn.execute("ALTER TABLE application_receipts DROP COLUMN company")
+        self.conn.execute("PRAGMA user_version=21")
+        self.conn.commit()
+        from mailcheck import db
+        with db.session(self.path) as conn:
+            tab = self.native.owned(conn, self.tab_id, self.principal)
+            migrated = self.native.snapshot(conn, tab)
+            self.assertEqual(migrated["row_ids"], old["row_ids"])
+            self.assertEqual(migrated["rows"][1][0]["value"], "Acme")
+            self.assertEqual([col["id"] for col in migrated["columns"][:3]], [col["id"] for col in old["columns"][:3]])
+            self.assertEqual(migrated["columns"][3]["kind"], "check")
+            self.assertEqual(migrated["title"], "personal")
+            self.assertIn("company", [row["name"] for row in conn.execute("PRAGMA table_info(application_receipts)")])
+
     def test_native_sheet_saves_literal_values_and_retries_without_duplication(self):
         self.assertEqual(self.snapshot()["rows"][0][0]["display"], "Company")
         changes = [self.change("=literal")]
@@ -189,7 +226,7 @@ class NativeSheetTests(unittest.TestCase):
             added["revision"],
             {"action": "delete_column", "column_id": added["columns"][-1]["id"]},
         )
-        self.assertEqual(len(self.snapshot()["columns"]), 3)
+        self.assertEqual(len(self.snapshot()["columns"]), 4)
 
     def test_csv_replacement_is_checked_and_export_is_literal(self):
         from mailcheck import sourcing_csv
@@ -289,7 +326,7 @@ class NativeSheetTests(unittest.TestCase):
             mode="replace",
             has_header=True,
         )
-        self.assertEqual(len(result["rows"]), 2001)
+        self.assertEqual(len(result["rows"]), 2002)  # includes one trailing input row
         self.assertEqual(result["rows"][2000][0]["value"], "Company 1999")
 
     def test_dated_save_claims_blank_rows_and_prevents_cross_day_edits(self):

@@ -20,6 +20,17 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
    optional reference, then select **Record as paid**. Amounts are entered manually;
    there is no rate-per-application calculation or money transfer.
 
+## Daily comparison
+
+Daily cells show **received confirmations / checked sourcing links**, for example
+**112 / 60**. The first number follows the receipt rules below. The second counts
+checked rows with a job link on that bidder's account tabs and work date; the account
+must have been assigned to that bidder on that date. Archived sheets retain their
+historical checked counts. Use **Check applications** on a dated sourcing tab to
+compare company and account against confirmations received during that Chicago day.
+Checkboxes may also be edited manually. Weekly totals and recorded payment counts
+continue to use received confirmations.
+
 ## Counting rules
 
 - Only the latest `application_ack` classification (displayed as **Application
@@ -42,7 +53,7 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 ## History and payment integrity
 
 A separate ledger stores account/message identities, received timestamps, and
-categories. No email content enters the accounting ledger. Entries survive normal
+categories and extracted company names. Email bodies are not stored in the ledger. Entries survive normal
 email retention cleanup and account removal. New accounts cannot reuse an accounting
 account identity. Existing retained classifications populate the ledger automatically.
 Emails already removed before this feature was installed cannot be recovered by it.

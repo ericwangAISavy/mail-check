@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { operationId } from "@/lib/operation-id";
 import {
   useCallback,
@@ -90,6 +91,8 @@ export default function SourcingEditor({
     [appendOpen, setAppendOpen] = useState(false),
     [appendText, setAppendText] = useState(""),
     [typing, setTyping] = useState(false);
+  const client = useQueryClient();
+  const compactAfterPaste = useRef(false);
   const [day, setDay] = useState(initialDay || chicagoDay());
   const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
   const [headerDraft, setHeaderDraft] = useState<{
@@ -235,6 +238,7 @@ export default function SourcingEditor({
           }
           setSnapshot(result);
           setChanges([]);
+          compactAfterPaste.current = false;
           if (structural) setView(defaultView);
           lastAction.current = null;
           saveOperation.current = null;
@@ -264,6 +268,7 @@ export default function SourcingEditor({
         operation: saveOperation.current.id,
         changes,
         work_date: day,
+        ...(compactAfterPaste.current ? {compact_rows: true} : {}),
       };
       await execute(
         () => api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/save`, payload),
@@ -462,9 +467,10 @@ export default function SourcingEditor({
     link.click();
     URL.revokeObjectURL(url);
   };
-  const appendJobs = async () => {
-    if (!snapshot || !appendText) return;
-    const rows = parseTSV(appendText);
+  const appendJobs = async (pastedRows?: string[][]) => {
+    if (!snapshot || (!appendText && !pastedRows)) return;
+    const rows = (pastedRows || parseTSV(appendText)).filter(row => row.some(value => value.trim()));
+    if (!rows.length) return;
     if (rows.reduce((n, r) => n + r.length, 0) > 10000) {
       setError("Append up to 10,000 cells at a time.");
       return;
@@ -486,6 +492,15 @@ export default function SourcingEditor({
       }
       return result;
     }, true);
+  };
+  const checkApplications = async () => {
+    if (!snapshot || day === "undated" || day === "all" || dirty || locked || typingRef.current) return;
+    const payload = {operation: operationId(), revision: snapshot.revision, work_date: day};
+    await execute(async () => {
+      const result = await api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/verify`, payload);
+      void client.invalidateQueries({queryKey: ["payments"]});
+      return result;
+    });
   };
   const focusRow =
     highlightId && snapshot
@@ -741,6 +756,12 @@ export default function SourcingEditor({
             <Filter size={16} />
           </Button>
         </div>
+        <Button variant="outline" size="sm" disabled={locked || dirty || loading || !snapshot || day === "undated" || day === "all"}
+          title="Compare company and account with confirmations received on the selected day, midnight to midnight in America/Chicago"
+          onClick={() => void checkApplications()}><Check size={14} />Check applications</Button>
+        {snapshot?.verification && snapshot.verification.day === day && <span className="sheet-verification-result" role="status">
+          {snapshot.verification.checked} links checked · {day} · Chicago
+        </span>}
         <span className="sheet-toolbar-spacer" />
         <span className="sheet-save-status" role="status">
           {saving ? (
@@ -919,6 +940,8 @@ export default function SourcingEditor({
           onEditingChange={setTyping}
           onHeaderChange={(col, title) => void renameHeader(col, title)}
           headersEditable={!changes.length}
+          onPaste={() => {compactAfterPaste.current = true}}
+          onAppendRows={rows => void appendJobs(rows)}
         />
       ) : (
         <div className="sourcing-empty">

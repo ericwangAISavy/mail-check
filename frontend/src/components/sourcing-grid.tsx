@@ -32,6 +32,8 @@ export function SheetGrid({
   onEditingChange,
   onHeaderChange,
   headersEditable = true,
+  onPaste,
+  onAppendRows,
 }: {
   snapshot: Snapshot;
   headerRow?: number;
@@ -45,6 +47,8 @@ export function SheetGrid({
   onEditingChange?: (active: boolean) => void;
   onHeaderChange?: (col: number, title: string) => void;
   headersEditable?: boolean;
+  onPaste?: () => void;
+  onAppendRows?: (rows: string[][]) => void;
 }) {
   const grid = useRef<DataGridHandle>(null),
     anchor = useRef({ row: 1, col: 0 }),
@@ -155,7 +159,7 @@ export function SheetGrid({
       width: definition.width || 220,
       resizable: !disabled,
       editable: (row) =>
-        !disabled && (row.id > 0 || (!!onHeaderChange && headersEditable)),
+        !disabled && definition.kind !== "check" && (row.id > 0 || (!!onHeaderChange && headersEditable)),
       renderEditCell: (props) => (
         <NativeCellEditor {...props} onEditingChange={onEditingChange} />
       ),
@@ -175,6 +179,12 @@ export function SheetGrid({
           change = drafts.get(`${row.id}:${c}`),
           style = normalStyle({ ...cell?.style, ...change?.style }),
           text = String(row[String(c)]);
+        if (definition.kind === "check" && row.id > 0) return <input
+          type="checkbox" aria-label={`Check row ${indices.get(row.id) ?? row.id}`}
+          className="sourcing-check" checked={text === "true"} disabled={disabled || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
+          onClick={event => event.stopPropagation()}
+          onChange={event => apply([{row: row.id, col: c, value: String(event.target.checked)}])}
+        />;
         return (
           <span
             className={`native-cell-content ${style.wrap ? "is-wrapped" : ""}`}
@@ -323,10 +333,17 @@ export function SheetGrid({
             );
             return row;
           }
-          const matrix = parseTSV(event.clipboardData.getData("text/plain")),
+          const matrix = parseTSV(event.clipboardData.getData("text/plain")).filter(values => values.some(value => value.trim())),
             start = indices.get(row.id) ?? 0;
           if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {
             window.alert("Paste up to 10,000 cells at a time.");
+            return row;
+          }
+          if (!matrix.length) return row;
+          if (matrix.length + start > rows.length && Number(column.key) === 0 &&
+              snapshot.columns.every((_, c) => !String(row[String(c)] ?? "").trim()) && onAppendRows) {
+            if (changes.length) {window.alert("Save current edits before appending pasted rows."); return row;}
+            onAppendRows(matrix);
             return row;
           }
           if (
@@ -348,6 +365,7 @@ export function SheetGrid({
               }),
             ),
           );
+          onPaste?.();
           apply(values);
           return row;
         }}

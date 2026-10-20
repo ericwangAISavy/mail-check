@@ -88,6 +88,18 @@ class SourcingTests(unittest.TestCase):
             self.client.get("/api/sourcing/search?q=Acme").json()["results"], []
         )
 
+    def test_verification_is_revision_checked_and_owned(self):
+        tab = self.setup_tab()
+        body = {"operation": "00000000-0000-0000-0000-000000000010", "revision": "1", "work_date": "2026-10-20"}
+        response = self.client.post(f"/api/sourcing/tabs/{tab}/verify", json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["verification"]["day"], "2026-10-20")
+        self.assertEqual(self.client.post(f"/api/sourcing/tabs/{tab}/verify", json=body).status_code, 200)
+        stale = {**body, "operation": "00000000-0000-0000-0000-000000000011"}
+        self.assertEqual(self.client.post(f"/api/sourcing/tabs/{tab}/verify", json=stale).status_code, 409)
+        sign_in_bidder(self.client, 2)
+        self.assertEqual(self.client.post(f"/api/sourcing/tabs/{tab}/verify", json=body).status_code, 404)
+
     def test_structure_conflicts_and_server_format_validation(self):
         tab = self.setup_tab()
         result = self.client.post(

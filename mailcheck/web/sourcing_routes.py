@@ -50,6 +50,7 @@ class Operation(BaseModel):
 
 
 class Save(Operation):
+    compact_rows: bool = False
     changes: list[Change] = Field(min_length=1, max_length=10_000)
 
 
@@ -135,7 +136,7 @@ def install(app, frontend_page, secure_cookies):
                 book["tabs"] = [
                     {**dict(r), "header_row": 1}
                     for r in conn.execute(
-                        "SELECT id,account_id,account_label,title,updated_at AS refreshed_at,archived FROM native_tabs WHERE book_id=? AND (? OR archived=0) ORDER BY id",
+                        "SELECT t.id,t.account_id,t.account_label,COALESCE(a.label,t.title) AS title,t.updated_at AS refreshed_at,t.archived FROM native_tabs t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.book_id=? AND (? OR t.archived=0) ORDER BY t.id",
                         (book["id"], is_admin),
                     )
                 ]
@@ -227,6 +228,7 @@ def install(app, frontend_page, secure_cookies):
                 str(body.operation),
                 [c.model_dump(exclude_none=True) for c in body.changes],
                 work_date=body.work_date,
+                compact_rows=body.compact_rows,
             ),
         )
 
@@ -247,6 +249,12 @@ def install(app, frontend_page, secure_cookies):
                 ),
             ),
         )
+
+    @router.post("/api/sourcing/tabs/{tab_id}/verify")
+    def verify(tab_id: int, body: Versioned, req: Request):
+        from .. import sourcing_verification
+        return mutation(tab_id, req, lambda conn, tab: sourcing_verification.verify(
+            conn, tab, str(body.operation), body.revision, body.work_date))
 
     @router.post("/api/sourcing/tabs/{tab_id}/append")
     def append(tab_id: int, body: Append, req: Request):
@@ -319,7 +327,7 @@ def install(app, frontend_page, secure_cookies):
                         [
                             *(str(c["value"]) for c in row),
                             tab["name"],
-                            tab["title"],
+                            data["title"],
                             tab["account_label"],
                         ]
                     ).casefold()
@@ -332,7 +340,7 @@ def install(app, frontend_page, secure_cookies):
                             {
                                 "tab_id": tab["id"],
                                 "bidder": tab["name"],
-                                "profile": tab["title"],
+                                "profile": data["title"],
                                 "account_id": tab["account_id"],
                                 "row": i,
                                 "row_id": data["row_ids"][i],

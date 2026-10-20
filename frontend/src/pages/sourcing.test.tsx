@@ -495,9 +495,25 @@ it("clears undo when switching job days", async () => {
     screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
   ).toBe(false);
   fireEvent.change(screen.getByLabelText("Job date"), {
-    target: { value: "2026-10-20" },
+    target: { value: (screen.getByLabelText("Job date") as HTMLInputElement).value === "2026-10-20" ? "2026-10-19" : "2026-10-20" },
   });
   expect(
     screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
   ).toBe(true);
 });
+
+it("checks applications for the selected day and displays the verified count", async () => {
+  const post = vi.spyOn(api, "post").mockResolvedValue({...snapshot, revision: "two", verification: {day: "2026-10-20", timezone: "America/Chicago", checked: 1}})
+  mount()
+  await screen.findByText("Saved")
+  fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}})
+  fireEvent.click(screen.getByRole("button", {name: "Check applications"}))
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/verify", expect.objectContaining({revision: "one", work_date: "2026-10-20"})))
+  expect(await screen.findByText("1 links checked · 2026-10-20 · Chicago")).toBeTruthy()
+})
+it("requires a dated sheet before checking applications", async () => {
+  mount()
+  await screen.findByText("Saved")
+  fireEvent.click(screen.getByRole("button", {name: /^Undated/}))
+  expect((screen.getByRole("button", {name: "Check applications"}) as HTMLButtonElement).disabled).toBe(true)
+})

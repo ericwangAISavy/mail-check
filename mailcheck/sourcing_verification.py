@@ -1,0 +1,68 @@
+"""Compare dated sourcing rows with saved application confirmations."""
+from datetime import date, datetime, timedelta, timezone
+import re
+import unicodedata
+from . import native_sourcing as sheets
+from .payments import ZONE, sync_receipts
+from .sourcing_structure import check_revision
+
+
+def company_key(value):
+    name = unicodedata.normalize("NFKC", value or "").casefold().strip()
+    name = re.sub(r"(?:[\s,]+)(?:incorporated|corporation|limited|inc|corp|llc|ltd)\.?$", "", name)
+    return "".join(char for char in name if char.isalnum())
+
+
+def verify(conn, tab, operation, revision, work_date):
+    day = sheets.date_scope(work_date)
+    if day in (None, "all"):
+        raise ValueError("Choose a job date before checking applications.")
+    if not tab["account_id"]:
+        raise ValueError("This sheet needs a connected account before checking applications.")
+    selected = date.fromisoformat(day)
+    lower = datetime.combine(selected, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+    upper = datetime.combine(selected + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+    payload = {"action": "verify", "revision": revision, "work_date": day}
+    with sheets.atomic(conn):
+        if not sheets.check_operation(conn, tab["id"], operation, payload):
+            check_revision(conn, tab["id"], revision)
+            sync_receipts(conn)
+            companies = {company_key(row["company"]) for row in conn.execute("""
+                SELECT company FROM application_receipts WHERE account_id=? AND category='application_ack'
+                AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)
+                """, (tab["account_id"], lower, upper))}
+            companies.discard("")
+            columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
+            if not all(kind in columns for kind in ("company", "link", "check")):
+                raise ValueError("The sheet needs Company, Job link and Check columns.")
+            for row in conn.execute("""SELECT r.id,company.value AS company,link.value AS link
+                FROM native_rows r LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=?
+                LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=?
+                WHERE r.tab_id=? AND r.work_date=?""", (columns["company"], columns["link"], tab["id"], day)).fetchall():
+                if not (row["company"] or "").strip() and not (row["link"] or "").strip():
+                    continue
+                checked = bool((row["link"] or "").strip() and company_key(row["company"]) in companies)
+                conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
+                    ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1""",
+                    (row["id"], columns["check"], str(checked).lower()))
+            sheets.record_operation(conn, tab["id"], operation, payload)
+        result = sheets.snapshot(conn, tab)
+        check = next(i for i, col in enumerate(result["columns"]) if col["kind"] == "check")
+        result["verification"] = {"day": day, "timezone": ZONE.key,
+            "checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1) if result["row_dates"][i] == day)}
+        return result
+
+
+def checked_counts(conn, start, end):
+    """Count job links once per saved row, attributed to its dated account assignment."""
+    return {(row["bidder_id"], row["work_date"]): row["count"] for row in conn.execute("""
+        SELECT b.bidder_id,r.work_date,COUNT(*) AS count FROM native_rows r
+        JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id
+        JOIN native_columns check_col ON check_col.tab_id=t.id AND check_col.kind='check'
+        JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id AND checked.value='true'
+        JOIN native_columns link_col ON link_col.tab_id=t.id AND link_col.kind='link'
+        JOIN native_cells link ON link.row_id=r.id AND link.column_id=link_col.id AND trim(link.value)!=''
+        WHERE r.work_date>=? AND r.work_date<=? AND EXISTS (
+            SELECT 1 FROM bidder_assignments a WHERE a.bidder_id=b.bidder_id AND a.account_id=t.account_id
+            AND a.start_date<=r.work_date AND (a.end_date IS NULL OR a.end_date>=r.work_date))
+        GROUP BY b.bidder_id,r.work_date""", (start, end))}

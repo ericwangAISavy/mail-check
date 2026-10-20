@@ -19,7 +19,7 @@ export default function SourcingDays({
 }) {
   const counts = new Map<string, number>();
   snapshot?.rows.slice(1).forEach((row, index) => {
-    if (row.some((cell) => String(cell.value))) {
+    if (row.some((cell, col) => snapshot.columns[col]?.kind !== "check" && String(cell.value).trim())) {
       const date = snapshot.row_dates?.[index + 1] || "undated";
       counts.set(date, (counts.get(date) || 0) + 1);
     }

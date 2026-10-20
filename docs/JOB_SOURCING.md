@@ -9,9 +9,11 @@ There is no Google account, OAuth configuration, API quota or synchronization se
 1. Create bidders and assign email/profile accounts on **Bidder payments**.
 2. As admin, open **Job sourcing → settings**. Select a bidder, name their workbook,
    and choose **Create workbook**.
-3. Expand that workbook, choose a currently assigned profile, name the sheet and
-   choose **Create profile sheet**. Repeat for each profile/bidder.
-4. Each sheet starts with Company, Role and Job link columns and 100 blank rows.
+3. Expand that workbook, choose a currently assigned account and select
+   **Create profile sheet**. Tabs use account names, including existing tabs;
+   custom tab names are no longer used. Repeat for each account/bidder.
+4. Each sheet starts with Company, Role, Job link and a compact Check column,
+   with blank input rows.
    Paste jobs straight into the grid or import a CSV file.
 
 Admins can read and edit every workbook. Bidders can read, copy, edit, search and
@@ -27,7 +29,8 @@ password. Share it privately. Bidders select **Bidder**, choose their name and e
 their password. No default bidder passwords are created. The key icon lets bidders
 change their own password with their current password. Admins can reset a password
 or disable sign-in; old sessions lose access. Bidder payment totals remain based on
-classified application-confirmation emails, independently of the job sheets.
+classified application-confirmation emails. The daily table also shows checked
+job-link counts from their sourcing sheets.
 
 ## Daily job lists
 
@@ -48,6 +51,25 @@ day and opens a match on its own day. Profile tabs and column titles are shared
 across all days. Switching days is blocked while edits or imports are pending;
 undo history clears on a day change so it cannot affect another day's jobs.
 
+## Check received applications
+
+Select the account tab and job date, wait for **Saved**, then click
+**Check applications**. For each job link on that tab and date, mail-check compares
+its company with saved **Application received** confirmations from the same account.
+Only confirmations received during that Chicago day count: midnight inclusive to
+the following midnight exclusive. Choose a date first; Undated rows cannot be checked.
+
+Company matching ignores case, punctuation and common legal suffixes. It does not
+use fuzzy similarity. Rechecking replaces that day's checks, including clearing rows
+that no longer match. Editing a checked company's name or link, or moving the row to
+another date, clears its check. Checkboxes can also be changed manually.
+
+On **Bidder payments**, daily cells show **received confirmations / checked sourcing
+links**. For example, **112 / 60** means 112 confirmations received for the bidder's
+assigned accounts and 60 checked job-link rows on their sourcing sheets for that day.
+The two counts can differ. Saved company metadata survives future mail cleanup;
+companies from messages already deleted before this upgrade cannot be recovered.
+
 ## Everyday spreadsheet editing
 
 - Double-click a column title to rename it directly; its Company/Role/Job link
@@ -65,8 +87,10 @@ undo history clears on a day change so it cannot affect another day's jobs.
 - Autosave waits 1.2 seconds after committed edits. Active typing is protected from
   refresh; earlier committed cells wait until editing finishes. Watch for Saved,
   Saving or an error. Clean sheets refresh every 15 seconds and on focus.
-- A rectangle must fit the current sheet. Add rows/columns or use CSV import if it
-  extends beyond the grid; the app rejects the entire paste instead of cropping it.
+- Entirely blank pasted/imported rows are removed automatically. One empty input
+  row remains after the last job. Pasting jobs into that empty row can append more
+  rows automatically. Other rectangular pastes must fit the existing grid; add
+  rows/columns or use CSV import when needed.
 - Limits: 101 columns, 100,000 rows per sheet; 10,000 cells per save, paste or import;
   50,000 characters per cell; CSV input up to 2 MB. Manual row insertion allows
   1–1,000 rows at a time; larger CSV imports can use the full cell budget.
