@@ -115,13 +115,15 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     removed = {row[0] for row in conn.execute("SELECT organization FROM interview_process_removals")}
     manual = {row["organization"]: row["name"] for row in conn.execute("SELECT organization,name FROM interview_manual_processes")}
     def group_for(key):
-        return groups.setdefault(key, {"organization": manual.get(key, key), "events": [], "milestones": [], "message_count": 0, "pinned": (key or "") in pins})
+        return groups.setdefault(key, {"organization": manual.get(key, key), "events": [], "milestones": [], "account_emails": set(), "message_count": 0, "pinned": (key or "") in pins})
     for key in manual:
         if key not in removed:
             group_for(key)
     labels: dict[int, list[str]] = {}
-    for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
+    emails: dict[int, set[str]] = {}
+    for source in conn.execute("SELECT DISTINCT s.event_id,a.label,a.email FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
         labels.setdefault(source["event_id"], []).append(source["label"])
+        emails.setdefault(source["event_id"], set()).add(source["email"])
     for event in interviews.list_events(conn, now=now):
         # Match the Interview page's calendar evidence boundary.
         if event["extraction_rank"] < 2 or not event["start_at"]:
@@ -138,6 +140,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         event["assignment_reason"] = "Multiple matching manual processes" if len(matches) > 1 else None if organization else "Multiple organization domains" if domains else "No eligible organization domain"
         event["account_labels"] = labels.get(event["id"], [])
         group = group_for(organization)
+        group["account_emails"].update(emails.get(event["id"], set()))
         group["events"].append(event)
         group["milestones"].append({
             "id": f"event:{event['id']}", "kind": "event", "occurred_at": event["start_at"],
@@ -152,7 +155,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     messages = conn.execute("""SELECT m.id,m.from_addr,m.from_name,m.subject,m.body_text,m.snippet,c.summary AS classification_summary,
         COALESCE(m.date_utc,m.fetched_at) AS occurred_at,
         COALESCE(NULLIF(c.summary,''),NULLIF(m.snippet,''),m.body_text,'') AS summary,
-        m.provider_url,a.label,c.category
+        m.provider_url,a.label,a.email,c.category
         FROM messages m JOIN accounts a ON a.id=m.account_id AND a.enabled=1
         LEFT JOIN classifications c ON c.id=(SELECT id FROM classifications
             WHERE message_pk=m.id ORDER BY created_at DESC,id DESC LIMIT 1)
@@ -173,6 +176,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             continue
         group = group_for(organization)
         group["message_count"] += 1
+        group["account_emails"].add(message["email"])
         group["milestones"].append({
             "id": f"message:{message['id']}", "kind": "message", "occurred_at": occurred_at,
             "title": message["subject"] or "(No subject)", "summary": _preview_summary(message["summary"]),
@@ -184,6 +188,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
     result = []
     for key in sorted(groups, key=lambda value: (value is None, value or "")):
         group = groups[key]
+        group["account_emails"] = sorted(group["account_emails"], key=str.casefold)
         group["events"].sort(key=lambda event: (datetime.fromisoformat(event["start_at"].replace("Z", "+00:00")), event["id"]))
         group["event_count"] = len(group["events"])
         # A process starts with its first calendar event, never earlier mail.

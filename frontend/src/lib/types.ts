@@ -52,4 +52,4 @@ export type ProcessMilestone = {
   status: string; sender: string | null; account_labels: string[]; href: string | null
   organization_domains: string[]; assignment_reason: string | null
 }
-export type InterviewProcess = { organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }
+export type InterviewProcess = { account_emails?: string[]; organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }

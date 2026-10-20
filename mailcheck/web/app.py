@@ -736,7 +736,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             for event in events:
                 event["account_labels"] = labels.get(event["id"],[])
             accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
-            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
+            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
         return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
 
     @app.get("/api/interviews/scan")
@@ -757,6 +757,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             row = conn.execute("SELECT * FROM interview_events WHERE id=?",(event_id,)).fetchone()
             if not row: return _err("Interview not found",404)
             return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id),"stages":interviews.STAGES,"statuses":interviews.STATUSES}
+
+    @app.post("/api/interviews/{event_id}/remove")
+    def interview_remove(event_id: int):
+        try:
+            with db.session() as conn:
+                interviews.remove_event(conn, event_id)
+            return {"ok": True}
+        except LookupError as exc:
+            return _err(str(exc), 404)
 
     @app.post("/api/interviews/{event_id}")
     def interview_update(event_id: int, changes: dict):

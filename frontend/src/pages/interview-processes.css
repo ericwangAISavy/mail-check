@@ -119,3 +119,5 @@ button.milestone-message { width: 20px; height: 14px; top: 11px; border-radius: 
   .process-create-fields { flex-direction: column; }
   .process-create-fields input { width: 100%; }
 }
+
+.process-account-emails { color: var(--muted-foreground); font-size: 11px; overflow-wrap: anywhere; }

@@ -48,6 +48,7 @@ class ProcessCollectionTests(unittest.TestCase):
         process = processes.list_processes(self.conn)[0]
         self.assertEqual([m["kind"] for m in process["milestones"]], ["event", "message", "message"])
         self.assertEqual(process["message_count"], 2)
+        self.assertEqual(process["account_emails"], [self.conn.execute("SELECT email FROM accounts WHERE id=?", (self.a,)).fetchone()[0]])
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 3)
 
     def test_existing_event_and_message_html_are_cleaned_in_preview_without_changing_storage(self):
@@ -173,6 +174,7 @@ class ProcessCollectionTests(unittest.TestCase):
         self.assertEqual(len(report), 1)
         process = report[0]
         self.assertEqual(process["message_count"], 2)
+        self.assertEqual(process["account_emails"], [self.conn.execute("SELECT email FROM accounts WHERE id=?", (self.a,)).fetchone()[0]])
         self.assertEqual([m["kind"] for m in process["milestones"]], ["event", "message", "message"])
         self.assertEqual(process["milestones"][1]["summary"], "Recruiter asks for availability.")
         self.assertIn("Saved email preview", process["milestones"][2]["summary"])
@@ -287,6 +289,33 @@ class ProcessCollectionTests(unittest.TestCase):
         self.assertEqual(unassigned["events"][1]["assignment_reason"], "No eligible organization domain")
         self.conn.execute("UPDATE accounts SET enabled=0")
         self.assertEqual(interview_processes.list_processes(self.conn), [])
+
+    def test_removed_event_stays_removed_after_collection(self):
+        from mailcheck import interview_processes, interviews
+        event = calendar_fixtures.event("remove", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
+        self.collect(self.source([event]))
+        event_id = interview_processes.list_processes(self.conn)[0]["events"][0]["id"]
+        interviews.remove_event(self.conn, event_id)
+        self.assertEqual(interviews.list_events(self.conn), [])
+        self.assertEqual(interview_processes.list_processes(self.conn), [])
+        self.collect(self.source([event]))
+        self.assertEqual(interviews.list_events(self.conn), [])
+        self.assertIsNotNone(self.conn.execute("SELECT id FROM interview_events WHERE id=?", (event_id,)).fetchone())
+        with self.assertRaises(LookupError):
+            interviews.remove_event(self.conn, 999999)
+
+    def test_remove_api_updates_calendar_and_processes(self):
+        self.collect(self.source([calendar_fixtures.event("remove-api", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
+        self.conn.commit()
+        with patch.object(config, "db_path", return_value=self.path), patch.object(config, "config_dir", return_value=Path(self.tmp.name)):
+            with TestClient(create_app()) as client:
+                event_id = client.get("/api/interviews").json()["events"][0]["id"]
+                self.assertEqual(client.post(f"/api/interviews/{event_id}/remove").status_code, 200)
+                self.assertEqual(client.get("/api/interviews").json()["events"], [])
+                self.assertEqual(client.get("/api/interviews").json()["companies"], [])
+                self.assertEqual(client.get("/api/interview-processes").json()["processes"], [])
+                self.assertEqual(client.post("/api/interviews/999999/remove").status_code, 404)
+
 
 @pytest.mark.parametrize("description,expected", [
     ('<p>Interview <strong>Details:</strong></p><ul><li>Position: Sr. ML Engineer</li><li>Date: Thu, Oct 1</li></ul><p><a href="https://example.test/reschedule">Reschedule</a></p><script>hidden_script()</script>', ['Interview Details:', 'Position: Sr. ML Engineer', 'Date: Thu, Oct 1', 'https://example.test/reschedule']),

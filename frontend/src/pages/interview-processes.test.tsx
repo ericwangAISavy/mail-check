@@ -9,7 +9,7 @@ vi.mock("@/lib/api", () => ({ request: vi.fn() }))
 const clients: QueryClient[] = []
 const milestone = (id: string, day: number, reason: string | null = null) => ({ id, kind: id.startsWith("message") ? "message" : "event", occurred_at: `2026-10-${day}T15:30:00Z`, title: id.startsWith("message") ? "Choose a time" : "Technical interview", summary: "Recruiter asks for your availability.", status: "Scheduled", sender: "hr@appian.com", account_labels: ["Work"], href: id.startsWith("message") ? null : "/interviews?event=1", assignment_reason: reason, organization_domains: reason ? ["appian.com", "rava.com"] : ["appian.com"] })
 const report = () => ({ processes: [
-  { organization: "appian.com", pinned: false, event_count: 2, message_count: 1, next_interview: null, events: [], milestones: [milestone("event:1", 18), milestone("message:1", 16), milestone("event:2", 25)] },
+  { organization: "appian.com", account_emails: ["eric.wang.swe@outlook.com"], pinned: false, event_count: 2, message_count: 1, next_interview: null, events: [], milestones: [milestone("event:1", 18), milestone("message:1", 16), milestone("event:2", 25)] },
   { organization: null, pinned: false, event_count: 1, message_count: 0, next_interview: null, events: [], milestones: [milestone("event:3", 18, "Multiple organization domains")] },
 ] })
 beforeEach(() => {
@@ -245,4 +245,11 @@ it("sorts pinned first, then oldest by elapsed days, then most calendar events f
  expect(names()).toEqual(["pinned", "old-more", "old-fewer", "newer", "future", "empty"])
  fireEvent.change(screen.getByRole("searchbox", { name: "Find organization" }), { target: { value: "old-" } })
  expect(names()).toEqual(["old-more", "old-fewer"])
+})
+
+it("shows the assigned mailbox address before the process duration", async () => {
+  mount()
+  const account = await screen.findByText("eric.wang.swe@outlook.com")
+  expect(account.getAttribute("aria-label")).toBe("Assigned accounts")
+  expect(account.nextElementSibling?.className).toBe("process-age")
 })
