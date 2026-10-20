@@ -15,6 +15,29 @@ const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "curren
 const shortDate = (day: string) => new Date(day + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
 const moveWeek = (day: string, delta: number) => { const date = new Date(day + "T12:00:00Z"); date.setUTCDate(date.getUTCDate() + delta); return date.toISOString().slice(0, 10) }
 
+function groupByAccount(bidders: Bidder[], start: string, end: string) {
+  const groups: { accounts: Set<number>; labels: string[]; bidders: Bidder[] }[] = []
+  for (const bidder of bidders) {
+    const active = bidder.assignments.filter(a => a.start_date <= end && (!a.end_date || a.end_date >= start))
+    const group = { accounts: new Set(active.map(a => a.account_id)), labels: active.map(a => a.account_label), bidders: [bidder] }
+    // Merge shared-account groups, including bidders with several accounts.
+    for (let i = groups.length - 1; i >= 0; i--) {
+      if (![...groups[i].accounts].some(id => group.accounts.has(id))) continue
+      const [shared] = groups.splice(i, 1)
+      shared.accounts.forEach(id => group.accounts.add(id))
+      group.labels.push(...shared.labels)
+      group.bidders.push(...shared.bidders)
+      i = groups.length // Revisit groups connected through the newly merged accounts.
+    }
+    groups.push(group)
+  }
+  const nameOrder = (a: Bidder, b: Bidder) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id - b.id
+  const accountKey = (group: typeof groups[number]) => group.labels.slice().sort((a, b) => a.localeCompare(b))[0] || ""
+  groups.forEach(group => group.bidders.sort(nameOrder))
+  groups.sort((a, b) => Number(!a.accounts.size) - Number(!b.accounts.size) || accountKey(a).localeCompare(accountKey(b)) || nameOrder(a.bidders[0], b.bidders[0]))
+  return groups.flatMap(group => group.bidders)
+}
+
 export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean }) {
   const [week, setWeek] = useState("")
   const [selected, setSelected] = useState("")
@@ -27,9 +50,9 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   if (query.isPending) return <Loading label="Loading application totals…" />
   if (query.error) return <div className="page-wrap"><PageHeading title="Bidder payments" /><p role="alert" className="inline-error">{query.error.message}</p><Button onClick={() => void query.refetch()}>Try again</Button></div>
   const data = query.data!
-  const bidders = data.bidders.filter(b => !selected || b.id === Number(selected))
-  const total = bidders.reduce((sum, b) => sum + b.total, 0)
-  const daily = data.dates.map((_, i) => bidders.reduce((sum, b) => sum + b.daily[i], 0))
+  const bidders = groupByAccount(data.bidders.filter(b => !selected || b.id === Number(selected)), data.week_start, data.week_end)
+  const daily = selected ? data.dates.map((_, i) => bidders.reduce((sum, b) => sum + b.daily[i], 0)) : data.daily
+  const total = daily.reduce((sum, count) => sum + count, 0)
   const checkedDaily = data.dates.map((_, i) => bidders.reduce((sum, b) => sum + (b.checked_daily?.[i] || 0), 0))
   const todayIndex = data.dates.indexOf(data.today)
   const closed = data.week_end < data.today
@@ -56,7 +79,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     </Card>
     {data.bidders.length > 0 && <p className="payment-mobile-hint">Swipe the table to see all days and payment status.</p>}
     {!readOnly && data.unassigned > 0 && <p className="payment-unassigned">{data.unassigned.toLocaleString()} confirmations this week have no bidder assignment. <a href="/accounts#bidder-management">Assign their accounts with the correct dates on Accounts</a> to include them.</p>}
-    <p className="payment-count-note">Daily cells show received confirmations / checked job links for that day. Counts follow the latest “Application received” classification and the account assignment on the email’s received date. Missing dates use the first collection date. Unassigned accounts are excluded. Counts cover confirmations collected by mail-check; they are not a direct submission count.</p>
+    <p className="payment-count-note">Daily cells show received confirmations / checked job links for that day. Overall daily and weekly totals count shared-account confirmations once, so they may be lower than the sum of bidder rows. Counts follow the latest “Application received” classification and the account assignment on the email’s received date. Missing dates use the first collection date. Unassigned accounts are excluded. Counts cover confirmations collected by mail-check; they are not a direct submission count.</p>
 
   </div>
 }

@@ -46,8 +46,10 @@ continue to use received confirmations.
   transitions use the timezone’s actual offsets.
 - A confirmation counts for each bidder assigned to its account on that calendar
   day. Different bidders may share an account; overlapping assignments for the same
-  bidder and account are blocked. End dates are inclusive. The all-bidder total sums
-  bidder credits, so shared confirmations contribute once per assigned bidder.
+  bidder and account are blocked. End dates are inclusive. The overview cards and total
+  row count each assigned confirmation once across shared accounts. Individual bidder
+  rows still show their assigned accounts’ counts, so their sum can exceed the overall
+  total. Selecting a bidder shows that bidder’s counts.
 - Unassigned confirmations are excluded from bidder totals. Admins see an unassigned
   count so they can add the missing dated assignments.
 - Counts are confirmation emails, not a direct audit of submitted applications.

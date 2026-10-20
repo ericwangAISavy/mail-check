@@ -169,6 +169,7 @@ class PaymentTests(unittest.TestCase):
         result = self.report()
         self.assertEqual([b["total"] for b in result["bidders"]], [1, 1])
         self.assertEqual(result["unassigned"], 1)
+        self.assertEqual(result["daily"], [1, 0, 0, 0, 0, 0, 0])
         duplicate = self.client.post('/api/payments/bidders/2/assignments', json={
             "account_id": self.account, "start_date": "2026-10-13"})
         self.assertEqual(duplicate.status_code, 400)

@@ -115,9 +115,15 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             "assignments": assigned, "daily": daily, "total": total,
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
+    # Shared assignments expose the same receipts in multiple bidder rows.
+    # Count each account/day once for the report overview and footer.
+    unique_daily = [sum(counts.get((account_id, day), 0) for account_id in {
+        a["account_id"] for a in assignments
+        if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)
+    }) for day in dates]
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
-        "daily": [sum(b["daily"][i] for b in bidders) for i in range(7)],
+        "daily": unique_daily,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
         "unassigned": sum(count for (account_id, day), count in counts.items()
                           if not any(a["account_id"] == account_id and a["start_date"] <= day

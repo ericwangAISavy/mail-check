@@ -63,3 +63,34 @@ it("keeps management on Accounts for admins", async () => {
   mount(); await screen.findByRole("rowheader", {name: /Alex/})
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
 })
+
+it("counts shared account receipts once in overall totals and preserves bidder filtering", async () => {
+  const report = data()
+  report.today = "2026-10-12"
+  report.bidders.push({ ...report.bidders[0], id: 2, name: "Blair" })
+  vi.mocked(request).mockResolvedValue(report)
+  mount()
+  const heading = await screen.findByText("Applications this week")
+  expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("3")
+  const today = screen.getByText("Today")
+  expect(today.parentElement!.querySelector("strong")!.textContent).toBe("3")
+  const footer = document.querySelector("tfoot tr")!
+  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("3 / 0")
+  expect(within(footer as HTMLElement).getAllByRole("cell")[7].textContent).toBe("3")
+  fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "2" } })
+  expect(screen.queryByRole("rowheader", {name: /Alex/})).toBeNull()
+  expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("3")
+})
+
+it("puts shared-account bidders together using only assignments active that week", async () => {
+  const report = data()
+  const bidder = (id: number, name: string, accounts: number[]) => ({ ...report.bidders[0], id, name,
+    assignments: accounts.map(account => ({ id: id * 10 + account, account_id: account, account_label: `${account}@example.test`, start_date: "2026-10-12", end_date: null })) })
+  report.bidders = [bidder(1, "Abimeleck", [3]), bidder(2, "Daniel", [1]), bidder(3, "Dany", [2]), bidder(4, "Joseph", [1]), bidder(5, "Noorian", [3]), bidder(6, "Unassigned", [])]
+  // An expired assignment must not pull Dany into the first group.
+  report.bidders[2].assignments.push({ id: 99, account_id: 1, account_label: "1@example.test", start_date: "2026-09-01", end_date: "2026-09-30" } as any)
+  vi.mocked(request).mockResolvedValue(report)
+  mount()
+  await screen.findByRole("rowheader", { name: /Daniel/ })
+  expect(Array.from(document.querySelectorAll("tbody th strong")).map(row => row.textContent)).toEqual(["Daniel", "Joseph", "Dany", "Abimeleck", "Noorian", "Unassigned"])
+})
