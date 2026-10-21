@@ -101,15 +101,39 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
         key = (row["account_id"], day)
         counts[key] = counts.get(key, 0) + 1
-    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) AND (? IS NULL OR bidder_id=?) ORDER BY start_date,id", (bidder_id,bidder_id))]
+    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
-    from .sourcing_verification import checked_counts
-    checked = checked_counts(conn, start.isoformat(), end.isoformat())
+    from .sourcing_verification import checked_account_counts
+    account_checks = checked_account_counts(conn, start.isoformat(), end.isoformat())
+    checked = {}
+    for (who, _account_id, day), count in account_checks.items():
+        checked[who, day] = checked.get((who, day), 0) + count
+    allocations = {}
+    unallocated = {day: 0 for day in dates}
+    for (account_id, day), total in counts.items():
+        owners = sorted({a["bidder_id"] for a in assignments if a["account_id"] == account_id
+                         and a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)})
+        if len(owners) == 1:
+            shares = {owners[0]: total}
+        elif len(owners) > 1:
+            weights = {who: account_checks.get((who, account_id, day), 0) for who in owners}
+            weight_sum = sum(weights.values())
+            if not weight_sum:
+                unallocated[day] += total
+                continue
+            # Largest remainders preserve the account total with integer shares.
+            shares = {who: total * weights[who] // weight_sum for who in owners}
+            remainder_order = sorted(owners, key=lambda who: (-(total * weights[who] % weight_sum), who))
+            for who in remainder_order[:total - sum(shares.values())]:
+                shares[who] += 1
+        else:
+            continue
+        for who, count in shares.items():
+            allocations[who, day] = allocations.get((who, day), 0) + count
     bidders = []
     for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
-        daily = [sum(counts.get((a["account_id"], day), 0) for a in assigned
-                     if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)) for day in dates]
+        daily = [allocations.get((row["id"], day), 0) for day in dates]
         total = sum(daily)
         bidders.append({"id": row["id"], "name": row["name"],
             "assignments": assigned, "daily": daily, "total": total,
@@ -123,7 +147,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     }) for day in dates]
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
-        "daily": unique_daily,
+        "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
+        "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
         "unassigned": sum(count for (account_id, day), count in counts.items()
                           if not any(a["account_id"] == account_id and a["start_date"] <= day

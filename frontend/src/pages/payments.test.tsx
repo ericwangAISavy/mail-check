@@ -28,7 +28,7 @@ it("shows recorded payment amount and flags later count changes", async () => {
   report.bidders[0].payment = { amount_cents: 1025, application_count: 2, paid_at: "2026-10-19T12:00:00Z", note: "Paid by bank" }
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
-  await screen.findByText("Paid · 2 applications")
+  await screen.findByText("Paid · 2 applications at recording")
   expect(screen.getByText("Count changed since payment")).toBeTruthy()
   expect(screen.getByText("Paid by bank")).toBeTruthy()
 })
@@ -47,7 +47,7 @@ it("shows received confirmations alongside checked sourcing links", async () => 
   mount(true)
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
   expect(within(row).getByText("112 / 60")).toBeTruthy()
-  expect(screen.getByText(/Received confirmations \/ checked sourcing links/)).toBeTruthy()
+  expect(screen.getByText(/Estimated confirmations \/ checked sourcing links/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
@@ -93,4 +93,18 @@ it("puts shared-account bidders together using only assignments active that week
   mount()
   await screen.findByRole("rowheader", { name: /Daniel/ })
   expect(Array.from(document.querySelectorAll("tbody th strong")).map(row => row.textContent)).toEqual(["Daniel", "Joseph", "Dany", "Abimeleck", "Noorian", "Unassigned"])
+})
+
+it("shows unallocated confirmations without assigning them to bidder estimates", async () => {
+  const report = {...data(), unallocated_daily: [3,0,0,0,0,0,0]}
+  report.bidders[0].daily = [0,0,0,0,0,0,0]
+  report.bidders[0].total = 0
+  vi.mocked(request).mockResolvedValue(report)
+  mount()
+  const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmations/})).closest("tr")!
+  expect(within(row).getAllByRole("cell")[0].textContent).toBe("3 / 0")
+  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("3")
+  fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
+  expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()
+  expect(screen.getByText("Estimated applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })

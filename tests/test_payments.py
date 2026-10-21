@@ -187,12 +187,61 @@ class PaymentTests(unittest.TestCase):
         self.message("shared")
         self.message("unassigned", account=self.other)
         result = self.report()
-        self.assertEqual([b["total"] for b in result["bidders"]], [1, 1])
+        self.assertEqual([b["total"] for b in result["bidders"]], [0, 0])
+        self.assertEqual(result["unallocated_daily"][0], 1)
         self.assertEqual(result["unassigned"], 1)
         self.assertEqual(result["daily"], [1, 0, 0, 0, 0, 0, 0])
         duplicate = self.client.post('/api/payments/bidders/2/assignments', json={
             "account_id": self.account, "start_date": "2026-10-13"})
         self.assertEqual(duplicate.status_code, 400)
+
+    def add_checks(self, who, account, count, day="2026-10-12"):
+        from mailcheck import native_sourcing as sheets
+        book = sheets.create_book(self.conn, who)
+        tab_id = sheets.create_tab(self.conn, book, account, "Applications")
+        tab = sheets.owned(self.conn, tab_id, {"role": "admin"})
+        base = sheets.snapshot(self.conn, tab)
+        sheets.append(self.conn, tab, f"checks-{who}-{account}", base["revision"],
+            [["Acme", "Engineer", f"https://jobs.test/{i}", "true"] for i in range(count)], work_date=day)
+
+    def test_shared_receipts_are_allocated_by_account_day_weights_and_rounded_to_total(self):
+        self.assign(); self.assign(who=2)
+        self.add_checks(1, self.account, 11)
+        self.add_checks(2, self.account, 75)
+        for i in range(105):
+            self.message(str(i))
+        result = self.report()
+        self.assertEqual([b["daily"][0] for b in result["bidders"]], [13, 92])
+        self.assertEqual(result["daily"][0], 105)
+        self.assertEqual(result["unallocated_daily"][0], 0)
+        # Bidder-scoped reports must use all competitors' weights before filtering.
+        scoped = payments.report(self.conn, date(2026,10,12), bidder_id=1)
+        self.conn.commit()
+        self.assertEqual(scoped["daily"][0], 13)
+        self.assertEqual([b["id"] for b in scoped["bidders"]], [1])
+        payment = self.client.post('/api/payments/bidders/1/paid', json={
+            "week":"2026-10-12", "expected_count":13, "amount":"10"})
+        self.assertEqual(payment.status_code, 200, payment.text)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 13)
+
+    def test_shared_weights_do_not_mix_accounts_and_zero_weight_gets_zero(self):
+        self.assign(); self.assign(who=2)
+        self.assign(account=self.other); self.assign(who=2, account=self.other)
+        self.add_checks(1, self.account, 1)
+        self.add_checks(2, self.other, 1)
+        for i in range(3): self.message(f"a{i}")
+        for i in range(7): self.message(f"b{i}", account=self.other)
+        self.message("no-checks-next-day", "2026-10-13T15:00:00+00:00")
+        result = self.report()
+        self.assertEqual(result["unallocated_daily"][1], 1)
+        self.assertEqual([b["total"] for b in result["bidders"]], [3, 7])
+        self.assertEqual(result["daily"][0], 10)
+
+    def test_allocation_rounding_is_deterministic_for_ties(self):
+        self.assign(); self.assign(who=2)
+        self.add_checks(1, self.account, 1); self.add_checks(2, self.account, 1)
+        self.message("one")
+        self.assertEqual([b["total"] for b in self.report()["bidders"]], [1, 0])
 
     def test_edit_rejects_same_bidder_overlaps_and_invalid_dates(self):
         self.assign(end=date(2026,10,14));self.assign(start=date(2026,10,15))

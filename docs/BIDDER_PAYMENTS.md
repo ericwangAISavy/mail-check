@@ -19,9 +19,9 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
    day, or optional last day; clear the last day to restore an ongoing rule.
    Removal requires confirmation and changes attribution, without deleting emails.
    Changes affecting a paid week are blocked; changes outside it remain editable.
-   One account may be assigned to several bidders on the same day. Each bidder
-   receives the account’s full confirmation count during their assigned dates; checked
-   sourcing links remain attributed to the bidder who owns the document. Overlapping
+   One account may be assigned to several bidders on the same day. Shared-account
+   confirmation counts are estimated per bidder using their checked links on the same
+   account and day. Checked links stay with the bidder who owns the document. Overlapping
    rules for the same bidder and account are blocked.
 3. Open **Bidder payments** and use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
    The bidder selector narrows the table and summary to one bidder.
@@ -31,14 +31,14 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 
 ## Daily comparison
 
-Daily cells show **received confirmations / checked sourcing links**, for example
+Daily cells show **estimated confirmations / checked sourcing links**, for example
 **112 / 60**. The first number follows the receipt rules below. The second counts
 checked rows with a job link on that bidder's account tabs and work date; the account
 must have been assigned to that bidder on that date. Archived sheets retain their
 historical checked counts. Use **Check applications** on a dated sourcing tab to
 compare company, role and account against confirmations received in the seven-day Chicago window beginning on that sourcing
 date. Checks are permanent once set, including manually checked links. Weekly totals and recorded payment counts
-continue to use received confirmations.
+use the estimated allocation.
 
 ## Counting rules
 
@@ -49,12 +49,19 @@ continue to use received confirmations.
 - A confirmation belongs to the Chicago calendar day of its received timestamp.
   Missing timestamps use the original collection timestamp. Daylight-saving
   transitions use the timezone’s actual offsets.
-- A confirmation counts for each bidder assigned to its account on that calendar
-  day. Different bidders may share an account; overlapping assignments for the same
-  bidder and account are blocked. End dates are inclusive. The overview cards and total
-  row count each assigned confirmation once across shared accounts. Individual bidder
-  rows still show their assigned accounts’ counts, so their sum can exceed the overall
-  total. Selecting a bidder shows that bidder’s counts.
+- For each shared account and Chicago day, split received confirmations among the
+  bidders assigned on that date in proportion to their checked links for that same
+  account and sourcing date. Checks on another account or day do not affect the split.
+  For 105 confirmations and checked counts of 11 and 75, the estimates are 13 and 92.
+  Integer allocations use largest remainders: floor each share, then award leftover
+  units by descending fractional remainder, breaking ties by bidder ID. Allocations
+  therefore sum to the account’s received count.
+- A sole assigned bidder receives the full account count, even without checked links.
+  Shared accounts where all assigned bidders have zero checks remain **Unallocated
+  confirmations**, displayed in a separate row until weights become available.
+- Overall cards and the total row show each assigned confirmation once, including
+  unallocated confirmations. Selecting a bidder or signing in as one shows only their
+  estimated share, calculated against all assigned bidders before filtering.
 - Unassigned confirmations are excluded from bidder totals. Admins see an unassigned
   count so they can add the missing dated assignments.
 - Counts are confirmation emails, not a direct audit of submitted applications.
@@ -73,7 +80,7 @@ Emails already removed before this feature was installed cannot be recovered by 
 Payment records snapshot the reviewed count, entered amount, date, and reference.
 The server rejects stale counts, repeat payments for the same bidder/week, and payment
 recording before a week ends. Assignment changes that would affect that bidder’s paid
-week are rejected. Later classification changes do not rewrite recorded payments;
+week are rejected. Later classifications and checked-link changes can update estimates but do not rewrite recorded payments;
 the table flags any difference between the current count and paid count.
 
 Payment records are immutable in this version. There is no payment gateway or bank

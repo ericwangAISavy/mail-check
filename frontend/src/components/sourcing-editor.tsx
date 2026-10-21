@@ -235,6 +235,7 @@ export default function SourcingEditor({
       lastAction.current = action;
       try {
         const result = await action();
+        void client.invalidateQueries({queryKey: ["payments"]});
         if (alive.current) {
           if (
             structural ||
@@ -262,7 +263,7 @@ export default function SourcingEditor({
         if (alive.current) setSaving(false);
       }
     },
-    [],
+    [client],
   );
   const save = useCallback(async () => {
     if (!draft.current.length || !base.current || typingRef.current) return;

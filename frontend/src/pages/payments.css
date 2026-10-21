@@ -62,3 +62,5 @@
 .payment-rule-error { width: 100%; margin: 0; }
 
 .payment-management { scroll-margin-top: 90px; margin: 20px 0; }
+
+.payment-unallocated { background: var(--surface); color: var(--warning); }

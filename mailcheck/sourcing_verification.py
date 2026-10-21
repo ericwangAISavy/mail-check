@@ -128,10 +128,10 @@ def verify_all(conn):
         return {"tabs": len(tabs), "rows": len(rows), "checked": checked_count, "changed": changed_count}
 
 
-def checked_counts(conn, start, end):
+def checked_account_counts(conn, start, end):
     """Count job links once per saved row, attributed to its dated account assignment."""
-    return {(row["bidder_id"], row["work_date"]): row["count"] for row in conn.execute("""
-        SELECT b.bidder_id,r.work_date,COUNT(*) AS count FROM native_rows r
+    return {(row["bidder_id"], row["account_id"], row["work_date"]): row["count"] for row in conn.execute("""
+        SELECT b.bidder_id,t.account_id,r.work_date,COUNT(*) AS count FROM native_rows r
         JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id
         JOIN native_columns check_col ON check_col.tab_id=t.id AND check_col.kind='check'
         JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id AND checked.value='true'
@@ -140,4 +140,11 @@ def checked_counts(conn, start, end):
         WHERE r.work_date>=? AND r.work_date<=? AND EXISTS (
             SELECT 1 FROM bidder_assignments a WHERE a.bidder_id=b.bidder_id AND a.account_id=t.account_id
             AND a.start_date<=r.work_date AND (a.end_date IS NULL OR a.end_date>=r.work_date))
-        GROUP BY b.bidder_id,r.work_date""", (start, end))}
+        GROUP BY b.bidder_id,t.account_id,r.work_date""", (start, end))}
+
+
+def checked_counts(conn, start, end):
+    counts = {}
+    for (bidder_id, _account_id, day), count in checked_account_counts(conn, start, end).items():
+        counts[bidder_id, day] = counts.get((bidder_id, day), 0) + count
+    return counts
