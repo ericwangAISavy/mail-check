@@ -146,6 +146,15 @@ def install(app, frontend_page, secure_cookies):
             ]
             for book in books:
                 book.pop("legacy_book_id", None)
+                book["job_dates"] = [r["work_date"] for r in conn.execute(
+                    "SELECT DISTINCT r.work_date FROM native_rows r "
+                    "JOIN native_tabs t ON t.id=r.tab_id "
+                    "JOIN native_columns col ON col.tab_id=t.id AND col.kind='link' "
+                    "JOIN native_cells c ON c.row_id=r.id AND c.column_id=col.id "
+                    "WHERE t.book_id=? AND t.archived=0 AND r.work_date IS NOT NULL "
+                    "AND trim(c.value, char(9)||char(10)||char(13)||' ')!='' ORDER BY r.work_date",
+                    (book["id"],),
+                )]
                 book["tabs"] = [
                     {**dict(r), "header_row": 1}
                     for r in conn.execute(

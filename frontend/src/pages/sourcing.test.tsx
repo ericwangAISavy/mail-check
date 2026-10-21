@@ -576,3 +576,21 @@ it("preserves active edits when the global check finishes", async () => {
   act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
   expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBe(calls);
 });
+
+it("warns which bidders have no links on the selected date and hides it for Undated", async () => {
+  const books = [
+    {...index.books[0], job_dates: ["2026-10-20"]},
+    {...index.books[0], id: 2, bidder_id: 2, name: "Blair", tabs: [], job_dates: ["2026-10-21"]},
+  ];
+  vi.mocked(fetch).mockImplementation(async (url: any) => ({
+    ok: true, headers: new Headers({"content-type": "application/json"}),
+    json: async () => String(url) === "/api/sourcing" ? {books} : snapshot,
+  }) as Response);
+  mount(); await screen.findByLabelText("Saved company");
+  fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}});
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")?.textContent).toBe("No job links · 2026-10-20: Blair"));
+  fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-21"}});
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")?.textContent).toBe("No job links · 2026-10-21: Alex"));
+  fireEvent.click(screen.getByRole("button", {name: /^Undated/}));
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")).toBeNull());
+});

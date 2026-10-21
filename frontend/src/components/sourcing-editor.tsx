@@ -68,12 +68,14 @@ export default function SourcingEditor({
   highlightId,
   highlightRow,
   initialDay,
+  onDayChange,
 }: {
   tab: Tab;
   onDirty: (dirty: boolean) => void;
   highlightId?: string;
   highlightRow?: number;
   initialDay?: string;
+  onDayChange?: (day: string) => void;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [changes, setChanges] = useState<Change[]>([]),
@@ -96,6 +98,7 @@ export default function SourcingEditor({
   const compactAfterPaste = useRef(false);
   const [rowDeleteNotice, setRowDeleteNotice] = useState("");
   const [day, setDay] = useState(initialDay || chicagoDay());
+  useEffect(() => { onDayChange?.(day); }, [day, onDayChange]);
   const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
   const [headerDraft, setHeaderDraft] = useState<{
     col: number;
@@ -784,7 +787,7 @@ export default function SourcingEditor({
           </Button>
         </div>
         <Button variant="outline" size="sm" disabled={locked || dirty || loading || !snapshot || day === "undated" || day === "all"}
-          title="Match company, role and account over seven days starting on the selected date in America/Chicago. Checks are permanent."
+          title="Match company, role and account over seven days starting on the selected date in America/Chicago. Use company only if the email has no role. Checks are permanent."
           onClick={() => void checkApplications()}><Check size={14} />Check applications</Button>
         {snapshot?.verification && snapshot.verification.day === day && <span className="sheet-verification-result" role="status">
           {snapshot.verification.checked} links checked · 7 days from {day} · Chicago

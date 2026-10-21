@@ -42,6 +42,21 @@ class NativeSheetTests(unittest.TestCase):
         self.client.post("/api/payments/bidders/2/remove", json={})
         self.assertEqual([b["name"] for b in self.client.get("/api/sourcing").json()["books"]], ["Alex"])
 
+    def test_job_dates_count_nonempty_links_across_active_account_tabs(self):
+        base = self.snapshot()
+        self.native.append(self.conn, self.tab(), "day-one", base["revision"],
+                           [["Acme", "Engineer", "https://jobs.test/1"]], work_date="2026-10-20")
+        current = self.snapshot()
+        self.native.append(self.conn, self.tab(), "no-link", current["revision"],
+                           [["Beta", "Engineer", "  "]], work_date="2026-10-21")
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual(next(b for b in books if b["bidder_id"] == 1)["job_dates"], ["2026-10-20"])
+        self.assertEqual(next(b for b in books if b["bidder_id"] == 2)["job_dates"], [])
+        self.conn.execute("UPDATE native_tabs SET archived=1 WHERE id=?", (self.tab_id,))
+        self.conn.commit()
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual(next(b for b in books if b["bidder_id"] == 1)["job_dates"], [])
+
     def tab(self):
         return self.native.owned(self.conn, self.tab_id, self.principal)
 

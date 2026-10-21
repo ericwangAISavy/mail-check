@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import {
+  TriangleAlert,
   ExternalLink,
   FileSpreadsheet,
   KeyRound,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, request } from "@/lib/api";
 import type { Index, Snapshot, Tab } from "@/lib/sourcing";
+import { chicagoDay } from "@/lib/sourcing";
 import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -44,6 +46,16 @@ export default function SourcingPage() {
     refetchInterval: 15_000,
   });
   const client = useQueryClient();
+  const [workDay, setWorkDay] = useState(chicagoDay);
+  const previousDirty = useRef(false);
+  const updateDirty = useCallback((value: boolean) => {
+    setDirty(value);
+    if (previousDirty.current && !value) void client.invalidateQueries({queryKey: ["sourcing-index"]});
+    previousDirty.current = value;
+  }, [client]);
+  const missingLinks = admin && /^\d{4}-\d{2}-\d{2}$/.test(workDay)
+    ? index.data?.books.filter(book => book.job_dates && !book.job_dates.includes(workDay)) || []
+    : [];
   const [deleting, setDeleting] = useState<Tab | null>(null);
   const deletePreview = useQuery({
     queryKey: ["sourcing-delete-preview", deleting?.id],
@@ -110,6 +122,10 @@ export default function SourcingPage() {
           ))}
         </select>
         <span className="sourcing-book-title">{book?.title}</span>
+        {missingLinks.length > 0 && <div className="sourcing-missing-links" role="status" aria-live="polite">
+          <TriangleAlert size={16} aria-hidden="true" />
+          <span><strong>No job links · {workDay}:</strong> {missingLinks.map(book => book.name).join(", ")}</span>
+        </div>}
         <form
           className="sourcing-search"
           onSubmit={(e) => {
@@ -232,7 +248,8 @@ export default function SourcingPage() {
         <SourcingEditor
           key={tab.id}
           tab={tab}
-          onDirty={setDirty}
+          onDirty={updateDirty}
+          onDayChange={setWorkDay}
           highlightId={params.get("row_id") || undefined}
           highlightRow={
             params.has("row") ? Number(params.get("row")) : undefined

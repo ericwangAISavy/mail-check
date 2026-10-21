@@ -21,8 +21,14 @@ def role_key(value):
 
 
 def match_key(company, role):
+    role_present = bool((role or "").strip())
     company, role = company_key(company), role_key(role)
-    return (company, role) if company and role else None
+    return (company, role) if company and (role or not role_present) else None
+
+
+def has_match(company, role, matches):
+    # Only a receipt with no role can authorize company-only matching.
+    return match_key(company, role) in matches or (company_key(company), "") in matches
 
 
 def verify(conn, tab, operation, revision, work_date):
@@ -54,7 +60,7 @@ def verify(conn, tab, operation, revision, work_date):
                 WHERE r.tab_id=? AND r.work_date=?""", (columns["company"], columns["link"], columns["role"], tab["id"], day)).fetchall():
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
                     continue
-                checked = bool((row["link"] or "").strip() and match_key(row["company"], row["role"]) in matches)
+                checked = bool((row["link"] or "").strip() and has_match(row["company"], row["role"], matches))
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
                     ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true'""",
                     (row["id"], columns["check"], str(checked).lower()))
@@ -106,7 +112,7 @@ def verify_all(conn):
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
-            checked = row["checked"] == "true" or bool((row["link"] or "").strip() and match_key(row["company"], row["role"]) in matches.get((row["account_id"], row["work_date"]), set()))
+            checked = row["checked"] == "true" or bool((row["link"] or "").strip() and has_match(row["company"], row["role"], matches.get((row["account_id"], row["work_date"]), set())))
             checked_count += int(checked)
             value = str(checked).lower()
             if row["checked"] == value:

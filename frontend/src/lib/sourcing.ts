@@ -47,6 +47,7 @@ export interface Book {
   title: string;
   name: string;
   tabs: Tab[];
+  job_dates?: string[];
 }
 export interface Index {
   books: Book[];

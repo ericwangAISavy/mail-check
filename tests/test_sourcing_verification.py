@@ -96,7 +96,7 @@ class SourcingVerificationTests(unittest.TestCase):
                     "expected_version": checked["rows"][1][3]["version"], "value": value}])
         self.assertEqual(self.snapshot()["rows"][1][3]["value"], "true")
 
-    def test_company_and_role_must_match_the_same_receipt_for_both_checks(self):
+    def test_role_mismatch_is_rejected_but_missing_receipt_role_matches_company(self):
         from mailcheck import sourcing_verification as verification
         base = self.jobs()
         self.receipt("same-company-wrong-role", "Acme", "2026-10-20T12:00:00+00:00", role="Designer")
@@ -105,9 +105,20 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("correct", "Other", "2026-10-20T12:00:00+00:00", role="  ENGINEER  ")
         self.conn.commit()
         manual = verification.verify(self.conn, self.tab(), "roles", base["revision"], "2026-10-20")
-        self.assertEqual([r[3]["value"] for r in manual["rows"][1:4]], ["false", "false", "true"])
+        self.assertEqual([r[3]["value"] for r in manual["rows"][1:4]], ["false", "true", "true"])
         verification.verify_all(self.conn)
-        self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["false", "false", "true"])
+        self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["false", "true", "true"])
+
+    def test_automatic_company_only_fallback_still_requires_account_and_window(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs()
+        other = db.add_account(self.conn, label="other", email="other@example.test")
+        self.receipt("no-role", "Acme", "2026-10-21T12:00:00+00:00", role="  ")
+        self.receipt("wrong-account", "Beta", "2026-10-21T12:00:00+00:00", account=other, role=None)
+        self.receipt("outside-window", "Other", "2026-10-27T05:00:00+00:00", role=None)
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
 
     def test_missing_sheet_role_does_not_match_and_role_normalization_is_conservative(self):
         from mailcheck import sourcing_verification as verification

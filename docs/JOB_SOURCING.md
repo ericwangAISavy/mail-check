@@ -60,8 +60,9 @@ undo history clears on a day change so it cannot affect another day's jobs.
 Select the account tab and job date, wait for **Saved**, then click
 **Check applications**. For each job link on that tab and date, mail-check compares
 its company and role with a single saved **Application received** confirmation from
-the same account. Both fields must be present and match; a company-only match is
-not sufficient. Missing roles in older receipts are filled from retained email
+the same account. If the confirmation includes a role, company and role must both
+match. Only confirmations with no role allow company-only matching. A missing role
+on the sourcing row does not bypass a role present in the email. Missing roles in older receipts are filled from retained email
 classifications when available.
 Confirmations received during the seven-day window beginning on the sourcing date
 count: Chicago midnight on that date inclusive to midnight seven days later exclusive. Choose a date first; Undated rows cannot be checked.
@@ -184,3 +185,10 @@ To restore, stop the app, retain the current files as a recovery copy, restore t
 trusted database/auth/config backup, then restart. Protect backups because they
 contain application data and password hashes. CSV files alone do not restore the
 complete workspace.
+
+## Missing daily links
+
+Admins see an amber warning in the top toolbar naming active bidders with no saved
+job links on the selected job date across any active account tab. Blank links and
+archived tabs do not count. The warning refreshes after saved edits and every
+15 seconds, and is hidden in the Undated view.
