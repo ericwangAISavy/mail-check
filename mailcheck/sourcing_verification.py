@@ -10,14 +10,15 @@ from .sourcing_structure import check_revision
 
 def company_key(value):
     name = unicodedata.normalize("NFKC", value or "").casefold().strip()
-    name = re.sub(r"(?:[\s,]+)(?:incorporated|corporation|limited|inc|corp|llc|ltd)\.?$", "", name)
-    return "".join(char for char in name if char.isalnum())
+    name = re.split(r"[,.]", name, maxsplit=1)[0]
+    # Keep company digits: "4A Consulting, LLC" must become "4aconsulting".
+    return re.sub(r"[^a-z0-9]", "", name)
 
 
 def role_key(value):
-    # Keep + and # meaningful so C++, C#, and C roles do not collapse together.
-    name = unicodedata.normalize("NFKC", value or "").casefold()
-    return " ".join(re.sub(r"[^\w+#]+", " ", name).split())
+    name = " ".join(unicodedata.normalize("NFKC", value or "").casefold().split())
+    name = re.split(r"[^a-z ]", name, maxsplit=1)[0]
+    return re.sub(r"[^a-z]", "", name)
 
 
 def match_key(company, role):

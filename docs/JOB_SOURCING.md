@@ -75,9 +75,12 @@ been removed are skipped. The completion message includes the matched-link and t
 counts. An open, saved sheet refreshes immediately; active edits remain protected.
 Automatic verification adds new matches and never clears existing checks.
 
-Company matching ignores case, punctuation and common legal suffixes. Role matching
-ignores case, spacing and punctuation, while keeping + and # meaningful. It does not
-expand abbreviations or guess equivalent titles. Neither field uses fuzzy similarity.
+Before comparison, company names stop at the first comma or period, then lose
+spaces and punctuation. ASCII letters and company digits are kept, so
+`4A Consulting, LLC` matches `4AConsulting`. Roles stop at the first character
+other than an ASCII letter or space, then lose all spaces. For example,
+`Software Engineer - Backend` matches `Software Engineer | Remote`. Both fields
+are compared without case sensitivity. No fuzzy similarity is used.
 Once checked, a job link stays checked, even after reclassification,
 company or link edits, or date changes. Unchecked links may also be marked manually;
 checked boxes cannot be cleared.
