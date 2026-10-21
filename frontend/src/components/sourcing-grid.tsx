@@ -32,6 +32,9 @@ export function SheetGrid({
   onEditingChange,
   onHeaderChange,
   headersEditable = true,
+  onPaste,
+  onAppendRows,
+  onDeleteRows,
 }: {
   snapshot: Snapshot;
   headerRow?: number;
@@ -45,6 +48,9 @@ export function SheetGrid({
   onEditingChange?: (active: boolean) => void;
   onHeaderChange?: (col: number, title: string) => void;
   headersEditable?: boolean;
+  onPaste?: () => void;
+  onAppendRows?: (rows: string[][]) => void;
+  onDeleteRows?: (rows: number[]) => void;
 }) {
   const grid = useRef<DataGridHandle>(null),
     anchor = useRef({ row: 1, col: 0 }),
@@ -98,6 +104,7 @@ export function SheetGrid({
     setPosition(next);
     notify(anchor.current, next);
   };
+  const rowOrder = visible.map(row => snapshot.row_ids[row]).join(":");
   useEffect(() => {
     const index =
       highlightRow === undefined ? -1 : visible.indexOf(highlightRow);
@@ -105,9 +112,10 @@ export function SheetGrid({
     anchor.current = { row: rowIdx, col: 0 };
     selected.current = anchor.current;
     setPosition(anchor.current);
+    notify(anchor.current, anchor.current);
     grid.current?.scrollToCell({ rowIdx, idx: 1 });
     grid.current?.setActivePosition({ rowIdx, idx: 1 });
-  }, [highlightRow, view.day]);
+  }, [highlightRow, view.day, rowOrder]);
   useEffect(() => () => stopDrag.current(), []);
   const apply = (values: Change[]) => {
     if (disabled) return;
@@ -155,7 +163,7 @@ export function SheetGrid({
       width: definition.width || 220,
       resizable: !disabled,
       editable: (row) =>
-        !disabled && (row.id > 0 || (!!onHeaderChange && headersEditable)),
+        !disabled && definition.kind !== "check" && (row.id > 0 || (!!onHeaderChange && headersEditable)),
       renderEditCell: (props) => (
         <NativeCellEditor {...props} onEditingChange={onEditingChange} />
       ),
@@ -175,6 +183,12 @@ export function SheetGrid({
           change = drafts.get(`${row.id}:${c}`),
           style = normalStyle({ ...cell?.style, ...change?.style }),
           text = String(row[String(c)]);
+        if (definition.kind === "check" && row.id > 0) return <input
+          type="checkbox" aria-label={`Check row ${indices.get(row.id) ?? row.id}`}
+          className="sourcing-check" checked={text === "true"} disabled={disabled || text === "true" || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
+          onClick={event => event.stopPropagation()}
+          onChange={event => { if (!disabled && text !== "true") apply([{row: row.id, col: c, value: String(event.target.checked)}]); }}
+        />;
         return (
           <span
             className={`native-cell-content ${style.wrap ? "is-wrapped" : ""}`}
@@ -231,9 +245,11 @@ export function SheetGrid({
             : 30
         }
         headerRowHeight={28}
-        rowClass={(row) =>
-          row.id === highlightRow ? "sheet-highlight-row" : undefined
-        }
+        rowClass={(row) => {
+          const index = indices.get(row.id) ?? -1;
+          return [row.id === highlightRow ? "sheet-highlight-row" : "",
+            row.id > 0 && index >= Math.min(anchor.current.row, position.row) && index <= Math.max(anchor.current.row, position.row) ? "sheet-row-selected" : ""].filter(Boolean).join(" ") || undefined;
+        }}
         onActivePositionChange={({ rowIdx, column }) => {
           if (rowIdx >= 0 && column && column.key !== "id")
             select({ row: rowIdx, col: Number(column.key) }, extending.current);
@@ -323,10 +339,17 @@ export function SheetGrid({
             );
             return row;
           }
-          const matrix = parseTSV(event.clipboardData.getData("text/plain")),
+          const matrix = parseTSV(event.clipboardData.getData("text/plain")).filter(values => values.some(value => value.trim())),
             start = indices.get(row.id) ?? 0;
           if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {
             window.alert("Paste up to 10,000 cells at a time.");
+            return row;
+          }
+          if (!matrix.length) return row;
+          if (matrix.length + start > rows.length && Number(column.key) === 0 &&
+              snapshot.columns.every((_, c) => !String(row[String(c)] ?? "").trim()) && onAppendRows) {
+            if (changes.length) {window.alert("Save current edits before appending pasted rows."); return row;}
+            onAppendRows(matrix);
             return row;
           }
           if (
@@ -348,17 +371,25 @@ export function SheetGrid({
               }),
             ),
           );
+          onPaste?.();
           apply(values);
           return row;
         }}
         onCellKeyDown={(args, event) => {
           extending.current = event.shiftKey;
           if (
-            args.mode !== "ACTIVE" ||
+            disabled || args.mode !== "ACTIVE" ||
             !args.column ||
             args.column.key === "id"
           )
             return;
+          if (event.key === "Delete" && onDeleteRows) {
+            event.preventDefault();
+            event.preventGridDefault();
+            if (event.repeat) return;
+            onDeleteRows(visible.slice(Math.min(anchor.current.row, selected.current.row), Math.max(anchor.current.row, selected.current.row) + 1).filter(row => row > 0));
+            return;
+          }
           if (event.key === "Delete" || event.key === "Backspace") {
             event.preventDefault();
             apply(range());

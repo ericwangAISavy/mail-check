@@ -20,15 +20,21 @@ function localInput(value: string | null, zone: string) {
     return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`
   } catch { return "" }
 }
-export function InterviewDetails({id,stages,statuses,onCloseAutoFocus}:{id:number;stages?:string[];statuses?:string[];onCloseAutoFocus?:(event:Event)=>void}) {
+export function InterviewDetails({id,stages,statuses,onCloseAutoFocus,onRemoved}:{id:number;stages?:string[];statuses?:string[];onCloseAutoFocus?:(event:Event)=>void;onRemoved?:()=>void}) {
   const query = useQuery({queryKey:["interviews","detail",id],queryFn:()=>request<{event:InterviewEvent;sources:InterviewSource[];stages:string[];statuses:string[]}>(`/api/interviews/${id}`)})
+  const client = useQueryClient()
+  const [removed, setRemoved] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => api.post(`/api/interviews/${id}/remove`),
+    onSuccess: async () => { setRemoved(true); onRemoved?.(); await client.invalidateQueries({queryKey:["interviews"]}) },
+  })
   const [editing,setEditing] = useState(false)
   const event = query.data?.event
   const applicationLookup = new URLSearchParams({q:[event?.company,event?.role].filter(Boolean).join(" ")})
   const profileIds = [...new Set(query.data?.sources.filter(s=>s.account_enabled!==false).map(s=>s.account_id).filter((id):id is number=>typeof id==="number")||[])]
   if(profileIds.length===1)applicationLookup.set("account",String(profileIds[0]))
   return <DialogContent className="interview-dialog" onCloseAutoFocus={onCloseAutoFocus}><DialogHeader><DialogTitle>{event?.company || "Meeting details"}</DialogTitle><DialogDescription>Calendar event details and local corrections.</DialogDescription></DialogHeader>
-    {query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && <>
+    {removed ? <p role="status">Event removed from calendar.</p> : query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && <>
     <div className="interview-detail-status"><span className={`interview-status ${stateClass(event)}`}>{event.display_status}</span><Button variant="outline" onClick={()=>setEditing(!editing)}>{editing?"Cancel editing":"Edit details"}</Button></div>
     {editing ? <InterviewEditor event={event} stages={stages || query.data?.stages || []} statuses={statuses || query.data?.statuses || []} onSaved={()=>setEditing(false)}/> : <>
       {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify the event details in your calendar."}</p>}
@@ -37,6 +43,9 @@ export function InterviewDetails({id,stages,statuses,onCloseAutoFocus}:{id:numbe
       {event.meeting_url && <a className="interview-meeting-link" href={event.meeting_url} target="_blank" rel="noopener noreferrer">Open {event.meeting_platform || "meeting"} link <ExternalLink size={14}/></a>}
       {!!event.manual_fields.length && <p className="form-hint">Manually corrected fields are protected from later automated updates.</p>}
     </>}
+    <Button variant="destructive" disabled={remove.isPending} onClick={()=>remove.mutate()}>{remove.isPending ? "Removing…" : "Remove from calendar"}</Button>
+    <p className="form-hint">Removes this event from this app. Your connected calendar is unchanged.</p>
+    {remove.error && <p role="alert" className="inline-error">{remove.error.message}</p>}
     <div className="interview-sources"><h2>Connected calendar accounts</h2>{query.data?.sources.map(s=><article key={s.id}><strong>{s.account_label}</strong><p>{s.account_email}</p></article>)}</div>
     </>}
   </DialogContent>

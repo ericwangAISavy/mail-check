@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets, interviews, interview_processes, payments
+from .. import db, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -142,9 +142,20 @@ class ReclassifyBody(BaseModel):
     days: int | None = Field(default=None, ge=1, le=3650)
 
 
+class ProcessCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=253)
+
+
 class ProcessPinBody(BaseModel):
+    account_id: int | None = Field(default=None, ge=1)
     organization: str | None = Field(default=None, max_length=253)
     pinned: bool
+
+
+class ProcessRemovalBody(BaseModel):
+    account_id: int | None = Field(default=None, ge=1)
+    organization: str | None = Field(default=None, max_length=253)
+    removed: bool
 
 
 class AccountBody(BaseModel):
@@ -348,6 +359,11 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
                     stage_started=time.time())
         try:
             work()
+            previous_message = _job["message"]
+            _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
+            with db.session() as conn:
+                sourcing = sourcing_verification.verify_all(conn)
+            _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
         except Exception as exc:  # noqa: BLE001 - surface it in the UI, never 500
             _job.update(message=failed, detail=str(exc), ok=False)
         finally:
@@ -584,7 +600,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             identity = auth.identity(request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder":
                 with db.session() as conn:
-                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND login_enabled=1", (identity["bidder_id"],)).fetchone()
+                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (identity["bidder_id"],)).fetchone()
                 if not enabled:
                     identity = None
             role = identity["role"] if identity else None
@@ -624,7 +640,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def auth_login(body: LoginBody, request: Request):
         if body.role == "bidder":
             with db.session() as conn:
-                enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND login_enabled=1", (body.bidder_id,)).fetchone()
+                enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (body.bidder_id,)).fetchone()
             if not enabled:
                 # Still hash/rate-limit a failed request, without allowing disabled credentials.
                 token, limited = auth.login("invalid", body.password, request.client.host if request.client else "unknown")
@@ -646,12 +662,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/auth/bidders")
     def bidder_names():
         with db.session() as conn:
-            return {"bidders": [dict(row) for row in conn.execute("SELECT id,name FROM bidders WHERE login_enabled=1 ORDER BY name")]}
+            return {"bidders": [dict(row) for row in conn.execute("SELECT id,name FROM bidders WHERE removed_at IS NULL AND login_enabled=1 ORDER BY name")]}
 
     @app.post("/api/auth/bidders/{bidder_id}/password")
     def bidder_password(bidder_id: int, body: BidderPasswordBody):
         with db.session() as conn:
-            if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+            if not conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL", (bidder_id,)).fetchone():
                 return _err("Bidder not found",404)
             if body.enabled and not body.password:
                 return _err("Enter an initial password to enable sign-in.")
@@ -683,11 +699,29 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         auth.change_password(body.role, body.password)
         return {"ok": True, "message": f"{body.role.capitalize()} password updated. Existing {body.role} sessions have been signed out."}
 
+    @app.post("/api/interview-processes")
+    def api_process_create(body: ProcessCreateBody):
+        try:
+            with db.session() as conn:
+                interview_processes.create_process(conn, body.name)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
+
     @app.post("/api/interview-processes/pin")
     def api_process_pin(body: ProcessPinBody):
         try:
             with db.session() as conn:
-                interview_processes.set_pin(conn, body.organization, body.pinned)
+                interview_processes.set_pin(conn, body.organization, body.pinned, account_id=body.account_id)
+            return {"ok": True}
+        except ValueError as exc:
+            return _err(str(exc))
+
+    @app.post("/api/interview-processes/remove")
+    def api_process_remove(body: ProcessRemovalBody):
+        try:
+            with db.session() as conn:
+                interview_processes.set_removed(conn, body.organization, body.removed, account_id=body.account_id)
             return {"ok": True}
         except ValueError as exc:
             return _err(str(exc))
@@ -695,7 +729,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/interview-processes")
     def api_interview_processes():
         with db.session() as conn:
-            return {"processes": interview_processes.list_processes(conn)}
+            return {"processes": interview_processes.list_processes(conn), "removed": interview_processes.list_removed(conn)}
 
     @app.get("/api/interviews")
     def api_interviews(account: str | None = None, status: str | None = None, company: str | None = None):
@@ -709,7 +743,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             for event in events:
                 event["account_labels"] = labels.get(event["id"],[])
             accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
-            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
+            companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
         return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
 
     @app.get("/api/interviews/scan")
@@ -730,6 +764,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             row = conn.execute("SELECT * FROM interview_events WHERE id=?",(event_id,)).fetchone()
             if not row: return _err("Interview not found",404)
             return {"event":interviews.display_event(dict(row)),"sources":interviews.event_sources(conn,event_id),"stages":interviews.STAGES,"statuses":interviews.STATUSES}
+
+    @app.post("/api/interviews/{event_id}/remove")
+    def interview_remove(event_id: int):
+        try:
+            with db.session() as conn:
+                interviews.remove_event(conn, event_id)
+            return {"ok": True}
+        except LookupError as exc:
+            return _err(str(exc), 404)
 
     @app.post("/api/interviews/{event_id}")
     def interview_update(event_id: int, changes: dict):
@@ -763,9 +806,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/payments/bidders")
     def create_bidder(body: payments.BidderBody):
-        return payment_write(lambda conn: conn.execute(
-            "INSERT INTO bidders(name,created_at) VALUES(?,?)",
-            (body.name, datetime.now(timezone.utc).isoformat())))
+        def create(conn):
+            from ..native_sourcing import _create_book
+            cursor = conn.execute("INSERT INTO bidders(name,created_at) VALUES(?,?)",
+                                  (body.name, datetime.now(timezone.utc).isoformat()))
+            _create_book(conn, cursor.lastrowid, "Applications")
+        return payment_write(create)
+
+    @app.post("/api/payments/bidders/{bidder_id}/remove")
+    def remove_bidder(bidder_id: int):
+        return payment_write(lambda conn: payments.remove_bidder(conn, bidder_id))
 
     @app.post("/api/payments/bidders/{bidder_id}")
     def update_bidder(bidder_id: int, body: payments.BidderBody):
@@ -801,7 +851,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():
         with db.session() as conn:
-            return {"accounts": [{"label": a.label} for a in db.list_accounts(conn)]}
+            return {
+                "accounts": [{"label": a.label} for a in db.list_accounts(conn)],
+                "bidders": [dict(row) for row in conn.execute("SELECT id, name FROM bidders WHERE removed_at IS NULL ORDER BY name COLLATE NOCASE, id")],
+            }
 
     # ------------------------------------------------------------------- pages
 

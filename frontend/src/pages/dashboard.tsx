@@ -36,7 +36,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     value.set("days", search.get("days") || "7")
     value.set("interval", search.get("interval") === "week" ? "week" : "day")
     value.set("tz", search.get("tz") || zone)
-    for (const key of ["start", "end", "account", "status", "action", "sort", "focus_date", "focus_category"]) if (search.has(key)) value.set(key, search.get(key)!)
+    for (const key of ["start", "end", "account", "bidder", "status", "action", "sort", "focus_date", "focus_category"]) if (search.has(key)) value.set(key, search.get(key)!)
     if (deferredSearch.trim()) value.set("q", deferredSearch.trim())
     for (const category of search.getAll("category")) value.append("category", category)
     value.set("page", search.get("page") || "1")
@@ -99,7 +99,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     return [...weeks.values()]
   }, [series, params])
   const pageInfo = data?.messages as { items: Record<string, any>[]; total: number; page: number; page_size: number; total_pages: number } | undefined
-  const filterCount = params.getAll("category").length + ["account", "status", "action", "focus_date", "q"].filter((key) => params.has(key)).length
+  const filterCount = params.getAll("category").length + ["account", "bidder", "status", "action", "focus_date", "q"].filter((key) => params.has(key)).length
   const focusCategory = params.get("focus_category")
   const focusDate = params.get("focus_date")
   const clear = () => { setSearch(new URLSearchParams({ tz: zone, days: "7" })); setSearchInput("") }
@@ -125,6 +125,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       {params.has("start") && <><div className="field-compact"><label htmlFor="start">From</label><input id="start" type="date" value={params.get("start") || ""} onChange={(e) => update({ start: e.target.value })} /></div><div className="field-compact"><label htmlFor="end">Through</label><input id="end" type="date" value={params.get("end") || ""} onChange={(e) => update({ end: e.target.value })} /></div></>}
       <div className="field-compact"><label htmlFor="interval">Group by</label><select id="interval" value={params.get("interval") || "day"} onChange={(e) => update({ interval: e.target.value })}><option value="day">Day</option><option value="week">Week</option></select></div>
       <div className="field-compact"><label htmlFor="account">Account</label><select id="account" value={params.get("account") || ""} onChange={(e) => update({ account: e.target.value })}><option value="">All accounts</option>{accounts?.accounts.map((account) => <option value={account.label} key={account.label}>{account.label}</option>)}</select></div>
+      <div className="field-compact"><label htmlFor="bidder">Bidder</label><select id="bidder" value={params.get("bidder") || ""} onChange={(e) => update({ bidder: e.target.value })}><option value="">All bidders</option>{accounts?.bidders?.map((bidder) => <option value={bidder.id} key={bidder.id}>{bidder.name}</option>)}</select></div>
       <div className="field-compact"><label htmlFor="status">Status</label><select id="status" value={params.get("status") || "all"} onChange={(e) => update({ status: e.target.value === "all" ? null : e.target.value })}><option value="all">All mail</option><option value="pending">Open</option><option value="done">Completed</option></select></div>
       <Button variant={advanced ? "secondary" : "outline"} size="sm" aria-expanded={advanced} onClick={() => setAdvanced((value) => !value)}><SlidersHorizontal size={14} />More</Button>
       {filterCount > 0 && <Button variant="ghost" size="sm" onClick={clear}><FilterX size={14} />Reset</Button>}</div>

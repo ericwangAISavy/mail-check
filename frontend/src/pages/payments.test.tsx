@@ -10,15 +10,6 @@ const data = () => ({ week_start: "2026-10-12", week_end: "2026-10-18", today: "
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
 function mount(readOnly = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>) }
-it("shows daily and weekly totals to guests without management or payment controls", async () => {
-  mount(true)
-  const name = await screen.findByRole("rowheader", { name: /Alex/ })
-  const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Not recorded"])
-  expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull()
-  expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
-  expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
-})
 it("records an admin-entered amount with the reviewed week and count", async () => {
   mount()
   fireEvent.click(await screen.findByRole("button", { name: "Record payment" }))
@@ -37,20 +28,9 @@ it("shows recorded payment amount and flags later count changes", async () => {
   report.bidders[0].payment = { amount_cents: 1025, application_count: 2, paid_at: "2026-10-19T12:00:00Z", note: "Paid by bank" }
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
-  await screen.findByText("Paid · 2 applications")
+  await screen.findByText("Paid · 2 applications at recording")
   expect(screen.getByText("Count changed since payment")).toBeTruthy()
   expect(screen.getByText("Paid by bank")).toBeTruthy()
-})
-it("adds a bidder and assigns an existing account with effective dates", async () => {
-  mount()
-  fireEvent.click(await screen.findByText("Manage bidders and account assignments"))
-  fireEvent.change(screen.getByLabelText("Bidder name"), { target: { value: "Blair" } })
-  fireEvent.click(screen.getByRole("button", { name: "Add bidder" }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/bidders", { name: "Blair" }))
-  fireEvent.change(screen.getByLabelText("Account"), { target: { value: "1" } })
-  fireEvent.change(screen.getByLabelText("First assigned day"), { target: { value: "2026-10-21" } })
-  fireEvent.click(screen.getByRole("button", { name: "Assign account" }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/bidders/1/assignments", { account_id: 1, start_date: "2026-10-21", end_date: null }))
 })
 it("shows loading failures with a retry action", async () => {
   vi.mocked(request).mockRejectedValue(new Error("Could not load totals"))
@@ -59,32 +39,72 @@ it("shows loading failures with a retry action", async () => {
   expect(screen.getByText("Could not load totals")).toBeTruthy()
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy()
 })
-it("edits assignment dates and can restore an ongoing rule", async () => {
-  mount()
-  fireEvent.click(await screen.findByText("Manage bidders and account assignments"))
-  fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-  const form = screen.getByRole("form", { name: "Edit assignment for Work inbox" })
-  fireEvent.change(within(form).getByLabelText("First assigned day"), { target: { value: "2026-10-10" } })
-  fireEvent.click(within(form).getByRole("button", { name: "Save changes" }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/assignments/10", { account_id: 1, start_date: "2026-10-10", end_date: null }))
+it("shows received confirmations alongside checked sourcing links", async () => {
+  const report = data() as any
+  report.bidders[0].daily[0] = 112
+  report.bidders[0].checked_daily = [60,0,0,0,0,0,0]
+  vi.mocked(request).mockResolvedValue(report)
+  mount(true)
+  const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
+  expect(within(row).getByText("112 / 60")).toBeTruthy()
+  expect(screen.getByText(/Estimated confirmations \/ checked sourcing links/)).toBeTruthy()
 })
-it("requires an inline confirmation before removing an assignment", async () => {
-  mount()
-  fireEvent.click(await screen.findByText("Manage bidders and account assignments"))
-  fireEvent.click(screen.getByRole("button", { name: "Remove" }))
-  expect(api.post).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
-  expect(screen.queryByRole("button", { name: "Remove assignment" })).toBeNull()
-  fireEvent.click(screen.getByRole("button", { name: "Remove" }))
-  fireEvent.click(screen.getByRole("button", { name: "Remove assignment" }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/assignments/10/remove", {}))
+
+it("shows daily and weekly totals to guests without management or payment controls", async () => {
+  mount(true)
+  const name = await screen.findByRole("rowheader", { name: /Alex/ })
+  const row = name.closest("tr")!
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Not recorded"])
+  expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull()
+  expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
+  expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
 })
-it("keeps the editor open and shows a rejected change beside the rule", async () => {
-  vi.mocked(api.post).mockRejectedValue(new Error("This change would affect a week with a recorded payment"))
+it("keeps management on Accounts for admins", async () => {
+  mount(); await screen.findByRole("rowheader", {name: /Alex/})
+  expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
+})
+
+it("counts shared account receipts once in overall totals and preserves bidder filtering", async () => {
+  const report = data()
+  report.today = "2026-10-12"
+  report.bidders.push({ ...report.bidders[0], id: 2, name: "Blair" })
+  vi.mocked(request).mockResolvedValue(report)
   mount()
-  fireEvent.click(await screen.findByText("Manage bidders and account assignments"))
-  fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
-  await screen.findByText("This change would affect a week with a recorded payment")
-  expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy()
+  const heading = await screen.findByText("Applications this week")
+  expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("3")
+  const today = screen.getByText("Today")
+  expect(today.parentElement!.querySelector("strong")!.textContent).toBe("3")
+  const footer = document.querySelector("tfoot tr")!
+  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("3 / 0")
+  expect(within(footer as HTMLElement).getAllByRole("cell")[7].textContent).toBe("3")
+  fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "2" } })
+  expect(screen.queryByRole("rowheader", {name: /Alex/})).toBeNull()
+  expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("3")
+})
+
+it("puts shared-account bidders together using only assignments active that week", async () => {
+  const report = data()
+  const bidder = (id: number, name: string, accounts: number[]) => ({ ...report.bidders[0], id, name,
+    assignments: accounts.map(account => ({ id: id * 10 + account, account_id: account, account_label: `${account}@example.test`, start_date: "2026-10-12", end_date: null })) })
+  report.bidders = [bidder(1, "Abimeleck", [3]), bidder(2, "Daniel", [1]), bidder(3, "Dany", [2]), bidder(4, "Joseph", [1]), bidder(5, "Noorian", [3]), bidder(6, "Unassigned", [])]
+  // An expired assignment must not pull Dany into the first group.
+  report.bidders[2].assignments.push({ id: 99, account_id: 1, account_label: "1@example.test", start_date: "2026-09-01", end_date: "2026-09-30" } as any)
+  vi.mocked(request).mockResolvedValue(report)
+  mount()
+  await screen.findByRole("rowheader", { name: /Daniel/ })
+  expect(Array.from(document.querySelectorAll("tbody th strong")).map(row => row.textContent)).toEqual(["Daniel", "Joseph", "Dany", "Abimeleck", "Noorian", "Unassigned"])
+})
+
+it("shows unallocated confirmations without assigning them to bidder estimates", async () => {
+  const report = {...data(), unallocated_daily: [3,0,0,0,0,0,0]}
+  report.bidders[0].daily = [0,0,0,0,0,0,0]
+  report.bidders[0].total = 0
+  vi.mocked(request).mockResolvedValue(report)
+  mount()
+  const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmations/})).closest("tr")!
+  expect(within(row).getAllByRole("cell")[0].textContent).toBe("3 / 0")
+  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("3")
+  fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
+  expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()
+  expect(screen.getByText("Estimated applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })

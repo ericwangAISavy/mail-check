@@ -7,7 +7,7 @@ import type { Bootstrap, InterviewData } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
-import { Loading, PageHeading, useToast } from "@/components/common"
+import { Loading, useToast } from "@/components/common"
 import { InterviewDetails } from "@/components/interview-details"
 import InterviewCalendar from "@/components/interview-calendar"
 import "./interviews.css"
@@ -37,11 +37,12 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const refresh = async () => { const result = await query.refetch(); toast(result.error ? result.error.message : "Interviews refreshed.",result.error ? "error" : "success") }
   const check = useMutation({mutationFn:()=>api.post("/api/interviews/sync"),onSuccess:()=>{toast("Calendar collection started.","info");window.dispatchEvent(new Event("mailcheck:check-started"));void job.refetch()},onError:e=>toast(e.message,"error")})
   const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label></Card>
+  const actions = <div className="interview-actions"><Button variant="outline" size="sm" onClick={()=>void refresh()} disabled={query.isFetching}><RefreshCw size={16}/>Refresh</Button><Button size="sm" onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>
   return <div className="page-wrap interviews-page">
-    <PageHeading title="Interviews" description="Meeting bookings from your connected calendars." action={<div className="interview-actions"><Button variant="outline" onClick={()=>void refresh()} disabled={query.isFetching}><RefreshCw size={16}/>Refresh</Button><Button onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>}/>
+
 
     {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" onClick={()=>void refresh()}>Try again</Button></div> : <>
-    <InterviewCalendar events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
-    <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails key={selected} id={selected} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
+    <InterviewCalendar actions={actions} events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
+    <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails key={selected} id={selected} onRemoved={()=>select(null)} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
   </div>
 }

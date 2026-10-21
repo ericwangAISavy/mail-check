@@ -50,6 +50,7 @@ class Operation(BaseModel):
 
 
 class Save(Operation):
+    compact_rows: bool = False
     changes: list[Change] = Field(min_length=1, max_length=10_000)
 
 
@@ -83,6 +84,10 @@ class Import(Versioned):
     text: str = Field(min_length=1, max_length=2_000_000)
     mode: Literal["append", "replace"] = "append"
     has_header: bool = True
+
+
+class DeleteTab(BaseModel):
+    revision: str = Field(min_length=1, max_length=32)
 
 
 class Archive(BaseModel):
@@ -123,19 +128,37 @@ def install(app, frontend_page, secure_cookies):
     def index(req: Request):
         with db.session() as conn:
             is_admin = req.state.role == "admin"
+            # Older bidders predate automatic workbook creation. Reconcile only
+            # missing workbooks so the picker always represents active bidders.
+            conn.execute(
+                "INSERT OR IGNORE INTO native_books(bidder_id,title) "
+                "SELECT p.id,'Applications' FROM bidders p WHERE p.removed_at IS NULL "
+                "AND (? OR p.id=?) AND NOT EXISTS ("
+                "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id)",
+                (is_admin, req.state.bidder_id),
+            )
             books = [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE (? OR b.bidder_id=?) ORDER BY p.name",
+                    "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND (? OR b.bidder_id=?) ORDER BY p.name",
                     (is_admin, req.state.bidder_id),
                 )
             ]
             for book in books:
                 book.pop("legacy_book_id", None)
+                book["job_dates"] = [r["work_date"] for r in conn.execute(
+                    "SELECT DISTINCT r.work_date FROM native_rows r "
+                    "JOIN native_tabs t ON t.id=r.tab_id "
+                    "JOIN native_columns col ON col.tab_id=t.id AND col.kind='link' "
+                    "JOIN native_cells c ON c.row_id=r.id AND c.column_id=col.id "
+                    "WHERE t.book_id=? AND t.archived=0 AND r.work_date IS NOT NULL "
+                    "AND trim(c.value, char(9)||char(10)||char(13)||' ')!='' ORDER BY r.work_date",
+                    (book["id"],),
+                )]
                 book["tabs"] = [
                     {**dict(r), "header_row": 1}
                     for r in conn.execute(
-                        "SELECT id,account_id,account_label,title,updated_at AS refreshed_at,archived FROM native_tabs WHERE book_id=? AND (? OR archived=0) ORDER BY id",
+                        "SELECT t.id,t.account_id,t.account_label,COALESCE(a.label,t.title) AS title,t.updated_at AS refreshed_at,t.archived FROM native_tabs t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.book_id=? AND (? OR t.archived=0) ORDER BY t.id",
                         (book["id"], is_admin),
                     )
                 ]
@@ -144,7 +167,7 @@ def install(app, frontend_page, secure_cookies):
                 result["bidders"] = [
                     dict(r)
                     for r in conn.execute(
-                        "SELECT id,name,login_enabled FROM bidders ORDER BY name"
+                        "SELECT id,name,login_enabled FROM bidders WHERE removed_at IS NULL ORDER BY name"
                     )
                 ]
                 result["accounts"] = [
@@ -211,6 +234,11 @@ def install(app, frontend_page, secure_cookies):
             )
         return {"ok": True}
 
+    @router.post("/api/sourcing/tabs/{tab_id}/delete")
+    def delete_tab(tab_id: int, body: DeleteTab, req: Request):
+        admin(req)
+        return mutation(tab_id, req, lambda conn, tab: sheets.delete_tab(conn, tab, body.revision))
+
     @router.get("/api/sourcing/tabs/{tab_id}")
     def snapshot(tab_id: int, req: Request):
         with db.session() as conn:
@@ -227,6 +255,7 @@ def install(app, frontend_page, secure_cookies):
                 str(body.operation),
                 [c.model_dump(exclude_none=True) for c in body.changes],
                 work_date=body.work_date,
+                compact_rows=body.compact_rows,
             ),
         )
 
@@ -247,6 +276,12 @@ def install(app, frontend_page, secure_cookies):
                 ),
             ),
         )
+
+    @router.post("/api/sourcing/tabs/{tab_id}/verify")
+    def verify(tab_id: int, body: Versioned, req: Request):
+        from .. import sourcing_verification
+        return mutation(tab_id, req, lambda conn, tab: sourcing_verification.verify(
+            conn, tab, str(body.operation), body.revision, body.work_date))
 
     @router.post("/api/sourcing/tabs/{tab_id}/append")
     def append(tab_id: int, body: Append, req: Request):
@@ -301,7 +336,7 @@ def install(app, frontend_page, secure_cookies):
     def search(req: Request, q: str = "", account: int | None = None):
         with db.session() as conn:
             tabs = conn.execute(
-                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
+                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
                 (req.state.role == "admin", req.state.bidder_id, account, account),
             ).fetchall()
             results = []
@@ -319,7 +354,7 @@ def install(app, frontend_page, secure_cookies):
                         [
                             *(str(c["value"]) for c in row),
                             tab["name"],
-                            tab["title"],
+                            data["title"],
                             tab["account_label"],
                         ]
                     ).casefold()
@@ -332,7 +367,7 @@ def install(app, frontend_page, secure_cookies):
                             {
                                 "tab_id": tab["id"],
                                 "bidder": tab["name"],
-                                "profile": tab["title"],
+                                "profile": data["title"],
                                 "account_id": tab["account_id"],
                                 "row": i,
                                 "row_id": data["row_ids"][i],

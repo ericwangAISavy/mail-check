@@ -1,8 +1,8 @@
 .payments-page { max-width: 1500px; }
 .payment-controls { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 18px; padding: 16px; margin-bottom: 18px; }
 .payment-week { display: flex; align-items: flex-end; gap: 8px; }
-.payments-page label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 13px; }
-.payments-page input, .payments-page select { min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); color-scheme: inherit; }
+.payments-page label, .payment-management label { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 13px; }
+.payments-page input, .payments-page select, .payment-management input, .payment-management select { min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); color-scheme: inherit; }
 .payment-timezone { margin-left: auto; align-self: center; color: var(--muted-foreground); font-size: 13px; }
 .payment-overview { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin-bottom: 20px; }
 .payment-overview > div { display: flex; align-items: center; gap: 18px; padding: 22px; }
@@ -11,7 +11,7 @@
 .payment-overview span, .payment-overview small { color: var(--muted-foreground); font-size: 13px; }
 .payment-overview strong { font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .payment-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px; }
-.payments-page h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.payments-page h2, .payment-management h2 { margin: 0; font-size: 18px; font-weight: 600; }
 .payment-section-heading p, .payment-count-note, .payment-entry p { margin: 5px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
 .payment-section-heading > span { color: var(--muted-foreground); white-space: nowrap; }
 .payment-table-scroll { overflow-x: auto; }
@@ -60,3 +60,7 @@
 .payment-assignment .payment-rule-remove { display: grid; gap: 10px; width: 100%; }
 .payment-rule-remove p { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
 .payment-rule-error { width: 100%; margin: 0; }
+
+.payment-management { scroll-margin-top: 90px; margin: 20px 0; }
+
+.payment-unallocated { background: var(--surface); color: var(--warning); }

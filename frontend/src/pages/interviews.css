@@ -217,7 +217,11 @@
   .app-content:has(.interviews-page) > .topbar,
   .app-content:has(.interviews-page) > .setup-ribbon,
   .app-content:has(.interviews-page) > .app-footer { flex-shrink: 0; }
+  .app-content:has(.interviews-page) > .app-footer { display: none; }
   .page-content:has(> .interviews-page) {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -228,7 +232,10 @@
     flex: 1;
     min-height: 0;
     min-width: 0;
-    padding-bottom: 20px;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
   }
   .interviews-page > .page-heading { flex-shrink: 0; }
   .outlook-calendar {

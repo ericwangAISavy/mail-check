@@ -9,15 +9,21 @@ There is no Google account, OAuth configuration, API quota or synchronization se
 1. Create bidders and assign email/profile accounts on **Bidder payments**.
 2. As admin, open **Job sourcing → settings**. Select a bidder, name their workbook,
    and choose **Create workbook**.
-3. Expand that workbook, choose a currently assigned profile, name the sheet and
-   choose **Create profile sheet**. Repeat for each profile/bidder.
-4. Each sheet starts with Company, Role and Job link columns and 100 blank rows.
+3. Expand that workbook, choose a currently assigned account and select
+   **Create profile sheet**. Tabs use account names, including existing tabs;
+   custom tab names are no longer used. Repeat for each account/bidder.
+4. Each sheet starts with Company, Role, Job link and a compact Check column,
+   with blank input rows.
    Paste jobs straight into the grid or import a CSV file.
 
 Admins can read and edit every workbook. Bidders can read, copy, edit, search and
 export only their own workbook. The server enforces these rules on direct API
 requests too. Admins can archive/restore profile sheets in settings. Archiving
-preserves their data. Historical sheets stay with their original bidder if a profile
+preserves their data. To permanently delete a tab, select it and click **Delete tab**
+beside the tab controls, review the row count, then confirm. Deletion is admin-only,
+removes all rows and checked-link counts from that sheet, and cannot be undone.
+Received emails and recorded payments remain saved. Finish saving edits before
+opening the delete confirmation. Historical sheets stay with their original bidder if a profile
 assignment ends or an email account is removed.
 
 ## Bidder sign-in
@@ -27,7 +33,8 @@ password. Share it privately. Bidders select **Bidder**, choose their name and e
 their password. No default bidder passwords are created. The key icon lets bidders
 change their own password with their current password. Admins can reset a password
 or disable sign-in; old sessions lose access. Bidder payment totals remain based on
-classified application-confirmation emails, independently of the job sheets.
+classified application-confirmation emails. The daily table also shows checked
+job-link counts from their sourcing sheets.
 
 ## Daily job lists
 
@@ -48,6 +55,44 @@ day and opens a match on its own day. Profile tabs and column titles are shared
 across all days. Switching days is blocked while edits or imports are pending;
 undo history clears on a day change so it cannot affect another day's jobs.
 
+## Check received applications
+
+Select the account tab and job date, wait for **Saved**, then click
+**Check applications**. For each job link on that tab and date, mail-check compares
+its company and role with a single saved **Application received** confirmation from
+the same account. If the confirmation includes a role, company and role must both
+match. Only confirmations with no role allow company-only matching. A missing role
+on the sourcing row does not bypass a role present in the email. Missing roles in older receipts are filled from retained email
+classifications when available.
+Confirmations received during the seven-day window beginning on the sourcing date
+count: Chicago midnight on that date inclusive to midnight seven days later exclusive. Choose a date first; Undated rows cannot be checked.
+
+The top-level **Check now** button and each scheduled **Auto-check** run also
+verify all dated jobs on every active tab in every workbook after collection and
+classification finish. Each row is compared against confirmations received within its
+own seven-day window beginning on its work date, including earlier dates. Archived tabs and tabs whose accounts have
+been removed are skipped. The completion message includes the matched-link and tab
+counts. An open, saved sheet refreshes immediately; active edits remain protected.
+Automatic verification adds new matches and never clears existing checks.
+
+Before comparison, company names use only the first ASCII letter/digit word,
+stopping at the first space or punctuation mark. For example, `Cube` and
+`Cube Software` both become `cube`; `4A Consulting, LLC` becomes `4a`, while
+`4AConsulting` remains `4aconsulting`. Roles stop at the first character
+other than an ASCII letter or space, then lose all spaces. For example,
+`Software Engineer - Backend` matches `Software Engineer | Remote`. Both fields
+are compared without case sensitivity. No fuzzy similarity is used.
+Once checked, a job link stays checked, even after reclassification,
+company or link edits, or date changes. Unchecked links may also be marked manually;
+checked boxes cannot be cleared.
+
+On **Bidder payments**, daily cells show **estimated confirmations / checked sourcing
+links**. For example, **112 / 60** means 112 estimated confirmations allocated to the
+bidder and 60 checked job-link rows on their sourcing sheets for that day. Shared
+account confirmations are divided in proportion to checked links per account and day.
+The two counts can differ. Saved company metadata survives future mail cleanup;
+companies from messages already deleted before this upgrade cannot be recovered.
+
 ## Everyday spreadsheet editing
 
 - Double-click a column title to rename it directly; its Company/Role/Job link
@@ -55,6 +100,12 @@ undo history clears on a day change so it cannot affect another day's jobs.
 - Double-click, Enter or F2 to edit. Escape cancels; Enter/Tab commits. Arrows and
   Tab navigate. Shift-click or drag selects a rectangle. Copy/paste supports TSV,
   quoted multiline values and blanks from Google Sheets or Excel.
+- Drag across cells to select the job rows they cover. Selected rows and row
+  numbers are highlighted. Click **Delete rows** (with the selection count), or
+  press **Delete** while the grid is focused, to remove those entire job rows.
+  Finish editing and wait for **Saved** first. Delete inside a cell editor still
+  edits its text; **Backspace** outside the editor clears selected cell values.
+  Filtered/sorted selections delete their original saved row identities.
 - Use the toolbar for bold, italic, alignment, wrapping and undo/redo. Formatting is
   stored separately from values. Text beginning with `=` remains literal text.
 - Insert rows and add/rename custom columns. Choose **Insert / edit** for append,
@@ -65,8 +116,10 @@ undo history clears on a day change so it cannot affect another day's jobs.
 - Autosave waits 1.2 seconds after committed edits. Active typing is protected from
   refresh; earlier committed cells wait until editing finishes. Watch for Saved,
   Saving or an error. Clean sheets refresh every 15 seconds and on focus.
-- A rectangle must fit the current sheet. Add rows/columns or use CSV import if it
-  extends beyond the grid; the app rejects the entire paste instead of cropping it.
+- Entirely blank pasted/imported rows are removed automatically. One empty input
+  row remains after the last job. Pasting jobs into that empty row can append more
+  rows automatically. Other rectangular pastes must fit the existing grid; add
+  rows/columns or use CSV import when needed.
 - Limits: 101 columns, 100,000 rows per sheet; 10,000 cells per save, paste or import;
   50,000 characters per cell; CSV input up to 2 MB. Manual row insertion allows
   1–1,000 rows at a time; larger CSV imports can use the full cell budget.
@@ -137,3 +190,10 @@ To restore, stop the app, retain the current files as a recovery copy, restore t
 trusted database/auth/config backup, then restart. Protect backups because they
 contain application data and password hashes. CSV files alone do not restore the
 complete workspace.
+
+## Missing daily links
+
+Admins see an amber warning in the top toolbar naming active bidders with no saved
+job links on the selected job date across any active account tab. Blank links and
+archived tabs do not count. The warning refreshes after saved edits and every
+15 seconds, and is hidden in the Undated view.

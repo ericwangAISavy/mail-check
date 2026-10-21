@@ -465,7 +465,7 @@ def event_sources(conn, event_id: int) -> list[dict]:
 
 def list_events(conn, *, account: str | None=None, status: str | None=None, company: str | None=None, now=None) -> list[dict]:
     # Date-window filtering and aggregates operate on event records only, never mail bodies.
-    rows = conn.execute("""SELECT e.* FROM interview_events e WHERE EXISTS (
+    rows = conn.execute("""SELECT e.* FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND EXISTS (
       SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id
       WHERE s.event_id=e.id AND a.enabled=1 AND (? IS NULL OR a.label=?))
       AND (? IS NULL OR e.company=?) ORDER BY e.start_at IS NULL,e.start_at,e.id""", (account,account,company,company))
@@ -547,3 +547,10 @@ class RunExtractionClient:
         except Exception:
             self.failed = True
             raise
+
+
+def remove_event(conn, event_id: int) -> None:
+    """Hide a saved event locally while retaining its identity across collection."""
+    if not conn.execute("SELECT 1 FROM interview_events WHERE id=?", (event_id,)).fetchone():
+        raise LookupError("Interview not found")
+    conn.execute("INSERT INTO interview_event_removals(event_id,removed_at) VALUES(?,?) ON CONFLICT(event_id) DO NOTHING", (event_id, db._now()))

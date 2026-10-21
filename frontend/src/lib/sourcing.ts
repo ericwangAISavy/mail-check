@@ -15,10 +15,11 @@ export interface Cell {
 export interface SheetColumn {
   id: string;
   title: string;
-  kind: "company" | "role" | "link" | null;
+  kind: "company" | "role" | "link" | "check" | null;
   width: number;
 }
 export interface Snapshot {
+  verification?: {day: string; timezone: string; checked: number};
   id: number;
   rows: Cell[][];
   row_ids: string[];
@@ -46,6 +47,7 @@ export interface Book {
   title: string;
   name: string;
   tabs: Tab[];
+  job_dates?: string[];
 }
 export interface Index {
   books: Book[];
@@ -212,7 +214,7 @@ export function visibleRows(
           snapshot.row_dates[r] ===
             (view.day === "undated" ? null : view.day) ||
           (snapshot.row_dates[r] == null &&
-            snapshot.columns.every((_, c) => !value(r, c)))) &&
+            snapshot.columns.every((column, c) => column.kind === "check" || !value(r, c)))) &&
         (!find ||
           snapshot.columns.some((_, c) =>
             value(r, c).toLocaleLowerCase().includes(find),

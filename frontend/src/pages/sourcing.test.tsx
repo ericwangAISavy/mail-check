@@ -20,6 +20,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     onChange,
     disabled,
     onEditingChange,
+    onSelection,
     view,
   }: {
     view?: unknown;
@@ -28,6 +29,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     onChange: (changes: unknown[]) => void;
     disabled: boolean;
     onEditingChange?: (active: boolean) => void;
+    onSelection?: (selection: {rows: number[]; columns: number[]}) => void;
   }) => {
     gridViews.values.push(view);
     return (
@@ -51,6 +53,7 @@ vi.mock("@/components/sourcing-grid", () => ({
           Edit role
         </button>
         <button onClick={() => onEditingChange?.(true)}>Start typing</button>
+        <button onClick={() => onSelection?.({rows: [1,2], columns: [0,1]})}>Select two job rows</button>
       </div>
     );
   },
@@ -495,9 +498,99 @@ it("clears undo when switching job days", async () => {
     screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
   ).toBe(false);
   fireEvent.change(screen.getByLabelText("Job date"), {
-    target: { value: "2026-10-20" },
+    target: { value: (screen.getByLabelText("Job date") as HTMLInputElement).value === "2026-10-20" ? "2026-10-19" : "2026-10-20" },
   });
   expect(
     screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
   ).toBe(true);
+});
+
+it("checks applications for the selected day and displays the verified count", async () => {
+  const post = vi.spyOn(api, "post").mockResolvedValue({...snapshot, revision: "two", verification: {day: "2026-10-20", timezone: "America/Chicago", checked: 1}})
+  mount()
+  await screen.findByText("Saved")
+  fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}})
+  fireEvent.click(screen.getByRole("button", {name: "Check applications"}))
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/verify", expect.objectContaining({revision: "one", work_date: "2026-10-20"})))
+  expect(await screen.findByText("1 links checked · 7 days from 2026-10-20 · Chicago")).toBeTruthy()
+})
+it("requires a dated sheet before checking applications", async () => {
+  mount()
+  await screen.findByText("Saved")
+  fireEvent.click(screen.getByRole("button", {name: /^Undated/}))
+  expect((screen.getByRole("button", {name: "Check applications"}) as HTMLButtonElement).disabled).toBe(true)
+})
+it("confirms deleting the selected tab and removes it from the document", async () => {
+  let deleted = false;
+  vi.mocked(fetch).mockImplementation(async (url: any) => ({
+    ok: true, headers: new Headers({"content-type": "application/json"}),
+    json: async () => String(url) === "/api/sourcing" ? {...index, books: index.books.map(book => ({...book, tabs: deleted ? [] : book.tabs}))} : snapshot,
+  }) as Response);
+  const post = vi.spyOn(api, "post").mockImplementation(async () => {deleted = true; return {ok: true} as any});
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Delete current profile sheet"}));
+  expect(await screen.findByRole("heading", {name: "Delete Profile tab?"})).toBeTruthy();
+  const confirm = await screen.findByRole("button", {name: "Delete tab permanently"});
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  await waitFor(() => expect(screen.queryByRole("tab", {name: "Profile"})).toBeNull());
+  expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/delete", {revision: "one"});
+});
+it("keeps the tab when deletion is cancelled or rejected", async () => {
+  const post = vi.spyOn(api, "post").mockRejectedValue(new Error("The sheet changed. Reload first."));
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Delete current profile sheet"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Cancel"}));
+  expect(post).not.toHaveBeenCalled();
+  expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Delete current profile sheet"}));
+  const confirm = await screen.findByRole("button", {name: "Delete tab permanently"});
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(confirm);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The sheet changed. Reload first.");
+  fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+  expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+});
+
+it("deletes selected job rows using their stable identities from the toolbar", async () => {
+  const data = {...snapshot, row_ids: ["", "row-one", "row-two"], rows: [...snapshot.rows, snapshot.rows[1]]};
+  vi.mocked(fetch).mockImplementation(async (url: any) => ({ok: true, headers: new Headers({"content-type": "application/json"}), json: async () => String(url) === "/api/sourcing" ? index : data}) as Response);
+  const post = vi.spyOn(api, "post").mockResolvedValue({...snapshot, revision: "two"});
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Select two job rows"}));
+  fireEvent.click(screen.getByRole("button", {name: "Delete rows (2)"}));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/structure", expect.objectContaining({action: "delete_rows", revision: "one", ids: ["row-one", "row-two"]})));
+});
+it("refreshes a clean sheet when the global check finishes", async () => {
+  mount();
+  await screen.findByText("Saved");
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBeGreaterThan(calls));
+});
+it("preserves active edits when the global check finishes", async () => {
+  mount();
+  fireEvent.click(await screen.findByRole("button", {name: "Start typing"}));
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
+  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBe(calls);
+});
+
+it("warns which bidders have no links on the selected date and hides it for Undated", async () => {
+  const books = [
+    {...index.books[0], job_dates: ["2026-10-20"]},
+    {...index.books[0], id: 2, bidder_id: 2, name: "Blair", tabs: [], job_dates: ["2026-10-21"]},
+  ];
+  vi.mocked(fetch).mockImplementation(async (url: any) => ({
+    ok: true, headers: new Headers({"content-type": "application/json"}),
+    json: async () => String(url) === "/api/sourcing" ? {books} : snapshot,
+  }) as Response);
+  mount(); await screen.findByLabelText("Saved company");
+  fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}});
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")?.textContent).toBe("No job links · 2026-10-20: Blair"));
+  fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-21"}});
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")?.textContent).toBe("No job links · 2026-10-21: Alex"));
+  fireEvent.click(screen.getByRole("button", {name: /^Undated/}));
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")).toBeNull());
 });

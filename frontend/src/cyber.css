@@ -108,7 +108,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--ring); outl
 .schedule-button.is-on { background: var(--accent); color: var(--primary); }.schedule-button:hover { border-color: var(--primary); }
 .top-actions > .btn { height: 48px; padding: 0 23px;  font-family: var(--display-font); font-weight: 700; }
 .top-actions > .btn svg { width: 23px; height: 23px; }
-.page-content { margin-top: 17px; border: 1px solid var(--border); border-radius: 6px; background-color: var(--background); background-image: linear-gradient(rgba(0,207,255,.018) 1px, transparent 1px),linear-gradient(90deg, rgba(0,207,255,.018) 1px, transparent 1px); background-size: 24px 24px; }
+.page-content { margin-top: 17px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 6px 6px; background-color: var(--background); background-image: linear-gradient(rgba(0,207,255,.018) 1px, transparent 1px),linear-gradient(90deg, rgba(0,207,255,.018) 1px, transparent 1px); background-size: 24px 24px; }
 .page-wrap { width: calc(100% - 30px); max-width: none; padding: 22px 0 24px; }
 .page-heading { align-items: center; margin: 0 12px 18px; gap: 20px; }
 .page-heading h1 { color: var(--foreground); font-family: var(--display-font);  font-weight: 700; letter-spacing: -.025em; line-height: 1; margin-top: 8px; }

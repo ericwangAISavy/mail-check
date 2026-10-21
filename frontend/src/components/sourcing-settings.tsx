@@ -134,7 +134,6 @@ export default function SourcingSettings({
                   () =>
                     api.post(`/api/sourcing/books/${book.id}/tabs`, {
                       account_id: Number(data.get("account_id")),
-                      title: data.get("title"),
                     }),
                   "Profile sheet created",
                 );
@@ -156,18 +155,10 @@ export default function SourcingSettings({
                     )
                     .map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.email}
+                        {a.label} · {a.email}
                       </option>
                     ))}
                 </select>
-              </label>
-              <label>
-                Sheet name
-                <input
-                  name="title"
-                  placeholder="Engineering applications"
-                  maxLength={100}
-                />
               </label>
               <Button disabled={busy}>Create profile sheet</Button>
             </form>

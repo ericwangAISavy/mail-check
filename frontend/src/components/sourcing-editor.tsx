@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { operationId } from "@/lib/operation-id";
 import {
   useCallback,
@@ -21,6 +22,7 @@ import {
   Redo2,
   RefreshCw,
   Search,
+  Trash2,
   Undo2,
   Upload,
   WrapText,
@@ -66,12 +68,14 @@ export default function SourcingEditor({
   highlightId,
   highlightRow,
   initialDay,
+  onDayChange,
 }: {
   tab: Tab;
   onDirty: (dirty: boolean) => void;
   highlightId?: string;
   highlightRow?: number;
   initialDay?: string;
+  onDayChange?: (day: string) => void;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [changes, setChanges] = useState<Change[]>([]),
@@ -90,7 +94,11 @@ export default function SourcingEditor({
     [appendOpen, setAppendOpen] = useState(false),
     [appendText, setAppendText] = useState(""),
     [typing, setTyping] = useState(false);
+  const client = useQueryClient();
+  const compactAfterPaste = useRef(false);
+  const [rowDeleteNotice, setRowDeleteNotice] = useState("");
   const [day, setDay] = useState(initialDay || chicagoDay());
+  useEffect(() => { onDayChange?.(day); }, [day, onDayChange]);
   const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
   const [headerDraft, setHeaderDraft] = useState<{
     col: number;
@@ -203,9 +211,11 @@ export default function SourcingEditor({
     };
     const timer = window.setInterval(focus, 15000);
     window.addEventListener("focus", focus);
+    window.addEventListener("mailcheck:check-completed", focus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", focus);
+      window.removeEventListener("mailcheck:check-completed", focus);
     };
   }, [load]);
   const execute = useCallback(
@@ -225,6 +235,7 @@ export default function SourcingEditor({
       lastAction.current = action;
       try {
         const result = await action();
+        void client.invalidateQueries({queryKey: ["payments"]});
         if (alive.current) {
           if (
             structural ||
@@ -235,6 +246,7 @@ export default function SourcingEditor({
           }
           setSnapshot(result);
           setChanges([]);
+          compactAfterPaste.current = false;
           if (structural) setView(defaultView);
           lastAction.current = null;
           saveOperation.current = null;
@@ -251,7 +263,7 @@ export default function SourcingEditor({
         if (alive.current) setSaving(false);
       }
     },
-    [],
+    [client],
   );
   const save = useCallback(async () => {
     if (!draft.current.length || !base.current || typingRef.current) return;
@@ -264,6 +276,7 @@ export default function SourcingEditor({
         operation: saveOperation.current.id,
         changes,
         work_date: day,
+        ...(compactAfterPaste.current ? {compact_rows: true} : {}),
       };
       await execute(
         () => api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/save`, payload),
@@ -388,6 +401,24 @@ export default function SourcingEditor({
       true,
     );
   };
+  const deleteSelectedRows = async (rows = selection.rows) => {
+    const current = base.current;
+    if (!current || inFlight.current || locked) return;
+    if (draft.current.length || typingRef.current || auxDirty.current) {
+      setRowDeleteNotice("Wait for Saved before deleting selected rows.");
+      return;
+    }
+    const ids = [...new Set(rows.filter(row => row > 0).map(row => current.row_ids[row]).filter(Boolean))];
+    if (!ids.length) return;
+    if (ids.length > 1000) {setRowDeleteNotice("Select up to 1,000 rows to delete at a time."); return;}
+    setRowDeleteNotice("");
+    const payload = {operation: operationId(), revision: current.revision, action: "delete_rows", ids, work_date: day};
+    await execute(async () => {
+      const result = await api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/structure`, payload);
+      void client.invalidateQueries({queryKey: ["payments"]});
+      return result;
+    }, true);
+  };
   const resize = (col: number, width: number) => {
     window.clearTimeout(resizeTimer.current);
     resizeTimer.current = window.setTimeout(() => {
@@ -462,9 +493,10 @@ export default function SourcingEditor({
     link.click();
     URL.revokeObjectURL(url);
   };
-  const appendJobs = async () => {
-    if (!snapshot || !appendText) return;
-    const rows = parseTSV(appendText);
+  const appendJobs = async (pastedRows?: string[][]) => {
+    if (!snapshot || (!appendText && !pastedRows)) return;
+    const rows = (pastedRows || parseTSV(appendText)).filter(row => row.some(value => value.trim()));
+    if (!rows.length) return;
     if (rows.reduce((n, r) => n + r.length, 0) > 10000) {
       setError("Append up to 10,000 cells at a time.");
       return;
@@ -486,6 +518,15 @@ export default function SourcingEditor({
       }
       return result;
     }, true);
+  };
+  const checkApplications = async () => {
+    if (!snapshot || day === "undated" || day === "all" || dirty || locked || typingRef.current) return;
+    const payload = {operation: operationId(), revision: snapshot.revision, work_date: day};
+    await execute(async () => {
+      const result = await api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/verify`, payload);
+      void client.invalidateQueries({queryKey: ["payments"]});
+      return result;
+    });
   };
   const focusRow =
     highlightId && snapshot
@@ -711,6 +752,11 @@ export default function SourcingEditor({
             <Plus size={14} />
             Rows
           </Button>
+          <Button size="sm" variant="outline" className="sheet-delete-rows"
+            disabled={locked || dirty || !snapshot || !selection.rows.length || selection.rows.length > 1000}
+            onClick={() => void deleteSelectedRows()} title="Delete selected job rows (Delete)">
+            <Trash2 size={14} />Delete rows{selection.rows.length > 1 ? ` (${selection.rows.length})` : ""}
+          </Button>
           <select
             aria-label="Row and column actions"
             value=""
@@ -741,6 +787,12 @@ export default function SourcingEditor({
             <Filter size={16} />
           </Button>
         </div>
+        <Button variant="outline" size="sm" disabled={locked || dirty || loading || !snapshot || day === "undated" || day === "all"}
+          title="Match company, role and account over seven days starting on the selected date in America/Chicago. Use company only if the email has no role. Checks are permanent."
+          onClick={() => void checkApplications()}><Check size={14} />Check applications</Button>
+        {snapshot?.verification && snapshot.verification.day === day && <span className="sheet-verification-result" role="status">
+          {snapshot.verification.checked} links checked · 7 days from {day} · Chicago
+        </span>}
         <span className="sheet-toolbar-spacer" />
         <span className="sheet-save-status" role="status">
           {saving ? (
@@ -905,6 +957,7 @@ export default function SourcingEditor({
           </div>
         </div>
       )}
+      {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (
         <SheetGrid
           snapshot={displaySnapshot!}
@@ -914,11 +967,14 @@ export default function SourcingEditor({
           disabled={locked}
           highlightRow={focusRow}
           view={scopedView}
-          onSelection={setSelection}
+          onSelection={next => {setSelection(next); setRowDeleteNotice("")}}
+          onDeleteRows={rows => void deleteSelectedRows(rows)}
           onResize={resize}
           onEditingChange={setTyping}
           onHeaderChange={(col, title) => void renameHeader(col, title)}
           headersEditable={!changes.length}
+          onPaste={() => {compactAfterPaste.current = true}}
+          onAppendRows={rows => void appendJobs(rows)}
         />
       ) : (
         <div className="sourcing-empty">

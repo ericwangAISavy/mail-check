@@ -64,7 +64,7 @@ def atomic(conn):
 
 
 def _create_book(conn, bidder_id, title, legacy_id=None):
-    if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL", (bidder_id,)).fetchone():
         raise ValueError("Bidder not found.")
     conn.execute(
         "INSERT OR IGNORE INTO native_books(bidder_id,title,legacy_book_id) VALUES(?,?,?)",
@@ -94,11 +94,14 @@ def _create_tab(
 ):
     if label is None:
         account = conn.execute(
-            "SELECT email FROM accounts WHERE id=?", (account_id,)
+            "SELECT label,email FROM accounts WHERE id=?", (account_id,)
         ).fetchone()
         if not account:
             raise ValueError("Profile not found.")
         label = account["email"]
+    account = conn.execute("SELECT label FROM accounts WHERE id=?", (account_id,)).fetchone()
+    if account:
+        title = account["label"]
     tab_id = conn.execute(
         "INSERT INTO native_tabs(book_id,account_id,account_label,title,updated_at,legacy_tab_id,migration_notice) VALUES(?,?,?,?,?,?,?) RETURNING id",
         (
@@ -115,6 +118,7 @@ def _create_tab(
         ("Company", "company"),
         ("Role", "role"),
         ("Job link", "link"),
+        ("Check", "check"),
     ]
     conn.executemany(
         "INSERT INTO native_columns(id,tab_id,position,title,kind) VALUES(?,?,?,?,?)",
@@ -123,6 +127,7 @@ def _create_tab(
             for i, (name, kind) in enumerate(definitions)
         ],
     )
+    conn.execute("UPDATE native_columns SET width=76 WHERE tab_id=? AND kind='check'", (tab_id,))
     conn.executemany(
         "INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?)",
         [(new_id(), tab_id, i) for i in range(max(count, 1))],
@@ -160,7 +165,7 @@ def snapshot(conn, tab):
 
 
 def _snapshot(conn, tab):
-    tab = conn.execute("SELECT * FROM native_tabs WHERE id=?", (tab["id"],)).fetchone()
+    tab = conn.execute("SELECT t.*,COALESCE(a.label,t.title) AS account_title FROM native_tabs t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tab["id"],)).fetchone()
     columns = [
         dict(c)
         for c in conn.execute(
@@ -219,7 +224,7 @@ def _snapshot(conn, tab):
         rows.append(row)
     return {
         "id": tab["id"],
-        "title": tab["title"],
+        "title": tab["account_title"],
         "revision": str(tab["revision"]),
         "structure_revision": tab["structure_revision"],
         "row_ids": ["", *row_ids],
@@ -287,13 +292,14 @@ def date_scope(value):
     return value
 
 
-def save(conn, tab, operation, changes, *, work_date="all"):
+def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
     scope = date_scope(work_date)
     if not 1 <= len(changes) <= MAX_CELLS:
         raise ValueError("Save between 1 and 10,000 cells at a time.")
     payload = {
         "action": "save",
         "changes": changes,
+        **({"compact_rows": True} if compact_rows else {}),
         **({"work_date": work_date} if work_date != "all" else {}),
     }
     with atomic(conn):
@@ -347,6 +353,11 @@ def save(conn, tab, operation, changes, *, work_date="all"):
                     value = cell["value"] if cell else ""
                 if not isinstance(value, str) or len(value) > 50_000:
                     raise ValueError("A cell can contain up to 50,000 text characters.")
+                kind = conn.execute("SELECT kind FROM native_columns WHERE id=?", (column_id,)).fetchone()[0]
+                if kind == "check" and value not in ("", "true", "false"):
+                    raise ValueError("Check cells must be checked or unchecked.")
+                if kind == "check" and cell and cell["value"] == "true" and value != "true":
+                    raise ValueError("Checked job links cannot be unchecked.")
                 style = {
                     **(json.loads(cell["style"]) if cell else {}),
                     **(change.get("style") or {}),
@@ -355,7 +366,9 @@ def save(conn, tab, operation, changes, *, work_date="all"):
                     "INSERT INTO native_cells(row_id,column_id,value,style,version) VALUES(?,?,?,?,1) ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,style=excluded.style,version=native_cells.version+1",
                     (row_id, column_id, value, json.dumps(style)),
                 )
-            record_operation(conn, tab["id"], operation, payload)
+            if compact_rows:
+                compact_blank_rows(conn, tab["id"])
+            record_operation(conn, tab["id"], operation, payload, structural=compact_rows)
         return snapshot(conn, tab)
 
 
@@ -475,6 +488,33 @@ def migrate(conn):
                                 (native_rows[r], native_columns[c], value),
                             )
 
+        upgrade_verification_columns(conn)
+
+
+def upgrade_verification_columns(conn):
+    for tab in conn.execute("SELECT id FROM native_tabs").fetchall():
+        tab_id = tab["id"]
+        if conn.execute("SELECT 1 FROM native_columns WHERE tab_id=? AND kind='check'", (tab_id,)).fetchone():
+            continue
+        link = conn.execute("SELECT position FROM native_columns WHERE tab_id=? AND kind='link'", (tab_id,)).fetchone()
+        position = link[0] + 1 if link else 3
+        conn.execute("UPDATE native_columns SET position=position+1 WHERE tab_id=? AND position>=?", (tab_id, position))
+        conn.execute("INSERT INTO native_columns(id,tab_id,position,title,kind,width) VALUES(?,?,?,'Check','check',76)", (new_id(), tab_id, position))
+        conn.execute("UPDATE native_tabs SET revision=revision+1,structure_revision=structure_revision+1 WHERE id=?", (tab_id,))
+    conn.execute("UPDATE native_tabs SET title=(SELECT label FROM accounts WHERE id=native_tabs.account_id) WHERE account_id IS NOT NULL AND EXISTS(SELECT 1 FROM accounts WHERE id=native_tabs.account_id)")
+
+
+def compact_blank_rows(conn, tab_id):
+    blanks = [row["id"] for row in conn.execute("""SELECT r.id FROM native_rows r WHERE r.tab_id=? AND NOT EXISTS (
+        SELECT 1 FROM native_cells c JOIN native_columns col ON col.id=c.column_id
+        WHERE c.row_id=r.id AND COALESCE(col.kind,'')!='check' AND trim(c.value, char(9)||char(10)||char(13)||' ')!='') ORDER BY r.position,r.id""", (tab_id,))]
+    # One undated input row remains available after the last job.
+    keep = blanks[-1] if blanks else new_id()
+    conn.executemany("DELETE FROM native_rows WHERE id=?", [(row_id,) for row_id in blanks if row_id != keep])
+    last = conn.execute("SELECT COALESCE(MAX(position),-1)+1 FROM native_rows WHERE tab_id=? AND id!=?", (tab_id, keep)).fetchone()[0]
+    conn.execute("INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,work_date=NULL", (keep, tab_id, last))
+    conn.execute("DELETE FROM native_cells WHERE row_id=?", (keep,))
+
 
 def structure(conn, tab, operation, revision, command):
     from .sourcing_structure import structure as apply_structure
@@ -486,3 +526,16 @@ def append(conn, tab, operation, revision, rows, *, work_date="all"):
     from .sourcing_structure import append as apply_append
 
     return apply_append(conn, tab, operation, revision, rows, work_date=work_date)
+
+
+def delete_tab(conn, tab, revision):
+    """Delete a local sheet and its retained import copy in one transaction."""
+    from .sourcing_structure import check_revision
+    with atomic(conn):
+        check_revision(conn, tab["id"], revision)
+        legacy_id = conn.execute("SELECT legacy_tab_id FROM native_tabs WHERE id=?", (tab["id"],)).fetchone()[0]
+        conn.execute("DELETE FROM native_tabs WHERE id=?", (tab["id"],))
+        # Prevent the one-time import migration from recreating a deleted sheet.
+        if legacy_id is not None:
+            conn.execute("DELETE FROM sourcing_tabs WHERE id=?", (legacy_id,))
+    return {"ok": True}

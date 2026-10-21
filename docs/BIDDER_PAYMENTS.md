@@ -7,18 +7,38 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 
 ## Setup and use
 
-1. As admin, expand **Manage bidders and account assignments**, and add each bidder.
+1. As admin, open **Accounts**, expand **Manage bidders and account assignments**, and add each bidder.
+   Adding a bidder automatically creates their Job sourcing document. **Remove bidder**
+   asks for confirmation, disables sign-in, archives their documents, and hides them
+   from active lists. Saved documents, assignments, and payment records are retained.
+   Job sourcing refreshes its list after additions and removals, including changes
+   from other tabs within 15 seconds.
 2. Assign one or more connected accounts to the bidder. Set the first assigned day
    to the date they actually started, including earlier dates when appropriate.
    Each assignment has **Edit** and **Remove** controls. Edit the account, first
    day, or optional last day; clear the last day to restore an ongoing rule.
    Removal requires confirmation and changes attribution, without deleting emails.
    Changes affecting a paid week are blocked; changes outside it remain editable.
-3. Use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
+   One account may be assigned to several bidders on the same day. Shared-account
+   confirmation counts are estimated per bidder using their checked links on the same
+   account and day. Checked links stay with the bidder who owns the document. Overlapping
+   rules for the same bidder and account are blocked.
+3. Open **Bidder payments** and use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
    The bidder selector narrows the table and summary to one bidder.
 4. After a week ends, select **Record payment**, enter the amount in USD and an
    optional reference, then select **Record as paid**. Amounts are entered manually;
    there is no rate-per-application calculation or money transfer.
+
+## Daily comparison
+
+Daily cells show **estimated confirmations / checked sourcing links**, for example
+**112 / 60**. The first number follows the receipt rules below. The second counts
+checked rows with a job link on that bidder's account tabs and work date; the account
+must have been assigned to that bidder on that date. Archived sheets retain their
+historical checked counts. Use **Check applications** on a dated sourcing tab to
+compare company, role and account against confirmations received in the seven-day Chicago window beginning on that sourcing
+date. Checks are permanent once set, including manually checked links. Weekly totals and recorded payment counts
+use the estimated allocation.
 
 ## Counting rules
 
@@ -29,9 +49,19 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 - A confirmation belongs to the Chicago calendar day of its received timestamp.
   Missing timestamps use the original collection timestamp. Daylight-saving
   transitions use the timezone’s actual offsets.
-- A confirmation goes to the bidder assigned to its account on that calendar day.
-  One account cannot have overlapping assignments, including with the same bidder.
-  End dates are inclusive. For transfers, the next bidder starts the following day.
+- For each shared account and Chicago day, split received confirmations among the
+  bidders assigned on that date in proportion to their checked links for that same
+  account and sourcing date. Checks on another account or day do not affect the split.
+  For 105 confirmations and checked counts of 11 and 75, the estimates are 13 and 92.
+  Integer allocations use largest remainders: floor each share, then award leftover
+  units by descending fractional remainder, breaking ties by bidder ID. Allocations
+  therefore sum to the account’s received count.
+- A sole assigned bidder receives the full account count, even without checked links.
+  Shared accounts where all assigned bidders have zero checks remain **Unallocated
+  confirmations**, displayed in a separate row until weights become available.
+- Overall cards and the total row show each assigned confirmation once, including
+  unallocated confirmations. Selecting a bidder or signing in as one shows only their
+  estimated share, calculated against all assigned bidders before filtering.
 - Unassigned confirmations are excluded from bidder totals. Admins see an unassigned
   count so they can add the missing dated assignments.
 - Counts are confirmation emails, not a direct audit of submitted applications.
@@ -42,7 +72,7 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 ## History and payment integrity
 
 A separate ledger stores account/message identities, received timestamps, and
-categories. No email content enters the accounting ledger. Entries survive normal
+categories and extracted company names and roles. Email bodies are not stored in the ledger. Entries survive normal
 email retention cleanup and account removal. New accounts cannot reuse an accounting
 account identity. Existing retained classifications populate the ledger automatically.
 Emails already removed before this feature was installed cannot be recovered by it.
@@ -50,7 +80,7 @@ Emails already removed before this feature was installed cannot be recovered by 
 Payment records snapshot the reviewed count, entered amount, date, and reference.
 The server rejects stale counts, repeat payments for the same bidder/week, and payment
 recording before a week ends. Assignment changes that would affect that bidder’s paid
-week are rejected. Later classification changes do not rewrite recorded payments;
+week are rejected. Later classifications and checked-link changes can update estimates but do not rewrite recorded payments;
 the table flags any difference between the current count and paid count.
 
 Payment records are immutable in this version. There is no payment gateway or bank

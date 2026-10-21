@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 24
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -39,6 +39,10 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS interview_events (
     manual_fields TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     UNIQUE(calendar_uid, recurrence_id)
+);
+CREATE TABLE IF NOT EXISTS interview_event_removals (
+    event_id INTEGER PRIMARY KEY REFERENCES interview_events(id) ON DELETE CASCADE,
+    removed_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS interview_sources (
     id INTEGER PRIMARY KEY,
@@ -162,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_class_latest
 #: Columns added after v1. SQLite cannot add them inside CREATE TABLE IF NOT
 #: EXISTS on a database that already exists, so they are applied separately.
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    ("bidders", "removed_at", "TEXT"),
     ("native_rows", "work_date", "TEXT"),
     ("native_tabs", "archived", "INTEGER NOT NULL DEFAULT 0"),
     ("sourcing_operations", "google_result", "TEXT"),
@@ -182,6 +187,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("runs", "llm_timeouts", "INTEGER DEFAULT 0"),
     ("runs", "llm_busy_responses", "INTEGER DEFAULT 0"),
     ("runs", "llm_retries", "INTEGER DEFAULT 0"),
+    ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
+    ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS bidder_assignments (
 CREATE INDEX IF NOT EXISTS idx_bidder_assignments_account ON bidder_assignments(account_id, start_date);
 CREATE TABLE IF NOT EXISTS application_receipts (
  account_id INTEGER NOT NULL, message_id TEXT NOT NULL, received_at TEXT NOT NULL,
- category TEXT NOT NULL, PRIMARY KEY(account_id, message_id)
+ category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', PRIMARY KEY(account_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_week ON application_receipts(category, julianday(received_at));
 CREATE TABLE IF NOT EXISTS bidder_payments (
@@ -65,16 +65,16 @@ class PayBody(BaseModel):
 
 
 def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None) -> None:
-    """Upsert latest classifications; no email content enters the accounting ledger."""
+    """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
-    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category)
-        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category
+    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
+        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,'')
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category = 'application_ack' OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
         """ + (" AND m.id=? " if message_pk is not None else "") + """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category""", (message_pk,) if message_pk is not None else ())
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role""", (message_pk,) if message_pk is not None else ())
 
 
 def monday(value: date) -> date:
@@ -101,27 +101,72 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
         key = (row["account_id"], day)
         counts[key] = counts.get(key, 0) + 1
-    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE (? IS NULL OR bidder_id=?) ORDER BY start_date,id", (bidder_id,bidder_id))]
+    assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
+    from .sourcing_verification import checked_account_counts
+    account_checks = checked_account_counts(conn, start.isoformat(), end.isoformat())
+    checked = {}
+    for (who, _account_id, day), count in account_checks.items():
+        checked[who, day] = checked.get((who, day), 0) + count
+    allocations = {}
+    unallocated = {day: 0 for day in dates}
+    for (account_id, day), total in counts.items():
+        owners = sorted({a["bidder_id"] for a in assignments if a["account_id"] == account_id
+                         and a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)})
+        if len(owners) == 1:
+            shares = {owners[0]: total}
+        elif len(owners) > 1:
+            weights = {who: account_checks.get((who, account_id, day), 0) for who in owners}
+            weight_sum = sum(weights.values())
+            if not weight_sum:
+                unallocated[day] += total
+                continue
+            # Largest remainders preserve the account total with integer shares.
+            shares = {who: total * weights[who] // weight_sum for who in owners}
+            remainder_order = sorted(owners, key=lambda who: (-(total * weights[who] % weight_sum), who))
+            for who in remainder_order[:total - sum(shares.values())]:
+                shares[who] += 1
+        else:
+            continue
+        for who, count in shares.items():
+            allocations[who, day] = allocations.get((who, day), 0) + count
     bidders = []
-    for row in conn.execute("SELECT * FROM bidders WHERE (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
+    for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
-        daily = [sum(counts.get((a["account_id"], day), 0) for a in assigned
-                     if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)) for day in dates]
+        daily = [allocations.get((row["id"], day), 0) for day in dates]
         total = sum(daily)
         bidders.append({"id": row["id"], "name": row["name"],
             "assignments": assigned, "daily": daily, "total": total,
+            "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
+    # Shared assignments expose the same receipts in multiple bidder rows.
+    # Count each account/day once for the report overview and footer.
+    unique_daily = [sum(counts.get((account_id, day), 0) for account_id in {
+        a["account_id"] for a in assignments
+        if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)
+    }) for day in dates]
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
-        "daily": [sum(b["daily"][i] for b in bidders) for i in range(7)],
-        "unassigned": sum(counts.values()) - sum(b["total"] for b in bidders) if admin else 0,
+        "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
+        "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
+        "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
+        "unassigned": sum(count for (account_id, day), count in counts.items()
+                          if not any(a["account_id"] == account_id and a["start_date"] <= day
+                                     and (not a["end_date"] or a["end_date"] >= day)
+                                     for a in assignments)) if admin else 0,
         "accounts": [{"id": a["id"], "label": a["label"]} for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")] if admin else []}
 
 
 def bidder(conn, bidder_id):
-    if not conn.execute("SELECT 1 FROM bidders WHERE id=?", (bidder_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL", (bidder_id,)).fetchone():
         raise LookupError("Bidder not found")
+
+
+def remove_bidder(conn, bidder_id: int):
+    bidder(conn, bidder_id)
+    conn.execute("UPDATE bidders SET removed_at=?,login_enabled=0 WHERE id=?",
+                 (datetime.now(timezone.utc).isoformat(), bidder_id))
+    conn.execute("UPDATE native_tabs SET archived=1 WHERE book_id IN (SELECT id FROM native_books WHERE bidder_id=?)", (bidder_id,))
 
 
 def assign(conn, bidder_id: int, body: AssignmentBody):
@@ -131,10 +176,10 @@ def assign(conn, bidder_id: int, body: AssignmentBody):
     account = conn.execute("SELECT label FROM accounts WHERE id=?", (body.account_id,)).fetchone()
     if not account:
         raise ValueError("Account not found")
-    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=?
+    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND bidder_id=?
         AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?""",
-        (body.account_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
-        raise ValueError("This account already has an assignment during those dates. End that assignment first.")
+        (body.account_id, bidder_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
+        raise ValueError("This bidder already has an assignment for this account during those dates.")
     # Accounting for a paid week cannot be reassigned after settlement.
     reject_paid_overlap(conn, body.start_date, body.end_date, bidder_id)
     conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date,end_date) VALUES(?,?,?,?,?)",
@@ -177,10 +222,10 @@ def edit_assignment(conn, assignment_id: int, body: AssignmentBody):
     account = conn.execute("SELECT label FROM accounts WHERE id=?", (body.account_id,)).fetchone()
     if not account and body.account_id != old["account_id"]:
         raise ValueError("Account not found")
-    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND id!=?
+    if conn.execute("""SELECT 1 FROM bidder_assignments WHERE account_id=? AND bidder_id=? AND id!=?
         AND start_date<=? AND COALESCE(end_date,'9999-12-31')>=?""",
-        (body.account_id, assignment_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
-        raise ValueError("This account already has an assignment during those dates")
+        (body.account_id, old["bidder_id"], assignment_id, (body.end_date or date.max).isoformat(), body.start_date.isoformat())).fetchone():
+        raise ValueError("This bidder already has an assignment for this account during those dates")
     protect_assignment_payments(conn, old, body)
     conn.execute("UPDATE bidder_assignments SET account_id=?,account_label=?,start_date=?,end_date=? WHERE id=?",
         (body.account_id, account["label"] if account else old["account_label"], body.start_date.isoformat(),

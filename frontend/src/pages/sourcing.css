@@ -614,3 +614,32 @@
     margin-left: 0;
   }
 }
+
+.sourcing-check { width: 15px; height: 15px; margin: 5px auto; display: block; accent-color: var(--primary); cursor: pointer; }
+
+.sourcing-tabs .sourcing-delete-tab { display: inline-flex; align-items: center; gap: 6px; color: var(--destructive); margin-left: auto; }
+
+/* Dragged ranges identify the complete job rows that Delete will remove. */
+.sourcing-grid .sheet-row-selected > .rdg-cell { background-color: color-mix(in srgb, var(--primary) 7%, var(--background)); }
+.sourcing-grid .sheet-row-selected .sheet-row-number { color: var(--primary); font-weight: 700; }
+.sheet-delete-rows { color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); }
+
+.sourcing-missing-links {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 65%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--background));
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.sourcing-missing-links svg { flex-shrink: 0; }
+@media (max-width: 1100px) {
+  .sourcing-toolbar:has(.sourcing-missing-links) { flex-wrap: wrap; }
+  .sourcing-missing-links { flex: 1 1 240px; }
+}

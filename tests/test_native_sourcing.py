@@ -25,6 +25,38 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_index_backfills_existing_bidders_without_replacing_workbooks(self):
+        before = self.snapshot()
+        result = self.client.get("/api/sourcing")
+        self.assertEqual(result.status_code, 200, result.text)
+        books = result.json()["books"]
+        self.assertEqual([b["name"] for b in books], ["Alex", "Blair"])
+        alex = next(b for b in books if b["bidder_id"] == 1)
+        self.assertEqual(alex["id"], self.book)
+        self.assertEqual(alex["tabs"][0]["id"], self.tab_id)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.client.get("/api/sourcing").json()["books"], books)
+        self.conn.execute("UPDATE bidders SET name='Renamed' WHERE id=2")
+        self.conn.commit()
+        self.assertIn("Renamed", [b["name"] for b in self.client.get("/api/sourcing").json()["books"]])
+        self.client.post("/api/payments/bidders/2/remove", json={})
+        self.assertEqual([b["name"] for b in self.client.get("/api/sourcing").json()["books"]], ["Alex"])
+
+    def test_job_dates_count_nonempty_links_across_active_account_tabs(self):
+        base = self.snapshot()
+        self.native.append(self.conn, self.tab(), "day-one", base["revision"],
+                           [["Acme", "Engineer", "https://jobs.test/1"]], work_date="2026-10-20")
+        current = self.snapshot()
+        self.native.append(self.conn, self.tab(), "no-link", current["revision"],
+                           [["Beta", "Engineer", "  "]], work_date="2026-10-21")
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual(next(b for b in books if b["bidder_id"] == 1)["job_dates"], ["2026-10-20"])
+        self.assertEqual(next(b for b in books if b["bidder_id"] == 2)["job_dates"], [])
+        self.conn.execute("UPDATE native_tabs SET archived=1 WHERE id=?", (self.tab_id,))
+        self.conn.commit()
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual(next(b for b in books if b["bidder_id"] == 1)["job_dates"], [])
+
     def tab(self):
         return self.native.owned(self.conn, self.tab_id, self.principal)
 
@@ -39,6 +71,55 @@ class NativeSheetTests(unittest.TestCase):
             "expected_version": base["rows"][row][col]["version"],
             "value": value,
         }
+
+    def test_tabs_use_account_names_and_have_a_compact_check_column(self):
+        base = self.snapshot()
+        label = self.conn.execute("SELECT label FROM accounts WHERE id=?", (self.account_id,)).fetchone()[0]
+        self.assertEqual(base["title"], label)
+        self.assertEqual([c["kind"] for c in base["columns"][:4]], ["company", "role", "link", "check"])
+        self.assertEqual(base["columns"][3]["title"], "Check")
+        self.assertLessEqual(base["columns"][3]["width"], 80)
+
+    def test_blank_pasted_rows_are_not_stored_between_jobs(self):
+        base = self.snapshot()
+        result = self.native.append(self.conn, self.tab(), "blank-append", base["revision"],
+            [["Acme", "Engineer", "https://jobs.test/1"], ["", "  ", ""],
+             ["Beta", "Engineer", "https://jobs.test/2"], ["", "", ""]], work_date="2026-10-20")
+        jobs = [r for r in result["rows"][1:] if any(str(c["value"]).strip() for c in r)]
+        self.assertEqual([r[0]["value"] for r in jobs], ["Acme", "Beta"])
+        self.assertEqual(len(result["row_ids"]), 4)  # header, two jobs, one input row
+        self.assertEqual(result["row_dates"][1:3], ["2026-10-20", "2026-10-20"])
+
+    def test_existing_sheet_upgrade_keeps_cells_and_adds_check_after_job_link(self):
+        self.native.save(self.conn, self.tab(), "original", [self.change("Acme")])
+        old = self.snapshot()
+        self.conn.execute("DELETE FROM native_columns WHERE tab_id=? AND kind='check'", (self.tab_id,))
+        self.conn.execute("UPDATE native_tabs SET title='Custom name' WHERE id=?", (self.tab_id,))
+        self.conn.execute("ALTER TABLE application_receipts DROP COLUMN company")
+        self.conn.execute("PRAGMA user_version=21")
+        self.conn.commit()
+        from mailcheck import db
+        with db.session(self.path) as conn:
+            tab = self.native.owned(conn, self.tab_id, self.principal)
+            migrated = self.native.snapshot(conn, tab)
+            self.assertEqual(migrated["row_ids"], old["row_ids"])
+            self.assertEqual(migrated["rows"][1][0]["value"], "Acme")
+            self.assertEqual([col["id"] for col in migrated["columns"][:3]], [col["id"] for col in old["columns"][:3]])
+            self.assertEqual(migrated["columns"][3]["kind"], "check")
+            self.assertEqual(migrated["title"], "personal")
+            self.assertIn("company", [row["name"] for row in conn.execute("PRAGMA table_info(application_receipts)")])
+
+    def test_deleting_an_imported_tab_does_not_reimport_it_on_upgrade(self):
+        self.conn.execute("INSERT INTO sourcing_books(id,bidder_id,spreadsheet_id,title) VALUES(22,2,'legacy-delete','Legacy')")
+        self.conn.execute("INSERT INTO sourcing_tabs(id,book_id,sheet_id,account_id,account_label,title) VALUES(22,22,1,?,'personal','Old tab')", (self.account_id,))
+        self.native.migrate(self.conn)
+        self.conn.commit()
+        tab_id = self.conn.execute("SELECT id FROM native_tabs WHERE legacy_tab_id=22").fetchone()[0]
+        tab = self.native.owned(self.conn, tab_id, self.principal)
+        self.native.delete_tab(self.conn, tab, str(tab["revision"]))
+        self.native.migrate(self.conn)
+        self.assertIsNone(self.conn.execute("SELECT id FROM native_tabs WHERE legacy_tab_id=22").fetchone())
+        self.assertIsNone(self.conn.execute("SELECT id FROM sourcing_tabs WHERE id=22").fetchone())
 
     def test_native_sheet_saves_literal_values_and_retries_without_duplication(self):
         self.assertEqual(self.snapshot()["rows"][0][0]["display"], "Company")
@@ -189,7 +270,7 @@ class NativeSheetTests(unittest.TestCase):
             added["revision"],
             {"action": "delete_column", "column_id": added["columns"][-1]["id"]},
         )
-        self.assertEqual(len(self.snapshot()["columns"]), 3)
+        self.assertEqual(len(self.snapshot()["columns"]), 4)
 
     def test_csv_replacement_is_checked_and_export_is_literal(self):
         from mailcheck import sourcing_csv
@@ -289,7 +370,7 @@ class NativeSheetTests(unittest.TestCase):
             mode="replace",
             has_header=True,
         )
-        self.assertEqual(len(result["rows"]), 2001)
+        self.assertEqual(len(result["rows"]), 2002)  # includes one trailing input row
         self.assertEqual(result["rows"][2000][0]["value"], "Company 1999")
 
     def test_dated_save_claims_blank_rows_and_prevents_cross_day_edits(self):

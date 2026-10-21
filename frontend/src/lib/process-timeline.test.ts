@@ -59,3 +59,22 @@ it("reserves an equal final segment for the follow-up reminder without changing 
   expect(layout.map(item => item.position)).toEqual([0, .5])
   expect(milestones).toHaveLength(2)
 })
+
+it("measures process age from first milestone to now without future bookings extending it", async () => {
+ const { processAge } = await import("./process-timeline")
+ const now = new Date("2026-10-16T12:00:00Z").getTime()
+ expect(processAge([{ occurred_at: "2026-09-18T12:00:00Z" }, { occurred_at: "2026-11-20T12:00:00Z" }], now).label).toBe("4 weeks")
+ expect(processAge([], now).label).toBe("No milestones yet")
+ expect(processAge([{ occurred_at: "2026-11-20T12:00:00Z" }], now).label).toBe("Not started yet")
+})
+
+it("colors process panels by elapsed age with exact weekly boundaries", async () => {
+ const { processAge } = await import("./process-timeline")
+ const now = new Date("2026-10-17T12:00:00Z").getTime()
+ for (const [days, tone] of [[0,"new"],[6,"new"],[7,"progressing"],[13,"progressing"],[14,"established"],[27,"established"],[28,"extended"],[41,"extended"],[42,"long-running"],[100,"long-running"]] as const) {
+  expect(processAge([{ occurred_at: new Date(now-days*86400000).toISOString() }], now).tone).toBe(tone)
+ }
+ expect(processAge([], now).tone).toBe("pending")
+ expect(processAge([{ occurred_at: "invalid" }], now).tone).toBe("pending")
+ expect(processAge([{ occurred_at: new Date(now+86400000).toISOString() }], now).tone).toBe("pending")
+})
