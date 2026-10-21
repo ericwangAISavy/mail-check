@@ -29,45 +29,42 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
    optional reference, then select **Record as paid**. Amounts are entered manually;
    there is no rate-per-application calculation or money transfer.
 
-## Daily comparison
+## Daily application counts
 
-Daily cells show **estimated confirmations / checked sourcing links**, for example
-**112 / 60**. The first number follows the receipt rules below. The second counts
-checked rows with a job link on that bidder's account tabs and work date; the account
-must have been assigned to that bidder on that date. Archived sheets retain their
-historical checked counts. Use **Check applications** on a dated sourcing tab to
-compare company, role and account against confirmations received in the seven-day Chicago window beginning on that sourcing
-date. Checks are permanent once set, including manually checked links. Weekly totals and recorded payment counts
-use the estimated allocation.
+Daily cells show **checked applications / estimated confirmations**. For example,
+**75 / 92** means 75 checked job-link rows and an estimated share of 92 confirmation
+emails. The first number is the bidder’s application count used by overview cards,
+weekly totals, and new payment records. It sums checked rows across the bidder’s
+account tabs, requiring an account assignment on the row’s sourcing date. Each row
+counts once; archived sheets retain historical checked counts.
 
-## Counting rules
+## Verification rules
 
-- Only the latest `application_ack` classification (displayed as **Application
-  received**) contributes to a count. Reclassification can change an unpaid total.
-- Each confirmation is identified by account and message ID. Rechecking or retrying
-  classification does not count it again. Marking a message Done does not change it.
-- A confirmation belongs to the Chicago calendar day of its received timestamp.
-  Missing timestamps use the original collection timestamp. Daylight-saving
-  transitions use the timezone’s actual offsets.
-- For each shared account and Chicago day, split received confirmations among the
-  bidders assigned on that date in proportion to their checked links for that same
-  account and sourcing date. Checks on another account or day do not affect the split.
-  For 105 confirmations and checked counts of 11 and 75, the estimates are 13 and 92.
-  Integer allocations use largest remainders: floor each share, then award leftover
-  units by descending fractional remainder, breaking ties by bidder ID. Allocations
-  therefore sum to the account’s received count.
-- A sole assigned bidder receives the full account count, even without checked links.
-  Shared accounts where all assigned bidders have zero checks remain **Unallocated
-  confirmations**, displayed in a separate row until weights become available.
-- Overall cards and the total row show each assigned confirmation once, including
-  unallocated confirmations. Selecting a bidder or signing in as one shows only their
-  estimated share, calculated against all assigned bidders before filtering.
-- Unassigned confirmations are excluded from bidder totals. Admins see an unassigned
-  count so they can add the missing dated assignments.
-- Counts are confirmation emails, not a direct audit of submitted applications.
-  They depend on what mail-check fetches and classifies. Two different confirmation
-  emails for one submission remain two counts; this feature does not guess whether
-  they describe the same submission.
+After mail collection and classification finish, scheduled auto-checks and the
+top-level **Check now** job compare confirmation emails against every active account
+tab. A confirmation received on day D can check rows dated D through D−6, using
+Chicago calendar dates. Company, role when present, and account must match. Manual
+**Check applications** on a tab uses the same seven-day relationship.
+
+Checked rows stay checked through later checks, reclassification, and edits. A
+confirmation arriving next week can therefore increase the original sourcing day’s
+count. Manually checked rows count too. The checkbox cannot be cleared, although
+row deletion or changing the row’s date can affect the daily totals.
+
+## Receipt estimates for reference
+
+The second number remains a proportional estimate: per shared account and receipt
+day, divide confirmations by the assigned bidders’ checked-link weights for that
+account and date. For 105 confirmations and weights 11 and 75, estimates are 13 and
+92. Largest-remainder rounding preserves the total, with ties broken by bidder ID.
+A sole assigned bidder receives the full receipt count; shared accounts with no
+checks show unallocated confirmations. These estimates do not determine the primary
+application totals or new payment counts.
+
+Only the latest `application_ack` classification contributes to receipt estimates.
+Receipt dates use America/Chicago, falling back to collection time when absent.
+Rechecking a message does not duplicate its account/message identity. Estimates
+are not proof of submissions, and one confirmation can match several sourcing rows.
 
 ## History and payment integrity
 
@@ -77,7 +74,7 @@ email retention cleanup and account removal. New accounts cannot reuse an accoun
 account identity. Existing retained classifications populate the ledger automatically.
 Emails already removed before this feature was installed cannot be recovered by it.
 
-Payment records snapshot the reviewed count, entered amount, date, and reference.
+Payment records snapshot the reviewed checked-link count, entered amount, date, and reference.
 The server rejects stale counts, repeat payments for the same bidder/week, and payment
 recording before a week ends. Assignment changes that would affect that bidder’s paid
 week are rejected. Later classifications and checked-link changes can update estimates but do not rewrite recorded payments;
@@ -88,3 +85,30 @@ integration. The records describe payments the admin made elsewhere.
 
 The database migration runs automatically on startup. Bidder responses omit the full
 account-management list, while assigned account labels remain visible in the table.
+
+## Activity monitor
+
+Below the daily breakdown, the activity monitor shows newly detected checked links
+by check run or calendar day, a Chicago-time hourly heatmap, peak detection hour,
+active half-hour windows, last detected activity, and latest-versus-previous check
+counts. Click bidder chips to filter the graph and payment table together. The
+selected payment week also filters activity; the per-check graph keeps the latest
+240 checks while daily and hourly views cover the whole week.
+
+Auto-check and Check now record snapshots even when no new links match. Manual tab
+checks and saved checkbox marks are recorded too. A stable row identity prevents
+repeated checks from duplicating activity. Existing checked rows receive an untimed
+baseline on upgrade, rather than invented historical working hours. Activity history
+survives later row deletion. Named bidders can only read their own activity.
+
+Activity uses detection timestamps, whereas payment totals use original sourcing
+dates. Delivery delays, batch confirmations, and check frequency affect the signal.
+Active half-hour windows are not measured working hours or verified submissions.
+
+Use **By bidder** or **By account** to switch the activity monitor. Account chips
+filter the same graph, heatmap, peak hour, and change table. Account activity sums
+checked document rows across assigned bidders; shared accounts can have overlapping
+rows and these are not deduplicated receipt or submission counts. A selected bidder
+limits account activity to that bidder's rows. Bidder sign-ins never see another
+bidder's contribution, even on a shared account. Existing recorded account IDs and
+per-check event cursors support account history without inventing older timestamps.

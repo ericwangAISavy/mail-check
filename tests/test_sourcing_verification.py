@@ -223,6 +223,19 @@ class SourcingVerificationTests(unittest.TestCase):
         verification.verify_all(self.conn)
         self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
 
+    def test_late_confirmation_credits_original_sourcing_day_not_receipt_day(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs("2026-10-20")
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')", (self.account_id,))
+        self.receipt("next-week", "Acme", "2026-10-26T12:00:00+00:00")
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        row = payments.report(self.conn, date(2026,10,19), admin=True)["bidders"][0]
+        self.conn.commit()
+        self.assertEqual(row["checked_daily"], [0, 1, 0, 0, 0, 0, 0])
+        self.assertEqual(row["application_total"], 1)
+        self.assertEqual(row["daily"], [0] * 7)
+
     def test_check_job_verifies_after_new_receipts_before_reporting_completion(self):
         from unittest.mock import patch
         from mailcheck.web import app as web

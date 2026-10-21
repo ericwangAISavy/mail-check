@@ -64,6 +64,8 @@ def verify(conn, tab, operation, revision, work_date):
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
                     ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true'""",
                     (row["id"], columns["check"], str(checked).lower()))
+            from .sourcing_activity import record
+            record(conn, "tab-check", sample=True)
             sheets.record_operation(conn, tab["id"], operation, payload)
         result = sheets.snapshot(conn, tab)
         check = next(i for i, col in enumerate(result["columns"]) if col["kind"] == "check")
@@ -124,6 +126,8 @@ def verify_all(conn):
             changed_count += 1
         conn.executemany("UPDATE native_tabs SET revision=revision+1,updated_at=? WHERE id=?",
             [(time.time(), tab_id) for tab_id in changed_tabs])
+        from .sourcing_activity import record
+        record(conn, "global-check", sample=True)
         return {"tabs": len(tabs), "rows": len(rows), "checked": checked_count, "changed": changed_count}
 
 

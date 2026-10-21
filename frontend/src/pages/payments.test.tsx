@@ -6,7 +6,7 @@ import PaymentsPage from "./payments"
 vi.mock("@/lib/api", () => ({ api: { post: vi.fn() }, request: vi.fn() }))
 vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title }: { title: string }) => <h1>{title}</h1>, useToast: () => vi.fn() }))
 const clients: QueryClient[] = []
-const data = () => ({ week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, payment: null }] })
+const data = () => ({ week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
 function mount(readOnly = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>) }
@@ -46,15 +46,15 @@ it("shows received confirmations alongside checked sourcing links", async () => 
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
-  expect(within(row).getByText("112 / 60")).toBeTruthy()
-  expect(screen.getByText(/Estimated confirmations \/ checked sourcing links/)).toBeTruthy()
+  expect(within(row).getByText("60 / 112")).toBeTruthy()
+  expect(screen.getByText(/Checked applications \/ estimated confirmations/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Not recorded"])
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 3","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Not recorded"])
   expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
@@ -64,19 +64,19 @@ it("keeps management on Accounts for admins", async () => {
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
 })
 
-it("counts shared account receipts once in overall totals and preserves bidder filtering", async () => {
+it("uses checked links for overall totals and preserves bidder filtering", async () => {
   const report = data()
   report.today = "2026-10-12"
   report.bidders.push({ ...report.bidders[0], id: 2, name: "Blair" })
   vi.mocked(request).mockResolvedValue(report)
   mount()
   const heading = await screen.findByText("Applications this week")
-  expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("3")
+  expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const today = screen.getByText("Today")
-  expect(today.parentElement!.querySelector("strong")!.textContent).toBe("3")
+  expect(today.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const footer = document.querySelector("tfoot tr")!
-  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("3 / 0")
-  expect(within(footer as HTMLElement).getAllByRole("cell")[7].textContent).toBe("3")
+  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("6 / 3")
+  expect(within(footer as HTMLElement).getAllByRole("cell")[7].textContent).toBe("6")
   fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "2" } })
   expect(screen.queryByRole("rowheader", {name: /Alex/})).toBeNull()
   expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("3")
@@ -99,12 +99,13 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   const report = {...data(), unallocated_daily: [3,0,0,0,0,0,0]}
   report.bidders[0].daily = [0,0,0,0,0,0,0]
   report.bidders[0].total = 0
+  report.bidders[0].checked_daily = [0,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
   mount()
   const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmations/})).closest("tr")!
-  expect(within(row).getAllByRole("cell")[0].textContent).toBe("3 / 0")
-  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("3")
+  expect(within(row).getAllByRole("cell")[0].textContent).toBe("0 / 3")
+  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
   fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
   expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()
-  expect(screen.getByText("Estimated applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
+  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })

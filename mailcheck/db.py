@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -232,13 +232,14 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             # the database while this one was waiting.
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                from .sourcing_activity import SCHEMA as ACTIVITY_SCHEMA, initialize as initialize_activity
                 from .payments import SCHEMA as PAYMENT_SCHEMA
                 from .sourcing import SCHEMA as SOURCING_SCHEMA
                 from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 from .interview_processes import SCHEMA as PROCESS_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + PAYMENT_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA).split(";"):
+                for statement in (SCHEMA + PAYMENT_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + ACTIVITY_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
@@ -246,6 +247,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                     if statement.strip():
                         conn.execute(statement)
                 migrate_native(conn)
+                initialize_activity(conn)
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:

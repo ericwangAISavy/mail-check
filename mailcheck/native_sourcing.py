@@ -366,6 +366,8 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     "INSERT INTO native_cells(row_id,column_id,value,style,version) VALUES(?,?,?,?,1) ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,style=excluded.style,version=native_cells.version+1",
                     (row_id, column_id, value, json.dumps(style)),
                 )
+            from .sourcing_activity import record
+            record(conn, "manual-edit")
             if compact_rows:
                 compact_blank_rows(conn, tab["id"])
             record_operation(conn, tab["id"], operation, payload, structural=compact_rows)

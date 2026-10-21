@@ -137,6 +137,7 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         total = sum(daily)
         bidders.append({"id": row["id"], "name": row["name"],
             "assignments": assigned, "daily": daily, "total": total,
+            "application_total": sum(checked.get((row["id"], day), 0) for day in dates),
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
     # Shared assignments expose the same receipts in multiple bidder rows.
@@ -244,9 +245,9 @@ def record_payment(conn, bidder_id: int, body: PayBody):
     if start + timedelta(days=6) >= today():
         raise ValueError("Record payment after the week has ended")
     row = next(b for b in report(conn, start)["bidders"] if b["id"] == bidder_id)
-    if row["total"] != body.expected_count:
+    if row["application_total"] != body.expected_count:
         raise ValueError("Counts changed. Refresh and review before recording payment.")
     if row["payment"]:
         raise ValueError("Payment already recorded for this bidder and week")
     conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(?,?,?,?,?,?)",
-        (bidder_id,start.isoformat(),row["total"],int(body.amount * 100),datetime.now(timezone.utc).isoformat(),body.note.strip()))
+        (bidder_id,start.isoformat(),row["application_total"],int(body.amount * 100),datetime.now(timezone.utc).isoformat(),body.note.strip()))

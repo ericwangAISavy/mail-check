@@ -614,7 +614,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 if role == "bidder":
                     if path == "/" and request.method in ("GET", "HEAD"):
                         return RedirectResponse("/sourcing", status_code=303)
-                    allowed = path in ("/sourcing", "/api/sourcing", "/payments", "/api/bootstrap", "/api/payments", "/api/auth/password/self")
+                    allowed = path in ("/sourcing", "/api/sourcing", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
                     allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
                     if not allowed:
                         return _err("Admin access is required.", 403)
@@ -787,6 +787,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/payments")
     def payments_page():
         return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
+
+    @app.get("/api/payments/activity")
+    def bidder_activity(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
+        from ..sourcing_activity import report
+        with db.session() as conn:
+            return report(conn, week, bidder_id=request.state.bidder_id or bidder)
 
     @app.get("/api/payments")
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):

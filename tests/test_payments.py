@@ -95,7 +95,7 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(self.report()["unassigned"],1)
 
     def test_manual_payment_snapshot_and_idempotency(self):
-        self.assign(); self.message("one")
+        self.assign(); self.message("one"); self.add_checks(1, self.account, 1)
         body=payments.PayBody(week=date(2026,10,12),expected_count=1,amount="125.50",note="Bank ref 123")
         payments.record_payment(self.conn,1,body); self.conn.commit()
         paid=self.report()["bidders"][0]["payment"]
@@ -131,6 +131,7 @@ class PaymentTests(unittest.TestCase):
         self.message("one")
         self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
         self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-12"}).status_code,200)
+        self.add_checks(3, self.account, 1)
         response=self.client.post('/api/payments/bidders/3/paid',json={"week":"2026-10-12","expected_count":1,"amount":"42.05"})
         self.assertEqual(response.status_code,200,response.text)
         response=self.client.get('/api/payments?week=2026-10-12').json()
@@ -140,7 +141,7 @@ class PaymentTests(unittest.TestCase):
         from mailcheck import native_sourcing
         self.assign(); self.message("one")
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid', json={
-            "week": "2026-10-12", "expected_count": 1, "amount": "10"}).status_code, 200)
+            "week": "2026-10-12", "expected_count": 0, "amount": "10"}).status_code, 200)
         book = native_sourcing.create_book(self.conn, 1)
         native_sourcing.create_tab(self.conn, book, self.account, "Applications")
         response = self.client.post('/api/payments/bidders/1/remove', json={})
@@ -157,7 +158,7 @@ class PaymentTests(unittest.TestCase):
         self.assertIn("New bidder", [b["name"] for b in index["books"]])
 
     def test_end_assignment_api_protects_paid_periods(self):
-        self.assign(); self.message("one")
+        self.assign(); self.message("one"); self.add_checks(1, self.account, 1)
         paid=self.client.post('/api/payments/bidders/1/paid',json={"week":"2026-10-12","expected_count":1,"amount":"10"})
         self.assertEqual(paid.status_code,200)
         self.assertEqual(self.client.post('/api/payments/assignments/1/end',json={"end_date":"2026-10-14"}).status_code,400)
@@ -220,9 +221,9 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(scoped["daily"][0], 13)
         self.assertEqual([b["id"] for b in scoped["bidders"]], [1])
         payment = self.client.post('/api/payments/bidders/1/paid', json={
-            "week":"2026-10-12", "expected_count":13, "amount":"10"})
+            "week":"2026-10-12", "expected_count":11, "amount":"10"})
         self.assertEqual(payment.status_code, 200, payment.text)
-        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 13)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 11)
 
     def test_shared_weights_do_not_mix_accounts_and_zero_weight_gets_zero(self):
         self.assign(); self.assign(who=2)
@@ -236,6 +237,19 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(result["unallocated_daily"][1], 1)
         self.assertEqual([b["total"] for b in result["bidders"]], [3, 7])
         self.assertEqual(result["daily"][0], 10)
+
+    def test_primary_application_count_sums_checked_links_across_assigned_accounts(self):
+        self.assign(); self.assign(account=self.other)
+        self.add_checks(1, self.account, 2)
+        self.add_checks(1, self.other, 3)
+        for i in range(9): self.message(f"received-{i}")
+        row = self.report()["bidders"][0]
+        self.assertEqual(row["application_total"], 5)
+        self.assertEqual(row["checked_daily"][0], 5)
+        response = self.client.post('/api/payments/bidders/1/paid', json={
+            "week":"2026-10-12", "expected_count":5, "amount":"10"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 5)
 
     def test_allocation_rounding_is_deterministic_for_ties(self):
         self.assign(); self.assign(who=2)
@@ -251,7 +265,7 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT end_date FROM bidder_assignments WHERE id=1').fetchone()[0],'2026-10-14')
 
     def test_paid_weeks_block_remove_but_allow_edits_outside_paid_dates(self):
-        self.assign();self.message("one")
+        self.assign();self.message("one");self.add_checks(1, self.account, 1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={"week":"2026-10-12","expected_count":1,"amount":"10"}).status_code,200)
         url='/api/payments/assignments/1'
         self.assertEqual(self.client.post(url+'/remove',json={}).status_code,400)
