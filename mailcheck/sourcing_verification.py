@@ -10,9 +10,8 @@ from .sourcing_structure import check_revision
 
 def company_key(value):
     name = unicodedata.normalize("NFKC", value or "").casefold().strip()
-    name = re.split(r"[,.]", name, maxsplit=1)[0]
-    # Keep company digits: "4A Consulting, LLC" must become "4aconsulting".
-    return re.sub(r"[^a-z0-9]", "", name)
+    first_word = re.match(r"[a-z0-9]+", name)
+    return first_word.group() if first_word else ""
 
 
 def role_key(value):

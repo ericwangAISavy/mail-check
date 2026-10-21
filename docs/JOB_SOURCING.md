@@ -75,9 +75,10 @@ been removed are skipped. The completion message includes the matched-link and t
 counts. An open, saved sheet refreshes immediately; active edits remain protected.
 Automatic verification adds new matches and never clears existing checks.
 
-Before comparison, company names stop at the first comma or period, then lose
-spaces and punctuation. ASCII letters and company digits are kept, so
-`4A Consulting, LLC` matches `4AConsulting`. Roles stop at the first character
+Before comparison, company names use only the first ASCII letter/digit word,
+stopping at the first space or punctuation mark. For example, `Cube` and
+`Cube Software` both become `cube`; `4A Consulting, LLC` becomes `4a`, while
+`4AConsulting` remains `4aconsulting`. Roles stop at the first character
 other than an ASCII letter or space, then lose all spaces. For example,
 `Software Engineer - Backend` matches `Software Engineer | Remote`. Both fields
 are compared without case sensitivity. No fuzzy similarity is used.

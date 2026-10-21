@@ -136,25 +136,25 @@ class SourcingVerificationTests(unittest.TestCase):
 
     def test_requested_company_and_role_cleanup(self):
         from mailcheck import sourcing_verification as verification
-        for company in ("4A Consulting, LLC", "4AConsulting.LLC", " 4A Consulting "):
+        for company, expected in (("4A Consulting, LLC", "4a"), ("4AConsulting.LLC", "4aconsulting"), (" 4A Consulting ", "4a"), ("Cube Software", "cube"), ("Cube", "cube"), ("Cube.Software", "cube"), ("CUBE-Software", "cube")):
             with self.subTest(company=company):
-                self.assertEqual(verification.company_key(company), "4aconsulting")
+                self.assertEqual(verification.company_key(company), expected)
         for suffix in (", Remote", ". II", "| Backend", "/ Platform", "\\ Contract", "- AI", "— AI", "2"):
             with self.subTest(suffix=suffix):
                 self.assertEqual(verification.role_key(" Software Engineer " + suffix), "softwareengineer")
-        self.assertEqual(verification.company_key("Foo & Bar, Inc."), "foobar")
+        self.assertEqual(verification.company_key("Foo & Bar, Inc."), "foo")
         self.assertEqual(verification.company_key("., Inc."), "")
 
     def test_cleaned_company_and_role_are_used_by_manual_and_automatic_checks(self):
         from mailcheck import sourcing_verification as verification
-        self.receipt("cleaned", "4AConsulting", "2026-10-20T12:00:00+00:00", role="Software Engineer | Remote")
+        self.receipt("cleaned", "Cube Software", "2026-10-20T12:00:00+00:00", role="Staff Backend Engineer")
         self.conn.commit()
         for mode, book in (("manual", self.book), ("auto", self.native.create_book(self.conn, 2))):
             tab_id = self.tab_id if mode == "manual" else self.native.create_tab(self.conn, book, self.account_id, "Applications")
             tab = self.native.owned(self.conn, tab_id, self.principal)
             base = self.native.snapshot(self.conn, tab)
             appended = self.native.append(self.conn, tab, "append-" + mode, base["revision"],
-                [["4A Consulting, LLC", "Software Engineer - Backend", "https://jobs.test/cleanup"]], work_date="2026-10-20")
+                [["Cube", "Staff Backend Engineer | Remote, US & Canada", "https://jobs.test/cleanup"]], work_date="2026-10-20")
             if mode == "manual":
                 verification.verify(self.conn, tab, "cleaned-manual", appended["revision"], "2026-10-20")
             else:
