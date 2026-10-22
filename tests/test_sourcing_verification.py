@@ -223,7 +223,7 @@ class SourcingVerificationTests(unittest.TestCase):
         verification.verify_all(self.conn)
         self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
 
-    def test_late_confirmation_credits_original_sourcing_day_not_receipt_day(self):
+    def test_late_confirmation_credits_receipt_day_even_across_payment_weeks(self):
         from mailcheck import sourcing_verification as verification
         self.jobs("2026-10-20")
         self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')", (self.account_id,))
@@ -232,9 +232,15 @@ class SourcingVerificationTests(unittest.TestCase):
         verification.verify_all(self.conn)
         row = payments.report(self.conn, date(2026,10,19), admin=True)["bidders"][0]
         self.conn.commit()
-        self.assertEqual(row["checked_daily"], [0, 1, 0, 0, 0, 0, 0])
-        self.assertEqual(row["application_total"], 1)
+        self.assertEqual(row["checked_daily"], [0] * 7)
+        self.assertEqual(row["application_total"], 0)
         self.assertEqual(row["daily"], [0] * 7)
+        verification.verify_all(self.conn)
+        completed = payments.report(self.conn,date(2026,10,26),admin=True)["bidders"][0]
+        self.conn.commit()
+        self.assertEqual(completed["checked_daily"],[1,0,0,0,0,0,0])
+        self.assertEqual(completed["daily"],[1,0,0,0,0,0,0])
+        self.assertEqual(completed["application_total"],1)
 
     def test_confirmation_timestamp_is_received_time_and_refresh_repairs_it(self):
         from unittest.mock import patch

@@ -86,9 +86,9 @@ Once checked, a job link stays checked, even after reclassification,
 company or link edits, or date changes. Unchecked links may also be marked manually;
 checked boxes cannot be cleared.
 
-On **Bidder payments**, daily cells show **checked applications / estimated confirmations**. For example, **60 / 112**
+On **Bidder payments**, daily cells show **estimated confirmations / checked applications**. For example, **112 / 60**
 means 60 checked job-link rows across the bidder’s assigned account tabs for that
-sourcing date and an estimated share of 112 confirmation emails. The checked count
+confirmation’s Chicago received date and an estimated share of 112 confirmation emails, even when the links were given earlier. Untimed manual or legacy checks keep their sourcing date. The checked count
 is used for daily applications, weekly totals, and new payment records. Shared
 account confirmations are divided in proportion to checked links per account and day.
 The two counts can differ. Saved company metadata survives future mail cleanup;

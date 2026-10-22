@@ -103,8 +103,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         counts[key] = counts.get(key, 0) + 1
     assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
-    from .sourcing_verification import checked_account_counts
-    account_checks = checked_account_counts(conn, start.isoformat(), end.isoformat())
+    from .sourcing_verification import completed_account_counts
+    account_checks = completed_account_counts(conn, start.isoformat(), end.isoformat())
     checked = {}
     for (who, _account_id, day), count in account_checks.items():
         checked[who, day] = checked.get((who, day), 0) + count

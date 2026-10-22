@@ -173,3 +173,36 @@ def checked_counts(conn, start, end):
     for (bidder_id, _account_id, day), count in checked_account_counts(conn, start, end).items():
         counts[bidder_id, day] = counts.get((bidder_id, day), 0) + count
     return counts
+
+
+def completed_account_counts(conn, start, end):
+    """Count checked links on their confirmation's Chicago day, across source dates.
+
+    Manual/legacy checks without a known receipt time keep their sourcing date.
+    The same completion-day weights feed both payment totals and receipt estimates.
+    """
+    lower = datetime.combine(date.fromisoformat(start),datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
+    upper = datetime.combine(date.fromisoformat(end)+timedelta(days=1),datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
+    assignments = {}
+    for assignment in conn.execute('SELECT bidder_id,account_id,start_date,end_date FROM bidder_assignments'):
+        assignments.setdefault((assignment['bidder_id'],assignment['account_id']),[]).append((assignment['start_date'],assignment['end_date']))
+    counts = {}
+    for row in conn.execute("""SELECT b.bidder_id,t.account_id,r.work_date,e.confirmed_at
+        FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id
+        JOIN native_columns col ON col.tab_id=t.id AND col.kind='check'
+        JOIN native_cells c ON c.row_id=r.id AND c.column_id=col.id AND c.value='true'
+        JOIN native_columns link ON link.tab_id=t.id AND link.kind='link'
+        JOIN native_cells l ON l.row_id=r.id AND l.column_id=link.id AND trim(l.value)!=''
+        LEFT JOIN sourcing_check_activity e ON e.row_id=r.id
+        WHERE (e.confirmed_at IS NOT NULL AND julianday(e.confirmed_at)>=julianday(?) AND julianday(e.confirmed_at)<julianday(?))
+        OR (e.confirmed_at IS NULL AND r.work_date>=? AND r.work_date<=?)""",(lower,upper,start,end)):
+        day = row['work_date']
+        if row['confirmed_at']:
+            received = datetime.fromisoformat(row['confirmed_at'].replace('Z','+00:00'))
+            day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
+        if not day or not any(first<=day and (last is None or last>=day)
+                              for first,last in assignments.get((row['bidder_id'],row['account_id']),[])):
+            continue
+        key = (row['bidder_id'],row['account_id'],day)
+        counts[key] = counts.get(key,0)+1
+    return counts

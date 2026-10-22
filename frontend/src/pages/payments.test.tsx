@@ -46,8 +46,8 @@ it("shows received confirmations alongside checked sourcing links", async () => 
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
-  expect(within(row).getByText("60 / 112")).toBeTruthy()
-  expect(screen.getByText(/Checked applications \/ estimated confirmations/)).toBeTruthy()
+  expect(within(row).getByText("112 / 60")).toBeTruthy()
+  expect(screen.getByText(/Estimated confirmations \/ checked applications/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
@@ -75,7 +75,7 @@ it("uses checked links for overall totals and preserves bidder filtering", async
   const today = screen.getByText("Today")
   expect(today.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const footer = document.querySelector("tfoot tr")!
-  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("6 / 3")
+  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("3 / 6")
   expect(within(footer as HTMLElement).getAllByRole("cell")[7].textContent).toBe("6")
   fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "2" } })
   expect(screen.queryByRole("rowheader", {name: /Alex/})).toBeNull()
@@ -103,7 +103,7 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   vi.mocked(request).mockResolvedValue(report)
   mount()
   const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmations/})).closest("tr")!
-  expect(within(row).getAllByRole("cell")[0].textContent).toBe("0 / 3")
+  expect(within(row).getAllByRole("cell")[0].textContent).toBe("3 / 0")
   expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
   fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
   expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()

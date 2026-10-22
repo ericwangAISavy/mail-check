@@ -31,11 +31,10 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 
 ## Daily application counts
 
-Daily cells show **checked applications / estimated confirmations**. For example,
-**75 / 92** means 75 checked job-link rows and an estimated share of 92 confirmation
-emails. The first number is the bidder’s application count used by overview cards,
+Daily cells show **estimated confirmations / checked applications**. For example,
+**92 / 75** means an estimated share of 92 confirmation emails and 75 checked job-link rows. The second number is the bidder’s application count used by overview cards,
 weekly totals, and new payment records. It sums checked rows across the bidder’s
-account tabs, requiring an account assignment on the row’s sourcing date. Each row
+account tabs, grouped by the matching confirmation’s received date in Chicago and requiring an account assignment on that completion date. The date links were given does not determine the payment day. Manual or legacy checks without a matched confirmation timestamp keep their sourcing date. Each row
 counts once; archived sheets retain historical checked counts.
 
 ## Verification rules
@@ -47,15 +46,14 @@ Chicago calendar dates. Company, role when present, and account must match. Manu
 **Check applications** on a tab uses the same seven-day relationship.
 
 Checked rows stay checked through later checks, reclassification, and edits. A
-confirmation arriving next week can therefore increase the original sourcing day’s
-count. Manually checked rows count too. The checkbox cannot be cleared, although
-row deletion or changing the row’s date can affect the daily totals.
+confirmation arriving next week counts on its received date, including links given the previous week. Manually checked rows count too. The checkbox cannot be cleared, although
+row deletion can affect totals. Changing a sourcing date only moves an untimed manual or legacy count; matched completions retain their confirmation date.
 
 ## Receipt estimates for reference
 
-The second number remains a proportional estimate: per shared account and receipt
+The first number remains a proportional estimate: per shared account and receipt
 day, divide confirmations by the assigned bidders’ checked-link weights for that
-account and date. For 105 confirmations and weights 11 and 75, estimates are 13 and
+account and confirmation date, including links sourced on earlier days. For 105 confirmations and weights 11 and 75, estimates are 13 and
 92. Largest-remainder rounding preserves the total, with ties broken by bidder ID.
 A sole assigned bidder receives the full receipt count; shared accounts with no
 checks show unallocated confirmations. These estimates do not determine the primary
@@ -96,7 +94,7 @@ Rows checked manually without a matching confirmation have no inferred receipt t
 
 **Check runs** remains a separate processing-history view, showing when checks ran
 and how many newly checked rows were observed. It includes every run in the selected Chicago workday. Payment
-counts stay on the original sourcing date, regardless of when the email arrived.
+counts use the confirmation’s Chicago calendar date, even if links were given earlier. Untimed manual or legacy checks keep their sourcing date.
 
 Admins can click **Refresh** on Bidder payments to recheck stored confirmation
 messages and active sourcing rows dated today through six days earlier in Chicago.

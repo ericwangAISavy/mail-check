@@ -280,3 +280,37 @@ class PaymentTests(unittest.TestCase):
         sign_in_bidder(self.client)
         for route in ('/api/payments/assignments/1','/api/payments/assignments/1/remove'):
             self.assertEqual(self.client.post(route,json={}).status_code,403)
+
+    def test_preassigned_links_count_on_confirmation_day_and_allocate_shared_receipts(self):
+        from mailcheck import sourcing_activity as activity
+        self.assign(); self.assign(who=2)
+        self.add_checks(1,self.account,1,day='2026-10-11')
+        self.add_checks(2,self.account,3,day='2026-10-11')
+        for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
+            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,1,tzinfo=timezone.utc),'receipt-'+row['row_id'])
+        for i in range(20): self.message('confirmation-'+str(i))
+        report = self.report()
+        self.assertEqual([b['checked_daily'][0] for b in report['bidders']],[1,3])
+        self.assertEqual([b['daily'][0] for b in report['bidders']],[5,15])
+        self.assertEqual(report['unallocated_daily'][0],0)
+        self.assertEqual(report['checked_daily'][0],4)
+        # Cross-week work is counted once, on the Chicago confirmation date.
+        previous = self.report(date(2026,10,5))
+        self.assertEqual(previous['checked_daily'],[0]*7)
+        scoped = payments.report(self.conn,date(2026,10,12),bidder_id=1)
+        self.assertEqual(scoped['bidders'][0]['checked_daily'][0],1)
+        self.assertEqual(scoped['bidders'][0]['daily'][0],5)
+
+    def test_completion_day_requires_assignment_on_that_day_and_survives_rechecks(self):
+        from mailcheck import sourcing_activity as activity
+        self.assign(start=date(2026,10,13)); self.assign(who=2,end=date(2026,10,12))
+        self.add_checks(1,self.account,1)
+        self.add_checks(2,self.account,1)
+        for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
+            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,4,59,tzinfo=timezone.utc),'receipt-'+row['row_id'])
+        self.assertEqual(self.report()['checked_daily'],[1,0,0,0,0,0,0])
+        for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
+            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,6,tzinfo=timezone.utc),'receipt-'+row['row_id'])
+        report = self.report()
+        self.assertEqual([b['checked_daily'][1] for b in report['bidders']],[1,0])
+        self.assertEqual(report['checked_daily'],[0,1,0,0,0,0,0])
