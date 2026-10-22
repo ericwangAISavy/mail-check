@@ -185,6 +185,7 @@ export function SheetGrid({
           text = String(row[String(c)]);
         if (definition.kind === "check" && row.id > 0) return <input
           type="checkbox" aria-label={`Check row ${indices.get(row.id) ?? row.id}`}
+          title={cell?.checked_at ? `Confirmation received ${new Intl.DateTimeFormat("en-US", {timeZone:"America/Chicago",dateStyle:"medium",timeStyle:"short"}).format(new Date(cell.checked_at))} · Chicago` : text === "true" ? "Checked; no matching confirmation timestamp recorded" : "Not checked"}
           className="sourcing-check" checked={text === "true"} disabled={disabled || text === "true" || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
           onClick={event => event.stopPropagation()}
           onChange={event => { if (!disabled && text !== "true") apply([{row: row.id, col: c, value: String(event.target.checked)}]); }}

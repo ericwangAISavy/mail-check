@@ -6,7 +6,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS sourcing_activity_meta (id INTEGER PRIMARY KEY CHECK(id=1),started_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sourcing_check_activity (
  row_id TEXT PRIMARY KEY,bidder_id INTEGER NOT NULL,account_id INTEGER,work_date TEXT,
- detected_at TEXT,source TEXT NOT NULL
+ detected_at TEXT,source TEXT NOT NULL,confirmed_at TEXT,message_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_check_activity_time ON sourcing_check_activity(detected_at,bidder_id);
 CREATE TABLE IF NOT EXISTS sourcing_activity_runs (id INTEGER PRIMARY KEY AUTOINCREMENT,recorded_at TEXT NOT NULL,source TEXT NOT NULL,through_event INTEGER NOT NULL);
@@ -37,15 +37,24 @@ def initialize(conn):
     conn.execute("INSERT INTO sourcing_activity_meta VALUES(1,?)", (now().isoformat(),))
     # Existing checks have no reliable detection timestamp. Preserve their baseline.
     for row in conn.execute(_CHECKED_ROWS).fetchall():
-        conn.execute("INSERT OR IGNORE INTO sourcing_check_activity VALUES(?,?,?,?,NULL,'baseline')",
+        conn.execute("INSERT OR IGNORE INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source) VALUES(?,?,?,?,NULL,'baseline')",
                      (row['row_id'],row['bidder_id'],row['account_id'],row['work_date']))
+
+
+def confirm(conn, row_id, received, message_id):
+    row = conn.execute("SELECT r.work_date,t.account_id,b.bidder_id FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id WHERE r.id=?", (row_id,)).fetchone()
+    conn.execute("""INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source,confirmed_at,message_id)
+        VALUES(?,?,?,?,?,'confirmation',?,?) ON CONFLICT(row_id) DO UPDATE SET
+        confirmed_at=excluded.confirmed_at,message_id=excluded.message_id,account_id=excluded.account_id,
+        bidder_id=excluded.bidder_id,work_date=excluded.work_date,source='confirmation'""",
+        (row_id,row['bidder_id'],row['account_id'],row['work_date'],now().isoformat(),received.isoformat(),message_id))
 
 
 def record(conn, source, *, sample=False):
     stamp = now().isoformat()
     added = {}
     for row in conn.execute(_CHECKED_ROWS + " AND t.archived=0 AND NOT EXISTS(SELECT 1 FROM sourcing_check_activity e WHERE e.row_id=r.id)").fetchall():
-        conn.execute("INSERT INTO sourcing_check_activity VALUES(?,?,?,?,?,?)",
+        conn.execute("INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source) VALUES(?,?,?,?,?,?)",
                      (row['row_id'],row['bidder_id'],row['account_id'],row['work_date'],stamp,source))
         if row['eligible']:
             added[row['bidder_id']] = added.get(row['bidder_id'],0) + 1
@@ -78,20 +87,20 @@ def report(conn, week=None, *, bidder_id=None):
                         'active_half_hours':0,'latest_check':None,'previous_check':None}
                for r in conn.execute("SELECT id,name FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name",(bidder_id,bidder_id))}
     buckets = {who:set() for who in bidders}
-    events = conn.execute("""SELECT e.* FROM sourcing_check_activity e WHERE e.detected_at>=? AND e.detected_at<?
+    events = conn.execute("""SELECT e.*,e.confirmed_at AS activity_at FROM sourcing_check_activity e WHERE e.confirmed_at>=? AND e.confirmed_at<?
         AND (? IS NULL OR e.bidder_id=?) AND EXISTS(SELECT 1 FROM bidder_assignments a
         WHERE a.bidder_id=e.bidder_id AND a.account_id=e.account_id AND a.start_date<=e.work_date
-        AND (a.end_date IS NULL OR a.end_date>=e.work_date)) ORDER BY e.detected_at""",(lower,upper,bidder_id,bidder_id)).fetchall()
+        AND (a.end_date IS NULL OR a.end_date>=e.work_date)) ORDER BY e.confirmed_at""",(lower,upper,bidder_id,bidder_id)).fetchall()
     for row in events:
         if row['bidder_id'] not in bidders: continue
-        stamp = datetime.fromisoformat(row['detected_at']).astimezone(ZONE)
+        stamp = datetime.fromisoformat(row['activity_at']).astimezone(ZONE)
         day = dates.index(stamp.date().isoformat())
         bidder = bidders[row['bidder_id']]
         bidder['hourly'][stamp.hour] += 1
         bidder['daily'][day] += 1
         bidder['heatmap'][day][stamp.hour] += 1
         bidder['new_checks'] += 1
-        bidder['last_detected'] = row['detected_at']
+        bidder['last_detected'] = row['activity_at']
         buckets[row['bidder_id']].add((stamp.date().isoformat(),stamp.hour,stamp.minute//30,stamp.utcoffset()))
     timeline = {}
     for row in conn.execute("""SELECT r.id,r.recorded_at,r.source,s.bidder_id,s.new_checks,s.checked_total
@@ -116,14 +125,14 @@ def report(conn, week=None, *, bidder_id=None):
     account_buckets = {who:set() for who in accounts}
     for row in events:
         if row['bidder_id'] not in bidders or row['account_id'] not in accounts: continue
-        stamp = datetime.fromisoformat(row['detected_at']).astimezone(ZONE)
+        stamp = datetime.fromisoformat(row['activity_at']).astimezone(ZONE)
         day = dates.index(stamp.date().isoformat())
         account = accounts[row['account_id']]
         account['hourly'][stamp.hour] += 1
         account['daily'][day] += 1
         account['heatmap'][day][stamp.hour] += 1
         account['new_checks'] += 1
-        account['last_detected'] = row['detected_at']
+        account['last_detected'] = row['activity_at']
         account_buckets[row['account_id']].add((stamp.date().isoformat(),stamp.hour,stamp.minute//30,stamp.utcoffset()))
     # Run cursors already persist the exact event range observed at each check.
     # Reconstruct account series from those ranges, including quiet checks.
@@ -154,7 +163,23 @@ def report(conn, week=None, *, bidder_id=None):
             account['previous_check'] = account['latest_check']
             account['latest_check'] = {'at':run['recorded_at'],'new_checks':counts[str(who)],'checked_total':None}
     for who,account in accounts.items(): account['active_half_hours'] = len(account_buckets[who])
+    # Hourly confirmation series retains quiet periods without using check-run times.
+    confirmation_points, account_confirmation_points = {}, {}
+    instant = datetime.fromisoformat(lower)
+    until = datetime.fromisoformat(upper)
+    while instant < until:
+        key = instant.isoformat()
+        confirmation_points[key] = {'at':key,'source':'confirmation','counts':{str(who):0 for who in bidders}}
+        account_confirmation_points[key] = {'at':key,'source':'confirmation','counts':{str(who):0 for who in accounts}}
+        instant += timedelta(hours=1)
+    for event in events:
+        key = datetime.fromisoformat(event['activity_at']).astimezone(timezone.utc).replace(minute=0,second=0,microsecond=0).isoformat()
+        if event['bidder_id'] in bidders:
+            confirmation_points[key]['counts'][str(event['bidder_id'])] += 1
+        if event['bidder_id'] in bidders and event['account_id'] in accounts:
+            account_confirmation_points[key]['counts'][str(event['account_id'])] += 1
     meta = conn.execute("SELECT started_at FROM sourcing_activity_meta WHERE id=1").fetchone()
     return {'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
+            'confirmation_timeline':list(confirmation_points.values()),'account_confirmation_timeline':list(account_confirmation_points.values()),
             'accounts':list(accounts.values()),'account_timeline':account_timeline[-240:],
             'bidders':list(bidders.values()),'check_count':len(timeline),'timeline':list(timeline.values())[-240:]}

@@ -26,9 +26,20 @@ def match_key(company, role):
     return (company, role) if company and (role or not role_present) else None
 
 
-def has_match(company, role, matches):
-    # Only a receipt with no role can authorize company-only matching.
-    return match_key(company, role) in matches or (company_key(company), "") in matches
+def receipt_match(company, role, matches):
+    options = [matches[key] for key in (match_key(company, role), (company_key(company), "")) if key in matches]
+    return min(options) if options else None
+
+
+def add_receipt(matches, receipt):
+    key = match_key(receipt['company'],receipt['role'])
+    if not key: return
+    try:
+        received = datetime.fromisoformat(receipt['received_at'].replace('Z','+00:00'))
+        received = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(timezone.utc)
+    except (ValueError,TypeError): return
+    value = (received,receipt['message_id'])
+    if key not in matches or value < matches[key]: matches[key] = value
 
 
 def verify(conn, tab, operation, revision, work_date):
@@ -45,11 +56,10 @@ def verify(conn, tab, operation, revision, work_date):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
             sync_receipts(conn)
-            matches = {match_key(row["company"], row["role"]) for row in conn.execute("""
-                SELECT company,role FROM application_receipts WHERE account_id=? AND category='application_ack'
-                AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)
-                """, (tab["account_id"], lower, upper))}
-            matches.discard(None)
+            matches = {}
+            for receipt in conn.execute("""SELECT company,role,received_at,message_id FROM application_receipts WHERE account_id=? AND category='application_ack'
+                AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)""",(tab['account_id'],lower,upper)):
+                add_receipt(matches,receipt)
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
@@ -60,7 +70,11 @@ def verify(conn, tab, operation, revision, work_date):
                 WHERE r.tab_id=? AND r.work_date=?""", (columns["company"], columns["link"], columns["role"], tab["id"], day)).fetchall():
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
                     continue
-                checked = bool((row["link"] or "").strip() and has_match(row["company"], row["role"], matches))
+                match = receipt_match(row['company'],row['role'],matches) if (row['link'] or '').strip() else None
+                checked = bool(match)
+                if match:
+                    from .sourcing_activity import confirm
+                    confirm(conn,row['id'],*match)
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
                     ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true'""",
                     (row["id"], columns["check"], str(checked).lower()))
@@ -74,7 +88,7 @@ def verify(conn, tab, operation, revision, work_date):
         return result
 
 
-def verify_all(conn):
+def verify_all(conn, *, refresh_since=None, refresh_until=None):
     """Refresh active account sheets against receipts in each row’s seven-day window.
 
     Read and update under one write transaction so edits cannot move a job between
@@ -98,23 +112,31 @@ def verify_all(conn):
             LEFT JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id
             WHERE t.archived=0 AND r.work_date IS NOT NULL
             AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='')""").fetchall()
+        if refresh_since:
+            rows = [r for r in rows if refresh_since.isoformat() <= r["work_date"] <= refresh_until.isoformat()]
         relevant = {(row["account_id"], row["work_date"]) for row in rows}
         matches = {}
-        for receipt in conn.execute("SELECT account_id,received_at,company,role FROM application_receipts WHERE category='application_ack' AND company!=''"):
+        for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''"):
             try:
                 received = datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 continue
             received_day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
+            if refresh_since and (received_day < refresh_since or received_day > refresh_until): continue
             match = match_key(receipt["company"], receipt["role"])
             for offset in range(7):
                 key = (receipt["account_id"], (received_day - timedelta(days=offset)).isoformat())
                 if key in relevant and match:
-                    matches.setdefault(key, set()).add(match)
+                    add_receipt(matches.setdefault(key, {}),receipt)
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
-            checked = row["checked"] == "true" or bool((row["link"] or "").strip() and has_match(row["company"], row["role"], matches.get((row["account_id"], row["work_date"]), set())))
+            if refresh_since and not (refresh_since.isoformat() <= row['work_date'] <= refresh_until.isoformat()): continue
+            match = receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{})) if (row['link'] or '').strip() else None
+            checked = row['checked'] == 'true' or bool(match)
+            if match:
+                from .sourcing_activity import confirm
+                confirm(conn,row['id'],*match)
             checked_count += int(checked)
             value = str(checked).lower()
             if row["checked"] == value:

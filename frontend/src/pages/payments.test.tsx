@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { api, request } from "@/lib/api"
 import PaymentsPage from "./payments"
 vi.mock("@/lib/api", () => ({ api: { post: vi.fn() }, request: vi.fn() }))
-vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title }: { title: string }) => <h1>{title}</h1>, useToast: () => vi.fn() }))
+vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title, action }: { title: string; action?: any }) => <><h1>{title}</h1>{action}</>, useToast: () => vi.fn() }))
 const clients: QueryClient[] = []
 const data = () => ({ week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
@@ -108,4 +108,12 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
   expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()
   expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
+})
+
+it("Refresh reconciles seven days and refreshes sourcing views", async () => {
+  const dispatch = vi.spyOn(window, "dispatchEvent")
+  mount(); await screen.findByRole("rowheader", {name: /Alex/})
+  fireEvent.click(screen.getByRole("button", {name:"Refresh"}))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {}))
+  await waitFor(() => expect(dispatch.mock.calls.some(([event]) => event.type === "mailcheck:check-completed")).toBe(true))
 })

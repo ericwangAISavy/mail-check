@@ -88,3 +88,9 @@ it("prevents clearing an already checked job", () => {
   fireEvent.click(check);
   expect(change).not.toHaveBeenCalled();
 });
+
+it("shows the matching confirmation received time on checked links", () => {
+  const data = snapshot(); data.rows[1][3] = {...cell("true"),checked_at:"2026-10-21T14:23:00+00:00"};
+  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()}/>);
+  expect(screen.getByRole("checkbox", {name:"Check row 1"}).getAttribute("title")).toContain("9:23 AM")
+});

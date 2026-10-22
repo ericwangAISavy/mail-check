@@ -236,6 +236,34 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(row["application_total"], 1)
         self.assertEqual(row["daily"], [0] * 7)
 
+    def test_confirmation_timestamp_is_received_time_and_refresh_repairs_it(self):
+        from unittest.mock import patch
+        from mailcheck import sourcing_verification as verification, sourcing_activity as activity
+        from tests.web_client import sign_in_bidder
+        self.jobs("2026-10-20")
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')", (self.account_id,))
+        self.receipt("later", "Acme", "2026-10-21T16:00:00+00:00")
+        self.receipt("earliest", "Acme", "2026-10-21T14:23:00+00:00")
+        self.conn.commit()
+        with patch.object(activity,'now',return_value=datetime.fromisoformat("2026-10-22T20:00:00+00:00")):
+            verification.verify_all(self.conn)
+        first = self.snapshot()
+        self.assertEqual(first['rows'][1][3]['checked_at'], "2026-10-21T14:23:00+00:00")
+        metrics = activity.report(self.conn,date(2026,10,19))
+        self.assertEqual(metrics['bidders'][0]['hourly'][9],1)
+        self.assertEqual(metrics['bidders'][0]['daily'],[0,0,1,0,0,0,0])
+        self.conn.execute("UPDATE sourcing_check_activity SET confirmed_at='2026-10-22T20:00:00+00:00' WHERE row_id=?",(first['row_ids'][1],))
+        self.conn.commit()
+        with patch.object(payments,'today',return_value=date(2026,10,22)):
+            response = self.client.post('/api/payments/refresh',json={})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['from'],'2026-10-16')
+        refreshed = self.snapshot()
+        self.assertEqual(refreshed['rows'][1][3]['value'],'true')
+        self.assertEqual(refreshed['rows'][1][3]['checked_at'],"2026-10-21T14:23:00+00:00")
+        sign_in_bidder(self.client,1)
+        self.assertEqual(self.client.post('/api/payments/refresh',json={}).status_code,403)
+
     def test_check_job_verifies_after_new_receipts_before_reporting_completion(self):
         from unittest.mock import patch
         from mailcheck.web import app as web

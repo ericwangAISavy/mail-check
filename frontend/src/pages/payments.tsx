@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ArrowRight, Banknote, CalendarDays, CheckCircle2, UsersRound } from "lucide-react"
+import { ArrowLeft, ArrowRight, Banknote, CalendarDays, CheckCircle2, RefreshCw, UsersRound } from "lucide-react"
 import { api, request } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -48,6 +48,11 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const toast = useToast()
   const query = useQuery({ queryKey: ["payments", week], queryFn: () => request<Report>(`/api/payments${week ? `?week=${week}` : ""}`), refetchInterval: 30_000 })
   const mutation = useMutation({ mutationFn: ({ url, body }: { url: string; body: unknown }) => api.post(url, body), onSuccess: async () => { setPaying(null); await client.invalidateQueries({ queryKey: ["payments"] }); toast("Saved.", "success") } })
+  const refresh = useMutation({mutationFn: () => api.post("/api/payments/refresh", {}), onSuccess: async () => {
+    await Promise.all(["payments", "sourcing-index", "sourcing-search", "dashboard"].map(key => client.invalidateQueries({queryKey: [key]})))
+    window.dispatchEvent(new Event("mailcheck:check-completed"))
+    toast("Last seven days rechecked. Confirmation times and metrics refreshed.", "success")
+  }, onError: (error: Error) => toast(error.message, "error")})
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
   if (query.isPending) return <Loading label="Loading application totals…" />
   if (query.error) return <div className="page-wrap"><PageHeading title="Bidder payments" /><p role="alert" className="inline-error">{query.error.message}</p><Button onClick={() => void query.refetch()}>Try again</Button></div>
@@ -62,7 +67,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const closed = data.week_end < data.today
   const paymentBidder = data.bidders.find(b => b.id === paying)
   return <div className="page-wrap payments-page">
-    <PageHeading title="Bidder payments" description="Applications counted from checked sourcing links across assigned accounts." />
+    <PageHeading title="Bidder payments" description="Applications counted from checked sourcing links across assigned accounts." action={!readOnly && <Button variant="outline" disabled={refresh.isPending} title="Recheck the last seven Chicago calendar days of stored confirmations and sourcing rows" onClick={() => refresh.mutate()}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />{refresh.isPending ? "Refreshing…" : "Refresh"}</Button>} />
     <Card className="payment-controls">
       <div className="payment-week"><Button variant="ghost" size="icon" aria-label="Previous week" onClick={() => { setWeek(moveWeek(data.week_start, -7)); setPaying(null) }}><ArrowLeft /></Button><label><span>Week of</span><input type="date" min="1971-01-01" max="2100-12-31" aria-label="Week of" value={data.week_start} onChange={e => { if (e.target.value) { setWeek(e.target.value); setPaying(null) } }} /></label><Button variant="ghost" size="icon" aria-label="Next week" onClick={() => { setWeek(moveWeek(data.week_start, 7)); setPaying(null) }}><ArrowRight /></Button><Button variant="outline" size="sm" onClick={() => { setWeek(""); setPaying(null) }}>This week</Button></div>
       <label className="payment-bidder-filter"><span>Bidder</span><select value={selected} onChange={e => setSelected(e.target.value)}><option value="">All bidders</option>{data.bidders.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>

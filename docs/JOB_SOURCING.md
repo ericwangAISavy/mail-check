@@ -198,3 +198,12 @@ Admins see an amber warning in the top toolbar naming active bidders with no sav
 job links on the selected job date across any active account tab. Blank links and
 archived tabs do not count. The warning refreshes after saved edits and every
 15 seconds, and is hidden in the Undated view.
+
+## Confirmation times
+
+Each matched row stores its earliest valid confirmation received timestamp. Hover
+its checked box to see that time in Chicago. Activity graphs use this receipt time;
+check-run processing timestamps remain separate. Admins can use **Refresh** on
+Bidder payments to repair timestamps and recheck the last seven Chicago dates of
+stored confirmations and sourcing rows. Existing checks remain permanent, and
+sourcing-date application totals keep their original date attribution.

@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -166,6 +166,8 @@ CREATE INDEX IF NOT EXISTS idx_class_latest
 #: Columns added after v1. SQLite cannot add them inside CREATE TABLE IF NOT
 #: EXISTS on a database that already exists, so they are applied separately.
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    ("sourcing_check_activity", "confirmed_at", "TEXT"),
+    ("sourcing_check_activity", "message_id", "TEXT"),
     ("bidders", "removed_at", "TEXT"),
     ("native_rows", "work_date", "TEXT"),
     ("native_tabs", "archived", "INTEGER NOT NULL DEFAULT 0"),
@@ -248,6 +250,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                         conn.execute(statement)
                 migrate_native(conn)
                 initialize_activity(conn)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed ON sourcing_check_activity(confirmed_at,bidder_id)")
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:

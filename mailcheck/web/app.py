@@ -788,6 +788,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def payments_page():
         return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
 
+    @app.post("/api/payments/refresh")
+    def refresh_application_metrics():
+        last = payments.today()
+        first = last - timedelta(days=6)
+        with db.session() as conn:
+            result = sourcing_verification.verify_all(conn,refresh_since=first,refresh_until=last)
+        return {"ok":True,"from":first.isoformat(),"through":last.isoformat(),**result}
+
     @app.get("/api/payments/activity")
     def bidder_activity(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
         from ..sourcing_activity import report

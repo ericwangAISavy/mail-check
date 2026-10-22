@@ -86,29 +86,29 @@ integration. The records describe payments the admin made elsewhere.
 The database migration runs automatically on startup. Bidder responses omit the full
 account-management list, while assigned account labels remain visible in the table.
 
-## Activity monitor
+## Activity monitor and Refresh
 
-Below the daily breakdown, the activity monitor shows newly detected checked links
-by check run or calendar day, a Chicago-time hourly heatmap, peak detection hour,
-active half-hour windows, last detected activity, and latest-versus-previous check
-counts. Click bidder chips to filter the graph and payment table together. The
-selected payment week also filters activity; the per-check graph keeps the latest
-240 checks while daily and hourly views cover the whole week.
+The default **Confirmation time** graph, daily activity, hourly heatmaps, peak hour,
+and last confirmation use the matching email's received timestamp, not the time
+Check now or auto-check ran. Multiple valid matches use the earliest receipt in the
+row's seven-day matching window. Both bidder and account views use these timestamps.
+Rows checked manually without a matching confirmation have no inferred receipt time.
 
-Auto-check and Check now record snapshots even when no new links match. Manual tab
-checks and saved checkbox marks are recorded too. A stable row identity prevents
-repeated checks from duplicating activity. Existing checked rows receive an untimed
-baseline on upgrade, rather than invented historical working hours. Activity history
-survives later row deletion. Named bidders can only read their own activity.
+**Check runs** remains a separate processing-history view, showing when checks ran
+and how many newly checked rows were observed. It keeps the latest 240 runs. Payment
+counts stay on the original sourcing date, regardless of when the email arrived.
 
-Activity uses detection timestamps, whereas payment totals use original sourcing
-dates. Delivery delays, batch confirmations, and check frequency affect the signal.
-Active half-hour windows are not measured working hours or verified submissions.
+Admins can click **Refresh** on Bidder payments to recheck stored confirmation
+messages and active sourcing rows dated today through six days earlier in Chicago.
+It repairs receipt timestamps for already-checked rows, adds newly matched checks,
+and refreshes payment totals, activity graphs, and open clean sourcing sheets.
+Checked statuses are never cleared. This uses local saved mail; Check now collects
+new mail from providers. Existing payment records are never rewritten.
 
-Use **By bidder** or **By account** to switch the activity monitor. Account chips
-filter the same graph, heatmap, peak hour, and change table. Account activity sums
-checked document rows across assigned bidders; shared accounts can have overlapping
-rows and these are not deduplicated receipt or submission counts. A selected bidder
-limits account activity to that bidder's rows. Bidder sign-ins never see another
-bidder's contribution, even on a shared account. Existing recorded account IDs and
-per-check event cursors support account history without inventing older timestamps.
+Checked boxes show the confirmation's received time on hover. Old checks can acquire
+historical timestamps when Refresh finds matching stored confirmations. Missing
+messages do not get invented times. Activity rows are retained after row deletion;
+named bidders only see their own contributions, including on shared accounts.
+
+Account activity counts checked document rows, which can overlap across bidders on
+a shared account. Receipt times can be delayed and are not measured working hours.

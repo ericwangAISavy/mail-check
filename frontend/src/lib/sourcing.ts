@@ -5,6 +5,7 @@ export interface CellStyle {
   wrap?: boolean;
 }
 export interface Cell {
+  checked_at?: string | null;
   value: string | number | boolean;
   display: string;
   formula: boolean;

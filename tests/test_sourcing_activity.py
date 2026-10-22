@@ -10,10 +10,15 @@ class ActivityTests(unittest.TestCase):
     assign = fixtures.PaymentTests.assign
     add_checks = fixtures.PaymentTests.add_checks
 
+    def confirm_existing(self, stamp):
+        for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
+            activity.confirm(self.conn,row['row_id'],stamp,'receipt-'+row['row_id'])
+
     def test_new_checks_are_recorded_once_and_zero_runs_are_visible(self):
         self.assign()
         self.add_checks(1,self.account,2)
         with patch.object(activity,'now',return_value=datetime(2026,10,12,15,30,tzinfo=timezone.utc)):
+            self.confirm_existing(activity.now())
             activity.record(self.conn,'global-check',sample=True)
             activity.record(self.conn,'global-check',sample=True)
         report = activity.report(self.conn,date(2026,10,12))
@@ -28,6 +33,7 @@ class ActivityTests(unittest.TestCase):
         self.assign(); self.assign(who=2)
         self.add_checks(1,self.account,2); self.add_checks(2,self.account,3)
         with patch.object(activity,'now',return_value=datetime(2026,10,12,15,30,tzinfo=timezone.utc)):
+            self.confirm_existing(activity.now())
             activity.record(self.conn,'global-check',sample=True)
             activity.record(self.conn,'global-check',sample=True)
         report = activity.report(self.conn,date(2026,10,12))
@@ -55,6 +61,7 @@ class ActivityTests(unittest.TestCase):
         self.assign(); self.assign(who=2,account=self.other)
         self.add_checks(1,self.account,1); self.add_checks(2,self.other,2)
         with patch.object(activity,'now',return_value=datetime(2026,10,13,4,59,tzinfo=timezone.utc)):
+            self.confirm_existing(activity.now())
             activity.record(self.conn,'manual-edit')
             activity.record(self.conn,'global-check',sample=True)
         self.conn.commit()

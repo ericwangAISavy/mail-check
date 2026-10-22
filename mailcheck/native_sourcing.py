@@ -201,6 +201,8 @@ def _snapshot(conn, tab):
             for c in columns
         ]
     ]
+    confirmed_times = {r['row_id']:r['confirmed_at'] for r in conn.execute(
+        "SELECT e.row_id,e.confirmed_at FROM sourcing_check_activity e JOIN native_rows r ON r.id=e.row_id WHERE r.tab_id=?", (tab['id'],))}
     for row_id in row_ids:
         row = []
         for column in columns:
@@ -219,6 +221,7 @@ def _snapshot(conn, tab):
                     ),
                     "version": cell["version"] if cell else 0,
                     "style": json.loads(cell["style"]) if cell else {},
+                    **({"checked_at": confirmed_times.get(row_id)} if column["kind"] == "check" else {}),
                 }
             )
         rows.append(row)
