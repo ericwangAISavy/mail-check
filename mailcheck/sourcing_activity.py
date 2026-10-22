@@ -88,10 +88,8 @@ def report(conn, week=None, *, bidder_id=None, day=None):
                         'active_half_hours':0,'latest_check':None,'previous_check':None}
                for r in conn.execute("SELECT id,name FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name",(bidder_id,bidder_id))}
     buckets = {who:set() for who in bidders}
-    events = conn.execute("""SELECT e.*,e.confirmed_at AS activity_at FROM sourcing_check_activity e WHERE e.confirmed_at>=? AND e.confirmed_at<?
-        AND (? IS NULL OR e.bidder_id=?) AND EXISTS(SELECT 1 FROM bidder_assignments a
-        WHERE a.bidder_id=e.bidder_id AND a.account_id=e.account_id AND a.start_date<=e.work_date
-        AND (a.end_date IS NULL OR a.end_date>=e.work_date)) ORDER BY e.confirmed_at""",(lower,upper,bidder_id,bidder_id)).fetchall()
+    from .sourcing_verification import confirmation_events
+    events = confirmation_events(conn,lower,upper,bidder_id)
     for row in events:
         if row['bidder_id'] not in bidders: continue
         stamp = datetime.fromisoformat(row['activity_at']).astimezone(ZONE)
@@ -203,9 +201,8 @@ def workday_report(conn, day, bidders, accounts, bidder_id):
     eligible = """EXISTS(SELECT 1 FROM bidder_assignments a WHERE a.bidder_id=e.bidder_id
         AND a.account_id=e.account_id AND a.start_date<=e.work_date
         AND (a.end_date IS NULL OR a.end_date>=e.work_date))"""
-    for event in conn.execute(f"""SELECT e.* FROM sourcing_check_activity e
-        WHERE e.confirmed_at>=? AND e.confirmed_at<? AND (? IS NULL OR e.bidder_id=?) AND {eligible}""",
-        (lower.isoformat(),upper.isoformat(),bidder_id,bidder_id)):
+    from .sourcing_verification import confirmation_events
+    for event in confirmation_events(conn,lower.isoformat(),upper.isoformat(),bidder_id):
         stamp = datetime.fromisoformat(event['confirmed_at']).astimezone(timezone.utc)
         key = stamp.replace(minute=stamp.minute//15*15,second=0,microsecond=0).isoformat()
         if event['bidder_id'] in bidders:

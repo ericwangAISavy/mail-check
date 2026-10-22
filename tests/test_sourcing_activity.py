@@ -105,3 +105,33 @@ class ActivityTests(unittest.TestCase):
             window = activity.report(self.conn,date(2026,10,26))['workday']
         self.assertEqual(window['date'],'2026-10-31')
         self.assertEqual(len(window['confirmations']),100)
+
+    def test_confirmation_graph_and_payment_table_use_same_completion_day_assignment(self):
+        from mailcheck import payments
+        self.assign(start=date(2026,10,13)); self.assign(who=2,start=date(2026,10,13))
+        self.add_checks(1,self.account,2,day='2026-10-12')
+        self.add_checks(2,self.account,3,day='2026-10-12')
+        for i in range(10): fixtures.PaymentTests.message(self,'today-'+str(i),stamp='2026-10-13T15:00:00Z')
+        self.confirm_existing(datetime(2026,10,13,15,tzinfo=timezone.utc))
+        report = activity.report(self.conn,date(2026,10,12),day=date(2026,10,13))
+        table = payments.report(self.conn,date(2026,10,12))
+        self.assertEqual(report['bidders'][0]['daily'],table['bidders'][0]['checked_daily'])
+        self.assertEqual(report['bidders'][0]['daily'],[0,2,0,0,0,0,0])
+        self.assertEqual(sum(p['counts']['1'] for p in report['workday']['confirmations']),2)
+        self.assertEqual([b['daily'][1] for b in table['bidders']],[4,6])
+        self.assertEqual(table['unallocated_daily'],[0]*7)
+        self.conn.commit()
+        table_api = self.client.get('/api/payments?week=2026-10-12').json()
+        graph_api = self.client.get('/api/payments/activity?week=2026-10-12&day=2026-10-13').json()
+        self.assertEqual([b['checked_daily'] for b in table_api['bidders']], [b['daily'] for b in graph_api['bidders']])
+
+    def test_graph_does_not_count_links_excluded_from_table(self):
+        from mailcheck import payments
+        self.assign(end=date(2026,10,12))
+        self.add_checks(1,self.account,1)
+        self.confirm_existing(datetime(2026,10,13,15,tzinfo=timezone.utc))
+        graph = activity.report(self.conn,date(2026,10,12),day=date(2026,10,13))
+        table = payments.report(self.conn,date(2026,10,12))
+        self.assertEqual(graph['bidders'][0]['daily'],table['bidders'][0]['checked_daily'])
+        self.assertEqual(graph['bidders'][0]['new_checks'],0)
+        self.assertEqual(sum(p['counts']['1'] for p in graph['workday']['confirmations']),0)

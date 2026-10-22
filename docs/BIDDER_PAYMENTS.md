@@ -105,8 +105,7 @@ new mail from providers. Existing payment records are never rewritten.
 
 Checked boxes show the confirmation's received time on hover. Old checks can acquire
 historical timestamps when Refresh finds matching stored confirmations. Missing
-messages do not get invented times. Activity rows are retained after row deletion;
-named bidders only see their own contributions, including on shared accounts.
+messages do not get invented times. Both the confirmation graph and daily table use the same checked-link records and account assignments on the Chicago confirmation date. The audit ledger remains stored after row deletion, but deleted rows and rows with empty links are excluded from both views. Named bidders only see their own contributions, including on shared accounts.
 
 Account activity counts checked document rows, which can overlap across bidders on
 a shared account. Receipt times can be delayed and are not measured working hours.
