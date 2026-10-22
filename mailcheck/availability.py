@@ -58,34 +58,33 @@ def calculate(bookings, *, now=None,zone='America/Chicago',days=5,duration=30,bu
 
 
 def refresh(conn,account_id,preferences,cfg, *, now=None,duration=None):
-    """Read complete selected provider calendars for the automatic window."""
+    """Read the combined calendar across accounts for the automatic window."""
     from . import db
     from .pipeline import build_source
     from .sources import SourceError
     now=_utc(now or datetime.now(timezone.utc));duration=duration or preferences['duration_minutes']
     kwargs=dict(zone=preferences['timezone'],days=preferences['lookahead_business_days'],duration=duration,buffer=preferences['buffer_minutes'],start_hour=preferences['start_hour'],end_hour=preferences['end_hour'],friday_end_hour=preferences['friday_end_hour'])
     windows=business_window(now,**{k:v for k,v in kwargs.items() if k!='buffer'})
-    account=conn.execute('SELECT * FROM accounts WHERE id=?',(account_id,)).fetchone()
-    ids=list(dict.fromkeys(([account_id] if account and account['provider']=='outlook' else [])+preferences.get('calendar_account_ids',[])))
+    ids=[a.id for a in db.list_accounts(conn,only_enabled=True) if a.provider=='outlook']
     query_start=windows[0][0]-timedelta(minutes=kwargs['buffer'])
     query_end=windows[-1][1]+timedelta(minutes=kwargs['buffer'])
-    if not ids:raise ValueError('Link a calendar account in assistant preferences before sharing availability.')
     bookings=[];labels=[]
     for identity in ids:
         row=conn.execute("SELECT label FROM accounts WHERE id=? AND provider='outlook' AND enabled=1",(identity,)).fetchone()
-        if not row:raise ValueError('A linked calendar account is unavailable. Update assistant preferences before sharing availability.')
+        if not row:raise ValueError('A connected calendar account is unavailable. Reconnect it before sharing availability.')
         source=build_source(db.get_account(conn,row['label']),cfg)
         try:collected=list(source.fetch_calendar(query_start.date(),until=query_end))
         except SourceError as exc:raise ValueError(f"Calendar refresh failed for {row['label']}: {exc}. Availability was not generated.") from exc
         bookings.extend(collected);labels.append(row['label'])
     # Native bookings above are live. Only add stored email/manual events, not stale native copies.
-    marks=','.join('?'*len(ids))
-    for row in conn.execute(f"""SELECT DISTINCT e.* FROM interview_events e JOIN interview_sources s ON s.event_id=e.id
-        WHERE s.account_id IN ({marks}) AND e.status!='Cancelled' AND e.start_at IS NOT NULL
+    for row in conn.execute("""SELECT DISTINCT e.*, a.label AS source_label FROM interview_events e JOIN interview_sources s ON s.event_id=e.id JOIN accounts a ON a.id=s.account_id
+        WHERE e.status!='Cancelled' AND e.start_at IS NOT NULL
         AND NOT EXISTS(SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id)
         AND (s.external_message_id NOT LIKE 'graph-event:%' OR e.manual_fields!='[]')
         AND julianday(e.start_at)<julianday(?) AND (julianday(e.end_at)>julianday(?) OR
-            (e.end_at IS NULL AND julianday(e.start_at)>=julianday(?)))""",(*ids,query_end.isoformat(),query_start.isoformat(),query_start.isoformat())):
+            (e.end_at IS NULL AND julianday(e.start_at)>=julianday(?)))""",(query_end.isoformat(),query_start.isoformat(),query_start.isoformat())):
+        if row['source_label'] not in labels:labels.append(row['source_label'])
         bookings.append(CalendarBooking(str(row['id']),str(row['id']),row['company'] or 'Interview',datetime.fromisoformat(row['start_at']),datetime.fromisoformat(row['end_at']) if row['end_at'] else None))
+    if not ids and not bookings:raise ValueError('No connected calendars or saved events are available to verify availability.')
     result=calculate(bookings,now=now,**kwargs);result['calendar_labels']=labels
     return result

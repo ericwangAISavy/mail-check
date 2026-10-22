@@ -36,7 +36,7 @@ class AvailabilityTests(TestCase):
         event=CalendarBooking('x','x','Incomplete',datetime(2026,10,22,15,tzinfo=timezone.utc),None)
         with self.assertRaisesRegex(ValueError,'end time'):availability.calculate([event],now=now,days=1)
 
-    def test_refresh_includes_primary_and_buffered_boundary(self):
+    def test_refresh_combines_all_accounts_and_buffered_boundary(self):
         from unittest.mock import patch, MagicMock
         from tests import test_frontend_api as fixtures
         from mailcheck import config, db
@@ -44,11 +44,20 @@ class AvailabilityTests(TestCase):
         try:
             fixture.conn.execute("UPDATE accounts SET provider='outlook' WHERE id=?",(fixture.account_id,))
             extra=db.add_account(fixture.conn,label='extra',email='extra@test',provider='outlook',imap_host='')
+            # Saved email/manual events from an IMAP account also block the shared schedule.
+            imap=db.add_account(fixture.conn,label='imap',email='imap@test',imap_host='imap.test')
+            fixture.conn.execute("INSERT INTO interview_events(company,start_at,end_at,created_at,updated_at) VALUES('IMAP interview','2026-10-22T18:00:00+00:00','2026-10-22T19:00:00+00:00','now','now')")
+            event=fixture.conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            fixture.conn.execute("INSERT INTO interview_sources(event_id,account_id,external_message_id) VALUES(?,?,?)",(event,imap,'email:imap'))
             from mailcheck.assistant import Preferences
-            prefs=Preferences(calendar_account_ids=[extra],lookahead_business_days=1).model_dump()
-            source=MagicMock();source.fetch_calendar.return_value=[]
+            prefs=Preferences(lookahead_business_days=1).model_dump()
+            source=MagicMock();source.fetch_calendar.return_value=[CalendarBooking('other','other','Busy',datetime(2026,10,22,16,tzinfo=timezone.utc),datetime(2026,10,22,17,tzinfo=timezone.utc))]
             with patch('mailcheck.pipeline.build_source',return_value=source):
                 result=availability.refresh(fixture.conn,fixture.account_id,prefs,config.Config(),now=datetime(2026,10,22,12,tzinfo=timezone.utc))
-            self.assertEqual(result['calendar_labels'],['personal','extra'])
+            self.assertEqual(set(result['calendar_labels']),{'personal','extra','imap'})
+            self.assertEqual(source.fetch_calendar.call_count,2)
+            self.assertEqual(result['ranges'][1]['start'],'2026-10-22T17:15:00+00:00')
+            self.assertEqual(result['ranges'][1]['end'],'2026-10-22T17:45:00+00:00')
+            self.assertEqual(result['ranges'][0]['end'],'2026-10-22T15:45:00+00:00')
             self.assertEqual(source.fetch_calendar.call_args.kwargs['until'],datetime(2026,10,22,22,15,tzinfo=timezone.utc))
         finally:fixture.doCleanups()
