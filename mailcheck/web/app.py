@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import sqlite3
 import time
@@ -18,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
+from .. import assistant, followups, db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -977,6 +978,53 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             sent_replies = replies.history(conn,pk)
         return {"message": _decorate(row), "body_html": str(body_html), "replies":sent_replies,
                 "original_html": bodyhtml.sanitize_original(row["original_html"]) if row["original_html"] else None}
+
+    @app.get("/followups")
+    def followups_page():
+        return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
+
+    @app.get("/api/agent/messages/{pk}")
+    def assistant_context(pk: int):
+        try:
+            with db.session() as conn: return assistant.context(conn,pk,cfgmod.load())
+        except LookupError as exc: return _err(str(exc),404)
+
+    @app.get("/api/agent/preferences/{account_id}")
+    def assistant_preferences(account_id: int):
+        try:
+            with db.session() as conn: return assistant.preferences(conn,account_id)
+        except LookupError as exc: return _err(str(exc),404)
+
+    @app.post("/api/agent/preferences/{account_id}")
+    def save_assistant_preferences(account_id: int, body: assistant.Preferences):
+        try:
+            with db.session() as conn: return assistant.save_preferences(conn,account_id,body)
+        except LookupError as exc: return _err(str(exc),404)
+        except ValueError as exc: return _err(str(exc),400)
+
+    @app.post("/api/agent/messages/{pk}/generate")
+    def generate_assistant_draft(pk: int, body: assistant.GenerateBody):
+        if not _job_lock.acquire(blocking=False):
+            return _err("A mail check or draft generation is running. Try again when it finishes.",409)
+        try:
+            with db.session() as conn: return assistant.generate(conn,pk,body,cfgmod.load())
+        except LookupError as exc: return _err(str(exc),404)
+        except ValueError as exc: return _err(str(exc),400)
+        except Exception:
+            logging.getLogger(__name__).exception("Reply draft generation failed")
+            return _err("Could not generate a draft. Check the model connection and try again.",502)
+        finally: _job_lock.release()
+
+    @app.get("/api/agent/followups")
+    def assistant_followups(account_id: int | None = None):
+        with db.session() as conn: return followups.list_followups(conn,account_id=account_id)
+
+    @app.post("/api/agent/followups/{item_id}")
+    def update_assistant_followup(item_id: str, body: followups.FollowupAction):
+        try:
+            with db.session() as conn: followups.update_state(conn,item_id,body)
+            return {"ok":True}
+        except ValueError as exc: return _err(str(exc),404)
 
     @app.get("/api/messages/{pk}/reply")
     def reply_context(pk: int, mode: Literal['reply','reply_all'] = 'reply'):

@@ -112,15 +112,15 @@ class OutlookGraphSource:
         if not (data.get("mail") or data.get("userPrincipalName")):
             raise SourceError("Signed in, but Microsoft returned no mailbox address.")
 
-    def fetch_calendar(self, since: date) -> Iterator[CalendarBooking]:
+    def fetch_calendar(self, since: date, *, until: datetime | None = None) -> Iterator[CalendarBooking]:
         """Read native bookings from every calendar, never inbox messages.
 
         calendarView expands recurring occurrences and includes bookings regardless
         of online-meeting vendor, invitation wording, or email read state.
         """
         start = datetime(since.year,since.month,since.day,tzinfo=timezone.utc)
-        end = datetime.now(timezone.utc) + timedelta(days=365)
-        fields = "id,iCalUId,subject,start,end,originalStart,originalStartTimeZone,isCancelled,location,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,organizer,attendees,lastModifiedDateTime,type"
+        end = until or (datetime.now(timezone.utc) + timedelta(days=365))
+        fields = "id,iCalUId,subject,start,end,originalStart,originalStartTimeZone,isCancelled,location,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,organizer,attendees,lastModifiedDateTime,type,showAs,isAllDay"
         invalid_events = 0
         with self._client(calendar=True) as client:
             url, params, pages = f"{GRAPH}/me/calendars", {"$select":"id,name", "$top":"100"}, 0
@@ -264,4 +264,4 @@ def _calendar_booking(item: dict, calendar: dict) -> CalendarBooking:
         organizer_name=organizer.get("name"),organizer_email=organizer.get("address"),
         participants=[a["emailAddress"]["address"] for a in item.get("attendees") or [] if (a.get("emailAddress") or {}).get("address")],
         updated_at=datetime.fromisoformat(modified.replace("Z","+00:00")) if modified else None,
-        calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "")
+        calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "",show_as=item.get("showAs") or "busy",all_day=bool(item.get("isAllDay")))

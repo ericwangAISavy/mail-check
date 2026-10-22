@@ -24,3 +24,5 @@ class CalendarBooking:
     updated_at: datetime | None = None
     calendar_name: str = ""
     original_timezone: str = ""
+    show_as: str = "busy"
+    all_day: bool = False

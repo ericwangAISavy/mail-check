@@ -15,11 +15,12 @@ function PersonLine({ message }: { message: Message }) {
   return <div className="sender-line"><span className="sender-avatar">{sender.slice(0, 1).toUpperCase()}</span><span className="sender-copy"><strong>{sender}</strong><span>{message.from_addr}</span></span><span className="sender-date">{message.date_display}{message.date_estimated && <Badge variant="muted">estimated</Badge>}</span></div>
 }
 
-export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false, readOnly = false, readerRef }: { message: Message | null; mobile: boolean; onBack: () => void; onDone: () => void; busy: boolean; canRetry?: boolean; readOnly?: boolean; readerRef?: Ref<HTMLElement> }) {
+export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false, readOnly = false, readerRef, autoReply = false }: { autoReply?:boolean; message: Message | null; mobile: boolean; onBack: () => void; onDone: () => void; busy: boolean; canRetry?: boolean; readOnly?: boolean; readerRef?: Ref<HTMLElement> }) {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [compose, setCompose] = useState<{pk:number;mode:"reply"|"reply_all"}|null>(null)
   const [retrying, setRetrying] = useState(false)
+  useEffect(()=>{if(autoReply && message && !readOnly)setCompose({pk:message.pk,mode:"reply"})},[autoReply,message?.pk,readOnly])
   const { data, isPending, error } = useQuery({ queryKey: ["reader", message?.pk], queryFn: () => api.reader(message!.pk), enabled: Boolean(message), staleTime: 60_000 })
   message = data?.message || message
   if (!message) return <section className={`reader-empty ${mobile ? "mobile-visible" : ""}`}><span className="reader-empty-icon"><Sparkles size={18} /></span><h2>Choose a message</h2><p>Select a message from your queue and its full story will appear here.</p><p className="shortcut-hint"><kbd>↑</kbd><kbd>↓</kbd> to move <span>·</span> <kbd>E</kbd> to mark done</p></section>
@@ -101,7 +102,9 @@ export default function TriagePage({ bootstrap }: { bootstrap: Bootstrap }) {
   const query = useQuery({ queryKey: ["triage", normalized.toString()], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous })
   const data = query.data as TriageData | undefined
   const messages = data?.groups.flatMap((group) => group.items) || []
-  const selectedMessage = messages.find((message) => message.pk === selected) || null
+  const targetPk=Number(params.get("message")) || null
+  const target=useQuery({queryKey:["reader",targetPk],queryFn:()=>api.reader(targetPk!),enabled:Boolean(targetPk),staleTime:60_000})
+  const selectedMessage = messages.find((message) => message.pk === selected) || (selected===targetPk?target.data?.message:null) || null
   const view = normalized.get("view") as TriageData["view"]
   const title = view === "queue" ? data?.summary.actionable ? `${data.summary.actionable} to handle` : "All clear" : view === "all" ? "All mail" : "Completed"
   const setFilter = (name: string, value: string) => {
@@ -124,14 +127,16 @@ export default function TriagePage({ bootstrap }: { bootstrap: Bootstrap }) {
     })
   }, [readerOpen])
   const selectMessage = useCallback((pk: number) => {
+    setParams(current=>{const next=new URLSearchParams(current);next.delete("message");next.delete("reply");return next})
     setSelected(pk)
     setReaderOpen(true)
     focusSelection(pk, true)
   }, [focusSelection])
   useEffect(() => {
+    if(targetPk){setSelected(targetPk);setReaderOpen(true);return}
     if (messages.length && !messages.some((message) => message.pk === selected)) setSelected(messages[0].pk)
     if (!messages.length) setSelected(null)
-  }, [messages, selected])
+  }, [messages, selected, targetPk])
   const done = useDoneMutation()
   const undo = useCallback(async () => {
     try {
@@ -182,7 +187,7 @@ export default function TriagePage({ bootstrap }: { bootstrap: Bootstrap }) {
         <span className="mail-row-top"><CategoryBadge message={message} />{message.deadline_display && <span className={`row-deadline ${/overdue|today/i.test(message.deadline_display) ? "deadline-urgent" : ""}`}><Clock3 size={12} />{message.deadline_display}</span>}<span className="row-date">{message.date_display}</span></span>
         <span className="mail-row-title">{message.company && message.role ? `${message.company} · ${message.role}` : message.company || message.role || message.from_name || message.from_addr}</span><span className="mail-account">{message.account_label}</span><span className="mail-row-summary">{message.summary || message.snippet || message.subject}</span>
       </button>)}</section>)}</div>
-      <Reader message={selectedMessage} mobile={readerOpen} readerRef={readerRef} onBack={() => { setReaderOpen(false); focusSelection(selectedMessage?.pk ?? null, false) }} onDone={() => selectedMessage && setDone(selectedMessage)} busy={done.isPending} canRetry={bootstrap.readiness.model} />
+      <Reader autoReply={Boolean(targetPk===selected&&params.get("reply")==="1")} message={selectedMessage} mobile={readerOpen} readerRef={readerRef} onBack={() => { setReaderOpen(false); focusSelection(selectedMessage?.pk ?? null, false) }} onDone={() => selectedMessage && setDone(selectedMessage)} busy={done.isPending} canRetry={bootstrap.readiness.model} />
     </div>}
     <div className="keyboard-note"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>E</kbd> done</span><span><kbd>{modKey}</kbd><kbd>Z</kbd> undo</span></div>
   </div>

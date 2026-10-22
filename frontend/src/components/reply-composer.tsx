@@ -5,6 +5,7 @@ import {api, ApiError, request} from "@/lib/api"
 import {operationId} from "@/lib/operation-id"
 import {Button} from "@/components/ui/button"
 import {useToast} from "@/components/common"
+import ReplyAssistant from "./reply-assistant"
 import OutgoingDialog from "./outgoing-dialog"
 import OutlookDialog from "./outlook-dialog"
 import type {SentReply} from "@/lib/types"
@@ -79,6 +80,7 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
       {context.isPending?<p role="status" className="reply-loading"><LoaderCircle size={15} className="spin"/>Loading reply details…</p>:context.error?<div className="reply-error" role="alert"><p>{context.error.message}</p><Button variant="outline" size="sm" onClick={()=>void context.refetch()}>Try again</Button><Button variant="outline" size="sm" onClick={()=>setReconnect(true)}>{provider==="outlook"?"Reconnect Outlook":"Configure outgoing mail"}</Button></div>:context.data&&<>
         <div className="reply-envelope"><label>From<input readOnly value={context.data.from} /></label><label>To<input readOnly value={context.data.to.join("; ")} /></label>{context.data.cc.length>0&&<label>Cc<input readOnly value={context.data.cc.join("; ")} /></label>}<label>Subject<input readOnly value={context.data.subject}/></label></div>
         <textarea ref={area} aria-label="Your reply" placeholder="Write your reply…" maxLength={30000} disabled={Boolean(sending||deliveryUncertain)} value={draft.body} onChange={e=>setDraft(d=>({...d,body:e.target.value,operation:operationId()}))}/>
+        <ReplyAssistant key={pk} pk={pk} body={draft.body} disabled={Boolean(sending||deliveryUncertain)} onInsert={body=>setDraft(d=>({...d,body,operation:operationId()}))}/>
         {error&&<p role="alert" className="reply-error">{error}</p>}{deliveryUncertain&&<div className="reply-delivery-check"><p>Delivery is not confirmed. Keep this draft unchanged until its status is known.</p><Button variant="outline" size="sm" disabled={sending||checking} onClick={()=>void checkDelivery()}>Check send status</Button><Button variant="outline" size="sm" disabled={sending||checking} onClick={()=>void send(draft.markDone??false,true)}>Retry original send safely</Button></div>}
         <footer><div><Button disabled={Boolean(sending||deliveryUncertain||!draft.body.trim()||!context.data.to.length)} onClick={()=>void send(false)}>{sending?<LoaderCircle className="spin" size={15}/>:<Send size={15}/>}Send</Button><Button variant="outline" disabled={Boolean(sending||deliveryUncertain||!draft.body.trim()||!context.data.to.length)} onClick={()=>void send(true)}>Send &amp; Done</Button></div><span>{sending?"Sending…":draft.body?(draftSaved?"Draft saved on this browser":"Draft kept in this view"):""}</span><Button variant="ghost" size="sm" disabled={sending} aria-label="Discard reply draft" onClick={()=>draft.body?setDiscard(true):clear()}><Trash2 size={16}/></Button></footer>
       </>}

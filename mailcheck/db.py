@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -239,12 +239,14 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 from .payments import SCHEMA as PAYMENT_SCHEMA
                 from .replies import SCHEMA as REPLY_SCHEMA
                 from .outgoing import SCHEMA as OUTGOING_SCHEMA
+                from .assistant import SCHEMA as ASSISTANT_SCHEMA
+                from .followups import SCHEMA as FOLLOWUP_SCHEMA
                 from .sourcing import SCHEMA as SOURCING_SCHEMA
                 from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 from .interview_processes import SCHEMA as PROCESS_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + ACTIVITY_SCHEMA).split(";"):
+                for statement in (SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + ACTIVITY_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
@@ -333,6 +335,15 @@ def get_account(conn: sqlite3.Connection, label: str) -> Account | None:
 def remove_account(conn: sqlite3.Connection, label: str) -> bool:
     from .payments import sync_receipts
     sync_receipts(conn)
+    account = get_account(conn,label)
+    if account:
+        # JSON calendar links must not follow a reused account ID after deletion.
+        for row in conn.execute("SELECT account_id,settings FROM agent_preferences").fetchall():
+            settings=json.loads(row['settings'])
+            linked=settings.get('calendar_account_ids',[])
+            if account.id in linked:
+                settings['calendar_account_ids']=[i for i in linked if i!=account.id]
+                conn.execute("UPDATE agent_preferences SET settings=? WHERE account_id=?",(json.dumps(settings),row['account_id']))
     cur = conn.execute("DELETE FROM accounts WHERE label = ?", (label,))
     conn.commit()
     return cur.rowcount > 0
