@@ -1,0 +1,15 @@
+import {useEffect,useState,type FormEvent} from "react"
+import {LoaderCircle} from "lucide-react"
+import {api,request} from "@/lib/api"
+import {Button} from "@/components/ui/button"
+import {Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle} from "@/components/ui/dialog"
+import {useToast} from "@/components/common"
+type Settings={host:string;port:number;security:"ssl"|"starttls";username:string}
+export default function OutgoingDialog({open,onOpenChange,label,onSaved}:{open:boolean;onOpenChange:(open:boolean)=>void;label:string;onSaved:()=>void}) {
+ const [values,setValues]=useState<Settings>({host:"",port:587,security:"starttls",username:""})
+ const [loading,setLoading]=useState(true),[pending,setPending]=useState(false),[error,setError]=useState("")
+ const toast=useToast()
+ useEffect(()=>{if(!open)return;let cancelled=false;setLoading(true);setError("");request<Settings>(`/api/accounts/${encodeURIComponent(label)}/outgoing`).then(value=>{if(!cancelled)setValues(value)}).catch(e=>{if(!cancelled)setError(e.message)}).finally(()=>{if(!cancelled)setLoading(false)});return()=>{cancelled=true}},[open,label])
+ const save=async(e:FormEvent)=>{e.preventDefault();setPending(true);setError("");try{await api.post(`/api/accounts/${encodeURIComponent(label)}/outgoing`,{host:values.host,port:values.port,security:values.security,username:values.username});toast("Outgoing mail connected. No test email was sent.","success");onSaved();onOpenChange(false)}catch(e){setError(e instanceof Error?e.message:"Could not connect outgoing mail.")}finally{setPending(false)}}
+ return <Dialog open={open} onOpenChange={next=>{if(!pending)onOpenChange(next)}}><DialogContent><DialogHeader><DialogTitle>Outgoing mail · {label}</DialogTitle><DialogDescription>Connect your SMTP server to reply from this app. Uses the account’s existing app password from your OS keyring. Connections use TLS.</DialogDescription></DialogHeader>{loading?<p role="status">Loading outgoing settings…</p>:<form onSubmit={save} className="form-stack"><label>SMTP host<input value={values.host} required placeholder="smtp.example.com" onChange={e=>setValues(v=>({...v,host:e.target.value}))}/></label><div className="settings-grid"><label>Port<input type="number" min={1} max={65535} required value={values.port} onChange={e=>setValues(v=>({...v,port:Number(e.target.value)}))}/></label><label>Encryption<select value={values.security} onChange={e=>setValues(v=>({...v,security:e.target.value as Settings['security']}))}><option value="starttls">STARTTLS</option><option value="ssl">SSL / TLS</option></select></label></div><label>SMTP username<input value={values.username} required autoComplete="username" onChange={e=>setValues(v=>({...v,username:e.target.value}))}/></label>{error&&<p role="alert" className="inline-error">{error}</p>}<div className="dialog-footer"><Button type="button" variant="outline" disabled={pending} onClick={()=>onOpenChange(false)}>Cancel</Button><Button disabled={pending}>{pending&&<LoaderCircle className="spin" size={15}/>}Test &amp; save</Button></div></form>}</DialogContent></Dialog>
+}

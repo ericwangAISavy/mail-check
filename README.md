@@ -20,8 +20,7 @@ For information  (2)
 12 unread | 4 classified | 5 cached | 3 prefiltered  across 1 account(s) in 6.2s
 ```
 
-**Your mail is never modified.** Mailboxes are opened read-only and nothing is ever
-marked as read — your unread state is your own triage signal.
+**Collection stays read-only.** Mail checks never mark messages as read. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
 
 ## Install
 
@@ -364,7 +363,7 @@ Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft inste
 mailbox password — Microsoft disabled basic-auth IMAP, so app passwords cannot work there.
 
 One-time setup: register a **public client** application in the Microsoft Entra admin
-center with delegated `Calendars.Read` and `Mail.Read` permissions and device-code flow enabled, then paste its
+center with delegated `Calendars.Read`, `Mail.Read` and `Mail.Send` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
 shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are

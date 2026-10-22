@@ -1,7 +1,7 @@
 """Microsoft Graph mail source for personal Outlook.com accounts.
 
-Every call is a GET. Graph is never asked to mark read, move, or modify
-anything — the local Done state replaces all of that.
+Collection calls are GET-only and never mark messages read or move them.
+Explicit user replies are handled separately by mailcheck.replies.
 
 https://learn.microsoft.com/en-us/graph/api/user-list-messages
 """

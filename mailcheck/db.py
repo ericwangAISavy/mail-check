@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 29
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -166,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_class_latest
 #: Columns added after v1. SQLite cannot add them inside CREATE TABLE IF NOT
 #: EXISTS on a database that already exists, so they are applied separately.
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    ("mail_replies", "original_message_id", "TEXT NOT NULL DEFAULT ''"),
     ("sourcing_check_activity", "confirmed_at", "TEXT"),
     ("sourcing_check_activity", "message_id", "TEXT"),
     ("bidders", "removed_at", "TEXT"),
@@ -236,12 +237,14 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
                 from .sourcing_activity import SCHEMA as ACTIVITY_SCHEMA, initialize as initialize_activity
                 from .payments import SCHEMA as PAYMENT_SCHEMA
+                from .replies import SCHEMA as REPLY_SCHEMA
+                from .outgoing import SCHEMA as OUTGOING_SCHEMA
                 from .sourcing import SCHEMA as SOURCING_SCHEMA
                 from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 from .interview_processes import SCHEMA as PROCESS_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + PAYMENT_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + ACTIVITY_SCHEMA).split(";"):
+                for statement in (SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + ACTIVITY_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)

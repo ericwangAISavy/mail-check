@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import db, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
+from .. import db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..sources import IMAPSource, SourceError
@@ -267,6 +267,7 @@ class ReaderResponse(BaseModel):
     message: MessageSummary
     body_html: str
     original_html: str | None = None
+    replies: list[dict] = Field(default_factory=list)
 
 
 class BootstrapReadiness(BaseModel):
@@ -973,8 +974,20 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             if not row:
                 return _err("No such message.", 404)
             body_html = bodyhtml.render_body(row["body_text"])
-        return {"message": _decorate(row), "body_html": str(body_html),
+            sent_replies = replies.history(conn,pk)
+        return {"message": _decorate(row), "body_html": str(body_html), "replies":sent_replies,
                 "original_html": bodyhtml.sanitize_original(row["original_html"]) if row["original_html"] else None}
+
+    @app.get("/api/messages/{pk}/reply")
+    def reply_context(pk: int, mode: Literal['reply','reply_all'] = 'reply'):
+        try:
+            with db.session() as conn: return replies.context(conn,pk,mode)
+        except replies.ReplyError as exc: return _err(str(exc),exc.status)
+
+    @app.post("/api/messages/{pk}/reply")
+    def send_reply(pk: int, body: replies.ReplyBody):
+        try: return replies.send(pk,body)
+        except replies.ReplyError as exc: return _err(str(exc),exc.status)
 
     @app.get("/api/accounts", response_model=AccountsResponse)
     def api_accounts():
@@ -1389,6 +1402,19 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 folder=body.folder or "INBOX",
             )
         return {"ok": True, "message": f"Connected to {body.email}."}
+
+    @app.get("/api/accounts/{label}/outgoing")
+    def outgoing_settings(label: str):
+        try:
+            with db.session() as conn:return outgoing.public_settings(conn,label)
+        except outgoing.OutgoingError as exc:return _err(str(exc),400)
+
+    @app.post("/api/accounts/{label}/outgoing")
+    def save_outgoing_settings(label: str, body: outgoing.Settings):
+        try:
+            with db.session() as conn:outgoing.save_settings(conn,label,body)
+            return {"ok":True,"message":"Outgoing mail connected. No test email was sent."}
+        except outgoing.OutgoingError as exc:return _err(str(exc),400)
 
     @app.post("/api/accounts/{label}/test")
     def api_test_account(label: str):

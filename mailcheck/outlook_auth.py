@@ -23,6 +23,7 @@ AUTHORITY = "https://login.microsoftonline.com/consumers"
 #: Read-only calendar access for bookings; mail access remains for CLI triage.
 SCOPES = ["Mail.Read", "Calendars.Read"]
 CALENDAR_SCOPES = ["Calendars.Read"]
+CONNECT_SCOPES = SCOPES + ["Mail.Send"]
 
 #: How long a pending device-code flow may sit in memory before it is dropped.
 FLOW_TTL_SECONDS = 15 * 60
@@ -182,7 +183,7 @@ class PendingFlow:
 def begin_device_flow(label: str, client_id: str) -> PendingFlow:
     cache = load_cache(label)
     app = _app(client_id, cache)
-    flow = app.initiate_device_flow(scopes=SCOPES)
+    flow = app.initiate_device_flow(scopes=CONNECT_SCOPES)
     if "user_code" not in flow:
         raise OutlookAuthError(
             f"Could not start Microsoft sign-in: {flow.get('error_description') or flow}"
