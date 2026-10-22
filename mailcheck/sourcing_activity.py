@@ -76,7 +76,8 @@ def record(conn, source, *, sample=False):
             for row in conn.execute("SELECT id FROM bidders WHERE removed_at IS NULL")])
 
 
-def report(conn, week=None, *, bidder_id=None):
+def report(conn, week=None, *, bidder_id=None, day=None):
+    activity_day = day
     start = monday(week or today())
     end = start + timedelta(days=7)
     lower = datetime.combine(start,datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
@@ -179,7 +180,64 @@ def report(conn, week=None, *, bidder_id=None):
         if event['bidder_id'] in bidders and event['account_id'] in accounts:
             account_confirmation_points[key]['counts'][str(event['account_id'])] += 1
     meta = conn.execute("SELECT started_at FROM sourcing_activity_meta WHERE id=1").fetchone()
-    return {'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
+    return {'workday':workday_report(conn,activity_day,bidders,accounts,bidder_id), 'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
             'confirmation_timeline':list(confirmation_points.values()),'account_confirmation_timeline':list(account_confirmation_points.values()),
             'accounts':list(accounts.values()),'account_timeline':account_timeline[-240:],
             'bidders':list(bidders.values()),'check_count':len(timeline),'timeline':list(timeline.values())[-240:]}
+
+
+def workday_report(conn, day, bidders, accounts, bidder_id):
+    local = now().astimezone(ZONE)
+    day = day or (local - timedelta(hours=6)).date()
+    lower = datetime.combine(day,datetime.min.time(),ZONE).replace(hour=6).astimezone(timezone.utc)
+    upper = datetime.combine(day+timedelta(days=1),datetime.min.time(),ZONE).replace(hour=6).astimezone(timezone.utc)
+    def point(stamp, ids, source):
+        return {'at':stamp,'source':source,'counts':{str(who):0 for who in ids}}
+    confirmations, account_confirmations = {}, {}
+    instant = lower
+    while instant < upper:
+        key = instant.isoformat()
+        confirmations[key] = point(key,bidders,'confirmation')
+        account_confirmations[key] = point(key,accounts,'confirmation')
+        instant += timedelta(minutes=15)
+    eligible = """EXISTS(SELECT 1 FROM bidder_assignments a WHERE a.bidder_id=e.bidder_id
+        AND a.account_id=e.account_id AND a.start_date<=e.work_date
+        AND (a.end_date IS NULL OR a.end_date>=e.work_date))"""
+    for event in conn.execute(f"""SELECT e.* FROM sourcing_check_activity e
+        WHERE e.confirmed_at>=? AND e.confirmed_at<? AND (? IS NULL OR e.bidder_id=?) AND {eligible}""",
+        (lower.isoformat(),upper.isoformat(),bidder_id,bidder_id)):
+        stamp = datetime.fromisoformat(event['confirmed_at']).astimezone(timezone.utc)
+        key = stamp.replace(minute=stamp.minute//15*15,second=0,microsecond=0).isoformat()
+        if event['bidder_id'] in bidders:
+            confirmations[key]['counts'][str(event['bidder_id'])] += 1
+            if event['account_id'] in accounts:
+                account_confirmations[key]['counts'][str(event['account_id'])] += 1
+    runs = conn.execute("""SELECT r.*,COALESCE((SELECT through_event FROM sourcing_activity_runs prev
+        WHERE prev.id<r.id ORDER BY prev.id DESC LIMIT 1),0) AS previous_event
+        FROM sourcing_activity_runs r WHERE r.recorded_at>=? AND r.recorded_at<?
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM sourcing_activity_samples s WHERE s.run_id=r.id AND s.bidder_id=?))
+        ORDER BY r.id""",(lower.isoformat(),upper.isoformat(),bidder_id,bidder_id)).fetchall()
+    run_points, account_runs = [], []
+    events = []
+    if runs:
+        events = conn.execute(f"""SELECT e.rowid AS event_id,e.bidder_id,e.account_id FROM sourcing_check_activity e
+            WHERE e.rowid>? AND e.rowid<=? AND e.detected_at IS NOT NULL
+            AND (? IS NULL OR e.bidder_id=?) AND {eligible} ORDER BY e.rowid""",
+            (runs[0]['previous_event'],runs[-1]['through_event'],bidder_id,bidder_id)).fetchall()
+    index = 0
+    for run in runs:
+        bidder_point = point(run['recorded_at'],bidders,run['source'])
+        account_point = point(run['recorded_at'],accounts,run['source'])
+        for sample in conn.execute('SELECT bidder_id,new_checks FROM sourcing_activity_samples WHERE run_id=?',(run['id'],)):
+            if sample['bidder_id'] in bidders:
+                bidder_point['counts'][str(sample['bidder_id'])] = sample['new_checks']
+        while index < len(events) and events[index]['event_id']<=run['through_event']:
+            event = events[index]
+            if event['bidder_id'] in bidders and event['account_id'] in accounts:
+                account_point['counts'][str(event['account_id'])] += 1
+            index += 1
+        run_points.append(bidder_point)
+        account_runs.append(account_point)
+    return {'date':day.isoformat(),'start':lower.isoformat(),'end':upper.isoformat(),
+            'confirmations':list(confirmations.values()),'account_confirmations':list(account_confirmations.values()),
+            'runs':run_points,'account_runs':account_runs}

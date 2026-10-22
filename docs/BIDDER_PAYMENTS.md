@@ -95,7 +95,7 @@ row's seven-day matching window. Both bidder and account views use these timesta
 Rows checked manually without a matching confirmation have no inferred receipt time.
 
 **Check runs** remains a separate processing-history view, showing when checks ran
-and how many newly checked rows were observed. It keeps the latest 240 runs. Payment
+and how many newly checked rows were observed. It includes every run in the selected Chicago workday. Payment
 counts stay on the original sourcing date, regardless of when the email arrived.
 
 Admins can click **Refresh** on Bidder payments to recheck stored confirmation
@@ -112,3 +112,11 @@ named bidders only see their own contributions, including on shared accounts.
 
 Account activity counts checked document rows, which can overlap across bidders on
 a shared account. Receipt times can be delayed and are not measured working hours.
+
+The Activity Monitor distinguishes three graph views:
+
+- **Confirmation time:** matched link arrivals in 15-minute intervals for one Chicago workday, including zero-count intervals.
+- **Check runs:** every recorded processing checkpoint in that workday, including quiet checks. Hover shows exact Chicago time and source; the expandable checkpoint table shows all per-bidder or per-account counts. This daily view has no 240-run truncation.
+- **By day:** calendar-day confirmation totals for the payment table's selected week.
+
+Intraday views default to the most recent 6:00 AM in America/Chicago through the following 6:00 AM. Before 6 AM, this is the previous date's workday. A separate date selector browses other workdays without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. Summary cards, heatmap, and summary table remain explicitly weekly.

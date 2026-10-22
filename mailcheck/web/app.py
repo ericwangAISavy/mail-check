@@ -797,10 +797,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return {"ok":True,"from":first.isoformat(),"through":last.isoformat(),**result}
 
     @app.get("/api/payments/activity")
-    def bidder_activity(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
+    def bidder_activity(request: Request, day: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 30)), week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
         from ..sourcing_activity import report
         with db.session() as conn:
-            return report(conn, week, bidder_id=request.state.bidder_id or bidder)
+            return report(conn, week, bidder_id=request.state.bidder_id or bidder, day=day)
 
     @app.get("/api/payments")
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):

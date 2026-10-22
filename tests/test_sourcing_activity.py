@@ -75,6 +75,33 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual([b['id'] for b in response.json()['bidders']],[1])
         self.assertEqual([a['id'] for a in response.json()['accounts']],[self.account])
         self.assertEqual(response.json()['accounts'][0]['new_checks'],1)
-        attempted = self.client.get('/api/payments/activity?week=2026-10-12&bidder=2').json()
+        attempted = self.client.get('/api/payments/activity?week=2026-10-12&bidder=2&day=2026-10-12').json()
         self.assertEqual([a['id'] for a in attempted['accounts']],[self.account])
+        self.assertEqual(attempted['workday']['runs'][0]['counts'],{'1':1})
+        self.assertEqual(attempted['workday']['account_runs'][0]['counts'],{str(self.account):1})
         self.assertEqual(self.client.get('/api/payments/activity?week=2026-10-12&bidder_id=2').json()['bidders'][0]['id'],1)
+
+    def test_workday_has_quarter_hour_points_and_all_runs_across_midnight(self):
+        self.assign()
+        self.add_checks(1,self.account,1)
+        with patch.object(activity,'now',return_value=datetime(2026,10,13,10,59,tzinfo=timezone.utc)):
+            self.confirm_existing(activity.now())
+            for _ in range(245): activity.record(self.conn,'global-check',sample=True)
+            report = activity.report(self.conn,date(2026,10,12),day=date(2026,10,12))
+        window = report['workday']
+        self.assertEqual(window['start'],'2026-10-12T11:00:00+00:00')
+        self.assertEqual(window['end'],'2026-10-13T11:00:00+00:00')
+        self.assertEqual(len(window['confirmations']),96)
+        self.assertEqual(window['confirmations'][-1]['counts']['1'],1)
+        self.assertEqual(len(window['runs']),245)
+        self.assertEqual(sum(p['counts']['1'] for p in window['runs']),1)
+        self.assertEqual(sum(p['counts'][str(self.account)] for p in window['account_runs']),1)
+        other = activity.report(self.conn,date(2026,10,12),day=date(2026,10,13))['workday']
+        self.assertEqual(other['runs'],[])
+        self.assertEqual(sum(p['counts']['1'] for p in other['confirmations']),0)
+
+    def test_workday_defaults_to_previous_date_before_six_and_handles_dst(self):
+        with patch.object(activity,'now',return_value=datetime(2026,11,1,10,tzinfo=timezone.utc)):
+            window = activity.report(self.conn,date(2026,10,26))['workday']
+        self.assertEqual(window['date'],'2026-10-31')
+        self.assertEqual(len(window['confirmations']),100)
