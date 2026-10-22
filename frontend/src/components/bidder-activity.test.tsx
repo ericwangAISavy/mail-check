@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import BidderActivity from "./bidder-activity"
 vi.mock("@/lib/api", () => ({request: vi.fn()}))
-vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: () => null, CartesianGrid: () => null, Tooltip: () => null, XAxis: () => null, YAxis: () => null}))
+const probe = vi.hoisted(() => ({tooltip: null as any, lines: [] as string[]}))
+vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type}: any) => {probe.lines.push(type); return null}, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
 const clients: QueryClient[] = []
 afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks()})
 function payload() {
@@ -84,4 +85,18 @@ it("separates quarter-hour confirmations, exact workday runs and weekly totals",
   fireEvent.click(screen.getByRole("button", {name:"Check runs"}))
   fireEvent.change(screen.getByLabelText("Activity workday"), {target:{value:"2026-10-13"}})
   expect(vi.mocked(request).mock.calls.some(([url]) => String(url).includes("day=2026-10-13"))).toBe(true)
+})
+
+
+it("formats tooltip dates safely during mode changes and uses connected lines", async () => {
+  const base = payload()
+  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:base.timeline,runs:base.timeline,account_runs:[],account_confirmations:[]}})
+  mount(); await screen.findByRole("button", {name:"Alex"})
+  expect(() => probe.tooltip("2026-10-12", [])).not.toThrow()
+  expect(probe.tooltip("stale label", [{payload:{at:"2026-10-12T15:00:00Z",stamp:Date.parse("2026-10-12T15:00:00Z")}}])).toContain("10:00:00 AM")
+  for (const value of [undefined,null,"",NaN,"invalid"]) expect(() => probe.tooltip(value, [])).not.toThrow()
+  expect(probe.lines.every(type => type === "linear")).toBe(true)
+  fireEvent.click(screen.getByRole("button", {name:"By day"}))
+  expect(probe.tooltip("stale", [{payload:{at:"2026-10-12"}}])).toBe("Oct 12")
+  expect(() => probe.tooltip(123, [])).not.toThrow()
 })
