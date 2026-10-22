@@ -1,14 +1,14 @@
 import { useState } from "react"
 import { afterEach, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import BidderActivity from "./bidder-activity"
 vi.mock("@/lib/api", () => ({request: vi.fn()}))
 const probe = vi.hoisted(() => ({tooltip: null as any, lines: [] as string[]}))
-vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type}: any) => {probe.lines.push(type); return null}, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
+vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type}: any) => {probe.lines.push(type); return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
 const clients: QueryClient[] = []
-afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks()})
+afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers()})
 function payload() {
   const hourly = Array(24).fill(0); hourly[10] = 5
   return {dates: ["2026-10-12"], timezone: "America/Chicago", tracking_since: "2026-10-12T12:00:00+00:00", check_count: 2,
@@ -99,4 +99,26 @@ it("formats tooltip dates safely during mode changes and uses connected lines", 
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
   expect(probe.tooltip("stale", [{payload:{at:"2026-10-12"}}])).toBe("Oct 12")
   expect(() => probe.tooltip(123, [])).not.toThrow()
+})
+
+
+it("places a live current-time marker precisely within the Chicago workday", async () => {
+  vi.useFakeTimers({toFake:["setInterval","clearInterval"]})
+  const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse("2026-10-12T15:23:45Z"))
+  const base = payload()
+  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:base.timeline,runs:base.timeline,account_runs:[],account_confirmations:[]}})
+  mount(); await screen.findByRole("button", {name:"Alex"})
+  expect(screen.getByTestId("now-marker").getAttribute("data-time")).toBe(String(Date.parse("2026-10-12T15:23:45Z")))
+  expect(screen.getByText(/Now · Oct 12, 10:23:45 AM CDT/)).toBeTruthy()
+  clock.mockReturnValue(Date.parse("2026-10-12T15:23:46Z"))
+  act(() => {vi.advanceTimersByTime(1000)})
+  expect(screen.getByTestId("now-marker").getAttribute("data-time")).toBe(String(Date.parse("2026-10-12T15:23:46Z")))
+  fireEvent.click(screen.getByRole("button", {name:"Check runs"}))
+  expect(screen.getByTestId("now-marker")).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", {name:"By day"}))
+  expect(screen.queryByTestId("now-marker")).toBeNull()
+  clock.mockReturnValue(Date.parse("2026-10-13T11:00:00Z"))
+  act(() => {vi.advanceTimersByTime(1000)})
+  fireEvent.click(screen.getByRole("button", {name:"Confirmation time"}))
+  expect(screen.queryByTestId("now-marker")).toBeNull()
 })

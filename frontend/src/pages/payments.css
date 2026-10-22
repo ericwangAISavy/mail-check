@@ -102,3 +102,5 @@
 .activity-run-details { margin: 1rem 0; }
 .activity-run-details summary { cursor: pointer; color: var(--primary); font-size: .85rem; padding: .5rem 0; }
 .activity-run-details .payment-table-scroll { max-height: 340px; overflow: auto; }
+.activity-now { display: flex; align-items: center; gap: .5rem; color: var(--primary); font-size: .85rem; font-variant-numeric: tabular-nums; margin: .5rem 0; }
+.activity-now i { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 8px var(--primary); }
