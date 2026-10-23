@@ -203,11 +203,11 @@ it("clears undo when a clean refresh brings external changes", async () => {
     screen.getByRole("button", { name: "Undo edit" }).hasAttribute("disabled"),
   ).toBe(false);
   vi.mocked(fetch).mockImplementation(
-    async () =>
+    async (url) =>
       ({
         ok: true,
         headers: new Headers({ "content-type": "application/json" }),
-        json: async () => ({
+        json: async () => String(url) === "/api/sourcing" ? index : ({
           ...snapshot,
           revision: "external-sort",
           rows: [

@@ -287,3 +287,20 @@ it("keeps same-company account rows separate when pinning, removing and restorin
   expect(await screen.findByText("first@example.test")).toBeTruthy()
   expect(screen.getAllByRole("heading", {name: "appian.com"})).toHaveLength(2)
 })
+it("opens a process follow-up in the relevant email composer without generating",async()=>{
+ const data=report()
+ const process={...data.processes[0],milestones:[milestone('event:1',10)],follow_up:{target_message_pk:42,status:'ready',sent_at:null}}
+ vi.mocked(request).mockResolvedValue({...data,processes:[process]})
+ mount()
+ const link=await screen.findByRole('link',{name:'Follow up with appian.com'})
+ expect(link.getAttribute('href')).toBe('/?view=all&days=90&message=42&reply=1&followup=1')
+ expect(vi.mocked(request).mock.calls.some(([url])=>String(url).includes('/generate'))).toBe(false)
+})
+it("highlights a successfully sent follow-up on its process",async()=>{
+ const data=report()
+ vi.mocked(request).mockResolvedValue({...data,processes:[{...data.processes[0],milestones:[milestone('event:1',10)],follow_up:{target_message_pk:42,status:'sent',sent_at:'2026-10-16T10:00:00Z'}}]})
+ mount()
+ const link=await screen.findByRole('link',{name:'Follow-up sent for appian.com'})
+ expect(link.className).toContain('is-sent')
+ expect(screen.getByText('Follow-up sent')).toBeTruthy()
+})

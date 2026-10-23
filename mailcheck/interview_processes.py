@@ -235,4 +235,6 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         group["milestones"].sort(key=lambda milestone: (_instant(milestone["occurred_at"]), milestone["id"]))
         group["next_interview"] = next((event for event in group["events"] if event["display_status"] in ("Scheduled", "Rescheduled") and datetime.fromisoformat(event["start_at"].replace("Z", "+00:00")) >= now), None)
         result.append(group)
+    from .process_followups import decorate
+    decorate(conn,result,now)
     return sorted(result, key=lambda group: not group["pinned"])

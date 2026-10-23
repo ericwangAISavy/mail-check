@@ -50,7 +50,7 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
       const result=await api.post<{warning?:string;done?:boolean}>(`/api/messages/${pk}/reply`,{operation,body:draft.body,mode:sendMode,mark_done:markDone})
       setUncertain(false);setDraft({body:"",mode,operation:operationId()});try{localStorage.removeItem(key)}catch{/* optional browser storage */}
       toast(result.warning || (result.done?"Reply sent. Message marked done.":"Reply sent."),result.warning?"error":"success")
-      await Promise.all([client.invalidateQueries({queryKey:["reader",pk]}),client.invalidateQueries({queryKey:["triage"]}),client.invalidateQueries({queryKey:["bootstrap"]})])
+      await Promise.all([client.invalidateQueries({queryKey:["interviews","processes"]}),client.invalidateQueries({queryKey:["reader",pk]}),client.invalidateQueries({queryKey:["triage"]}),client.invalidateQueries({queryKey:["bootstrap"]})])
       onModeChange(null)
     }catch(caught){const text=caught instanceof Error?caught.message:"Could not send your reply.";setError(text);if(!(caught instanceof ApiError)||caught.status>=500||text.includes("not confirmed")){setUncertain(true);setDraft(d=>({...d,uncertain:true}))}}
     finally{lock.current=false;setSending(false)}
@@ -64,7 +64,7 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
       if(record?.status==="sent"){
         setDraft({body:"",mode:draft.mode,operation:operationId()});setUncertain(false);setError("")
         toast("Reply sent. Delivery record confirmed.","success");onModeChange(null)
-        await client.invalidateQueries({queryKey:["triage"]})
+        await Promise.all([client.invalidateQueries({queryKey:["triage"]}),client.invalidateQueries({queryKey:["interviews","processes"]})])
       }else if(record?.status==="failed"){
         setUncertain(false);setDraft(d=>({...d,uncertain:false}));setError(record.error||"The reply was not sent. You can try again.")
       }else{setError(record?"Delivery is still not confirmed. Do not start another reply for this send.":"No delivery record was found yet. Retry the original send to safely reuse its request ID.")}

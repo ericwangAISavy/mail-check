@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type Ref } from "react"
+import { Link } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowUpRight, CalendarClock, Check, ChevronDown, Clock3, Filter, LoaderCircle, RefreshCw, Reply, RotateCcw, Sparkles } from "lucide-react"
 import { EmailContent } from "@/components/email-content"
@@ -177,6 +178,7 @@ export default function TriagePage({ bootstrap }: { bootstrap: Bootstrap }) {
   const activeFilters = (normalized.has("account") ? 1 : 0) + (normalized.has("category") ? 1 : 0) + (normalized.get("days") !== "30" ? 1 : 0)
   const unclassifiedCount = data?.counts.unclassified ?? 0
   return <div className="page-wrap triage-page" onKeyDown={actKey}>
+    {params.get("followup")==="1" && <Button asChild variant="outline" size="sm"><Link to="/interview-processes"><ArrowLeft size={15}/>Back to interview processes</Link></Button>}
     <PageHeading title={title || "Your triage"} description={data?.last_run || bootstrap.last_run || undefined} action={<Button variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>} />
     {(view === "queue" || view === "all") && unclassifiedCount > 0 && bootstrap.readiness.model && <ReclassifyBanner count={unclassifiedCount} />}
     <div className="triage-bar"><div className="view-tabs" role="tablist" aria-label="Mail views">{(["queue", "all", "completed"] as const).map((key) => <button type="button" role="tab" aria-selected={view === key} className={view === key ? "selected" : ""} key={key} onClick={() => setFilter("view", key)}>{key === "queue" ? "Queue" : key === "all" ? "All mail" : "Completed"}{key === "queue" && data?.summary.actionable ? <span className="tab-count">{data.summary.actionable}</span> : null}</button>)}</div>

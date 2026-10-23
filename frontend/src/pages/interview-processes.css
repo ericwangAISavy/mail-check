@@ -121,3 +121,10 @@ button.milestone-message { width: 20px; height: 14px; top: 11px; border-radius: 
 }
 
 .process-account-emails { color: var(--muted-foreground); font-size: 11px; overflow-wrap: anywhere; }
+
+/* Follow-up actions belong to the process and reflect confirmed delivery. */
+a.milestone-follow-up { cursor: pointer; text-decoration: none; }
+a.milestone-follow-up:hover, a.milestone-follow-up:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.milestone-follow-up.is-sent { --milestone-color: var(--success, #34d399); border-style: solid; background: color-mix(in srgb, var(--success, #34d399) 20%, var(--card)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success, #34d399) 16%, transparent); }
+.process-follow-up-label.is-sent { color: var(--success, #34d399); border-color: currentColor; background: color-mix(in srgb, var(--success, #34d399) 12%, transparent); }
+.milestone-follow-up.is-unavailable { opacity: .65; }

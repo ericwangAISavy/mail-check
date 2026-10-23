@@ -52,6 +52,6 @@ export type ProcessMilestone = {
   status: string; sender: string | null; account_labels: string[]; href: string | null
   organization_domains: string[]; assignment_reason: string | null
 }
-export type InterviewProcess = { id?: string; account_id?: number | null; account_emails?: string[]; organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }
+export type InterviewProcess = { follow_up?: {target_message_pk:number|null;status:"ready"|"sent"|"unavailable";sent_at:string|null}; id?: string; account_id?: number | null; account_emails?: string[]; organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }
 
 export type SentReply = {operation:string;body:string;mode:string;status:string;created_at:string;sent_at:string|null;recipients:string;error:string}

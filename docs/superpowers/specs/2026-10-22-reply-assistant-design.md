@@ -18,7 +18,11 @@ Calculate every remaining qualifying range deterministically after subtracting m
 
 ## Follow-ups
 
-An admin-only workspace lists account-scoped interview conversations, elapsed business days, suggestion reasons and status. Past scheduled events are described neutrally. Recent inbound/outbound replies affect suggestions. Configurable account thresholds, snooze, dismiss and restore are local controls. New relevant inbound activity restores discovery after snooze/dismiss. Opening an item opens its email and composer without generating. Missing reply targets are shown as unavailable. No automatic drafting or sending.
+Follow-up actions live at the end of each Interview processes timeline. Clicking opens the relevant account-scoped saved email and reply composer without generating or sending. Prefer a human contact in the linked conversation, including original invitations that predate the first event. If no saved reply target exists, explain the limitation.
+
+After a successfully delivered reply following the latest process activity, highlight the endpoint and label as Follow-up sent. Pending, unknown, failed or partially delivered sends never count as complete. Match delivery ledger entries by account, message PK and original message ID. New inbound activity or a later meeting resets the indication. Refresh process queries after sending or reconciling delivery status. Provide a Back to interview processes link in the email view.
+
+The separate Follow-ups navigation entry is removed; its former URL redirects to Interview processes. Existing saved follow-up state remains stored. Generation and delivery remain explicit actions.
 
 ## Verification
 

@@ -10,7 +10,6 @@ import type { Bootstrap } from "@/lib/types"
 import TriagePage from "@/pages/triage"
 import { AuthGate, useAuth } from "@/components/auth"
 
-const FollowupsPage = lazy(() => import("@/pages/followups"))
 const SourcingPage = lazy(() => import("@/pages/sourcing"))
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
 const PaymentsPage = lazy(() => import("@/pages/payments"))
@@ -21,7 +20,6 @@ const SettingsPage = lazy(() => import("@/pages/settings"))
 
 const sections = [
   { to: "/", label: "Triage", icon: Inbox },
-  { to: "/followups", label: "Follow-ups", icon: MailCheck },
   { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { to: "/interviews", label: "Interview", icon: CalendarDays },
   { to: "/interview-processes", label: "Interview processes", icon: UsersRound },
@@ -217,7 +215,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
       {admin && location.pathname !== "/sourcing" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/followups" element={admin ? <FollowupsPage /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/sourcing" replace />} />
         <Route path="/dashboard" element={admin ? <DashboardPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/sourcing" replace />} />
