@@ -143,3 +143,90 @@ class NativeCalendarTests(unittest.TestCase):
         with patch.object(pipeline,"build_source",side_effect=AssertionError("No mail source should be opened")):
             result=interviews.collect_calendar_events(self.conn,config.Config(),account_label="personal")
         self.assertIn('IMAP cannot read calendar events',result['errors'][0])
+
+
+class CheckDispatchTests(unittest.TestCase):
+    def run_check(self, mode):
+        from mailcheck.web import app as web
+        from mailcheck.models import RunResult
+        with patch.object(web, "_start_job", side_effect=lambda work, **kwargs: work()), \
+             patch.object(web.cfgmod, "load", return_value=config.Config()), \
+             patch.object(web.db, "session"), \
+             patch.object(web, "check_once", return_value=RunResult(started_at=datetime.now(timezone.utc))) as mail, \
+             patch.object(web.interviews, "collect_calendar_events", return_value={"changes": [], "accounts": 2, "errors": []}) as calendar:
+            web._run_check(web.CheckBody(**mode))
+        return mail, calendar
+
+    def test_default_check_classifies_mail_for_all_enabled_accounts(self):
+        mail, calendar = self.run_check({})
+        mail.assert_called_once()
+        self.assertIsNone(mail.call_args.kwargs["account_label"])
+        self.assertTrue(mail.call_args.kwargs["use_cache"])
+        calendar.assert_not_called()
+
+    def test_calendar_check_never_runs_mail_classification(self):
+        mail, calendar = self.run_check({"mode": "calendar"})
+        mail.assert_not_called()
+        calendar.assert_called_once()
+        self.assertIsNone(calendar.call_args.kwargs["account_label"])
+
+class CalendarDuplicateTests(unittest.TestCase):
+    setUp=NativeCalendarTests.setUp
+    source=NativeCalendarTests.source
+    collect=NativeCalendarTests.collect
+    def test_copies_with_different_uids_merge_and_stay_merged(self):
+        first=event('original');first.update(subject='Carta Phone Meeting',organizer={'emailAddress':{'address':'recruiter@carta.test'}})
+        second=event('copy');second.update(subject='Carta Phone Meeting',organizer=first['organizer'])
+        self.collect(self.source([first,second]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.collect(self.source([second,first]))
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_sources').fetchone()[0],2)
+
+    def test_existing_duplicates_display_once_without_losing_sources_or_manual_edits(self):
+        first=event('original',organizer={'emailAddress':{'address':'recruiter@test'}})
+        second=event('copy',organizer=first['organizer']);second['subject']='Temporary different title'
+        self.collect(self.source([first]))
+        self.collect(self.source([second]))
+        rows=self.conn.execute('SELECT id FROM interview_events ORDER BY id').fetchall()
+        self.conn.execute("UPDATE interview_events SET company='Booked appointment'")
+        interviews.correct_event(self.conn,rows[0][0],{'notes':'Keep my correction'})
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_sources').fetchone()[0],2)
+        self.assertEqual(interviews.list_events(self.conn)[0]['notes'],'Keep my correction')
+        self.assertEqual(len(interviews.event_sources(self.conn,rows[0][0])),2)
+        interviews.remove_event(self.conn,rows[0][0])
+        self.assertEqual(interviews.list_events(self.conn),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
+
+    def test_email_invitation_and_native_booking_with_different_ids_match(self):
+        pk,_=fixtures.InterviewTests.message(self,calendar_data=[ics(uid='email-uid')])
+        interviews.process_message(self.conn,pk,{},calendar_only=True)
+        item=event('native');item['onlineMeeting']={'joinUrl':'https://zoom.us/j/12345'}
+        item['organizer']={'emailAddress':{'address':'recruiter@acme.test'}}
+        self.collect(self.source([item]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.assertEqual(len(interviews.event_sources(self.conn,interviews.list_events(self.conn)[0]['id'])),2)
+
+    def test_same_title_different_times_or_organizers_stay_separate(self):
+        one=event('one',organizer={'emailAddress':{'address':'one@test'}})
+        two=event('two',organizer={'emailAddress':{'address':'two@test'}})
+        three=event('three');three['start']={'dateTime':'2026-10-19T15:30:00','timeZone':'UTC'};three['end']={'dateTime':'2026-10-19T16:30:00','timeZone':'UTC'}
+        self.collect(self.source([one,two,three]))
+        self.assertEqual(len(interviews.list_events(self.conn)),3)
+
+    def test_incomplete_review_copy_is_hidden_behind_confirmed_booking(self):
+        one=event('confirmed',organizer={'emailAddress':{'address':'recruiter@test'}})
+        two=event('incomplete',organizer=one['organizer']);two['subject']='Temporary different title'
+        self.collect(self.source([one,two]))
+        ids=[row[0] for row in self.conn.execute('SELECT id FROM interview_events ORDER BY id')]
+        self.conn.execute("UPDATE interview_events SET company='Carta Phone Meeting'")
+        self.conn.execute("UPDATE interview_events SET end_at=NULL,extraction_rank=2,needs_review=1 WHERE id=?",(ids[1],))
+        self.conn.execute('UPDATE interview_sources SET account_id=? WHERE event_id=?',(self.b,ids[1]))
+        events=interviews.list_events(self.conn)
+        self.assertEqual(len(events),1)
+        self.assertEqual(events[0]['id'],ids[0])
+        self.assertFalse(events[0]['needs_review'])
+        self.assertEqual(len(interviews.event_sources(self.conn,ids[0])),2)

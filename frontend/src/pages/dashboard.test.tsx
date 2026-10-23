@@ -142,3 +142,16 @@ it("collapses the message explorer by default and expands it from its bar", asyn
   fireEvent(explorer, new Event("toggle"))
   await waitFor(() => expect(explorer.open).toBe(false))
 })
+
+it("filters by bidder together with account and resets the selection", async () => {
+  vi.mocked(api.dashboardAccounts).mockResolvedValue({ accounts: [{ label: "personal" }], bidders: [{ id: 7, name: "Alex" }] })
+  mount("/dashboard?account=personal&page=2")
+  await screen.findByRole("option", { name: "Alex" })
+  fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "7" } })
+  await lastParam("bidder", "7")
+  await lastParam("account", "personal")
+  await lastParam("page", "1")
+  fireEvent.click(screen.getByRole("button", { name: "Reset" }))
+  await lastParam("bidder", null)
+  expect((screen.getByLabelText("Bidder") as HTMLSelectElement).value).toBe("")
+})

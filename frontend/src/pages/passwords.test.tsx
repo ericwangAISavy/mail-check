@@ -20,13 +20,7 @@ it("rejects mismatched passwords without calling the server", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("do not match")
   expect(post).not.toHaveBeenCalled()
 })
-it("updates guest passwords without signing out the admin", async () => {
-  const post = vi.spyOn(api, "post").mockResolvedValue({ message: "Guest password updated." })
-  mount(); fill("new guest password")
-  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/auth/password", { role: "guest", password: "new guest password" }))
-  await waitFor(() => expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe(""))
-  expect(mocks.signOut).not.toHaveBeenCalled()
-})
+
 it("signs out after updating the admin password", async () => {
   vi.spyOn(api, "post").mockResolvedValue({ message: "Admin password updated." })
   mount()

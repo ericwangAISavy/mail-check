@@ -1,0 +1,85 @@
+/* Shared native selects across forms, filters, dialogs and toolbars.
+   Specificity prevents page-local resets from hiding the control. */
+:root body select:not([multiple]) {
+  appearance: none;
+  min-height: 36px;
+  padding: 7px 38px 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 62%, var(--border));
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--card));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2300cfff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 16px;
+  color: var(--foreground);
+  font-weight: 600;
+  line-height: 1.35;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--primary) 9%, transparent);
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+:root[data-theme="light"] body select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23007da6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+:root body select:not([multiple]):hover:not(:disabled) {
+  border-color: var(--primary);
+  background-color: color-mix(in srgb, var(--primary) 14%, var(--card));
+}
+:root body select:not([multiple]):focus {
+  border-color: var(--ring);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+:root body select:not([multiple]):disabled {
+  color: var(--muted-foreground);
+  border-color: var(--border);
+  background-color: var(--muted);
+  box-shadow: none;
+  opacity: .65;
+  cursor: not-allowed;
+}
+:root body select[aria-invalid="true"] { border-color: var(--destructive); }
+/* Explicit popup colors prevent pale text on white menus in the dark theme. */
+:root body select option, :root body select optgroup {
+  color: var(--foreground);
+  background-color: var(--surface-raised);
+  font-weight: 500;
+}
+:root body select option:checked:not(:disabled) {
+  color: var(--primary-foreground);
+  background-color: var(--primary);
+  font-weight: 700;
+}
+:root body select option:disabled {
+  color: var(--muted-foreground);
+  background-color: var(--surface-raised);
+}
+:root body .sourcing-toolbar > select {
+  min-height: 42px;
+  min-width: 180px;
+  max-width: min(300px, 100%);
+  padding: 9px 42px 9px 14px;
+  border-color: var(--primary);
+  background-color: color-mix(in srgb, var(--primary) 13%, var(--card));
+  font-size: var(--text-body);
+  font-weight: 700;
+  box-shadow: 0 0 14px var(--glow);
+}
+@media (max-width: 700px) {
+  :root body select:not([multiple]) { min-height: 40px; }
+  :root body .sourcing-toolbar > select { min-width: 140px; max-width: 52vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root body select:not([multiple]) { transition: none; }
+}
+@media (forced-colors: active) {
+  :root body select:not([multiple]) {
+    appearance: auto;
+    background-image: none;
+    color: CanvasText;
+    background-color: Canvas;
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+}

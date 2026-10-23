@@ -8,6 +8,7 @@ is a token not spent, and quoted history is the main source of misclassification
 from __future__ import annotations
 
 import re
+import html
 
 import html2text
 
@@ -121,6 +122,10 @@ def normalize(
         subject=raw.subject,
         date_utc=raw.date_utc,
         body=body,
+        original_html=raw.original_html or (
+            raw.text if _HTML_HINT.search(raw.text or "")
+            else '<div style="white-space:pre-wrap">' + html.escape(raw.text or "") + "</div>"
+        ),
         provider_url=raw.provider_url,
         calendar_data=raw.calendar_data,
         thread_id=raw.thread_id,

@@ -282,3 +282,12 @@ describe("unclassified banner", () => {
     expect(document.querySelector(".attention-banner")).toBeNull()
   })
 })
+
+it("opens the target message and reply composer from a follow-up link without generating", async () => {
+  window.history.replaceState({}, "", "/?view=all&days=90&message=2&reply=1")
+  renderPage()
+  await screen.findByRole("button", {name:"Close reply composer and keep draft"})
+  expect(screen.getByRole("option",{name:/Summary 2/}).getAttribute("aria-selected")).toBe("true")
+  expect(requests.some(r=>r.startsWith("GET /api/messages/2/reply"))).toBe(true)
+  expect(requests.some(r=>r.includes("/generate")||r.startsWith("POST /api/messages/2/reply"))).toBe(false)
+})

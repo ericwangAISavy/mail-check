@@ -46,6 +46,58 @@ class FrontendApiTests(unittest.TestCase):
         self.assertIn("Starting mail-check", response.text)
         self.assertIn("reload this page", response.text)
 
+    def test_check_routes_select_mail_or_calendar_and_share_lock(self):
+        with patch.object(web_app, "_state", return_value={"has_accounts": True, "llm_ready": True}), \
+             patch.object(web_app, "_job_lock") as lock, \
+             patch.object(web_app, "_run_check") as run:
+            lock.acquire.return_value = True
+            for path, body, expected in [
+                ("/api/check", {}, "mail"),
+                ("/api/check", {"mode": "calendar"}, "calendar"),
+                ("/api/interviews/sync", {"mode": "mail"}, "calendar"),
+            ]:
+                self.assertEqual(self.client.post(path, json=body).status_code, 200)
+                self.assertEqual(run.call_args.args[0].mode, expected)
+            lock.acquire.return_value = False
+            self.assertEqual(self.client.post("/api/check", json={}).status_code, 409)
+
+    def test_only_mail_checks_require_a_model(self):
+        with patch.object(web_app, "_state", return_value={"has_accounts": True, "llm_ready": False}), \
+             patch.object(web_app, "_job_lock"), patch.object(web_app, "_run_check") as run:
+            self.assertEqual(self.client.post("/api/check", json={}).status_code, 400)
+            run.assert_not_called()
+            self.assertEqual(self.client.post("/api/interviews/sync").status_code, 200)
+            self.assertEqual(run.call_args.args[0].mode, "calendar")
+
+    def test_reader_keeps_original_layout_separate_from_classification_text(self):
+        from mailcheck.models import RawMessage
+        from mailcheck.normalize import normalize
+        url = "https://example.test/application?token=" + "a" * 180
+        original = f'<style>.letter {{ padding: 24px; }}</style><table class="letter" cellpadding="12"><tr><td><h2>Next steps</h2><p><b>Hello</b> applicant</p><a href="{url}">View application</a><script>alert(1)</script><img src="x" onerror="alert(1)"></td></tr></table>'
+        raw = RawMessage(message_id="html@example.test", uid="1", folder="Inbox", from_addr="hr@example.test", from_name="HR", subject="Next steps", date_utc=None, text=original, original_html=original)
+        message = normalize(raw, account_id=self.account_id, account_label="personal", max_body_chars=30)
+        self.assertIn("truncated", message.body)
+        pk = db.upsert_message(self.conn, message)
+        db.save_classification(self.conn, pk, Classification(category="application_ack"), "model", "v1")
+        self.conn.commit()
+        response = self.client.get(f"/api/messages/{pk}")
+        self.assertEqual(response.status_code, 200)
+        html = response.json()["original_html"]
+        for value in ("<table", "cellpadding", "<h2>", "<b>", url, "padding: 24px"):
+            self.assertIn(value, html)
+        self.assertNotIn("<script", html)
+        self.assertNotIn("onerror", html)
+        self.assertNotIn("alert(1)", html)
+        db.set_handled(self.conn, pk, True)
+        db.upsert_message(self.conn, message)
+        self.assertIsNotNone(db.get_triaged(self.conn, pk)["handled_at"])
+
+    def test_legacy_reader_still_has_plain_text_fallback(self):
+        pk = self.add_message("legacy")
+        response = self.client.get(f"/api/messages/{pk}").json()
+        self.assertIsNone(response["original_html"])
+        self.assertIn("Choose a time", response["body_html"])
+
     def add_message(self, key, *, category="interview_invite", done=False):
         message = NormalizedMessage(
             account_id=self.account_id,
