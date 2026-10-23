@@ -739,11 +739,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err("Unknown interview status")
         with db.session() as conn:
             events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] >= 2 and event["start_at"]]
-            labels: dict[int, list[str]] = {}
-            for source in conn.execute("SELECT DISTINCT s.event_id,a.label FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1 ORDER BY a.label"):
-                labels.setdefault(source["event_id"],[]).append(source["label"])
             for event in events:
-                event["account_labels"] = labels.get(event["id"],[])
+                event["account_labels"] = sorted({source["account_label"] for source in interviews.event_sources(conn,event["id"]) if source["account_enabled"]})
             accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
             companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
         return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}

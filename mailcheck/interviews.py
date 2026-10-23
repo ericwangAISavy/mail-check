@@ -234,10 +234,10 @@ def _same_booking(left, right):
     if left.get('calendar_uid') and left.get('calendar_uid')==right.get('calendar_uid') and left.get('recurrence_id','')!=right.get('recurrence_id',''):return False
     common=set(json.loads(left.get('manual_fields') or '[]')) & set(json.loads(right.get('manual_fields') or '[]'))
     if any(left.get(key)!=right.get(key) for key in common):return False
-    if not all(item.get('start_at') and item.get('end_at') for item in (left,right)):
+    if not all(item.get('start_at') for item in (left,right)):
         return False
-    if any(_utc(left[key]) != _utc(right[key]) for key in ('start_at','end_at')):
-        return False
+    if _utc(left['start_at']) != _utc(right['start_at']):return False
+    if left.get('end_at') and right.get('end_at') and _utc(left['end_at'])!=_utc(right['end_at']):return False
     normalize=lambda value: ' '.join((value or '').split()).casefold()
     organizers=[normalize(item.get('organizer_email')) for item in (left,right)]
     if all(organizers) and organizers[0]!=organizers[1]:return False
@@ -248,7 +248,7 @@ def _same_booking(left, right):
         values=item.get('participants') or []
         if isinstance(values,str):values=json.loads(values)
         participants.append({normalize(value) for value in values})
-    if all(participants) and participants[0]!=participants[1]:return False
+    if all(participants) and not (participants[0]<=participants[1] or participants[1]<=participants[0]):return False
     titles=[normalize(item.get('company')) for item in (left,right)]
     if not titles[0] or titles[0]!=titles[1]:return False
     return bool(all(organizers) or (left.get('extraction_rank',0)<3) != (right.get('extraction_rank',0)<3))
@@ -260,7 +260,7 @@ def _visible_copies(rows):
     # Prefer manual corrections, then authoritative native bookings.
     rows=sorted(rows,key=lambda r:(not bool(json.loads(r['manual_fields'])),-r['extraction_rank'],r['id']))
     for row in rows:
-        key=(_utc(row['start_at']),_utc(row['end_at'])) if row['start_at'] and row['end_at'] else None
+        key=_utc(row['start_at']) if row['start_at'] else None
         copies=groups.setdefault(key,[]) if key else []
         if not any(_same_booking(row,old) for old in copies):
             copies.append(row);result.append(row)
@@ -282,8 +282,8 @@ def _matching(conn, candidate: dict, row: dict):
     if uid:
         aliases=conn.execute("SELECT DISTINCT e.* FROM interview_events e JOIN interview_sources s ON s.event_id=e.id WHERE s.candidate_key=?",(uid+'|'+candidate.get('recurrence_id',''),)).fetchall()
         if len(aliases)==1:return aliases[0]
-    if candidate.get('start_at') and candidate.get('end_at'):
-        copies=[old for old in conn.execute('SELECT * FROM interview_events WHERE julianday(start_at)=julianday(?) AND julianday(end_at)=julianday(?)',(candidate['start_at'],candidate['end_at'])) if _same_booking(candidate,dict(old))]
+    if candidate.get('start_at'):
+        copies=[old for old in conn.execute('SELECT * FROM interview_events WHERE julianday(start_at)=julianday(?)',(candidate['start_at'],)) if _same_booking(candidate,dict(old))]
         if len(copies)==1:return copies[0]
     # Identity relations are account-scoped, unlike globally unique calendar UIDs.
     refs = json.loads(row.get("references_json") or "[]")

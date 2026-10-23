@@ -216,3 +216,17 @@ class CalendarDuplicateTests(unittest.TestCase):
         three=event('three');three['start']={'dateTime':'2026-10-19T15:30:00','timeZone':'UTC'};three['end']={'dateTime':'2026-10-19T16:30:00','timeZone':'UTC'}
         self.collect(self.source([one,two,three]))
         self.assertEqual(len(interviews.list_events(self.conn)),3)
+
+    def test_incomplete_review_copy_is_hidden_behind_confirmed_booking(self):
+        one=event('confirmed',organizer={'emailAddress':{'address':'recruiter@test'}})
+        two=event('incomplete',organizer=one['organizer']);two['subject']='Temporary different title'
+        self.collect(self.source([one,two]))
+        ids=[row[0] for row in self.conn.execute('SELECT id FROM interview_events ORDER BY id')]
+        self.conn.execute("UPDATE interview_events SET company='Carta Phone Meeting'")
+        self.conn.execute("UPDATE interview_events SET end_at=NULL,extraction_rank=2,needs_review=1 WHERE id=?",(ids[1],))
+        self.conn.execute('UPDATE interview_sources SET account_id=? WHERE event_id=?',(self.b,ids[1]))
+        events=interviews.list_events(self.conn)
+        self.assertEqual(len(events),1)
+        self.assertEqual(events[0]['id'],ids[0])
+        self.assertFalse(events[0]['needs_review'])
+        self.assertEqual(len(interviews.event_sources(self.conn,ids[0])),2)

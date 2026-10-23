@@ -13,7 +13,7 @@ const statusClass = (event: InterviewEvent) => event.display_status.toLowerCase(
 const title = (event: InterviewEvent) => `${event.company || "Unknown company"}${event.role ? " · " + event.role : ""} · ${event.stage}`
 const timeLabel = (event: InterviewEvent) => `${event.start_at ? new Date(event.start_at).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}) : "Time unknown"}${event.end_at ? " – " + clock(event.end_at) : " · End time unknown"}`
 const accessible = (event: InterviewEvent) => `${event.company || "Unknown company"}, ${event.stage}, ${timeLabel(event)}, ${event.display_status}`
-const accountColor = (event: InterviewEvent, accounts: Account[], account?: string) => Math.max(0,accounts.findIndex(a=>a.label===(account || event.account_labels?.[0]))) % 3
+const accountColor = (event: InterviewEvent, accounts: Account[], account?: string) => Math.max(0,accounts.findIndex(a=>account ? a.label===account : event.account_labels?.includes(a.label))) % 3
 
 type Account = {id:number;label:string;email:string}
 type Props = { events: InterviewEvent[]; accounts: Account[]; account: string; filterCount: number; filters: ReactNode; actions?: ReactNode; onSelect:(id:number)=>void }
