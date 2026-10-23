@@ -228,11 +228,63 @@ def _utc(value: str | None) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
+def _same_booking(left, right):
+    """Confirm copied meetings using exact times and independent identity evidence."""
+    if max(left.get('extraction_rank',0),right.get('extraction_rank',0))<3:return False
+    if left.get('calendar_uid') and left.get('calendar_uid')==right.get('calendar_uid') and left.get('recurrence_id','')!=right.get('recurrence_id',''):return False
+    common=set(json.loads(left.get('manual_fields') or '[]')) & set(json.loads(right.get('manual_fields') or '[]'))
+    if any(left.get(key)!=right.get(key) for key in common):return False
+    if not all(item.get('start_at') and item.get('end_at') for item in (left,right)):
+        return False
+    if any(_utc(left[key]) != _utc(right[key]) for key in ('start_at','end_at')):
+        return False
+    normalize=lambda value: ' '.join((value or '').split()).casefold()
+    organizers=[normalize(item.get('organizer_email')) for item in (left,right)]
+    if all(organizers) and organizers[0]!=organizers[1]:return False
+    links=[safe_url(item.get('meeting_url') or '') for item in (left,right)]
+    if all(links):return links[0]==links[1]
+    participants=[]
+    for item in (left,right):
+        values=item.get('participants') or []
+        if isinstance(values,str):values=json.loads(values)
+        participants.append({normalize(value) for value in values})
+    if all(participants) and participants[0]!=participants[1]:return False
+    titles=[normalize(item.get('company')) for item in (left,right)]
+    if not titles[0] or titles[0]!=titles[1]:return False
+    return bool(all(organizers) or (left.get('extraction_rank',0)<3) != (right.get('extraction_rank',0)<3))
+
+
+def _visible_copies(rows):
+    """Combine confirmed copies for display without deleting stored records."""
+    result=[];groups={}
+    # Prefer manual corrections, then authoritative native bookings.
+    rows=sorted(rows,key=lambda r:(not bool(json.loads(r['manual_fields'])),-r['extraction_rank'],r['id']))
+    for row in rows:
+        key=(_utc(row['start_at']),_utc(row['end_at'])) if row['start_at'] and row['end_at'] else None
+        copies=groups.setdefault(key,[]) if key else []
+        if not any(_same_booking(row,old) for old in copies):
+            copies.append(row);result.append(row)
+    return sorted(result,key=lambda r:(r['start_at'] is None,_utc(r['start_at']),r['id']))
+
+
+def _copy_ids(conn,event_id):
+    row=conn.execute('SELECT * FROM interview_events WHERE id=?',(event_id,)).fetchone()
+    if not row:return [event_id]
+    value=dict(row)
+    return [r['id'] for r in conn.execute('SELECT * FROM interview_events') if r['id']==event_id or _same_booking(value,dict(r))]
+
+
 def _matching(conn, candidate: dict, row: dict):
     uid = candidate.get("calendar_uid")
     if uid:
         found = conn.execute("SELECT * FROM interview_events WHERE calendar_uid=? AND recurrence_id=?", (uid, candidate["recurrence_id"])).fetchone()
         if found: return found
+    if uid:
+        aliases=conn.execute("SELECT DISTINCT e.* FROM interview_events e JOIN interview_sources s ON s.event_id=e.id WHERE s.candidate_key=?",(uid+'|'+candidate.get('recurrence_id',''),)).fetchall()
+        if len(aliases)==1:return aliases[0]
+    if candidate.get('start_at') and candidate.get('end_at'):
+        copies=[old for old in conn.execute('SELECT * FROM interview_events WHERE julianday(start_at)=julianday(?) AND julianday(end_at)=julianday(?)',(candidate['start_at'],candidate['end_at'])) if _same_booking(candidate,dict(old))]
+        if len(copies)==1:return copies[0]
     # Identity relations are account-scoped, unlike globally unique calendar UIDs.
     refs = json.loads(row.get("references_json") or "[]")
     sources = conn.execute("SELECT s.*, e.calendar_uid, e.recurrence_id FROM interview_sources s JOIN interview_events e ON e.id=s.event_id WHERE s.account_id=?", (row["account_id"],)).fetchall()
@@ -309,6 +361,9 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
                 value["needs_review"] = existing["needs_review"]
                 value["review_reason"] = existing["review_reason"]
             updates = {k:v for k,v in value.items() if k in EVENT_FIELDS and k not in manual and v is not None and (k != "stage" or v != "Other" or existing[k] == "Other")}
+            if candidate.get('calendar_uid') and existing['calendar_uid'] and candidate['calendar_uid']!=existing['calendar_uid']:
+                updates.pop('calendar_uid',None)
+                updates.pop('recurrence_id',None)
             if not candidate.get("calendar_uid"):
                 updates.pop("recurrence_id", None)
             if not value["needs_review"] and "review_reason" not in manual:
@@ -460,7 +515,9 @@ def display_event(row: dict, *, now=None) -> dict:
 
 
 def event_sources(conn, event_id: int) -> list[dict]:
-    return [dict(r) for r in conn.execute("SELECT s.*, a.label AS account_label,a.email AS account_email,a.enabled AS account_enabled FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=? ORDER BY julianday(s.source_received_at) DESC,s.id DESC", (event_id,))]
+    ids=_copy_ids(conn,event_id)
+    marks=','.join('?' for _ in ids)
+    return [dict(r) for r in conn.execute(f"SELECT s.*, a.label AS account_label,a.email AS account_email,a.enabled AS account_enabled FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id IN ({marks}) ORDER BY julianday(s.source_received_at) DESC,s.id DESC", ids)]
 
 
 def list_events(conn, *, account: str | None=None, status: str | None=None, company: str | None=None, now=None) -> list[dict]:
@@ -470,7 +527,7 @@ def list_events(conn, *, account: str | None=None, status: str | None=None, comp
       WHERE s.event_id=e.id AND a.enabled=1 AND (? IS NULL OR a.label=?))
       AND (? IS NULL OR e.company=?) ORDER BY e.start_at IS NULL,e.start_at,e.id""", (account,account,company,company))
     result = []
-    for row in rows:
+    for row in _visible_copies([dict(row) for row in rows]):
         value = display_event(dict(row), now=now)
         if status and value["display_status"] != status: continue
         result.append(value)
@@ -553,4 +610,5 @@ def remove_event(conn, event_id: int) -> None:
     """Hide a saved event locally while retaining its identity across collection."""
     if not conn.execute("SELECT 1 FROM interview_events WHERE id=?", (event_id,)).fetchone():
         raise LookupError("Interview not found")
-    conn.execute("INSERT INTO interview_event_removals(event_id,removed_at) VALUES(?,?) ON CONFLICT(event_id) DO NOTHING", (event_id, db._now()))
+    for identity in _copy_ids(conn,event_id):
+        conn.execute("INSERT INTO interview_event_removals(event_id,removed_at) VALUES(?,?) ON CONFLICT(event_id) DO NOTHING", (identity, db._now()))

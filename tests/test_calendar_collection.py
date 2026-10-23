@@ -169,3 +169,50 @@ class CheckDispatchTests(unittest.TestCase):
         mail.assert_not_called()
         calendar.assert_called_once()
         self.assertIsNone(calendar.call_args.kwargs["account_label"])
+
+class CalendarDuplicateTests(unittest.TestCase):
+    setUp=NativeCalendarTests.setUp
+    source=NativeCalendarTests.source
+    collect=NativeCalendarTests.collect
+    def test_copies_with_different_uids_merge_and_stay_merged(self):
+        first=event('original');first.update(subject='Carta Phone Meeting',organizer={'emailAddress':{'address':'recruiter@carta.test'}})
+        second=event('copy');second.update(subject='Carta Phone Meeting',organizer=first['organizer'])
+        self.collect(self.source([first,second]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.collect(self.source([second,first]))
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_sources').fetchone()[0],2)
+
+    def test_existing_duplicates_display_once_without_losing_sources_or_manual_edits(self):
+        first=event('original',organizer={'emailAddress':{'address':'recruiter@test'}})
+        second=event('copy',organizer=first['organizer']);second['subject']='Temporary different title'
+        self.collect(self.source([first]))
+        self.collect(self.source([second]))
+        rows=self.conn.execute('SELECT id FROM interview_events ORDER BY id').fetchall()
+        self.conn.execute("UPDATE interview_events SET company='Booked appointment'")
+        interviews.correct_event(self.conn,rows[0][0],{'notes':'Keep my correction'})
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_sources').fetchone()[0],2)
+        self.assertEqual(interviews.list_events(self.conn)[0]['notes'],'Keep my correction')
+        self.assertEqual(len(interviews.event_sources(self.conn,rows[0][0])),2)
+        interviews.remove_event(self.conn,rows[0][0])
+        self.assertEqual(interviews.list_events(self.conn),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
+
+    def test_email_invitation_and_native_booking_with_different_ids_match(self):
+        pk,_=fixtures.InterviewTests.message(self,calendar_data=[ics(uid='email-uid')])
+        interviews.process_message(self.conn,pk,{},calendar_only=True)
+        item=event('native');item['onlineMeeting']={'joinUrl':'https://zoom.us/j/12345'}
+        item['organizer']={'emailAddress':{'address':'recruiter@acme.test'}}
+        self.collect(self.source([item]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.assertEqual(len(interviews.event_sources(self.conn,interviews.list_events(self.conn)[0]['id'])),2)
+
+    def test_same_title_different_times_or_organizers_stay_separate(self):
+        one=event('one',organizer={'emailAddress':{'address':'one@test'}})
+        two=event('two',organizer={'emailAddress':{'address':'two@test'}})
+        three=event('three');three['start']={'dateTime':'2026-10-19T15:30:00','timeZone':'UTC'};three['end']={'dateTime':'2026-10-19T16:30:00','timeZone':'UTC'}
+        self.collect(self.source([one,two,three]))
+        self.assertEqual(len(interviews.list_events(self.conn)),3)
