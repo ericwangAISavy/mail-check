@@ -110,3 +110,13 @@
 .payment-report-preview { padding: 16px; border-bottom: 1px solid var(--border); }
 .payment-report-preview textarea { display: block; width: 100%; margin-top: 8px; padding: 12px; background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; font-family: monospace; overflow-wrap: anywhere; }
 .payment-report-preview ul { padding-left: 20px; margin: 8px 0; }
+
+.payment-formula small { display: block; margin-bottom: 6px; color: var(--muted-foreground); }
+.payment-calculated { display: grid; gap: 4px; margin-bottom: 8px; }
+.payment-calculated strong { color: var(--primary); }
+.payment-calculated small { color: var(--muted-foreground); }
+@media(max-width: 700px) {
+  .payment-breakdown > .payment-section-heading { flex-direction: column; align-items: stretch; gap: 12px; }
+  .payment-report-actions { width: 100%; justify-content: space-between; }
+  .payment-report-actions .btn { max-width: 100%; white-space: normal; height: auto; min-height: 34px; }
+}

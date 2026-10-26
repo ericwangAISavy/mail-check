@@ -76,3 +76,10 @@ it('saves a bidder wallet separately from the name and assignments',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'Save wallet'}))
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/wallet',{wallet_network:'USDT.BEP20',wallet_address:'0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD'}))
 })
+it('saves a bidder-specific rate and adjustment percentage',async()=>{
+ mount();fireEvent.click(await screen.findByText('Manage bidders and account assignments'))
+ fireEvent.change(await screen.findByLabelText('Pay per bid (USD)'),{target:{value:'0.05'}})
+ expect((screen.getByLabelText('Adjustment (%)') as HTMLInputElement).value).toBe('20')
+ fireEvent.click(screen.getByRole('button',{name:'Save payment rate'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/rate',{pay_per_bid:'0.05',adjustment_percent:'20'}))
+})

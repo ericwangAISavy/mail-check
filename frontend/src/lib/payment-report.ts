@@ -1,13 +1,14 @@
-export type PayoutBidder={name:string;wallet_network?:string;wallet_address?:string;payment:{amount_cents:number}|null}
+export type PayoutBidder={name:string;wallet_network?:string;wallet_address?:string;payment:{amount_cents:number}|null;payable_amount_cents?:number|null}
 export function weeklyPaymentReport(bidders:PayoutBidder[]) {
  const issues:string[]=[],lines:string[]=[]
  for(const bidder of bidders){
   const missing:string[]=[]
-  if(!bidder.payment)missing.push('recorded payment amount')
+  const amountCents=bidder.payment?.amount_cents ?? bidder.payable_amount_cents
+  if(amountCents==null)missing.push('payment amount (set a rate or manual amount)')
   if(!bidder.wallet_network?.trim())missing.push('payment network')
   if(!bidder.wallet_address?.trim())missing.push('wallet address')
   if(missing.length){issues.push(`${bidder.name}: missing ${missing.join(', ')}.`);continue}
-  const amount=(bidder.payment!.amount_cents/100).toFixed(2).replace(/\.00$/,'')
+  const amount=(amountCents!/100).toFixed(2).replace(/\.00$/,'')
   lines.push(`$${amount} -> ${bidder.wallet_network!.trim()} -> ${bidder.wallet_address!.trim()} -> Bidder -> ${bidder.name.replace(/[\r\n]+/g,' ')}`)
  }
  return {text:lines.join('\n'),issues}

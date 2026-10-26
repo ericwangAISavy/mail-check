@@ -25,9 +25,9 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
    rules for the same bidder and account are blocked.
 3. Open **Bidder payments** and use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
    The bidder selector narrows the table and summary to one bidder.
-4. After a week ends, select **Record payment**, enter the amount in USD and an
-   optional reference, then select **Record as paid**. Amounts are entered manually;
-   there is no rate-per-application calculation or money transfer.
+4. Set each bidder’s **Pay per bid (USD)** and **Adjustment (%)** on Accounts. The default adjustment is 20%, meaning a multiplier of 1.2. Weekly pay is `rate × estimated weekly total × (1 + adjustment / 100)`, rounded once to cents with decimal half-up rounding. For example, `0.05 × 309 × 1.2 = $18.54`.
+5. On a completed week, **Edit / record payment** opens a prefilled amount. Edit it and choose **Save amount** to override that week without marking it paid. **Use calculated amount** removes the override. Manual amounts remain saved if counts change, with a warning to review them.
+6. After making the actual payment elsewhere, choose **Record as paid** with an optional reference. Saved paid amounts do not change when rates, estimates, or adjustment percentages change. No action here transfers money.
 
 ## Daily application counts
 
@@ -71,7 +71,7 @@ email retention cleanup and account removal. New accounts cannot reuse an accoun
 account identity. Existing retained classifications populate the ledger automatically.
 Emails already removed before this feature was installed cannot be recovered by it.
 
-Payment records snapshot the reviewed checked-link count, entered amount, date, and reference.
+Payment records snapshot the reviewed estimated-confirmation count, final amount, date, and reference.
 The server rejects stale counts, repeat payments for the same bidder/week, and payment
 recording before a week ends. Assignment changes that would affect that bidder’s paid
 week are rejected. Later classifications and checked-link changes can update estimates but do not rewrite recorded payments;
@@ -127,4 +127,4 @@ For a completed week on **Bidder payments**, select **Copy weekly payment report
 $44 -> USDT.BEP20 -> 0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD -> Bidder -> Dany
 ```
 
-Amounts come from that week’s recorded payments, not an inferred per-application rate. If a recorded amount or wallet detail is missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Existing recorded amounts and counts are retained. This copies text only and never transfers money.
+Amounts use the recorded payment if already paid; otherwise they use the saved manual amount or calculated weekly pay. If neither a rate nor manual amount is set, or wallet details are missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Existing recorded amounts and counts are retained. This copies text only and never transfers money.

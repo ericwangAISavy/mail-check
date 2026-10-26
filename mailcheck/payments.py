@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 ZONE = ZoneInfo("America/Chicago")
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS bidder_payment_amounts (
+ bidder_id INTEGER NOT NULL REFERENCES bidders(id),week_start TEXT NOT NULL,
+ amount_cents INTEGER NOT NULL,application_count INTEGER NOT NULL,
+ PRIMARY KEY(bidder_id,week_start)
+);
+
 CREATE TABLE IF NOT EXISTS bidders (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
  created_at TEXT NOT NULL
@@ -46,6 +52,41 @@ class BidderBody(BaseModel):
         if not value.strip():
             raise ValueError("Enter a bidder name")
         return value.strip()
+
+
+class RateBody(BaseModel):
+    pay_per_bid: Decimal = Field(ge=0,le=100,decimal_places=6)
+    adjustment_percent: Decimal = Field(default=Decimal('20'),ge=0,le=1000,decimal_places=4)
+
+
+def save_rate(conn,bidder_id,body):
+    bidder(conn,bidder_id)
+    conn.execute('UPDATE bidders SET pay_per_bid=?,adjustment_percent=? WHERE id=?',(str(body.pay_per_bid),str(body.adjustment_percent),bidder_id))
+
+
+def calculate_amount(pay_per_bid,count,adjustment_percent):
+    if pay_per_bid is None:return None
+    amount=Decimal(str(pay_per_bid))*count*(1+Decimal(str(adjustment_percent))/100)
+    return int(amount.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)*100)
+
+
+class AmountBody(BaseModel):
+    week: date = Field(ge=date(1971,1,1),le=date(2100,12,31))
+    expected_count: int = Field(ge=0)
+    amount: Decimal | None = Field(default=None,ge=0,le=1000000,decimal_places=2)
+
+
+def save_amount(conn,bidder_id,body):
+    bidder(conn,bidder_id)
+    start=monday(body.week)
+    if start+timedelta(days=6)>=today():raise ValueError('Edit the final payment amount after the week has ended')
+    row=next(b for b in report(conn,start)['bidders'] if b['id']==bidder_id)
+    if row['payment']:raise ValueError('This payment is already recorded; its paid amount remains saved')
+    if row['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before saving the amount.')
+    if body.amount is None:
+        conn.execute('DELETE FROM bidder_payment_amounts WHERE bidder_id=? AND week_start=?',(bidder_id,start.isoformat()))
+    else:
+        conn.execute('INSERT INTO bidder_payment_amounts VALUES(?,?,?,?) ON CONFLICT(bidder_id,week_start) DO UPDATE SET amount_cents=excluded.amount_cents,application_count=excluded.application_count',(bidder_id,start.isoformat(),int(body.amount*100),row['total']))
 
 
 class WalletBody(BaseModel):
@@ -161,8 +202,16 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
         daily = [allocations.get((row["id"], day), 0) for day in dates]
         total = sum(daily)
+        override=conn.execute('SELECT amount_cents,application_count FROM bidder_payment_amounts WHERE bidder_id=? AND week_start=?',(row['id'],start.isoformat())).fetchone()
+        calculated=calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
+        paid=payments.get(row['id'])
+        payable=paid['amount_cents'] if paid else override['amount_cents'] if override else calculated
         bidders.append({"id": row["id"], "name": row["name"],
             **({"wallet_network":row["wallet_network"],"wallet_address":row["wallet_address"]} if admin else {}),
+            "pay_per_bid":row['pay_per_bid'],"adjustment_percent":row['adjustment_percent'],
+            "calculated_amount_cents":calculated,"payable_amount_cents":payable,
+            "amount_override_cents":override['amount_cents'] if override else None,
+            "override_application_count":override['application_count'] if override else None,
             "assignments": assigned, "daily": daily, "total": total,
             "application_total": total,
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],

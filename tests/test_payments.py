@@ -330,3 +330,32 @@ class PaymentTests(unittest.TestCase):
         sign_in_bidder(self.client,1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/wallet',json={'wallet_address':address}).status_code,403)
         self.assertNotIn('wallet_address',self.client.get('/api/payments').json()['bidders'][0])
+
+    def test_bidder_rate_calculates_money_with_adjustment_and_manual_week_override(self):
+        self.assign()
+        for i in range(309):self.message(f'rate-{i}')
+        self.assertEqual(self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0.05','adjustment_percent':'20'}).status_code,200)
+        row=self.client.get('/api/payments?week=2026-10-12').json()['bidders'][0]
+        self.assertEqual(row['calculated_amount_cents'],1854)
+        self.assertEqual(row['payable_amount_cents'],1854)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':309,'amount':'22.00'}).status_code,200)
+        self.assertEqual(self.client.get('/api/payments?week=2026-10-12').json()['bidders'][0]['payable_amount_cents'],2200)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':308,'amount':'30'}).status_code,400)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':309,'amount':None}).status_code,200)
+        self.assertEqual(self.client.get('/api/payments?week=2026-10-12').json()['bidders'][0]['payable_amount_cents'],1854)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={'week':'2026-10-12','expected_count':309,'amount':'18.54'}).status_code,200)
+        self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0.06','adjustment_percent':'20'})
+        paid=self.client.get('/api/payments?week=2026-10-12').json()['bidders'][0]
+        self.assertEqual(paid['calculated_amount_cents'],2225)
+        self.assertEqual(paid['payable_amount_cents'],1854)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':309,'amount':'25'}).status_code,400)
+
+    def test_rate_rounding_validation_and_bidder_permissions(self):
+        self.assertEqual(payments.calculate_amount('0.025',1,'0'),3)
+        self.assertEqual(payments.calculate_amount('0.06',309,'20'),2225)
+        self.assertIsNone(payments.calculate_amount(None,309,'20'))
+        for invalid in ('-0.01','NaN','Infinity','0.0.6'):
+            self.assertEqual(self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':invalid}).status_code,422)
+        sign_in_bidder(self.client,1)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0.05'}).status_code,403)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':0,'amount':'1'}).status_code,403)

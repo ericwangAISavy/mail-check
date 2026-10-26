@@ -7,7 +7,7 @@ it('formats recorded weekly payments exactly and keeps wallet casing',()=>{
 })
 it('flags missing details without inventing a payout or wallet',()=>{
  const report=weeklyPaymentReport([{name:'Dany',payment:null}])
- expect(report.text).toBe('');expect(report.issues[0]).toContain('Dany: missing recorded payment amount, payment network, wallet address')
+ expect(report.text).toBe('');expect(report.issues[0]).toContain('Dany: missing payment amount (set a rate or manual amount), payment network, wallet address')
 })
 
 it('falls back to selection copying on HTTP browsers and cleans up the temporary field',async()=>{
@@ -17,4 +17,10 @@ it('falls back to selection copying on HTTP browsers and cleans up the temporary
  Object.defineProperty(document,'execCommand',{configurable:true,value:copy})
  try{await copyPaymentReport('payment lines');expect(copy).toHaveBeenCalledWith('copy');expect(document.querySelector('textarea')).toBeNull()}
  finally{if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');if(exec)Object.defineProperty(document,'execCommand',exec);else Reflect.deleteProperty(document,'execCommand')}
+})
+it('copies calculated or manually overridden amounts before a payment is marked paid',()=>{
+ const result=weeklyPaymentReport([{name:'Dany',wallet_network:'USDT.BEP20',wallet_address:address,payment:null,payable_amount_cents:1854}])
+ expect(result.issues).toEqual([]);expect(result.text).toContain('$18.54 -> USDT.BEP20')
+ const paid=weeklyPaymentReport([{name:'Dany',wallet_network:'USDT.BEP20',wallet_address:address,payment:{amount_cents:4400},payable_amount_cents:1854}])
+ expect(paid.text).toContain('$44 ->')
 })

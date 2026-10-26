@@ -144,6 +144,18 @@ it('copies every bidder recorded payment in the selected week with its wallet',a
 it('does not copy an incomplete report and identifies missing bidder details',async()=>{
  const writeText=vi.fn();Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
  mount();fireEvent.click(await screen.findByRole('button',{name:'Copy weekly payment report'}))
- expect(await screen.findByRole('alert')).toHaveProperty('textContent',expect.stringContaining('Alex: missing recorded payment amount, payment network, wallet address'))
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent',expect.stringContaining('Alex: missing payment amount (set a rate or manual amount), payment network, wallet address'))
  expect(writeText).not.toHaveBeenCalled()
+})
+it('prefills calculated weekly pay and can save a manual amount without marking paid',async()=>{
+ const report=data() as any
+ Object.assign(report.bidders[0],{daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1854,amount_override_cents:null})
+ vi.mocked(request).mockResolvedValue(report);mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Edit / record payment'}))
+ const input=screen.getByLabelText('Amount (USD)') as HTMLInputElement
+ expect(input.value).toBe('18.54')
+ fireEvent.change(input,{target:{value:'22.00'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save amount'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:309,amount:'22.00'}))
+ expect(vi.mocked(api.post).mock.calls.some(([url])=>url.endsWith('/paid'))).toBe(false)
 })

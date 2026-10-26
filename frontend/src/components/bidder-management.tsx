@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Loading, useToast } from "@/components/common"
 import "@/pages/payments.css"
 type Assignment = { id: number; account_id: number; account_label: string; start_date: string; end_date: string | null }
-type Bidder = { id: number; name: string; wallet_network?:string; wallet_address?:string; assignments: Assignment[] }
+type Bidder = { id: number; name: string; wallet_network?:string; wallet_address?:string; pay_per_bid?:string|null; adjustment_percent?:string; assignments: Assignment[] }
 type Report = { today: string; bidders: Bidder[]; accounts: { id: number; label: string }[] }
 
 export default function BidderManagement() {
@@ -39,6 +39,11 @@ function BidderManager({ bidder, accounts, today, busy, write }: { bidder: Bidde
   return <Card className="payment-admin-card"><div className="payment-section-heading"><h2>{bidder.name}</h2><Button variant="destructive" size="sm" disabled={busy} onClick={() => setRemoving(true)}><Trash2 size={14} />Remove bidder</Button></div>
     {removing && <div className="payment-rule-remove"><p>Remove {bidder.name}? Their sign-in will be disabled and their documents will be archived. Existing documents and payment records will stay saved.</p><div className="payment-assignment-actions"><Button variant="destructive" disabled={busy} onClick={async () => { try { await write(`/api/payments/bidders/${bidder.id}/remove`, {}) } catch { /* shown above */ } }}>Confirm removal</Button><Button variant="ghost" disabled={busy} onClick={() => setRemoving(false)}>Cancel</Button></div></div>}
     <form className="payment-inline-form" onSubmit={submit(`/api/payments/bidders/${bidder.id}`, form => ({ name: form.get("name") }))}><label>Name<input name="name" key={bidder.name} defaultValue={bidder.name} required maxLength={100} /></label><Button variant="outline" disabled={busy}>Save name</Button></form>
+    <form className="payment-inline-form" aria-label={`Payment rate for ${bidder.name}`} onSubmit={submit(`/api/payments/bidders/${bidder.id}/rate`,form=>({pay_per_bid:form.get("pay_per_bid"),adjustment_percent:form.get("adjustment_percent")}))}>
+      <label>Pay per bid (USD)<input name="pay_per_bid" type="number" min="0" max="100" step="0.000001" key={bidder.pay_per_bid} defaultValue={bidder.pay_per_bid ?? ""} placeholder="0.05" required/></label>
+      <label>Adjustment (%)<input name="adjustment_percent" type="number" min="0" max="1000" step="0.01" key={bidder.adjustment_percent} defaultValue={bidder.adjustment_percent ?? "20"} required/></label>
+      <Button variant="outline" disabled={busy}>Save payment rate</Button>
+    </form><p className="payment-muted">Weekly payment = pay per bid × estimated weekly confirmations × (1 + adjustment ÷ 100). A 20% adjustment uses × 1.2. You can override the final amount for each completed week.</p>
     <form className="payment-inline-form payment-wallet-form" aria-label={`Wallet for ${bidder.name}`} onSubmit={submit(`/api/payments/bidders/${bidder.id}/wallet`, form => ({ wallet_network:form.get("wallet_network"),wallet_address:form.get("wallet_address") }))}>
       <label>Payment network<input name="wallet_network" key={bidder.wallet_network} defaultValue={bidder.wallet_network || "USDT.BEP20"} placeholder="USDT.BEP20" maxLength={40}/></label>
       <label>Wallet address<input name="wallet_address" key={bidder.wallet_address} defaultValue={bidder.wallet_address || ""} placeholder="0x…" maxLength={128} autoComplete="off" spellCheck={false}/></label>
