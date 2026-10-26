@@ -141,7 +141,7 @@ it('copies every bidder recorded payment in the selected week with its wallet',a
  report.bidders[0].wallet_network='USDT.BEP20';report.bidders[0].wallet_address='0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD';report.bidders[0].payment={amount_cents:4400,application_count:3,paid_at:'2026-10-19T12:00:00Z',note:''}
  vi.mocked(request).mockResolvedValue(report);mount()
  fireEvent.click(await screen.findByRole('button',{name:'Copy weekly payment report'}))
- await waitFor(()=>expect(writeText).toHaveBeenCalledWith('$44 -> USDT.BEP20 -> 0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD -> Bidder -> Alex'))
+ await waitFor(()=>expect(writeText).toHaveBeenCalledWith('$44 -> USDT.BEP20 -> `0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD` -> Bidder -> Alex\n'+'='.repeat(80)+'\nTotal: $44'))
 })
 it('does not copy an incomplete report and identifies missing bidder details',async()=>{
  const writeText=vi.fn();Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})

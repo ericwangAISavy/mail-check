@@ -123,7 +123,9 @@ On **Accounts → Manage bidders and account assignments**, save each bidder’s
 For a completed week on **Bidder payments**, select **Copy weekly payment report**. It copies every bidder in that week, regardless of the bidder filter, one line per bidder:
 
 ```text
-$44 -> USDT.BEP20 -> 0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD -> Bidder -> Dany
+$44 -> USDT.BEP20 -> `0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD` -> Bidder -> Dany
+================================================================================
+Total: $44
 ```
 
 Amounts use the recorded payment if already paid; otherwise they use the saved manual amount or calculated weekly pay. If neither a rate nor manual amount is set, or wallet details are missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Recorded amounts and counts remain saved unless explicitly edited by an admin. This copies text only and never transfers money.
