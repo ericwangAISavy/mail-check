@@ -873,6 +873,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def pay_bidder(bidder_id: int, body: payments.PayBody):
         return payment_write(lambda conn: payments.record_payment(conn, bidder_id, body))
 
+    @app.post("/api/payments/bidders/{bidder_id}/paid/edit")
+    def edit_paid_bidder(bidder_id: int, body: payments.EditPayBody):
+        return payment_write(lambda conn: payments.edit_payment(conn,bidder_id,body))
+
     @app.get("/api/dashboard/accounts")
     def dashboard_accounts():
         with db.session() as conn:

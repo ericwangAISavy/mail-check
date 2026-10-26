@@ -1,6 +1,7 @@
 """Bidder accounting: durable receipt counts and immutable weekly payment records."""
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 ZONE = ZoneInfo("America/Chicago")
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS bidder_payment_edits (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,payment_id INTEGER NOT NULL REFERENCES bidder_payments(id),
+ edited_at TEXT NOT NULL,before_json TEXT NOT NULL,after_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bidder_payment_amounts (
  bidder_id INTEGER NOT NULL REFERENCES bidders(id),week_start TEXT NOT NULL,
  amount_cents INTEGER NOT NULL,application_count INTEGER NOT NULL,
@@ -129,6 +135,25 @@ class PayBody(BaseModel):
     expected_count: int = Field(ge=0)
     amount: Decimal = Field(gt=0, le=1000000, decimal_places=2)
     note: str = Field(default="", max_length=500)
+
+
+class EditPayBody(PayBody):
+    expected_revision: int = Field(ge=0)
+
+
+def edit_payment(conn,bidder_id,body):
+    bidder(conn,bidder_id)
+    start=monday(body.week)
+    if start+timedelta(days=6)>=today():raise ValueError('Edit recorded payments after the week has ended')
+    current=next(b for b in report(conn,start)['bidders'] if b['id']==bidder_id)
+    if current['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before editing payment.')
+    previous=current['payment']
+    if not previous:raise ValueError('No recorded payment exists for this bidder and week')
+    if previous['revision']!=body.expected_revision:raise ValueError('This payment was edited elsewhere. Refresh and review before saving.')
+    updated={**previous,'application_count':current['total'],'amount_cents':int(body.amount*100),'note':body.note.strip(),'revision':previous['revision']+1}
+    changed=conn.execute('UPDATE bidder_payments SET amount_cents=?,application_count=?,note=?,revision=revision+1 WHERE id=? AND revision=?',(updated['amount_cents'],updated['application_count'],updated['note'],previous['id'],body.expected_revision))
+    if changed.rowcount!=1:raise ValueError('This payment changed. Refresh and review before saving.')
+    conn.execute('INSERT INTO bidder_payment_edits(payment_id,edited_at,before_json,after_json) VALUES(?,?,?,?)',(previous['id'],datetime.now(timezone.utc).isoformat(),json.dumps(previous),json.dumps(updated)))
 
 
 def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None) -> None:

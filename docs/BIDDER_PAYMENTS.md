@@ -77,8 +77,7 @@ recording before a week ends. Assignment changes that would affect that bidderâ€
 week are rejected. Later classifications and checked-link changes can update estimates but do not rewrite recorded payments;
 the table flags any difference between the current count and paid count.
 
-Payment records are immutable in this version. There is no payment gateway or bank
-integration. The records describe payments the admin made elsewhere.
+Paid rows have an **Edit payment** button for explicit manual corrections. The form starts with the recorded amount and note; **Use calculated amount** fills the current formula result. **Save changes** updates the amount, note, and application-count snapshot to the reviewed weekly total, while retaining the original payment date. Previous and new values are stored in an edit history. Concurrent edits and changed counts are rejected until the admin refreshes and reviews them. Rate changes never amend paid records automatically. There is no payment gateway or bank integration; these records describe payments made elsewhere.
 
 The database migration runs automatically on startup. Bidder responses omit the full
 account-management list, while assigned account labels remain visible in the table.
@@ -127,4 +126,4 @@ For a completed week on **Bidder payments**, select **Copy weekly payment report
 $44 -> USDT.BEP20 -> 0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD -> Bidder -> Dany
 ```
 
-Amounts use the recorded payment if already paid; otherwise they use the saved manual amount or calculated weekly pay. If neither a rate nor manual amount is set, or wallet details are missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Existing recorded amounts and counts are retained. This copies text only and never transfers money.
+Amounts use the recorded payment if already paid; otherwise they use the saved manual amount or calculated weekly pay. If neither a rate nor manual amount is set, or wallet details are missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Recorded amounts and counts remain saved unless explicitly edited by an admin. This copies text only and never transfers money.

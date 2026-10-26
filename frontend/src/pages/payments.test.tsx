@@ -159,3 +159,19 @@ it('prefills calculated weekly pay and can save a manual amount without marking 
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:309,amount:'22.00'}))
  expect(vi.mocked(api.post).mock.calls.some(([url])=>url.endsWith('/paid'))).toBe(false)
 })
+it('edits an already-paid amount and can apply the current calculated amount',async()=>{
+ const report=data() as any
+ Object.assign(report.bidders[0],{daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1970,payment:{amount_cents:1970,application_count:328,paid_at:'2026-10-19T12:00:00Z',note:'Original note',revision:0}})
+ vi.mocked(request).mockResolvedValue(report);mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Edit payment'}))
+ expect(screen.getByRole('heading',{name:'Edit payment for Alex'})).toBeTruthy()
+ const amount=screen.getByLabelText('Amount (USD)') as HTMLInputElement
+ expect(amount.value).toBe('19.70')
+ expect((screen.getByLabelText('Reference or note (optional)') as HTMLInputElement).value).toBe('Original note')
+ expect(screen.queryByRole('button',{name:'Record as paid'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'Use calculated amount'}))
+ expect(amount.value).toBe('18.54')
+ fireEvent.change(amount,{target:{value:'22.50'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save changes'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid/edit',{week:'2026-10-12',expected_count:309,expected_revision:0,amount:'22.50',note:'Original note'}))
+})

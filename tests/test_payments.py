@@ -359,3 +359,24 @@ class PaymentTests(unittest.TestCase):
         sign_in_bidder(self.client,1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0.05'}).status_code,403)
         self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':0,'amount':'1'}).status_code,403)
+
+    def test_paid_amount_can_be_edited_with_history_and_stale_edit_protection(self):
+        self.assign();self.message('first')
+        self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={'week':'2026-10-12','expected_count':1,'amount':'19.70','note':'Original'}).status_code,200)
+        original=self.report()['bidders'][0]['payment']
+        self.message('second')
+        body={'week':'2026-10-12','expected_count':2,'expected_revision':0,'amount':'18.54','note':'Corrected'}
+        response=self.client.post('/api/payments/bidders/1/paid/edit',json=body)
+        self.assertEqual(response.status_code,200,response.text)
+        paid=self.report()['bidders'][0]['payment']
+        self.assertEqual((paid['amount_cents'],paid['application_count'],paid['revision']),(1854,2,1))
+        self.assertEqual(paid['paid_at'],original['paid_at'])
+        audit=self.conn.execute('SELECT * FROM bidder_payment_edits').fetchall()
+        self.assertEqual(len(audit),1)
+        import json
+        self.assertEqual(json.loads(audit[0]['before_json'])['amount_cents'],1970)
+        self.assertEqual(json.loads(audit[0]['after_json'])['amount_cents'],1854)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/paid/edit',json=body).status_code,400)
+        self.assertEqual(len(self.conn.execute('SELECT * FROM bidder_payment_edits').fetchall()),1)
+        sign_in_bidder(self.client,1)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/paid/edit',json={**body,'expected_revision':1}).status_code,403)
