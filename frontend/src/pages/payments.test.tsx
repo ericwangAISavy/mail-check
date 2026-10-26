@@ -64,18 +64,19 @@ it("keeps management on Accounts for admins", async () => {
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
 })
 
-it("uses checked links for overall totals and preserves bidder filtering", async () => {
+it("uses estimated confirmations for overall totals and preserves bidder filtering", async () => {
   const report = data()
   report.today = "2026-10-12"
   report.bidders.push({ ...report.bidders[0], id: 2, name: "Blair" })
+  report.daily=[6,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
   mount()
-  const heading = await screen.findByText("Applications this week")
+  const heading = await screen.findByText("Estimated confirmations this week")
   expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const today = screen.getByText("Today")
   expect(today.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const footer = document.querySelector("tfoot tr")!
-  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("3 / 6")
+  expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("6 / 6")
   expect(within(footer as HTMLElement).getAllByRole("cell")[7].textContent).toBe("6")
   fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "2" } })
   expect(screen.queryByRole("rowheader", {name: /Alex/})).toBeNull()
@@ -104,10 +105,10 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   mount()
   const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmations/})).closest("tr")!
   expect(within(row).getAllByRole("cell")[0].textContent).toBe("3 / 0")
-  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
+  expect(screen.getByText("Estimated confirmations this week").parentElement!.querySelector("strong")!.textContent).toBe("3")
   fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
   expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()
-  expect(screen.getByText("Applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
+  expect(screen.getByText("Estimated confirmations this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })
 
 it("Refresh reconciles seven days and refreshes sourcing views", async () => {
@@ -116,4 +117,33 @@ it("Refresh reconciles seven days and refreshes sourcing views", async () => {
   fireEvent.click(screen.getByRole("button", {name:"Refresh"}))
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {}))
   await waitFor(() => expect(dispatch.mock.calls.some(([event]) => event.type === "mailcheck:check-completed")).toBe(true))
+})
+it("sums daily estimated confirmations for the weekly total even when checked counts differ",async()=>{
+ const report=data() as any
+ report.bidders[0].name='Dany'
+ report.bidders[0].daily=[0,7,60,91,82,1,0]
+ report.bidders[0].checked_daily=[0,7,71,81,12,1,0]
+ report.bidders[0].application_total=172
+ report.bidders[0].total=241
+ report.daily=[0,7,60,91,82,1,0]
+ vi.mocked(request).mockResolvedValue(report)
+ mount()
+ const row=(await screen.findByRole('rowheader',{name:/Dany/})).closest('tr')!
+ expect(within(row).getByText('241')).toBeTruthy()
+ fireEvent.click(within(row).getByRole('button',{name:'Record payment'}))
+ expect(screen.getByText(/241 estimated confirmations/)).toBeTruthy()
+})
+it('copies every bidder recorded payment in the selected week with its wallet',async()=>{
+ const report=data() as any,writeText=vi.fn().mockResolvedValue(undefined)
+ Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
+ report.bidders[0].wallet_network='USDT.BEP20';report.bidders[0].wallet_address='0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD';report.bidders[0].payment={amount_cents:4400,application_count:3,paid_at:'2026-10-19T12:00:00Z',note:''}
+ vi.mocked(request).mockResolvedValue(report);mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Copy weekly payment report'}))
+ await waitFor(()=>expect(writeText).toHaveBeenCalledWith('$44 -> USDT.BEP20 -> 0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD -> Bidder -> Alex'))
+})
+it('does not copy an incomplete report and identifies missing bidder details',async()=>{
+ const writeText=vi.fn();Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
+ mount();fireEvent.click(await screen.findByRole('button',{name:'Copy weekly payment report'}))
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent',expect.stringContaining('Alex: missing recorded payment amount, payment network, wallet address'))
+ expect(writeText).not.toHaveBeenCalled()
 })

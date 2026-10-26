@@ -70,3 +70,9 @@ it("confirms bidder removal and refreshes the sourcing list after adding and rem
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/bidders", { name: "New bidder" }))
   await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["sourcing-index"] }))
 })
+it('saves a bidder wallet separately from the name and assignments',async()=>{
+ mount();fireEvent.click(await screen.findByText('Manage bidders and account assignments'))
+ fireEvent.change(await screen.findByLabelText('Wallet address'),{target:{value:'0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save wallet'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/wallet',{wallet_network:'USDT.BEP20',wallet_address:'0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD'}))
+})

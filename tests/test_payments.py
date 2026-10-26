@@ -141,7 +141,7 @@ class PaymentTests(unittest.TestCase):
         from mailcheck import native_sourcing
         self.assign(); self.message("one")
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid', json={
-            "week": "2026-10-12", "expected_count": 0, "amount": "10"}).status_code, 200)
+            "week": "2026-10-12", "expected_count": 1, "amount": "10"}).status_code, 200)
         book = native_sourcing.create_book(self.conn, 1)
         native_sourcing.create_tab(self.conn, book, self.account, "Applications")
         response = self.client.post('/api/payments/bidders/1/remove', json={})
@@ -221,9 +221,9 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(scoped["daily"][0], 13)
         self.assertEqual([b["id"] for b in scoped["bidders"]], [1])
         payment = self.client.post('/api/payments/bidders/1/paid', json={
-            "week":"2026-10-12", "expected_count":11, "amount":"10"})
+            "week":"2026-10-12", "expected_count":13, "amount":"10"})
         self.assertEqual(payment.status_code, 200, payment.text)
-        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 11)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 13)
 
     def test_shared_weights_do_not_mix_accounts_and_zero_weight_gets_zero(self):
         self.assign(); self.assign(who=2)
@@ -238,18 +238,18 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual([b["total"] for b in result["bidders"]], [3, 7])
         self.assertEqual(result["daily"][0], 10)
 
-    def test_primary_application_count_sums_checked_links_across_assigned_accounts(self):
+    def test_primary_application_count_sums_daily_estimates_across_assigned_accounts(self):
         self.assign(); self.assign(account=self.other)
         self.add_checks(1, self.account, 2)
         self.add_checks(1, self.other, 3)
         for i in range(9): self.message(f"received-{i}")
         row = self.report()["bidders"][0]
-        self.assertEqual(row["application_total"], 5)
+        self.assertEqual(row["application_total"], 9)
         self.assertEqual(row["checked_daily"][0], 5)
         response = self.client.post('/api/payments/bidders/1/paid', json={
-            "week":"2026-10-12", "expected_count":5, "amount":"10"})
+            "week":"2026-10-12", "expected_count":9, "amount":"10"})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 5)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 9)
 
     def test_allocation_rounding_is_deterministic_for_ties(self):
         self.assign(); self.assign(who=2)
@@ -314,3 +314,19 @@ class PaymentTests(unittest.TestCase):
         report = self.report()
         self.assertEqual([b['checked_daily'][1] for b in report['bidders']],[1,0])
         self.assertEqual(report['checked_daily'],[0,1,0,0,0,0,0])
+
+    def test_wallet_save_validation_permissions_and_rename_preservation(self):
+        address='0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD'
+        response=self.client.post('/api/payments/bidders/1/wallet',json={'wallet_network':'usdt.bep20','wallet_address':address})
+        self.assertEqual(response.status_code,200,response.text)
+        row=self.client.get('/api/payments').json()['bidders'][0]
+        self.assertEqual((row['wallet_network'],row['wallet_address']),('USDT.BEP20',address))
+        self.client.post('/api/payments/bidders/1',json={'name':'Renamed'})
+        self.assertEqual(self.conn.execute('SELECT wallet_address FROM bidders WHERE id=1').fetchone()[0],address)
+        for invalid in ('0x123','bad\naddress','0x'+'g'*40):
+            self.assertEqual(self.client.post('/api/payments/bidders/1/wallet',json={'wallet_address':invalid}).status_code,422)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/wallet',json={'wallet_address':''}).status_code,200)
+        self.assertEqual(self.conn.execute('SELECT wallet_address FROM bidders WHERE id=1').fetchone()[0],'')
+        sign_in_bidder(self.client,1)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/wallet',json={'wallet_address':address}).status_code,403)
+        self.assertNotIn('wallet_address',self.client.get('/api/payments').json()['bidders'][0])

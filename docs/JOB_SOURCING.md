@@ -88,8 +88,7 @@ checked boxes cannot be cleared.
 
 On **Bidder payments**, daily cells show **estimated confirmations / checked applications**. For example, **112 / 60**
 means 60 checked job-link rows across the bidder’s assigned account tabs for that
-confirmation’s Chicago received date and an estimated share of 112 confirmation emails, even when the links were given earlier. Untimed manual or legacy checks keep their sourcing date. The checked count
-is used for daily applications, weekly totals, and new payment records. Shared
+confirmation’s Chicago received date and an estimated share of 112 confirmation emails, even when the links were given earlier. Untimed manual or legacy checks keep their sourcing date. Weekly totals and new payment records sum the daily estimated confirmations (the first number). Shared
 account confirmations are divided in proportion to checked links per account and day.
 The two counts can differ. Saved company metadata survives future mail cleanup;
 companies from messages already deleted before this upgrade cannot be recovered.

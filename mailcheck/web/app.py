@@ -837,6 +837,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             conn.execute("UPDATE bidders SET name=? WHERE id=?", (body.name, bidder_id))
         return payment_write(update)
 
+    @app.post("/api/payments/bidders/{bidder_id}/wallet")
+    def update_bidder_wallet(bidder_id: int, body: payments.WalletBody):
+        return payment_write(lambda conn: payments.save_wallet(conn,bidder_id,body))
+
     @app.post("/api/payments/bidders/{bidder_id}/assignments")
     def assign_bidder(bidder_id: int, body: payments.AssignmentBody):
         return payment_write(lambda conn: payments.assign(conn, bidder_id, body))

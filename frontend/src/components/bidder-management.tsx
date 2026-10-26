@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Loading, useToast } from "@/components/common"
 import "@/pages/payments.css"
 type Assignment = { id: number; account_id: number; account_label: string; start_date: string; end_date: string | null }
-type Bidder = { id: number; name: string; assignments: Assignment[] }
+type Bidder = { id: number; name: string; wallet_network?:string; wallet_address?:string; assignments: Assignment[] }
 type Report = { today: string; bidders: Bidder[]; accounts: { id: number; label: string }[] }
 
 export default function BidderManagement() {
@@ -39,6 +39,11 @@ function BidderManager({ bidder, accounts, today, busy, write }: { bidder: Bidde
   return <Card className="payment-admin-card"><div className="payment-section-heading"><h2>{bidder.name}</h2><Button variant="destructive" size="sm" disabled={busy} onClick={() => setRemoving(true)}><Trash2 size={14} />Remove bidder</Button></div>
     {removing && <div className="payment-rule-remove"><p>Remove {bidder.name}? Their sign-in will be disabled and their documents will be archived. Existing documents and payment records will stay saved.</p><div className="payment-assignment-actions"><Button variant="destructive" disabled={busy} onClick={async () => { try { await write(`/api/payments/bidders/${bidder.id}/remove`, {}) } catch { /* shown above */ } }}>Confirm removal</Button><Button variant="ghost" disabled={busy} onClick={() => setRemoving(false)}>Cancel</Button></div></div>}
     <form className="payment-inline-form" onSubmit={submit(`/api/payments/bidders/${bidder.id}`, form => ({ name: form.get("name") }))}><label>Name<input name="name" key={bidder.name} defaultValue={bidder.name} required maxLength={100} /></label><Button variant="outline" disabled={busy}>Save name</Button></form>
+    <form className="payment-inline-form payment-wallet-form" aria-label={`Wallet for ${bidder.name}`} onSubmit={submit(`/api/payments/bidders/${bidder.id}/wallet`, form => ({ wallet_network:form.get("wallet_network"),wallet_address:form.get("wallet_address") }))}>
+      <label>Payment network<input name="wallet_network" key={bidder.wallet_network} defaultValue={bidder.wallet_network || "USDT.BEP20"} placeholder="USDT.BEP20" maxLength={40}/></label>
+      <label>Wallet address<input name="wallet_address" key={bidder.wallet_address} defaultValue={bidder.wallet_address || ""} placeholder="0x…" maxLength={128} autoComplete="off" spellCheck={false}/></label>
+      <Button variant="outline" disabled={busy}>Save wallet</Button>
+    </form><p className="payment-muted">Used in copied weekly payment reports. Enter a public receiving address; leave it empty to remove the saved wallet.</p>
     <h3>Assigned accounts</h3>{!bidder.assignments.length && <p className="payment-muted">No accounts assigned.</p>}{bidder.assignments.map(a => <AssignmentRule key={a.id} assignment={a} accounts={accounts} busy={busy} write={write} />)}
     <form className="payment-inline-form payment-assign-form" onSubmit={submit(`/api/payments/bidders/${bidder.id}/assignments`, form => ({ account_id: Number(form.get("account")), start_date: form.get("start"), end_date: form.get("end") || null }))}><label>Account<select name="account" required defaultValue=""><option value="" disabled>Select account</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select></label><label>First assigned day<input name="start" type="date" defaultValue={today} required /></label><label>Last day (optional)<input name="end" type="date" /></label><Button disabled={busy || !accounts.length}>Assign account</Button></form><p className="payment-muted">An account can be assigned to several bidders on the same day. Receipt estimates for shared accounts are split between assigned bidders in proportion to their checked sourcing links for that account and day. Checked links stay with the bidder who owns the document.</p>
   </Card>

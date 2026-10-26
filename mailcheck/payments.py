@@ -1,12 +1,13 @@
 """Bidder accounting: durable receipt counts and immutable weekly payment records."""
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ZONE = ZoneInfo("America/Chicago")
 
@@ -45,6 +46,31 @@ class BidderBody(BaseModel):
         if not value.strip():
             raise ValueError("Enter a bidder name")
         return value.strip()
+
+
+class WalletBody(BaseModel):
+    wallet_network: str = Field(default='USDT.BEP20',max_length=40)
+    wallet_address: str = Field(default='',max_length=128)
+
+    @model_validator(mode='after')
+    def clean_wallet(self):
+        self.wallet_address=self.wallet_address.strip()
+        self.wallet_network=self.wallet_network.strip().upper()
+        if not self.wallet_address:
+            self.wallet_network=''
+            return self
+        if not re.fullmatch(r'[A-Z0-9][A-Z0-9._-]{0,39}',self.wallet_network):
+            raise ValueError('Enter a payment network such as USDT.BEP20')
+        if not re.fullmatch(r'[A-Za-z0-9]{16,128}',self.wallet_address):
+            raise ValueError('Enter a wallet address without spaces or separators')
+        if self.wallet_network in ('USDT.BEP20','USDT.ERC20') and not re.fullmatch(r'0x[0-9a-fA-F]{40}',self.wallet_address):
+            raise ValueError('BEP20 and ERC20 addresses must start with 0x followed by 40 hexadecimal characters')
+        return self
+
+
+def save_wallet(conn,bidder_id,body):
+    bidder(conn,bidder_id)
+    conn.execute('UPDATE bidders SET wallet_network=?,wallet_address=? WHERE id=?',(body.wallet_network,body.wallet_address,bidder_id))
 
 
 class AssignmentBody(BaseModel):
@@ -136,8 +162,9 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         daily = [allocations.get((row["id"], day), 0) for day in dates]
         total = sum(daily)
         bidders.append({"id": row["id"], "name": row["name"],
+            **({"wallet_network":row["wallet_network"],"wallet_address":row["wallet_address"]} if admin else {}),
             "assignments": assigned, "daily": daily, "total": total,
-            "application_total": sum(checked.get((row["id"], day), 0) for day in dates),
+            "application_total": total,
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
     # Shared assignments expose the same receipts in multiple bidder rows.

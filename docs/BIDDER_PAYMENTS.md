@@ -32,8 +32,7 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 ## Daily application counts
 
 Daily cells show **estimated confirmations / checked applications**. For example,
-**92 / 75** means an estimated share of 92 confirmation emails and 75 checked job-link rows. The second number is the bidder’s application count used by overview cards,
-weekly totals, and new payment records. It sums checked rows across the bidder’s
+**92 / 75** means an estimated share of 92 confirmation emails and 75 checked job-link rows. Overview cards, weekly totals, and new payment records sum the first number: daily estimated confirmations. The second number counts checked rows across the bidder’s
 account tabs, grouped by the matching confirmation’s received date in Chicago and requiring an account assignment on that completion date. The date links were given does not determine the payment day. Manual or legacy checks without a matched confirmation timestamp keep their sourcing date. Each row
 counts once; archived sheets retain historical checked counts.
 
@@ -49,7 +48,7 @@ Checked rows stay checked through later checks, reclassification, and edits. A
 confirmation arriving next week counts on its received date, including links given the previous week. Manually checked rows count too. The checkbox cannot be cleared, although
 row deletion can affect totals. Changing a sourcing date only moves an untimed manual or legacy count; matched completions retain their confirmation date.
 
-## Receipt estimates for reference
+## Receipt allocation
 
 The first number remains a proportional estimate: per shared account and receipt
 day, divide confirmations by the assigned bidders’ checked-link weights for that
@@ -117,3 +116,15 @@ The Activity Monitor distinguishes three graph views:
 - **By day:** calendar-day confirmation totals for the payment table's selected week.
 
 Intraday views default to the most recent 6:00 AM in America/Chicago through the following 6:00 AM. Before 6 AM, this is the previous date's workday. A separate date selector browses other workdays without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. Summary cards, heatmap, and summary table remain explicitly weekly.
+
+## Wallet details and copying a payment report
+
+On **Accounts → Manage bidders and account assignments**, save each bidder’s payment network (for example `USDT.BEP20`) and public receiving wallet address. Saving a name does not change wallet details. A blank address clears the saved wallet. BEP20 and ERC20 addresses must have the standard `0x` plus 40 hexadecimal characters; address capitalization is preserved. Wallet fields and exports are admin-only.
+
+For a completed week on **Bidder payments**, select **Copy weekly payment report**. It copies every bidder in that week, regardless of the bidder filter, one line per bidder:
+
+```text
+$44 -> USDT.BEP20 -> 0x6A33C5254C47DEfE820d93EAa2F4bd7ab9C378BD -> Bidder -> Dany
+```
+
+Amounts come from that week’s recorded payments, not an inferred per-application rate. If a recorded amount or wallet detail is missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Existing recorded amounts and counts are retained. This copies text only and never transfers money.
