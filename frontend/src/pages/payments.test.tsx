@@ -12,7 +12,7 @@ afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear())
 function mount(readOnly = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>) }
 it("records an admin-entered amount with the reviewed week and count", async () => {
   mount()
-  fireEvent.click(await screen.findByRole("button", { name: "Record payment" }))
+  fireEvent.click(await screen.findByRole("button", { name: /Edit confirmed payment for Alex/ }))
   fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "123.45" } })
   fireEvent.change(screen.getByLabelText("Reference or note (optional)"), { target: { value: "Bank reference" } })
   fireEvent.click(screen.getByRole("button", { name: "Record as paid" }))
@@ -23,14 +23,16 @@ it("supports previous week navigation", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Previous week" }))
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
 })
-it("shows recorded payment amount and flags later count changes", async () => {
+it("shows only estimated and confirmed amounts without payment metadata", async () => {
   const report = data() as any
   report.bidders[0].payment = { amount_cents: 1025, application_count: 2, paid_at: "2026-10-19T12:00:00Z", note: "Paid by bank" }
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
-  await screen.findByText("Paid · 2 applications at recording")
-  expect(screen.getByText("Count changed since payment")).toBeTruthy()
-  expect(screen.getByText("Paid by bank")).toBeTruthy()
+  const row=(await screen.findByRole("rowheader",{name:/Alex/})).closest("tr")!
+  expect(within(row).getByLabelText("Estimated / confirmed payment").textContent).toBe("— / $10.25")
+  expect(screen.queryByText("Count changed since payment")).toBeNull()
+  expect(screen.queryByText("Paid by bank")).toBeNull()
+  expect(screen.queryByText(/applications at recording/)).toBeNull()
 })
 it("shows loading failures with a retry action", async () => {
   vi.mocked(request).mockRejectedValue(new Error("Could not load totals"))
@@ -54,8 +56,8 @@ it("shows daily and weekly totals to guests without management or payment contro
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 3","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Not recorded"])
-  expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull()
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 3","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","— / —"])
+  expect(screen.queryByRole("button", { name: /Edit confirmed payment for Alex/ })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
 })
@@ -130,7 +132,7 @@ it("sums daily estimated confirmations for the weekly total even when checked co
  mount()
  const row=(await screen.findByRole('rowheader',{name:/Dany/})).closest('tr')!
  expect(within(row).getByText('241')).toBeTruthy()
- fireEvent.click(within(row).getByRole('button',{name:'Record payment'}))
+ fireEvent.click(within(row).getByRole('button',{name:/Edit confirmed payment for Dany/}))
  expect(screen.getByText(/241 estimated confirmations/)).toBeTruthy()
 })
 it('copies every bidder recorded payment in the selected week with its wallet',async()=>{
@@ -151,7 +153,7 @@ it('prefills calculated weekly pay and can save a manual amount without marking 
  const report=data() as any
  Object.assign(report.bidders[0],{daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1854,amount_override_cents:null})
  vi.mocked(request).mockResolvedValue(report);mount()
- fireEvent.click(await screen.findByRole('button',{name:'Edit / record payment'}))
+ fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
  const input=screen.getByLabelText('Amount (USD)') as HTMLInputElement
  expect(input.value).toBe('18.54')
  fireEvent.change(input,{target:{value:'22.00'}})
@@ -163,7 +165,7 @@ it('edits an already-paid amount and can apply the current calculated amount',as
  const report=data() as any
  Object.assign(report.bidders[0],{daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1970,payment:{amount_cents:1970,application_count:328,paid_at:'2026-10-19T12:00:00Z',note:'Original note',revision:0}})
  vi.mocked(request).mockResolvedValue(report);mount()
- fireEvent.click(await screen.findByRole('button',{name:'Edit payment'}))
+ fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
  expect(screen.getByRole('heading',{name:'Edit payment for Alex'})).toBeTruthy()
  const amount=screen.getByLabelText('Amount (USD)') as HTMLInputElement
  expect(amount.value).toBe('19.70')
@@ -174,4 +176,13 @@ it('edits an already-paid amount and can apply the current calculated amount',as
  fireEvent.change(amount,{target:{value:'22.50'}})
  fireEvent.click(screen.getByRole('button',{name:'Save changes'}))
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid/edit',{week:'2026-10-12',expected_count:309,expected_revision:0,amount:'22.50',note:'Original note'}))
+})
+it('defaults the blue confirmed amount to the estimate until manually changed',async()=>{
+ const report=data() as any
+ Object.assign(report.bidders[0],{calculated_amount_cents:1854,payable_amount_cents:1854,pay_per_bid:'0.05',adjustment_percent:'20'})
+ vi.mocked(request).mockResolvedValue(report);mount()
+ const row=(await screen.findByRole('rowheader',{name:/Alex/})).closest('tr')!
+ expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$18.54 / $18.54')
+ expect(within(row).getByRole('button',{name:/Edit confirmed payment for Alex/}).className).toContain('payment-confirmed')
+ expect(within(row).queryByText(/Calculated amount|Paid ·|Manual amount|previous values|×/)).toBeNull()
 })
