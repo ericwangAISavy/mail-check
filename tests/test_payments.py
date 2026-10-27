@@ -238,6 +238,29 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual([b["total"] for b in result["bidders"]], [3, 7])
         self.assertEqual(result["daily"][0], 10)
 
+    def test_two_shared_accounts_use_separate_contributors_before_summing_bidder_estimates(self):
+        self.conn.execute("INSERT INTO bidders(name,created_at) VALUES('Casey','2026-01-01')")
+        self.assign(); self.assign(account=self.other)
+        self.assign(who=2); self.assign(who=3, account=self.other)
+        # Alex shares A with Blair and B with Casey. Neither account's weights
+        # or receipt totals may enter the other account's allocation.
+        self.add_checks(1, self.account, 1)
+        self.add_checks(2, self.account, 3)
+        self.add_checks(1, self.other, 3)
+        self.add_checks(3, self.other, 1)
+        for i in range(100): self.message(f"a-{i}")
+        for i in range(40): self.message(f"b-{i}", account=self.other)
+        result = self.report()
+        rows = {b['id']: b for b in result['bidders']}
+        # A: 25/75; B: 30/10. Alex receives 25 + 30, not a pooled share.
+        self.assertEqual([rows[i]['daily'][0] for i in (1, 2, 3)], [55, 75, 10])
+        self.assertEqual([rows[i]['checked_daily'][0] for i in (1, 2, 3)], [4, 3, 1])
+        self.assertEqual(rows[1]['total'], 55)
+        self.assertEqual(result['daily'][0], 140)
+        self.assertEqual(result['unallocated_daily'][0], 0)
+        scoped = payments.report(self.conn, date(2026,10,12), bidder_id=1)
+        self.assertEqual(scoped['bidders'][0]['daily'][0], 55)
+
     def test_primary_application_count_sums_daily_estimates_across_assigned_accounts(self):
         self.assign(); self.assign(account=self.other)
         self.add_checks(1, self.account, 2)

@@ -55,8 +55,13 @@ day, divide confirmations by the assigned bidders’ checked-link weights for th
 account and confirmation date, including links sourced on earlier days. For 105 confirmations and weights 11 and 75, estimates are 13 and
 92. Largest-remainder rounding preserves the total, with ties broken by bidder ID.
 A sole assigned bidder receives the full receipt count; shared accounts with no
-checks show unallocated confirmations. These estimates do not determine the primary
-application totals or new payment counts.
+checks show unallocated confirmations.
+
+Calculate each account separately before summing a bidder's daily estimates. For
+example, if Joseph checks 1 of account A's 4 links and 3 of account B's 4 links,
+with 100 and 40 confirmations respectively, his estimate is 25 + 30 = 55.
+Never combine his checked counts across accounts before calculating the shares.
+Weekly application totals and new payment counts sum these daily estimates.
 
 Only the latest `application_ack` classification contributes to receipt estimates.
 Receipt dates use America/Chicago, falling back to collection time when absent.

@@ -15,8 +15,11 @@
 .timeline-range { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .timeline-range h2 { font-size: 15px; font-weight: 600; }
 .timeline-range > span { font-size: 11px; color: var(--muted-foreground); }
-.process-groups { display: flex; flex-direction: column; gap: 8px; }
-.process-timeline-card { --process-accent: var(--primary); min-width: 0; padding: 0 14px 4px; border-color: color-mix(in srgb, var(--process-accent) 32%, transparent); border-left: 3px solid var(--process-accent); background: color-mix(in srgb, var(--process-accent) 7%, var(--card)); }
+.process-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 28px; }
+.processes-page { container-type: inline-size; }
+@container (min-width: 1440px) { .process-groups { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: 759px) { .process-groups { grid-template-columns: minmax(0, 1fr); } }
+.process-timeline-card { --process-accent: var(--primary); min-width: 0; padding: 0 14px 4px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .process-age-pending { --process-accent: #94a3b8; }
 .process-age-new { --process-accent: #62d6a1; }
 .process-age-progressing { --process-accent: #5ed3cf; }
@@ -33,8 +36,7 @@
 .process-age-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .process-age-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--process-accent); }
 
-.process-timeline-card::before, .process-timeline-card::after { border-color: var(--process-accent); }
-.process-timeline-card.is-pinned { border-color: var(--process-accent); }
+
 .process-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0 2px; }
 .process-identity { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .process-identity > svg { color: var(--process-accent); flex-shrink: 0; }

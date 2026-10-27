@@ -14,6 +14,23 @@ def decorate(conn,processes,now):
     messages={r['id']:dict(r) for r in conn.execute('SELECT id,account_id,message_id,thread_id,references_json,from_addr,COALESCE(date_utc,fetched_at) AS contact_at FROM messages')}
     from .interview_processes import organization_domains
     own={r[0] for r in conn.execute('SELECT email FROM accounts')}
+    # Build account-scoped indexes once instead of rescanning the mailbox for
+    # every process. Keep thread/reference expansion to one hop, as before.
+    domains={}
+    threads_index={}
+    references_index={}
+    for m in messages.values():
+        aid=m['account_id']
+        m['contact_stamp']=_instant(m['contact_at'])
+        for domain in organization_domains([],m['from_addr'],own_emails=own):
+            domains.setdefault((aid,domain),set()).add(m['id'])
+        if m['thread_id']:
+            threads_index.setdefault((aid,m['thread_id']),set()).add(m['id'])
+        try:refs=json.loads(m['references_json'] or '[]')
+        except (ValueError,TypeError):refs=[]
+        if isinstance(refs,list):
+            for ref in refs:
+                if isinstance(ref,str):references_index.setdefault((aid,ref),set()).add(m['id'])
     sources={}
     for row in conn.execute('SELECT event_id,account_id,message_pk FROM interview_sources WHERE message_pk IS NOT NULL'):
         sources.setdefault((row['event_id'],row['account_id']),set()).add(row['message_pk'])
@@ -28,22 +45,19 @@ def decorate(conn,processes,now):
         aid=process['account_id']
         pks={int(m['id'].split(':',1)[1]) for m in process['milestones'] if m['kind']=='message'}
         for event in process['events']:pks.update(sources.get((event['id'],aid),set()))
-        for m in messages.values():
-            if m['account_id']==aid and process['organization'] and organization_domains([],m['from_addr'],own_emails=own)==[process['organization']]:pks.add(m['id'])
-        seeds=[m for pk,m in messages.items() if pk in pks and m['account_id']==aid]
+        pks.update(domains.get((aid,process['organization']),set()))
+        seeds=[messages[pk] for pk in pks if pk in messages and messages[pk]['account_id']==aid]
         threads={m['thread_id'] for m in seeds if m['thread_id']}
         identifiers={m['message_id'] for m in seeds}
-        for m in messages.values():
-            if m['account_id']!=aid:continue
-            try:refs=json.loads(m['references_json'] or '[]')
-            except (ValueError,TypeError):refs=[]
-            if m['thread_id'] in threads or isinstance(refs,list) and any(ref in identifiers for ref in refs):pks.add(m['id'])
-        relevant=[m for pk,m in messages.items() if pk in pks and m['account_id']==aid and _instant(m['contact_at']) and _instant(m['contact_at'])<=now]
-        relevant.sort(key=lambda m:(_instant(m['contact_at']),m['id']),reverse=True)
+        for thread in threads:pks.update(threads_index.get((aid,thread),set()))
+        for identifier in identifiers:pks.update(references_index.get((aid,identifier),set()))
+        relevant=[messages[pk] for pk in pks if pk in messages and messages[pk]['account_id']==aid
+                  and messages[pk]['contact_stamp'] and messages[pk]['contact_stamp']<=now]
+        relevant.sort(key=lambda m:(m['contact_stamp'],m['id']),reverse=True)
         # Prefer a human recipient when an automated confirmation shares the process.
         candidates=[m for m in relevant if m['from_addr'] and not any(word in m['from_addr'].casefold() for word in ('no-reply','noreply','do-not-reply','donotreply'))]
         target=next(iter(candidates or relevant),None)
-        activity=[_instant(m['contact_at']) for m in relevant]
+        activity=[m['contact_stamp'] for m in relevant]
         activity += [_instant(e.get('end_at') or e.get('start_at')) for e in process['events'] if e.get('status')!='Cancelled']
         anchor=max((stamp for stamp in activity if stamp),default=now)
         sent=max((delivered[m['id']] for m in relevant if m['id'] in delivered and delivered[m['id']]>=anchor),default=None)

@@ -1,5 +1,6 @@
 from datetime import datetime,timezone
 from unittest import TestCase
+from unittest.mock import patch
 from tests import test_followups as fixtures
 from mailcheck import interview_processes,db
 
@@ -43,3 +44,15 @@ class ProcessFollowupTests(TestCase):
         self.conn.execute('UPDATE interview_sources SET message_pk=NULL')
         self.conn.execute('DELETE FROM messages WHERE id=?',(pk,))
         self.assertEqual(self.state(),{'target_message_pk':None,'status':'unavailable','sent_at':None})
+
+    def test_followup_index_parses_each_message_once_across_many_processes(self):
+        from mailcheck import process_followups
+        pk=self.booking()
+        count=self.conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0]
+        processes=[{'account_id':self.a,'organization':f'company-{i}.test',
+                    'milestones':[{'kind':'message','id':f'message:{pk}'}],'events':[]}
+                   for i in range(20)]
+        with patch.object(process_followups.json,'loads',wraps=process_followups.json.loads) as parse:
+            process_followups.decorate(self.conn,processes,NOW)
+        self.assertEqual(parse.call_count,count)
+        self.assertTrue(all(p['follow_up']['target_message_pk']==pk for p in processes))
