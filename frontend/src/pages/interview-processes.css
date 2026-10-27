@@ -130,3 +130,5 @@ a.milestone-follow-up:hover, a.milestone-follow-up:focus-visible { outline: 2px 
 .milestone-follow-up.is-sent { --milestone-color: var(--success, #34d399); border-style: solid; background: color-mix(in srgb, var(--success, #34d399) 20%, var(--card)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success, #34d399) 16%, transparent); }
 .process-follow-up-label.is-sent { color: var(--success, #34d399); border-color: currentColor; background: color-mix(in srgb, var(--success, #34d399) 12%, transparent); }
 .milestone-follow-up.is-unavailable { opacity: .65; }
+
+.process-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

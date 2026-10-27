@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Link } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ArrowRight, ArrowUpRight, Building2, CalendarDays, Check, Flag, Mail, Pin, PinOff, RotateCcw, Search, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRight, ArrowUpRight, Building2, CalendarDays, Check, Flag, Mail, Pin, PinOff, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react"
 import { request } from "@/lib/api"
 import type { InterviewProcess, ProcessMilestone } from "@/lib/types"
 import { dateInput, movePeriod, periodWindow, positionMilestones, processAge, inPeriod, milestoneTiming, needsFollowUp, type TimelinePeriod } from "@/lib/process-timeline"
@@ -11,7 +11,7 @@ import { MessageDetails } from "@/components/message-details"
 import { Dialog } from "@/components/ui/dialog"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loading, PageHeading } from "@/components/common"
+import { Loading, PageHeading, useToast } from "@/components/common"
 import "./interview-processes.css"
 
 const dateTime = (value: string) => new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
@@ -29,6 +29,16 @@ export default function InterviewProcessesPage() {
   const suppressFocus = useRef(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const client = useQueryClient()
+  const toast = useToast()
+  const [refreshing, setRefreshing] = useState(false)
+  const refresh = async () => {
+    setRefreshing(true)
+    try {
+      await client.invalidateQueries({ queryKey: ["interviews"], refetchType: "all" }, { throwOnError: true })
+      toast("Calendar and interview processes refreshed.", "success")
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not refresh interviews.", "error") }
+    finally { setRefreshing(false) }
+  }
   const query = useQuery({ queryKey: ["interviews", "processes"], queryFn: () => request<{ processes: InterviewProcess[]; removed: { organization: string | null; account_id?: number | null; account_emails?: string[]; removed_at: string }[] }>("/api/interview-processes"), refetchInterval: 30_000 })
   const creation = useMutation({
     mutationFn: (name: string) => request("/api/interview-processes", { method: "POST", body: JSON.stringify({ name }) }),
@@ -77,7 +87,7 @@ export default function InterviewProcessesPage() {
   const endDay = new Date(window.end); endDay.setDate(endDay.getDate() - 1)
   const rangeLabel = period === "all" ? "All time" : period === "daily" ? window.start.toLocaleDateString(undefined, { dateStyle: "long" }) : `${window.start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${endDay.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
   return <div className="page-wrap processes-page">
-    <PageHeading title="Interview processes" description="Every conversation, one step at a time." action={<Link className="process-calendar-link" to="/interviews"><CalendarDays size={16} />Open Interview calendar<ArrowUpRight size={15} /></Link>} />
+    <PageHeading title="Interview processes" description="Every conversation, one step at a time." action={<div className="process-page-actions"><Button variant="outline" size="sm" onClick={() => void refresh()} disabled={refreshing || query.isFetching}><RefreshCw size={16} />{refreshing ? "Refreshing…" : "Refresh"}</Button><Link className="process-calendar-link" to="/interviews"><CalendarDays size={16} />Open Interview calendar<ArrowUpRight size={15} /></Link></div>} />
     <Card className="process-create-card"><form onSubmit={event => { event.preventDefault(); if (companyName.trim()) creation.mutate(companyName.trim()) }}>
       <label htmlFor="process-company-name">Company or organization name</label><div className="process-create-fields"><input id="process-company-name" value={companyName} maxLength={253} required placeholder="e.g. Acme Labs" onChange={event => setCompanyName(event.target.value)} /><Button type="submit" disabled={creation.isPending || !companyName.trim()}>{creation.isPending ? "Adding…" : "Add process"}</Button></div>
       <p>Events and messages mentioning any part of this name are grouped automatically.</p>

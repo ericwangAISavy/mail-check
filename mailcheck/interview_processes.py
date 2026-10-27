@@ -150,9 +150,6 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             "organization": manual.get(key, key), "events": [], "milestones": [],
             "account_emails": [accounts[account_id].email] if account_id is not None else [],
             "message_count": 0, "pinned": bool(pinned) if pinned is not None else (key or "") in pins})
-    sources: dict[int, set[int]] = {}
-    for source in conn.execute("SELECT DISTINCT s.event_id,s.account_id FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE a.enabled=1"):
-        sources.setdefault(source["event_id"], set()).add(source["account_id"])
     for event in interviews.list_events(conn, now=now):
         # Match the Interview page's calendar evidence boundary.
         if event["extraction_rank"] < 2 or not event["start_at"]:
@@ -165,7 +162,11 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             organization = matches[0] if len(matches) == 1 else None
         event["organization_domains"] = domains
         event["assignment_reason"] = "Multiple matching manual processes" if len(matches) > 1 else None if organization else "Multiple organization domains" if domains else "No eligible organization domain"
-        for account_id in sorted(sources.get(event["id"], set())):
+        # Calendar display may combine retained copies. Project every enabled
+        # source account, including those attached to a hidden duplicate.
+        source_accounts = {source['account_id'] for source in interviews.event_sources(conn,event['id'])
+                           if source['account_enabled']}
+        for account_id in sorted(source_accounts):
             if is_removed(organization, account_id):
                 hidden_manual.add(organization)
                 continue

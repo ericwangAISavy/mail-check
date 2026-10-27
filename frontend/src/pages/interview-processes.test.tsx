@@ -304,3 +304,18 @@ it("highlights a successfully sent follow-up on its process",async()=>{
  expect(link.className).toContain('is-sent')
  expect(screen.getByText('Follow-up sent')).toBeTruthy()
 })
+
+it("refreshes process data and the cached calendar together", async () => {
+  mount()
+  await screen.findByRole("heading", { name: "appian.com" })
+  const client = clients[clients.length - 1]
+  client.setQueryData(["interviews", "list", ""], { events: [] })
+  const invalidate = vi.spyOn(client, "invalidateQueries")
+  const updated = report()
+  updated.processes[0].organization = "updated-company.com"
+  vi.mocked(request).mockResolvedValue(updated as never)
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
+  expect(await screen.findByRole("heading", { name: "updated-company.com" })).toBeTruthy()
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["interviews"], refetchType: "all" }, { throwOnError: true })
+  expect(client.getQueryState(["interviews", "list", ""])?.isInvalidated).toBe(true)
+})

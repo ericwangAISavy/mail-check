@@ -80,6 +80,28 @@ class ProcessCollectionTests(unittest.TestCase):
         self.conn.execute("UPDATE accounts SET enabled=0 WHERE id=?", (self.b,))
         self.assertEqual([p["account_id"] for p in processes.list_processes(self.conn)], [self.a])
 
+    def test_deduplicated_calendar_copies_keep_both_account_processes(self):
+        from mailcheck import interviews, interview_processes as processes
+        booking = calendar_fixtures.event("copied", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])
+        self.collect(self.source([booking]), label="work")
+        self.conn.execute("UPDATE interview_events SET meeting_url='https://zoom.us/j/123456789'")
+        original = dict(self.conn.execute('SELECT * FROM interview_events').fetchone())
+        original.pop('id')
+        original['calendar_uid'] = 'retained-copy'
+        columns = ','.join(original)
+        marks = ','.join('?' for _ in original)
+        copy_id = self.conn.execute(f'INSERT INTO interview_events({columns}) VALUES({marks})', tuple(original.values())).lastrowid
+        source = dict(self.conn.execute('SELECT * FROM interview_sources').fetchone())
+        source.pop('id')
+        source.update(event_id=copy_id, account_id=self.b, candidate_key='retained-copy')
+        columns = ','.join(source)
+        marks = ','.join('?' for _ in source)
+        self.conn.execute(f'INSERT INTO interview_sources({columns}) VALUES({marks})', tuple(source.values()))
+        self.assertEqual(len(interviews.list_events(self.conn)), 1)
+        report = processes.list_processes(self.conn)
+        self.assertEqual({p['account_id'] for p in report}, {self.a, self.b})
+        self.assertTrue(all(p['event_count'] == 1 for p in report))
+
     def test_account_state_survives_upgrade_and_reopening(self):
         from mailcheck import interview_processes as processes
         self.collect(self.source([calendar_fixtures.event("upgrade-account", attendees=[{"emailAddress": {"address": "hr@appian.com"}}])]))
