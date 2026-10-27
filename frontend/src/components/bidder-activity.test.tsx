@@ -21,14 +21,16 @@ function mount() {
   function Harness() {const [selected,setSelected] = useState(""); return <BidderActivity week="2026-10-12" selected={selected} onSelect={setSelected}/>}
   render(<QueryClientProvider client={client}><Harness/></QueryClientProvider>)
 }
-it("filters graph and heatmap by bidder and displays quiet-check changes", async () => {
+it("filters graph and heatmap by bidder without redundant cards or summary table", async () => {
   vi.mocked(request).mockResolvedValue(payload()); mount()
   await screen.findByRole("button", {name:"Alex"})
-  expect(screen.getByText("Links with confirmation time", {selector:"span"}).querySelector("strong")!.textContent).toBe("7")
+  expect(screen.queryByText("Links with confirmation time")).toBeNull()
+  expect(screen.queryByText("Busiest confirmation hour")).toBeNull()
+  expect(screen.queryByText("Checks recorded this week")).toBeNull()
+  expect(screen.queryByRole("columnheader",{name:"Latest / previous check"})).toBeNull()
   expect(screen.getByLabelText("2026-10-12, 10am: 7 matched checked links")).toBeTruthy()
-  expect(screen.getByText("-100%")).toBeTruthy()
+  expect(screen.queryByText("-100%")).toBeNull()
   fireEvent.click(screen.getByRole("button", {name:"Alex"}))
-  expect(screen.getByText("Links with confirmation time", {selector:"span"}).querySelector("strong")!.textContent).toBe("5")
   expect(screen.queryByText("Blair", {selector:"th"})).toBeNull()
   expect(screen.getByLabelText("2026-10-12, 10am: 5 matched checked links")).toBeTruthy()
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
@@ -57,9 +59,7 @@ it("switches to account trends and filters an account without mixing bidder cont
   mount(); await screen.findByRole("button", {name:"Alex"})
   fireEvent.click(screen.getByRole("button", {name:"By account"}))
   expect(await screen.findByRole("button", {name:"shared@outlook.com"})).toBeTruthy()
-  expect(screen.getByRole("columnheader", {name:"Account"})).toBeTruthy()
   fireEvent.click(screen.getByRole("button", {name:"shared@outlook.com"}))
-  expect(screen.getByText("Links with confirmation time", {selector:"span"}).querySelector("strong")!.textContent).toBe("5")
   expect(screen.queryByText("other@outlook.com", {selector:"th"})).toBeNull()
   expect(screen.getByLabelText("2026-10-12, 10am: 5 matched checked links")).toBeTruthy()
   fireEvent.click(screen.getByRole("button", {name:"By bidder"}))

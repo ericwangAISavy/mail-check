@@ -114,7 +114,7 @@ The Activity Monitor distinguishes three graph views:
 - **Check runs:** every recorded processing checkpoint in that workday, including quiet checks. Hover shows exact Chicago time and source; the expandable checkpoint table shows all per-bidder or per-account counts. This daily view has no 240-run truncation.
 - **By day:** calendar-day confirmation totals for the payment table's selected week.
 
-Intraday views default to the most recent 6:00 AM in America/Chicago through the following 6:00 AM. Before 6 AM, this is the previous date's workday. A separate date selector browses other workdays without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. Summary cards, heatmap, and summary table remain explicitly weekly.
+Intraday views default to the most recent 6:00 AM in America/Chicago through the following 6:00 AM. Before 6 AM, this is the previous date's workday. A separate date selector browses other workdays without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. The heatmap remains explicitly weekly.
 
 ## Wallet details and copying a payment report
 
