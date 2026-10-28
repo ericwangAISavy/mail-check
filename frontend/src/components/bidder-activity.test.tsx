@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import BidderActivity from "./bidder-activity"
 vi.mock("@/lib/api", () => ({request: vi.fn()}))
-const probe = vi.hoisted(() => ({tooltip: null as any, lines: [] as string[]}))
-vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type}: any) => {probe.lines.push(type); return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
+const probe = vi.hoisted(() => ({tooltip: null as any, lines: [] as string[], dots: {} as Record<string, (props:any)=>any>}))
+vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
 const clients: QueryClient[] = []
 afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers()})
 function payload() {
@@ -142,4 +142,27 @@ it("plots running totals that stay flat in quiet intervals for bidders and accou
   fireEvent.click(screen.getByRole("button",{name:"Confirmation time"}))
   fireEvent.click(screen.getByRole("button",{name:"By account"}))
   expect(plotted().map((p:any)=>p["10"])).toEqual([0,3,3,5])
+})
+
+it("offers original interval counts and cumulative totals and marks only value changes", async () => {
+  const base=payload()
+  const points=[{at:"2026-10-12T15:00:00Z",source:"confirmation",counts:{"1":3,"2":1}},
+    {at:"2026-10-12T15:15:00Z",source:"confirmation",counts:{"1":0,"2":0}},
+    {at:"2026-10-12T15:30:00Z",source:"confirmation",counts:{"1":2,"2":1}}]
+  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:points,runs:points,account_confirmations:[],account_runs:[]}})
+  mount();await screen.findByRole("button",{name:"Alex"})
+  const values=()=>JSON.parse(screen.getByTestId("chart-points").getAttribute("data-points")!).map((p:any)=>p["1"])
+  const dot=(index:number)=>probe.dots["1"]({index,cx:20,cy:20,stroke:"cyan"}).type
+  expect(values()).toEqual([0,3,3,5])
+  expect(dot(0)).toBe("g")
+  expect(dot(1)).toBe("circle")
+  expect(dot(2)).toBe("g")
+  expect(dot(3)).toBe("circle")
+  fireEvent.click(screen.getByRole("button",{name:"Per interval"}))
+  expect(values()).toEqual([3,0,2])
+  expect(screen.getByRole("button",{name:"Per interval"}).getAttribute("aria-pressed")).toBe("true")
+  fireEvent.click(screen.getByRole("button",{name:"By day"}))
+  expect(values()).toEqual([5])
+  fireEvent.click(screen.getByRole("button",{name:"Cumulative"}))
+  expect(values()).toEqual([0,5])
 })
