@@ -177,6 +177,16 @@ def today() -> date:
     return datetime.now(ZONE).date()
 
 
+def received_today(conn: sqlite3.Connection) -> int:
+    """Count each confirmation once on its Chicago receipt date, across accounts."""
+    day=today()
+    lower=datetime.combine(day,datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
+    upper=datetime.combine(day+timedelta(days=1),datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
+    return conn.execute("""SELECT COUNT(*) FROM application_receipts
+        WHERE category='application_ack' AND julianday(received_at)>=julianday(?)
+        AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
+
+
 def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None) -> dict:
     sync_receipts(conn)
     start = monday(week or today())

@@ -24,7 +24,7 @@ const sections = [
   { to: "/interviews", label: "Interview", icon: CalendarDays },
   { to: "/interview-processes", label: "Interview processes", icon: UsersRound },
   { to: "/sourcing", label: "Job sourcing", icon: MailCheck },
-  { to: "/payments", label: "Bidder payments", icon: Banknote },
+  { to: "/payments", label: "Bidder management", icon: Banknote },
   { to: "/accounts", label: "Accounts", icon: UsersRound },
   { to: "/settings", label: "Settings", icon: Settings2 },
 ]
@@ -200,7 +200,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="mail-check home"><span className="brand-mark"><MailCheck size={21} /></span><span className="brand-word">mail<span>check</span></span></button>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}{to === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="nav-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}>{bootstrap.counts.applications_today}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
         <div className="sidebar-user"><span className="avatar-mark">m</span><div><strong>mail-check</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
@@ -242,7 +242,7 @@ function Recovery({ message }: { message: string }) {
 }
 
 function ReadyApp() {
-  const { data, isPending, error } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false })
+  const { data, isPending, error } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false, refetchInterval: 60_000 })
   if (isPending) return <Loading />
   if (error) return <Recovery message={error.message} />
   return <Workspace bootstrap={data!} />

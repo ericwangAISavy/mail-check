@@ -177,3 +177,13 @@ describe("live countdown", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("true")
   })
 })
+
+it("shows today's received confirmations beside Bidder management", async () => {
+  vi.mocked(api.bootstrap).mockResolvedValue({readiness:{model:true,accounts:true,privacy_ack:true,outlook:false},counts:{actionable:0,applications_today:37},taxonomy:[],presets:[],last_run:"",account_count:2})
+  vi.spyOn(api,"status").mockResolvedValue(idle)
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>)
+  const badge=await screen.findByLabelText("37 application confirmations received today")
+  expect(badge.closest("a")?.getAttribute("href")).toBe("/payments")
+  expect(badge.closest("a")?.textContent).toContain("Bidder management")
+})

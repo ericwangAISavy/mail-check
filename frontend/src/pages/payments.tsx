@@ -63,7 +63,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   }, onError: (error: Error) => toast(error.message, "error")})
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
   if (query.isPending) return <Loading label="Loading application totals…" />
-  if (query.error) return <div className="page-wrap"><PageHeading title="Bidder payments" /><p role="alert" className="inline-error">{query.error.message}</p><Button onClick={() => void query.refetch()}>Try again</Button></div>
+  if (query.error) return <div className="page-wrap"><PageHeading title="Bidder management" /><p role="alert" className="inline-error">{query.error.message}</p><Button onClick={() => void query.refetch()}>Try again</Button></div>
   const data = query.data!
   const bidders = groupByAccount(data.bidders.filter(b => !selected || b.id === Number(selected)), data.week_start, data.week_end)
   const estimatedDaily = selected ? data.dates.map((_, i) => bidders.reduce((sum, b) => sum + b.daily[i], 0)) : data.daily
@@ -82,7 +82,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     try{await copyPaymentReport(result.text);toast("Weekly payment report copied.","success")}catch(error){setCopyError(error instanceof Error?error.message:"Could not copy the report.")}finally{setCopying(false)}
   }
   return <div className="page-wrap payments-page">
-    <PageHeading title="Bidder payments" description="Weekly totals sum daily estimated confirmations across assigned accounts." action={!readOnly && <Button variant="outline" disabled={refresh.isPending} title="Recheck the last seven Chicago calendar days of stored confirmations and sourcing rows" onClick={() => refresh.mutate()}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />{refresh.isPending ? "Refreshing…" : "Refresh"}</Button>} />
+    <PageHeading title="Bidder management" description="Weekly totals sum daily estimated confirmations across assigned accounts." action={!readOnly && <Button variant="outline" disabled={refresh.isPending} title="Recheck the last seven Chicago calendar days of stored confirmations and sourcing rows" onClick={() => refresh.mutate()}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />{refresh.isPending ? "Refreshing…" : "Refresh"}</Button>} />
     <Card className="payment-controls">
       <div className="payment-week"><Button variant="ghost" size="icon" aria-label="Previous week" onClick={() => { setWeek(moveWeek(data.week_start, -7)); setPaying(null) }}><ArrowLeft /></Button><label><span>Week of</span><input type="date" min="1971-01-01" max="2100-12-31" aria-label="Week of" value={data.week_start} onChange={e => { if (e.target.value) { setWeek(e.target.value); setPaying(null) } }} /></label><Button variant="ghost" size="icon" aria-label="Next week" onClick={() => { setWeek(moveWeek(data.week_start, 7)); setPaying(null) }}><ArrowRight /></Button><Button variant="outline" size="sm" onClick={() => { setWeek(""); setPaying(null) }}>This week</Button></div>
       <label className="payment-bidder-filter"><span>Bidder</span><select value={selected} onChange={e => setSelected(e.target.value)}><option value="">All bidders</option>{data.bidders.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
@@ -118,7 +118,6 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     {data.bidders.length > 0 && <p className="payment-mobile-hint">Swipe the table to see all days and payment status.</p>}
     {!readOnly && data.unassigned > 0 && <p className="payment-unassigned">{data.unassigned.toLocaleString()} confirmations this week have no bidder assignment. <a href="/accounts#bidder-management">Assign their accounts with the correct dates on Accounts</a> to include them.</p>}
     <BidderActivity week={data.week_start} selected={selected} onSelect={setSelected} />
-    <p className="payment-count-note">Daily cells show estimated received confirmations / checked applications. The first number is the proportional receipt estimate. The second number counts checked links on their matching confirmation’s received date in Chicago, even when the links were given earlier. Account assignments use that completion date. Manual or legacy checks without a confirmation timestamp keep their sourcing date. Cards, weekly totals, and new payment records sum the daily estimated confirmations (the first number). Confirmation emails check matching rows from their received day back six days, using company, role when present, and account. Checks never clear automatically. Shared receipts with no matched completions or dated manual checks remain unallocated. Existing payment records remain saved.</p>
 
   </div>
 }

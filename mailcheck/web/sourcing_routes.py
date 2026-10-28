@@ -228,7 +228,7 @@ def install(app, frontend_page, secure_cookies):
                 (book["bidder_id"], body.account_id, day, day),
             ).fetchone():
                 raise HTTPException(
-                    400, "Assign this profile to the bidder on Bidder payments first."
+                    400, "Assign this profile to the bidder on Bidder management first."
                 )
             try:
                 return {

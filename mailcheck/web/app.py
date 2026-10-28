@@ -923,6 +923,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             state = _state(conn, accounts)
             run = db.last_run(conn)
             summary = db.queue_counts(conn, since_iso=_default_since())
+            summary["applications_today"] = payments.received_today(conn)
         return {
             "readiness": {
                 "model": state["llm_ready"],

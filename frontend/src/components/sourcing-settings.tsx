@@ -168,7 +168,7 @@ export default function SourcingSettings({
       <section>
         <h3>Bidder sign-in</h3>
         <p>
-          Create bidders and assign profiles on Bidder payments first. Passwords
+          Create bidders and assign profiles on Bidder management first. Passwords
           need at least 8 characters.
         </p>
         {index.bidders?.map((b) => (

@@ -48,6 +48,16 @@ class PaymentTests(unittest.TestCase):
         self.conn.commit()
         return result
 
+    def test_received_today_uses_chicago_day_and_unique_receipts_across_accounts(self):
+        with patch.object(payments, 'today', return_value=date(2026,10,12)):
+            self.message('before', '2026-10-12T04:59:59Z')
+            self.message('start', '2026-10-12T05:00:00Z')
+            self.message('start', '2026-10-12T05:00:00Z')
+            self.message('end', '2026-10-13T04:59:59Z', account=self.other)
+            self.message('after', '2026-10-13T05:00:00Z')
+            self.message('noise', '2026-10-12T12:00:00Z', category='noise')
+            self.assertEqual(payments.received_today(self.conn), 2)
+
     def test_multi_account_daily_weekly_and_repeated_fetch_counts(self):
         self.assign(); self.assign(account=self.other)
         self.message("one"); self.message("one"); self.message("two", account=self.other)

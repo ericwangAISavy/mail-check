@@ -10,14 +10,9 @@ import {
 } from "react";
 import { UNSAFE_DataRouterContext } from "react-router-dom";
 import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  Bold,
   Check,
   Download,
   Filter,
-  Italic,
   Plus,
   Redo2,
   RefreshCw,
@@ -25,7 +20,6 @@ import {
   Trash2,
   Undo2,
   Upload,
-  WrapText,
 } from "lucide-react";
 import { api, request } from "@/lib/api";
 import {
@@ -689,57 +683,6 @@ export default function SourcingEditor({
             onClick={redo}
           >
             <Redo2 size={16} />
-          </Button>
-        </div>
-        <div className="sheet-toolbar-group">
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Bold"
-            aria-pressed={selectedStyle.bold}
-            disabled={locked || !snapshot}
-            onClick={() => format({ bold: !selectedStyle.bold })}
-          >
-            <Bold size={16} />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Italic"
-            aria-pressed={selectedStyle.italic}
-            disabled={locked || !snapshot}
-            onClick={() => format({ italic: !selectedStyle.italic })}
-          >
-            <Italic size={16} />
-          </Button>
-          {(
-            [
-              ["left", AlignLeft],
-              ["center", AlignCenter],
-              ["right", AlignRight],
-            ] as const
-          ).map(([align, Icon]) => (
-            <Button
-              key={align}
-              size="icon"
-              variant="ghost"
-              aria-label={`Align ${align}`}
-              aria-pressed={selectedStyle.align === align}
-              disabled={locked || !snapshot}
-              onClick={() => format({ align })}
-            >
-              <Icon size={16} />
-            </Button>
-          ))}
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Wrap text"
-            aria-pressed={selectedStyle.wrap}
-            disabled={locked || !snapshot}
-            onClick={() => format({ wrap: !selectedStyle.wrap })}
-          >
-            <WrapText size={16} />
           </Button>
         </div>
         <div className="sheet-toolbar-group">
