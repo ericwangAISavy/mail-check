@@ -100,3 +100,8 @@ button { color: inherit; }
 .password-form > button { justify-self: start; }
 .signed-in-role { color: var(--muted-foreground);  }
 @media (max-width: 700px) { .top-right { flex-wrap: wrap; } .signed-in-role { display: none; } }
+
+/* Content-sized header counter accommodates large daily totals. */
+.header-application-count { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 6px; min-width: max-content; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--accent); color: var(--primary); white-space: nowrap; font-size: 12px; line-height: 1.4; }
+.header-application-count strong { font-variant-numeric: tabular-nums; }
+.header-application-count > span { color: var(--muted-foreground); font-size: 11px; }
