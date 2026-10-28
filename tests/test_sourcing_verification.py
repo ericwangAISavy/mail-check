@@ -286,3 +286,34 @@ class SourcingVerificationTests(unittest.TestCase):
             self.assertEqual(web._job["completion_id"], 1)
             self.assertTrue(web._job["ok"], web._job["detail"])
             self.assertIn("sourcing", web._job["message"])
+
+    def test_payment_page_reconciles_links_registered_after_receipts(self):
+        self.receipt('already-received', 'Acme', '2026-10-21T14:00:00+00:00')
+        self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')", (self.account_id,))
+        self.conn.commit()
+        runs = self.conn.execute('SELECT COUNT(*) FROM sourcing_activity_runs').fetchone()[0]
+        response = self.client.get('/api/payments?week=2026-10-19')
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM sourcing_activity_runs').fetchone()[0], runs)
+        bidder = response.json()['bidders'][0]
+        self.assertEqual(bidder['daily'][2], 1)
+        self.assertEqual(bidder['checked_daily'][2], 1)
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+
+    def test_bounded_refresh_includes_older_links_with_receipts_in_window(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-14')
+        self.receipt('last-valid-day', 'Acme', '2026-10-20T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn, refresh_since=date(2026,10,20), refresh_until=date(2026,10,26))
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+
+    def test_bounded_refresh_keeps_earliest_match_before_reporting_window(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-14')
+        self.receipt('earliest', 'Acme', '2026-10-15T14:00:00+00:00')
+        self.receipt('duplicate', 'Acme', '2026-10-20T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn, refresh_since=date(2026,10,20), refresh_until=date(2026,10,26))
+        self.assertEqual(self.snapshot()['rows'][1][3]['checked_at'], '2026-10-15T14:00:00+00:00')

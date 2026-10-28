@@ -822,6 +822,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/payments")
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
         with db.session() as conn:
+            start = payments.monday(week or payments.today())
+            sourcing_verification.verify_all(conn, refresh_since=start,
+                refresh_until=start + timedelta(days=6), sample=False)
             return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id)
 
     def payment_write(action):

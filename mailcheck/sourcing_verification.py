@@ -88,12 +88,17 @@ def verify(conn, tab, operation, revision, work_date):
         return result
 
 
-def verify_all(conn, *, refresh_since=None, refresh_until=None):
+def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True):
     """Refresh active account sheets against receipts in each row’s seven-day window.
+
+    A bounded refresh includes links from six days before its receipt window.
+    Keep earlier receipts too so reconciliation never shifts an existing match
+    to a later duplicate email. Passive report reads do not create check runs.
 
     Read and update under one write transaction so edits cannot move a job between
     comparison and write. Unchanged cells retain their versions and tab revision.
     """
+    source_since = refresh_since - timedelta(days=6) if refresh_since else None
     with sheets.atomic(conn):
         sync_receipts(conn)
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
@@ -113,7 +118,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None):
             WHERE t.archived=0 AND r.work_date IS NOT NULL
             AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='')""").fetchall()
         if refresh_since:
-            rows = [r for r in rows if refresh_since.isoformat() <= r["work_date"] <= refresh_until.isoformat()]
+            rows = [r for r in rows if source_since.isoformat() <= r["work_date"] <= refresh_until.isoformat()]
         relevant = {(row["account_id"], row["work_date"]) for row in rows}
         matches = {}
         for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''"):
@@ -122,7 +127,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None):
             except (ValueError, TypeError):
                 continue
             received_day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
-            if refresh_since and (received_day < refresh_since or received_day > refresh_until): continue
+            if refresh_since and (received_day < source_since or received_day > refresh_until): continue
             match = match_key(receipt["company"], receipt["role"])
             for offset in range(7):
                 key = (receipt["account_id"], (received_day - timedelta(days=offset)).isoformat())
@@ -131,7 +136,6 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None):
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
-            if refresh_since and not (refresh_since.isoformat() <= row['work_date'] <= refresh_until.isoformat()): continue
             match = receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{})) if (row['link'] or '').strip() else None
             checked = row['checked'] == 'true' or bool(match)
             if match:
@@ -149,7 +153,8 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None):
         conn.executemany("UPDATE native_tabs SET revision=revision+1,updated_at=? WHERE id=?",
             [(time.time(), tab_id) for tab_id in changed_tabs])
         from .sourcing_activity import record
-        record(conn, "global-check", sample=True)
+        if sample:
+            record(conn, "global-check", sample=True)
         return {"tabs": len(tabs), "rows": len(rows), "checked": checked_count, "changed": changed_count}
 
 
