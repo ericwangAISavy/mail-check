@@ -229,3 +229,30 @@ def test_owner_settings_use_original_workspace_even_when_viewing_another_admin(s
         client.headers['x-offerpath-workspace']=wid
         assert client.get('/api/settings').json()['worker']=='secret-legacy'
         assert pool.visited==['legacy']
+
+@pytest.mark.parametrize('method', ['GET', 'POST'])
+def test_disconnected_request_is_not_forwarded_or_reported_as_server_error(system, method):
+    import asyncio
+    app, store, pool = system
+    sent = []
+    messages = iter([
+        {'type': 'http.request', 'body': b'{', 'more_body': True},
+        {'type': 'http.disconnect'},
+    ])
+    async def receive():
+        try:
+            return next(messages)
+        except StopIteration:
+            await asyncio.Event().wait()
+    async def send(message):
+        sent.append(message)
+    scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'},
+        'http_version': '1.1', 'method': method, 'scheme': 'http',
+        'path': '/api/messages/1', 'raw_path': b'/api/messages/1', 'query_string': b'',
+        'root_path': '', 'server': ('testserver', 80), 'client': ('127.0.0.1', 12345),
+        'headers': [(b'host', b'testserver'), (b'x-offerpath-workspace', b'legacy'),
+                    (b'cookie', ('offerpath_session=' + store.owner_token).encode()),
+                    (b'content-length', b'100')]}
+    asyncio.run(app(scope, receive, send))
+    assert pool.visited == []
+    assert [message['status'] for message in sent if message['type'] == 'http.response.start'] == [499]

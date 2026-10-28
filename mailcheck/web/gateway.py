@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import ClientDisconnect
 from pydantic import BaseModel, Field
 
 from .. import config
@@ -77,6 +78,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 await asyncio.to_thread(pool.close)
 
     app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,lifespan=lifespan)
+    @app.exception_handler(ClientDisconnect)
+    async def client_disconnected(request: Request, exc: ClientDisconnect):
+        # A closed tab or cancelled fetch is not an application failure.
+        # The peer is gone; 499 records the cancellation without a traceback.
+        return Response(status_code=499)
+
     app.state.control_store=store;app.state.worker_pool=pool
     hosts={'127.0.0.1','localhost','::1','testserver',*(h.lower() for h in allowed_hosts or [])}
     internal_host=urlparse(gateway_url).hostname
@@ -241,10 +248,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         global_settings=path.startswith(('api/settings','api/rules')) or path.rstrip('/')=='api/autocheck'
         if global_settings and not identity['is_owner']:raise HTTPException(403,'Settings are managed by the owner.')
         target='legacy' if global_settings else identity['workspace_id']
-        try:worker=await asyncio.to_thread(pool.ensure,store.workspace(target))
-        except (RuntimeError,OSError,ValueError):raise HTTPException(503,'This workspace worker is unavailable. Contact the owner or retry later.')
         body=await request.body()
         if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
+        try:worker=await asyncio.to_thread(pool.ensure,store.workspace(target))
+        except (RuntimeError,OSError,ValueError):raise HTTPException(503,'This workspace worker is unavailable. Contact the owner or retry later.')
         # Revalidate after potentially slow body reads and worker startup.
         # A reset, suspension, logout or workspace switch may have completed
         # since the initial middleware check.
