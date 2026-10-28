@@ -1,5 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="8" fill="#06151e"/>
-  <path d="M24 18a9 9 0 1 1-9-10l10-3m-6-2 6 2-2 6" stroke="#00cfff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="24" cy="18" r="1.6" fill="#00cfff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="6" y1="2" x2="58" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173749"/>
+      <stop offset=".55" stop-color="#0A1C2B"/>
+      <stop offset="1" stop-color="#070F1E"/>
+    </linearGradient>
+    <linearGradient id="path" x1="13" y1="49" x2="48" y2="15" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3485FF"/>
+      <stop offset=".5" stop-color="#18C7ED"/>
+      <stop offset="1" stop-color="#8AF5EA"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="7" y1="0" x2="54" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8CD9EF" stop-opacity=".48"/>
+      <stop offset=".5" stop-color="#5DA7C7" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#35618A" stop-opacity=".32"/>
+    </linearGradient>
+  </defs>
+  <rect x=".5" y=".5" width="63" height="63" rx="17.5" fill="url(#tile)" stroke="url(#rim)"/>
+  <path d="M31 14a18 18 0 1 0 19 19" stroke="url(#path)" stroke-width="7" stroke-linecap="round"/>
+  <path d="m30 34 18-18M36 16h12v12" stroke="url(#path)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.1.3 — 2026-10-28
+
+Refined OfferPath identity
+
+- Refined the OfferPath icon with a sculpted ascending-path mark, a navy tile, and a cyan-to-blue finish across the app and browser tab.
+
 ## 2.1.2 — 2026-10-28
 
 Consistent light and dark themes
