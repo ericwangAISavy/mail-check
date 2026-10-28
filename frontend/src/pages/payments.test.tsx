@@ -113,11 +113,11 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   expect(screen.getByText("Estimated confirmations this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })
 
-it("Refresh reconciles seven days and refreshes sourcing views", async () => {
+it("Refresh uses the displayed week and refreshes sourcing views", async () => {
   const dispatch = vi.spyOn(window, "dispatchEvent")
   mount(); await screen.findByRole("rowheader", {name: /Alex/})
-  fireEvent.click(screen.getByRole("button", {name:"Refresh"}))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {}))
+  fireEvent.click(screen.getByRole("button", {name:"Refresh this week"}))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"refresh"}))
   await waitFor(() => expect(dispatch.mock.calls.some(([event]) => event.type === "mailcheck:check-completed")).toBe(true))
 })
 it("sums daily estimated confirmations for the weekly total even when checked counts differ",async()=>{
@@ -185,4 +185,10 @@ it('defaults the blue confirmed amount to the estimate until manually changed',a
  expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$18.54 / $18.54')
  expect(within(row).getByRole('button',{name:/Edit confirmed payment for Alex/}).className).toContain('payment-confirmed')
  expect(within(row).queryByText(/Calculated amount|Paid ·|Manual amount|previous values|×/)).toBeNull()
+})
+
+it("offers full rebuild for the displayed week", async () => {
+  mount(); await screen.findByRole("rowheader", {name:/Alex/})
+  fireEvent.click(screen.getByRole("button", {name:"Fully rebuild this week"}))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"rebuild"}))
 })

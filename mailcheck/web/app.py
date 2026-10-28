@@ -127,6 +127,11 @@ class OwnPasswordBody(BaseModel):
     password: str = Field(min_length=8,max_length=256)
 
 
+class MetricsRefreshBody(BaseModel):
+    week: date | None = Field(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))
+    mode: Literal["refresh", "rebuild"] = "refresh"
+
+
 class CheckBody(BaseModel):
     mode: Literal["mail", "calendar"] = "mail"
     account: str | None = None
@@ -806,12 +811,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
 
     @app.post("/api/payments/refresh")
-    def refresh_application_metrics():
-        last = payments.today()
-        first = last - timedelta(days=6)
+    def refresh_application_metrics(body: MetricsRefreshBody):
+        first = payments.monday(body.week or payments.today())
+        last = first + timedelta(days=6)
         with db.session() as conn:
-            result = sourcing_verification.verify_all(conn,refresh_since=first,refresh_until=last)
-        return {"ok":True,"from":first.isoformat(),"through":last.isoformat(),**result}
+            result = sourcing_verification.verify_all(conn, refresh_since=first, refresh_until=last,
+                week_only=True, rebuild=body.mode == "rebuild", sample=False)
+            report = payments.report(conn, first, admin=True)
+        return {"ok":True,"mode":body.mode,"from":first.isoformat(),"through":last.isoformat(),
+            "estimated":sum(report["daily"]),"completed":sum(report["checked_daily"]),**result}
 
     @app.get("/api/payments/activity")
     def bidder_activity(request: Request, day: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 30)), week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
@@ -824,7 +832,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             start = payments.monday(week or payments.today())
             sourcing_verification.verify_all(conn, refresh_since=start,
-                refresh_until=start + timedelta(days=6), sample=False)
+                refresh_until=start + timedelta(days=6), sample=False, week_only=True)
             return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id)
 
     def payment_write(action):

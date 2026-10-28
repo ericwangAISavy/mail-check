@@ -88,7 +88,7 @@ def verify(conn, tab, operation, revision, work_date):
         return result
 
 
-def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True):
+def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, week_only=False, rebuild=False):
     """Refresh active account sheets against receipts in each row’s seven-day window.
 
     A bounded refresh includes links from six days before its receipt window.
@@ -98,13 +98,22 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True):
     Read and update under one write transaction so edits cannot move a job between
     comparison and write. Unchanged cells retain their versions and tab revision.
     """
+    if (week_only or rebuild) and (not refresh_since or not refresh_until):
+        raise ValueError("A week is required for a scoped refresh.")
+    def in_week(stamp):
+        if not stamp:
+            return False
+        received = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+        day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
+        return refresh_since <= day <= refresh_until
     source_since = refresh_since - timedelta(days=6) if refresh_since else None
     with sheets.atomic(conn):
-        sync_receipts(conn)
+        sync_receipts(conn, since=refresh_since if week_only else None, until=refresh_until if week_only else None)
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
-            JOIN accounts a ON a.id=t.account_id WHERE t.archived=0""")}
+            JOIN accounts a ON a.id=t.account_id WHERE t.archived=0 OR ?""", (week_only,))}
         rows = conn.execute("""SELECT r.id,r.tab_id,r.work_date,t.account_id,check_col.id AS check_column,
-            company.value AS company,role.value AS role,link.value AS link,checked.value AS checked
+            company.value AS company,role.value AS role,link.value AS link,checked.value AS checked,
+            e.confirmed_at,e.source AS check_source
             FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id
             JOIN accounts a ON a.id=t.account_id
             JOIN native_columns company_col ON company_col.tab_id=t.id AND company_col.kind='company'
@@ -115,10 +124,12 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True):
             LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=role_col.id
             LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=link_col.id
             LEFT JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id
-            WHERE t.archived=0 AND r.work_date IS NOT NULL
-            AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='')""").fetchall()
+            LEFT JOIN sourcing_check_activity e ON e.row_id=r.id
+            WHERE (t.archived=0 OR ?) AND (r.work_date IS NOT NULL OR (? AND e.confirmed_at IS NOT NULL))
+            AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='' OR e.confirmed_at IS NOT NULL)""", (week_only, week_only)).fetchall()
         if refresh_since:
-            rows = [r for r in rows if source_since.isoformat() <= r["work_date"] <= refresh_until.isoformat()]
+            rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"] <= refresh_until.isoformat())
+                    or (week_only and in_week(r["confirmed_at"]))]
         relevant = {(row["account_id"], row["work_date"]) for row in rows}
         matches = {}
         for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''"):
@@ -137,10 +148,28 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True):
         checked_count = changed_count = 0
         for row in rows:
             match = receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{})) if (row['link'] or '').strip() else None
+            if week_only:
+                # Source dates can precede the receipt week. Never rewrite a
+                # completion already attributed to another accounting week.
+                if row['confirmed_at'] and not in_week(row['confirmed_at']):
+                    continue
+                sourced_in_week = bool(row['work_date'] and
+                    refresh_since.isoformat() <= row['work_date'] <= refresh_until.isoformat())
+                if row['checked'] == 'true' and not row['confirmed_at'] and not sourced_in_week:
+                    continue
+                if match and not in_week(match[0]):
+                    match = None
+                if not match and not in_week(row['confirmed_at']) and not sourced_in_week:
+                    continue
             checked = row['checked'] == 'true' or bool(match)
+            if rebuild and not match and row['check_source'] == 'confirmation' and in_week(row['confirmed_at']):
+                checked = False
+                conn.execute("UPDATE sourcing_check_activity SET confirmed_at=NULL,message_id=NULL,source='rebuild-cleared' WHERE row_id=?", (row['id'],))
             if match:
                 from .sourcing_activity import confirm
                 confirm(conn,row['id'],*match)
+                if row['confirmed_at'] != match[0].isoformat():
+                    changed_tabs.add(row['tab_id'])
             checked_count += int(checked)
             value = str(checked).lower()
             if row["checked"] == value:

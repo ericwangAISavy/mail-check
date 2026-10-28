@@ -119,3 +119,21 @@ the OS credential store intact: mailbox passwords and OAuth refresh tokens are
 not exported to SQLite or configuration backups. Moving to another machine may
 require reconnecting mail accounts. The original-workspace activation snapshot
 is a rollback checkpoint, not a replacement for ongoing backups.
+
+## Refreshing bidder counts
+
+Bidder management provides two actions for the displayed Monday–Sunday week in
+America/Chicago. **Refresh this week** adds/repairs matching stored confirmations
+and recalculates estimates without removing existing checks. **Fully rebuild this
+week** also clears automatic checks in that week whose supporting match no longer
+exists. Both include archived sheets that contribute to accounting and older
+sourcing dates whose completion falls in the selected week. Neither action
+fetches new mail, reclassifies messages, deletes retained confirmation receipts,
+rewrites historical check-run samples, or changes recorded payment amounts.
+Use Check now first when new mailbox messages are needed.
+
+Manual checks with recorded manual/baseline provenance remain protected, including
+manual checks that later acquire an automatic confirmation match. Older releases
+could overwrite that provenance with `confirmation`; the original manual origin
+of those older records cannot be reconstructed reliably. Use **Refresh this week**
+when every historical check must be retained.

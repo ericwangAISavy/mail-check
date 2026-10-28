@@ -46,13 +46,20 @@ def confirm(conn, row_id, received, message_id):
     conn.execute("""INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source,confirmed_at,message_id)
         VALUES(?,?,?,?,?,'confirmation',?,?) ON CONFLICT(row_id) DO UPDATE SET
         confirmed_at=excluded.confirmed_at,message_id=excluded.message_id,account_id=excluded.account_id,
-        bidder_id=excluded.bidder_id,work_date=excluded.work_date,source='confirmation'""",
+        bidder_id=excluded.bidder_id,work_date=excluded.work_date,
+        source=CASE WHEN sourcing_check_activity.source IN ('confirmation','rebuild-cleared')
+          THEN 'confirmation' ELSE 'manual-confirmation' END""",
         (row_id,row['bidder_id'],row['account_id'],row['work_date'],now().isoformat(),received.isoformat(),message_id))
 
 
 def record(conn, source, *, sample=False):
     stamp = now().isoformat()
     added = {}
+    if source == "manual-edit":
+        # A manual recheck after a rebuild must not inherit automatic provenance.
+        conn.execute("""UPDATE sourcing_check_activity SET source='manual-edit',detected_at=?
+            WHERE source='rebuild-cleared' AND row_id IN (SELECT c.row_id FROM native_cells c
+            JOIN native_columns col ON col.id=c.column_id WHERE col.kind='check' AND c.value='true')""", (stamp,))
     for row in conn.execute(_CHECKED_ROWS + " AND t.archived=0 AND NOT EXISTS(SELECT 1 FROM sourcing_check_activity e WHERE e.row_id=r.id)").fetchall():
         conn.execute("INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source) VALUES(?,?,?,?,?,?)",
                      (row['row_id'],row['bidder_id'],row['account_id'],row['work_date'],stamp,source))

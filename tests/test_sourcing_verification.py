@@ -263,7 +263,7 @@ class SourcingVerificationTests(unittest.TestCase):
         with patch.object(payments,'today',return_value=date(2026,10,22)):
             response = self.client.post('/api/payments/refresh',json={})
         self.assertEqual(response.status_code,200,response.text)
-        self.assertEqual(response.json()['from'],'2026-10-16')
+        self.assertEqual(response.json()['from'],'2026-10-19')
         refreshed = self.snapshot()
         self.assertEqual(refreshed['rows'][1][3]['value'],'true')
         self.assertEqual(refreshed['rows'][1][3]['checked_at'],"2026-10-21T14:23:00+00:00")
@@ -317,3 +317,111 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         verification.verify_all(self.conn, refresh_since=date(2026,10,20), refresh_until=date(2026,10,26))
         self.assertEqual(self.snapshot()['rows'][1][3]['checked_at'], '2026-10-15T14:00:00+00:00')
+
+    def test_selected_week_refresh_and_rebuild_preserve_manual_and_adjacent_week(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        target = self.receipt('target', 'Acme', '2026-10-21T14:00:00+00:00')
+        outside = self.receipt('outside', 'Beta', '2026-10-27T04:00:00+00:00')
+        base = self.snapshot()
+        self.native.save(self.conn, self.tab(), 'manual-other', [{
+            'row_id': base['row_ids'][3], 'column_id': base['columns'][3]['id'],
+            'expected_version': base['rows'][3][3]['version'], 'value': 'true'}])
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        db.save_classification(self.conn, target, Classification(category='other', company='Acme'), 'test', '1')
+        db.save_classification(self.conn, outside, Classification(category='other', company='Beta'), 'test', '1')
+        self.conn.commit()
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-21', 'mode':'refresh'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual((response.json()['from'], response.json()['through']), ('2026-10-19', '2026-10-25'))
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(response.status_code, 200, response.text)
+        after = self.snapshot()
+        self.assertEqual([r[3]['value'] for r in after['rows'][1:4]], ['false', 'true', 'true'])
+        self.assertEqual(after['rows'][1][3]['checked_at'], None)
+        again = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(again.json()['changed'], 0)
+
+    def test_manual_check_remains_manual_after_matching_and_rebuild(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        base = self.snapshot()
+        self.native.save(self.conn, self.tab(), 'manual-acme', [{
+            'row_id': base['row_ids'][1], 'column_id': base['columns'][3]['id'],
+            'expected_version': base['rows'][1][3]['version'], 'value': 'true'}])
+        pk = self.receipt('manual-match', 'Acme', '2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        event = self.conn.execute('SELECT source FROM sourcing_check_activity WHERE row_id=?', (base['row_ids'][1],)).fetchone()
+        self.assertEqual(event['source'], 'manual-confirmation')
+        db.save_classification(self.conn, pk, Classification(category='other', company='Acme'), 'test', '1')
+        self.conn.commit()
+        self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+
+    def test_week_refresh_leaves_other_week_receipt_metadata_untouched(self):
+        self.receipt('outside-metadata', 'Acme', '2026-10-28T14:00:00+00:00')
+        self.conn.execute("UPDATE application_receipts SET company='Retained outside metadata' WHERE message_id='outside-metadata'")
+        self.conn.commit()
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(response.status_code, 200, response.text)
+        receipt = self.conn.execute("SELECT company FROM application_receipts WHERE message_id='outside-metadata'").fetchone()
+        self.assertEqual(receipt['company'], 'Retained outside metadata')
+
+    def test_week_rebuild_includes_archived_sheets_in_payment_counts(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        pk = self.receipt('archived', 'Acme', '2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        self.conn.execute('UPDATE native_tabs SET archived=1 WHERE id=?', (self.tab_id,))
+        db.save_classification(self.conn, pk, Classification(category='other', company='Acme'), 'test', '1')
+        self.conn.commit()
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(response.status_code, 200, response.text)
+        cell = self.conn.execute('SELECT c.value FROM native_cells c JOIN native_columns col ON col.id=c.column_id WHERE c.row_id=? AND col.kind=\'check\'', (self.snapshot()['row_ids'][1],)).fetchone()
+        self.assertEqual(cell['value'], 'false')
+
+    def test_week_rebuild_preserves_saved_payment_and_rejects_invalid_scope(self):
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(1,'2026-10-19',42,12345,'2026-10-26T12:00:00+00:00','Saved payment')")
+        self.conn.commit()
+        before = dict(self.conn.execute('SELECT * FROM bidder_payments').fetchone())
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(dict(self.conn.execute('SELECT * FROM bidder_payments').fetchone()), before)
+        for body in ({'week':'invalid'}, {'week':'1900-01-01'}, {'mode':'delete'}):
+            self.assertEqual(self.client.post('/api/payments/refresh', json=body).status_code, 422)
+
+    def test_week_rebuild_repairs_stale_confirmation_even_if_row_became_undated(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        pk = self.receipt('undated-stale', 'Acme', '2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        row_id = self.snapshot()['row_ids'][1]
+        self.conn.execute('UPDATE native_rows SET work_date=NULL WHERE id=?', (row_id,))
+        db.save_classification(self.conn, pk, Classification(category='other', company='Acme'), 'test', '1')
+        self.conn.commit()
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.assertEqual(response.status_code, 200, response.text)
+        event = self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?', (row_id,)).fetchone()
+        self.assertIsNone(event['confirmed_at'])
+        self.assertEqual(event['source'], 'rebuild-cleared')
+
+    def test_week_rebuild_does_not_break_future_check_run_activity_cursor(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')", (self.account_id,))
+        pk = self.receipt('before-rebuild', 'Acme', '2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        db.save_classification(self.conn, pk, Classification(category='other', company='Acme'), 'test', '1')
+        self.conn.commit()
+        self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
+        self.receipt('after-rebuild', 'Beta', '2026-10-21T15:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn)
+        sample = self.conn.execute('SELECT new_checks FROM sourcing_activity_samples WHERE bidder_id=1 ORDER BY run_id DESC LIMIT 1').fetchone()
+        self.assertEqual(sample['new_checks'], 1)

@@ -156,17 +156,27 @@ def edit_payment(conn,bidder_id,body):
     conn.execute('INSERT INTO bidder_payment_edits(payment_id,edited_at,before_json,after_json) VALUES(?,?,?,?)',(previous['id'],datetime.now(timezone.utc).isoformat(),json.dumps(previous),json.dumps(updated)))
 
 
-def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None) -> None:
+def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, since: date | None = None, until: date | None = None) -> None:
     """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
+    scope = ""
+    parameters = [message_pk] if message_pk is not None else []
+    if since is not None and until is not None:
+        lower = datetime.combine(since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+        upper = datetime.combine(until + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+        scope = """ AND ((julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?)
+            AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?)) OR EXISTS (
+            SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
+            AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?))) """
+        parameters.extend((lower, upper, lower, upper))
     conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
         SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,'')
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category = 'application_ack' OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
-        """ + (" AND m.id=? " if message_pk is not None else "") + """
+        """ + (" AND m.id=? " if message_pk is not None else "") + scope + """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role""", (message_pk,) if message_pk is not None else ())
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role""", parameters)
 
 
 def monday(value: date) -> date:
@@ -188,9 +198,9 @@ def received_today(conn: sqlite3.Connection) -> int:
 
 
 def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None) -> dict:
-    sync_receipts(conn)
     start = monday(week or today())
     end = start + timedelta(days=6)
+    sync_receipts(conn, since=start, until=end)
     dates = [(start + timedelta(days=i)).isoformat() for i in range(7)]
     # Bound in UTC, then bucket in the accounting timezone, including DST days.
     lower = datetime.combine(start, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
