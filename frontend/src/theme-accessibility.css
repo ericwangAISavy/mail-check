@@ -1,0 +1,96 @@
+/* Shared theme states. These affect presentation only, never account identity. */
+:root {
+  color-scheme: dark;
+  --scrollbar-track: #071018;
+  --scrollbar-thumb: #456375;
+  --scrollbar-thumb-hover: #5a7b90;
+  --destructive-foreground: #2e0b16;
+  --selection-bg: #163c50;
+  --payment-blue: #4ab2ff;
+  --activity-color-0: #00cfff;
+  --activity-color-1: #a78bfa;
+  --activity-color-2: #34d399;
+  --activity-color-3: #fbbf24;
+  --activity-color-4: #f472b6;
+  --activity-color-5: #60a5fa;
+  --activity-color-6: #fb923c;
+  --category-color-0: #00cfff;
+  --category-color-1: #6b7dff;
+  --category-color-2: #b45cff;
+  --category-color-3: #28e1ff;
+  --category-color-4: #d568ff;
+  --category-color-5: #5798f5;
+  --category-color-6: #e6b76b;
+  --category-color-7: #8ea7bd;
+  --category-color-8: #827bdc;
+  --category-color-9: #729ec1;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --primary: #006c91;
+  --ring: #006c91;
+  --input: #6893aa;
+  --glow: rgba(0,108,145,.04);
+  --scrollbar-track: #edf3fa;
+  --scrollbar-thumb: #71879b;
+  --scrollbar-thumb-hover: #566c80;
+  --destructive-foreground: #ffffff;
+  --selection-bg: #bce5f6;
+  --payment-blue: #0764b1;
+  --activity-color-0: #006c91;
+  --activity-color-1: #7748bd;
+  --activity-color-2: #087c61;
+  --activity-color-3: #946005;
+  --activity-color-4: #b3296b;
+  --activity-color-5: #2864c8;
+  --activity-color-6: #ae4f08;
+  --category-color-0: #006c91;
+  --category-color-1: #4458c6;
+  --category-color-2: #7944c8;
+  --category-color-3: #0b6e80;
+  --category-color-4: #a136a6;
+  --category-color-5: #2864a8;
+  --category-color-6: #8a6014;
+  --category-color-7: #50617a;
+  --category-color-8: #6256a1;
+  --category-color-9: #35637f;
+}
+/* Standards-based colors work in Firefox and modern Chromium. WebKit rules
+   provide the same design where the standardized properties are unavailable. */
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+::-webkit-scrollbar { width:10px; height:10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background:var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { min-height:32px; border:2px solid var(--scrollbar-track); border-radius:10px; background:var(--scrollbar-thumb); }
+::-webkit-scrollbar-thumb:hover { background:var(--scrollbar-thumb-hover); }
+.sidebar { overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; }
+:root body, :root :is(input,select,textarea) { color-scheme:inherit; }
+:root ::selection { color:var(--foreground); background:var(--selection-bg); }
+:root :is(input,textarea)::placeholder { color:var(--muted-foreground); opacity:1; }
+:root :is(input[type="checkbox"],input[type="radio"]) { accent-color:var(--primary); }
+:root body :is(button,a,summary,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--ring); outline-offset:3px; }
+:root body .outlook-calendar :is(button,input,select):focus-visible { outline-offset:-2px; }
+:root[data-theme="light"] .btn[data-variant="default"] { box-shadow:0 1px 2px #10243914; }
+:root[data-theme="light"] .btn[data-variant="default"]:hover:not(:disabled) { box-shadow:0 2px 5px #1024391a; }
+:root .btn[data-variant="destructive"] { color:var(--destructive-foreground); border-color:var(--destructive); }
+:root .btn[data-variant="default"]:hover:not(:disabled) { background:color-mix(in srgb,var(--primary) 88%,var(--foreground)); }
+:root .btn[data-variant="destructive"]:hover:not(:disabled) { background:color-mix(in srgb,var(--destructive) 90%,var(--surface)); color:var(--destructive-foreground); }
+:root[data-theme="light"] .release-category-new { --release-color:#087c61; }
+:root[data-theme="light"] .release-category-improved { --release-color:#006c91; }
+:root[data-theme="light"] .release-category-fixed { --release-color:#946005; }
+:root[data-theme="light"] .release-category-performance { --release-color:#7748bd; }
+@media (max-width:700px) {
+  .sidebar .brand-header { padding-inline:12px; gap:6px; }
+  .sidebar .brand-header .brand-lockup { gap:8px; }
+  .sidebar .brand-word { font-size:21px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  html { scroll-behavior:auto; }
+  *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
+@media (forced-colors:active) {
+  * { scrollbar-color:auto; scrollbar-width:auto; }
+  ::-webkit-scrollbar { width:revert; height:revert; }
+  ::-webkit-scrollbar-thumb { background:ButtonText; border-color:Canvas; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background:Canvas; }
+  :root body :is(button,a,summary,input,select,textarea,[tabindex]):focus-visible { outline-color:Highlight; }
+}

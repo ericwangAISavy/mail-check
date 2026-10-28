@@ -3,14 +3,41 @@
 .brand-version { flex:none; padding:4px 5px; color:var(--primary); border:1px solid var(--border); border-radius:5px; background:transparent; font-size:11px; white-space:nowrap; cursor:pointer; }
 .brand-version:hover { background:var(--accent); }
 .brand-version:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
-.release-history { width:min(680px,calc(100vw - 32px)); max-height:85dvh; display:flex; flex-direction:column; }
-.release-history-entries { overflow-y:auto; min-height:0; }
-.release-history article { padding:16px 0; border-top:1px solid var(--border); }
-.release-history article header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
-.release-history h3 { margin:0; color:var(--primary); }
-.release-history time { font-size:12px; color:var(--muted-foreground); }
-.release-history ul { padding-left:20px; margin:10px 0 0; }
-.release-history li { margin:7px 0; line-height:1.5; }
+.release-history { width:min(760px,calc(100vw - 32px)); max-height:85dvh; display:flex; flex-direction:column; gap:0; padding:24px; }
+.release-history-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding-right:28px; flex:none; }
+.release-history-heading h2 { margin:0 0 4px; }
+.release-history-heading p { margin:0; color:var(--muted-foreground); line-height:1.5; }
+.release-current { flex:none; padding:4px 8px; border:1px solid color-mix(in srgb,var(--primary) 30%,transparent); border-radius:6px; color:var(--primary); background:color-mix(in srgb,var(--primary) 7%,transparent); font-size:12px; font-weight:600; white-space:nowrap; }
+.release-legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin:18px 0; padding-bottom:16px; border-bottom:1px solid var(--border); flex:none; }
+.release-category { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--muted-foreground); }
+.release-category-new { --release-color:#34d399; }
+.release-category-improved { --release-color:#22d3ee; }
+.release-category-fixed { --release-color:#fbbf24; }
+.release-category-performance { --release-color:#a78bfa; }
+.release-dot { display:block; flex:none; width:7px; height:7px; border-radius:50%; background:var(--release-color); box-shadow:0 0 0 3px color-mix(in srgb,var(--release-color) 10%,transparent); }
+.release-history-entries { overflow-y:auto; min-height:0; padding-right:6px; scrollbar-gutter:stable; }
+.release-history .release-entry { padding:18px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; background:color-mix(in srgb,var(--foreground) 2%,transparent); }
+.release-history .release-entry:last-child { margin-bottom:0; }
+.release-history .release-entry-latest { border-color:color-mix(in srgb,var(--primary) 40%,var(--border)); }
+.release-entry header { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+.release-version { display:flex; align-items:center; gap:10px; }
+.release-history h3 { margin:0; color:var(--primary); font-size:20px; }
+.release-latest { padding:2px 7px; font-size:11px; font-weight:600; border-radius:4px; background:color-mix(in srgb,var(--primary) 12%,transparent); color:var(--primary); }
+.release-entry time { font-size:12px; color:var(--muted-foreground); white-space:nowrap; }
+.release-title { margin:9px 0 15px; font-size:15px; font-weight:600; line-height:1.5; }
+.release-history .release-change-list { list-style:none; padding:0; margin:0; display:grid; gap:0; }
+.release-history .release-change { display:flex; align-items:flex-start; gap:13px; padding:12px 0; margin:0; border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent); }
+.release-change .release-dot { margin-top:6px; }
+.release-change > div { min-width:0; }
+.release-change-type { display:block; font-size:11px; font-weight:650; letter-spacing:.04em; color:var(--muted-foreground); margin-bottom:3px; }
+.release-note { margin:0; font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
+@media (max-width:600px) {
+  .release-history { padding:18px; max-height:90dvh; }
+  .release-history-heading { display:block; }
+  .release-current { display:inline-block; margin-top:10px; }
+  .release-history .release-entry { padding:14px; }
+  .release-entry header { align-items:flex-start; flex-wrap:wrap; gap:6px; }
+}
 .sidebar-collapsed .sidebar .brand-header { flex-direction:column; justify-content:center; gap:2px; padding:0; }
 .sidebar-collapsed .sidebar .brand-header .brand-lockup { flex:none; height:38px; }
 .sidebar-collapsed .brand-version { font-size:9px; padding:1px 3px; }

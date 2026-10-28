@@ -120,7 +120,7 @@ it("uses the same series color for filtered chart legends", async () => {
   mount(); await screen.findByText("Messages collected")
   const legend = document.querySelector(".chart-legend")!
   const button = within(legend as HTMLElement).getByRole("button", { name: /Rejection/ })
-  expect((button.querySelector("span") as HTMLElement).style.backgroundColor).toBe("rgb(107, 125, 255)")
+  expect((button.querySelector("span") as HTMLElement).style.backgroundColor).toBe("var(--category-color-1)")
 })
 it("does not fetch admin account details for a guest", async () => {
   mount("/dashboard", true); await screen.findByText("Messages collected")

@@ -122,8 +122,8 @@
 }
 
 .payment-amount-pair { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.payment-confirmed { color: #26a9ff; font-weight: 600; }
+.payment-confirmed { color: var(--payment-blue); font-weight: 600; }
 .payment-confirmed-edit { background: none; border: 0; padding: 3px 2px; font: inherit; font-weight: 600; cursor: pointer; border-radius: 3px; }
 .payment-confirmed-edit:hover { text-decoration: underline; }
-.payment-confirmed-edit:focus-visible { outline: 2px solid #26a9ff; outline-offset: 3px; }
+.payment-confirmed-edit:focus-visible { outline: 2px solid var(--payment-blue); outline-offset: 3px; }
 .payment-confirmed-edit:disabled { cursor: default; }

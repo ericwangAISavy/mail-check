@@ -589,9 +589,9 @@
 }
 .sheet-days input {
   width: 126px;
-  color-scheme: dark;
+  color-scheme: inherit;
 }
-.light .sheet-days input {
+:root[data-theme="light"] .sheet-days input {
   color-scheme: light;
 }
 .sheet-days button[aria-pressed="true"] {

@@ -12,7 +12,7 @@ type Bidder = { id: number; name: string; hourly: number[]; daily: number[]; hea
 type TimelinePoint = { at: string; source: string; counts: Record<string, number> }
 type Workday = {date: string; start: string; end: string; confirmations: TimelinePoint[]; account_confirmations: TimelinePoint[]; runs: TimelinePoint[]; account_runs: TimelinePoint[]}
 type ActivityData = { workday?: Workday; dates: string[]; tracking_since: string | null; timezone: string; check_count?: number; bidders: Bidder[]; accounts?: Bidder[]; account_timeline?: TimelinePoint[]; confirmation_timeline?: TimelinePoint[]; account_confirmation_timeline?: TimelinePoint[]; timeline: TimelinePoint[] }
-const colors = ["#00cfff", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#60a5fa", "#fb923c"]
+const colors = Array.from({length:7},(_,index)=>`var(--activity-color-${index})`)
 function chartDate(value: unknown): Date | null {
   if (value === null || value === undefined || value === "" || (typeof value !== "string" && typeof value !== "number")) return null
   const stamp = typeof value === "number" ? value : /^\d{11,}$/.test(value) ? Number(value) : Date.parse(value)

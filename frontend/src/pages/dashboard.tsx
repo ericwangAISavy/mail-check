@@ -13,7 +13,7 @@ import { Reader } from "@/pages/triage"
 import { useDoneMutation } from "@/components/common"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
-const colors = ["#00cfff", "#6b7dff", "#b45cff", "#28e1ff", "#d568ff", "#5798f5", "#e6b76b", "#8ea7bd", "#827bdc", "#729ec1"]
+const colors = Array.from({length:10},(_,index)=>`var(--category-color-${index})`)
 const isoToday = () => new Intl.DateTimeFormat("en-CA").format(new Date())
 const localCalendarDate = (value: string) => {
   const [year, month, day] = value.slice(0, 10).split("-").map(Number)

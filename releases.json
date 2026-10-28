@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.1.2",
+    "date": "2026-10-28",
+    "title": "Consistent light and dark themes",
+    "changes": [
+      "Improved shared scrollbars, keyboard focus, form controls, selection colors, and theme-specific chart contrast.",
+      "Fixed light-mode calendar colors and date-input styling while preserving each account's calendar color identity."
+    ]
+  },
+  {
+    "version": "2.1.1",
+    "date": "2026-10-28",
+    "title": "Clearer version history",
+    "changes": [
+      "Improved release history with colored category dots, readable labels, clearer release cards, and a latest-version highlight."
+    ]
+  },
+  {
     "version": "2.1.0",
     "date": "2026-10-28",
     "title": "OfferPath workspace release",
