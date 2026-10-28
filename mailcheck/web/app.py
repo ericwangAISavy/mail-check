@@ -533,7 +533,9 @@ def _scheduler() -> None:
 # ----------------------------------------------------------------------------- app
 
 
-def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False) -> FastAPI:
+def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None) -> FastAPI:
+    if worker_secret is not None and not worker_secret:
+        raise ValueError("A private workspace worker requires an authentication secret.")
     app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
@@ -584,6 +586,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.middleware("http")
     async def same_origin_only(request: Request, call_next):
+        if worker_secret:
+            import hmac
+            if not hmac.compare_digest(request.headers.get("x-offerpath-worker", ""), worker_secret):
+                return _err("Internal workspace access denied.", 403)
+            if request.url.path.startswith("/api/auth/"):
+                return _err("Authentication is managed by the workspace gateway.", 403)
         # DNS rebinding: a page on an attacker's domain that resolves to
         # 127.0.0.1 makes same-origin GETs to this server, and the Origin check
         # below never sees them. Its requests still carry the attacker's Host.
@@ -599,7 +607,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         path = request.url.path
         public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
         try:
-            identity = auth.identity(request.cookies.get(COOKIE))
+            identity = {"role":"admin", "bidder_id":None} if worker_secret else auth.identity(request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder":
                 with db.session() as conn:
                     enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (identity["bidder_id"],)).fetchone()
@@ -629,6 +637,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "DENY"
         return response
+
+    @app.get("/_internal/ready")
+    def workspace_ready():
+        return {"ok": True}
 
     @app.get("/login")
     def login_page():

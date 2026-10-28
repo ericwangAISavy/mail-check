@@ -11,6 +11,7 @@ from typing import Callable
 import httpx
 
 from ..config import LLMConfig, ollama_root
+from .workspace_queue import shared_model_slot
 
 
 class LLMError(RuntimeError):
@@ -211,6 +212,7 @@ class LLMClient:
                 return int(ctx) if isinstance(ctx, (int, float)) else 0
         return 0
 
+    @shared_model_slot
     def _load(self) -> None:
         """Load the model with an empty chat request, which generates nothing."""
         started = time.monotonic()
@@ -229,6 +231,7 @@ class LLMClient:
             # refused connections and the rest with their proper category.
             return
 
+    @shared_model_slot
     def complete(self, system: str, user: str, *, json_mode: bool | None = None,
                  max_tokens: int = 2048, deadline: float | None = None) -> Completion:
         if json_mode is None:

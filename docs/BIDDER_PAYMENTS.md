@@ -1,5 +1,10 @@
 # Bidder payments
 
+> In owner-managed mode, only the owner and admins sign in. Each admin has an
+> isolated workspace; bidders are managed records. Any bidder-login permissions
+> described below apply only to the legacy standalone compatibility mode. See
+> [Multi-admin workspaces and rollback](MULTI_ADMIN.md).
+
 Open **Bidder payments** in the sidebar. Admins manage bidders, account assignments,
 and payment records. Named bidders use their individual sign-in to view their own
 daily and weekly totals and recorded payment amounts. Bidder writes are rejected by

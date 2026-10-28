@@ -43,7 +43,7 @@ class FrontendApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-store", response.headers.get("cache-control", ""))
-        self.assertIn("Starting mail-check", response.text)
+        self.assertIn("Starting OfferPath", response.text)
         self.assertIn("reload this page", response.text)
 
     def test_check_routes_select_mail_or_calendar_and_share_lock(self):

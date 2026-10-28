@@ -69,7 +69,8 @@ def check_ascii(password: str) -> None:
 
 
 def _key_for_account(label: str) -> str:
-    return f"account:{label}"
+    from .workspaces import credential_namespace
+    return f"{credential_namespace()}account:{label}"
 
 
 @credential_errors()

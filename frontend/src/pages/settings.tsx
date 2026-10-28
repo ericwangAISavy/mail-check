@@ -29,10 +29,10 @@ export function PasswordSettings() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not change the password.") }
     finally { setBusy(false) }
   }
-  return <section id="sign-in" className="settings-section"><div className="settings-section-title"><span className="section-symbol"><ShieldCheck size={17} /></span><div><h2>Sign-in passwords</h2><p>Only admins can change these passwords.</p></div></div><Card className="settings-card"><p className="form-hint">Change the initial admin password before sharing access. Manage individual bidder passwords in Job sourcing.</p><form className="password-form" onSubmit={(event) => void save(event)}>
+  return <section id="sign-in" className="settings-section"><div className="settings-section-title"><span className="section-symbol"><ShieldCheck size={17} /></span><div><h2>Sign-in passwords</h2><p>Only admins can change these passwords.</p></div></div><Card className="settings-card"><p className="form-hint">Change your own sign-in password. Only the owner can manage other admins.</p><form className="password-form" onSubmit={(event) => void save(event)}>
     <Field label="Account role"><select name="username" autoComplete="username" value={role} onChange={(event) => { setRole(event.target.value as "admin"); setPassword(""); setConfirmation(""); setError("") }}><option value="admin">Admin</option></select></Field>
-    <Field label="New password"><input type="password" autoComplete="new-password" required maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} /></Field>
-    <Field label="Confirm new password"><input type="password" autoComplete="new-password" required maxLength={256} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></Field>
+    <Field label="New password"><input type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} /></Field>
+    <Field label="Confirm new password"><input type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></Field>
     {error && <p role="alert" className="inline-error">{error}</p>}
     <Button type="submit" disabled={busy}>{busy ? "Updating…" : "Update password"}</Button>
     <p className="form-hint">Updating a password signs out that role on every device. Updating the admin password also signs you out.</p>

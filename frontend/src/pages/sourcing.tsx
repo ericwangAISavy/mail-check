@@ -5,7 +5,6 @@ import {
   TriangleAlert,
   ExternalLink,
   FileSpreadsheet,
-  KeyRound,
   Search,
   Settings2,
   Trash2,
@@ -19,7 +18,6 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import SourcingEditor from "@/components/sourcing-editor";
 import SourcingFilters from "@/components/sourcing-filters";
 import SourcingSettings from "@/components/sourcing-settings";
-import OwnPassword from "@/components/sourcing-password";
 import "./sourcing.css";
 interface SearchResult {
   tab_id: number;
@@ -40,7 +38,6 @@ export default function SourcingPage() {
     [bookId, setBookId] = useState(0),
     [settings, setSettings] = useState(false),
     [filtersOpen, setFiltersOpen] = useState(false),
-    [password, setPassword] = useState(false),
     [dirty, setDirty] = useState(false);
   const index = useQuery({
     queryKey: ["sourcing-index"],
@@ -149,27 +146,7 @@ export default function SourcingPage() {
           </Button>
         </form>
         {admin && <Button variant="outline" size="sm" disabled={dirty} onClick={() => setFiltersOpen(true)}>Job link filters</Button>}
-        {admin ? (
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Sourcing settings"
-            disabled={dirty}
-            onClick={() => setSettings(true)}
-          >
-            <Settings2 size={18} />
-          </Button>
-        ) : (
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Change my password"
-            disabled={dirty}
-            onClick={() => setPassword(true)}
-          >
-            <KeyRound size={18} />
-          </Button>
-        )}
+        {admin && <Button size="icon" variant="ghost" aria-label="Sourcing settings" disabled={dirty} onClick={()=>setSettings(true)}><Settings2 size={18}/></Button>}
       </div>
       {index.error && (
         <p className="inline-error" role="alert">
@@ -331,9 +308,6 @@ export default function SourcingPage() {
             refresh={() => void index.refetch()}
           />
         )}
-      </Dialog>
-      <Dialog open={password} onOpenChange={setPassword}>
-        {password && <OwnPassword />}
       </Dialog>
     </div>
   );

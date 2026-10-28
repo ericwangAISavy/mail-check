@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react"
 import {useQuery, useQueryClient} from "@tanstack/react-query"
 import {Check, LoaderCircle, Reply, ReplyAll, Send, Trash2, X} from "lucide-react"
-import {api, ApiError, request} from "@/lib/api"
+import {api, ApiError, request, getWorkspaceIdentity} from "@/lib/api"
 import {operationId} from "@/lib/operation-id"
 import {Button} from "@/components/ui/button"
 import {useToast} from "@/components/common"
@@ -19,7 +19,8 @@ function loadDraft(key:string):Draft {
   return {body:"",mode:"reply",operation:operationId()}
 }
 export default function ReplyComposer({pk,accountLabel,messageId,provider="outlook",mode,onModeChange,replies}:{pk:number;accountLabel:string;messageId?:string;provider?:string;mode:Mode|null;onModeChange:(mode:Mode|null)=>void;replies:SentReply[]}) {
-  const key=`mailcheck:reply:${encodeURIComponent(accountLabel)}:${encodeURIComponent(messageId || String(pk))}`
+  const workspace=getWorkspaceIdentity()
+  const key=`${workspace && workspace!=="legacy" ? `offerpath:${workspace}:` : ""}mailcheck:reply:${encodeURIComponent(accountLabel)}:${encodeURIComponent(messageId || String(pk))}`
   const [draft,setDraft]=useState(()=>loadDraft(key))
   const [draftSaved,setDraftSaved]=useState(false)
   const [sending,setSending]=useState(false)

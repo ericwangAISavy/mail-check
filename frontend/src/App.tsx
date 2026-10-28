@@ -17,6 +17,7 @@ const PaymentsPage = lazy(() => import("@/pages/payments"))
 const InterviewsPage = lazy(() => import("@/pages/interviews"))
 const InterviewProcessesPage = lazy(() => import("@/pages/interview-processes"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
+const AdminManagement = lazy(() => import("@/pages/admin-management"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
 
 const sections = [
@@ -28,6 +29,7 @@ const sections = [
   { to: "/payments", label: "Bidder management", icon: UsersRound },
   { to: "/accounts", label: "Accounts", icon: UsersRound },
   { to: "/settings", label: "Settings", icon: Settings2 },
+  { to: "/admin-management", label: "Admin management", icon: UsersRound },
 ]
 
 function ThemeControl() {
@@ -184,7 +186,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 }
 
 function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
-  const { role, signOut } = useAuth()
+  const { role, signOut, session } = useAuth()
   const admin = role === "admin"
   const toast = useToast()
   const [collapsed, setCollapsed] = useState(localStorage.getItem("mailcheck.sidebar") === "collapsed")
@@ -201,7 +203,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
         <div className="sidebar-user"><span className="avatar-mark"><OfferPathMark size={27} /></span><div><strong>OfferPath</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
@@ -211,9 +213,10 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
       <header className="topbar">
         <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname)?.label || "Triage"}</strong>{location.pathname === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}><strong>{bootstrap.counts.applications_today.toLocaleString()}</strong><span>today</span></span>}</div></div>
-        <div className="top-right"><ThemeControl /><span className="signed-in-role">{admin ? "Admin" : "Bidder"}</span><Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && <JobStatus bootstrap={bootstrap} />}</div>
+        <div className="top-right"><ThemeControl /><span className="signed-in-role">{session?.is_owner ? "Owner" : "Admin"}</span><Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
-      {admin && location.pathname !== "/sourcing" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
+      {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
+      {admin && location.pathname !== "/admin-management" && location.pathname !== "/sourcing" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/sourcing" replace />} />
@@ -223,6 +226,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/sourcing" element={<SourcingPage />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
         <Route path="/settings" element={admin ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/sourcing"} replace />} />
         <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/sourcing" replace />} />
@@ -243,7 +247,9 @@ function Recovery({ message }: { message: string }) {
 }
 
 function ReadyApp() {
-  const { data, isPending, error } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false, refetchInterval: 60_000 })
+  const controlPage = useLocation().pathname === "/admin-management"
+  const { data, isPending, error } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false, refetchInterval: 60_000, enabled: !controlPage })
+  if (controlPage) return <Workspace bootstrap={{readiness:{model:false,accounts:false,privacy_ack:true,outlook:false},counts:{},taxonomy:[],presets:[],last_run:"",account_count:0}} />
   if (isPending) return <Loading />
   if (error) return <Recovery message={error.message} />
   return <Workspace bootstrap={data!} />

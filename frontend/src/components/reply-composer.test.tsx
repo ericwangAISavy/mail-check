@@ -2,9 +2,9 @@ import {afterEach, expect, it, vi} from "vitest"
 import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react"
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query"
 import {ToastProvider} from "@/components/common"
-import {api, request} from "@/lib/api"
+import {api, request, getWorkspaceIdentity} from "@/lib/api"
 import ReplyComposer from "./reply-composer"
-vi.mock("@/lib/api",() => ({api:{post:vi.fn(),reader:vi.fn()},ApiError:class ApiError extends Error{},request:vi.fn()}))
+vi.mock("@/lib/api",() => ({api:{post:vi.fn(),reader:vi.fn()},ApiError:class ApiError extends Error{},request:vi.fn(),getWorkspaceIdentity:vi.fn()}))
 vi.mock("./outlook-dialog",()=>({default:()=>null}))
 const clients: QueryClient[]=[]
 afterEach(()=>{cleanup();clients.forEach(c=>c.clear());clients.length=0;localStorage.clear();vi.resetAllMocks()})
@@ -64,4 +64,13 @@ it("safe retries preserve the original request and unlock after confirmed accept
  await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2))
  expect(vi.mocked(api.post).mock.calls[1][1]).toEqual(original)
  await waitFor(()=>expect((screen.getByRole("textbox",{name:"Your reply"}) as HTMLTextAreaElement).disabled).toBe(false))
+})
+
+it("never restores a reply draft from another workspace with the same account and message ID",async()=>{
+ vi.mocked(request).mockResolvedValue(context)
+ vi.mocked(getWorkspaceIdentity).mockReturnValue("bob")
+ localStorage.setItem("offerpath:alice:mailcheck:reply:Personal:1",JSON.stringify({body:"Alice private draft",operation:"alice-operation",mode:"reply"}))
+ mount();await screen.findByDisplayValue("recruiter@example.test")
+ expect(screen.getByLabelText("Your reply")).toHaveProperty("value","")
+ expect(screen.queryByDisplayValue("Alice private draft")).toBeNull()
 })

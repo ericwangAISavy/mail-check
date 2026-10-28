@@ -1,5 +1,10 @@
 # Native Job sourcing
 
+> In owner-managed mode, only the owner and admins sign in. Each admin has an
+> isolated workspace; bidders are managed records. Any bidder-login permissions
+> described below apply only to the legacy standalone compatibility mode. See
+> [Multi-admin workspaces and rollback](MULTI_ADMIN.md).
+
 Mail-check owns and saves job sheets in its SQLite database. Open **Job sourcing**
 to work in a spreadsheet grid, with one workbook per bidder and profile tabs below.
 There is no Google account, OAuth configuration, API quota or synchronization setup.

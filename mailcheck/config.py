@@ -18,19 +18,40 @@ APP_NAME = "mail-check"
 
 
 def config_dir() -> Path:
-    return Path(user_config_dir(APP_NAME, appauthor=False))
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "config"
+    legacy = os.environ.get("OFFERPATH_LEGACY_CONFIG_PATH")
+    return Path(legacy).parent if legacy else Path(user_config_dir(APP_NAME, appauthor=False))
 
 
 def data_dir() -> Path:
-    return Path(user_data_dir(APP_NAME, appauthor=False))
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "data"
+    legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
+    return Path(legacy).parent if legacy else Path(user_data_dir(APP_NAME, appauthor=False))
 
 
 def config_path() -> Path:
-    return config_dir() / "config.toml"
+    # Always validate the workspace before considering explicit legacy paths.
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "config" / "config.toml"
+    legacy = os.environ.get("OFFERPATH_LEGACY_CONFIG_PATH")
+    return Path(legacy) if legacy else config_dir() / "config.toml"
 
 
 def db_path() -> Path:
-    return data_dir() / "mailcheck.db"
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "data" / "mailcheck.db"
+    legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
+    return Path(legacy) if legacy else data_dir() / "mailcheck.db"
 
 
 class LLMConfig(BaseModel):

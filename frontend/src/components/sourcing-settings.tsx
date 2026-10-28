@@ -35,7 +35,7 @@ export default function SourcingSettings({
     <DialogContent className="sourcing-settings">
       <DialogTitle>Job sourcing settings</DialogTitle>
       <DialogDescription>
-        Manage bidder workbooks, profile sheets and individual sign-in.
+        Manage bidder workbooks and profile sheets.
       </DialogDescription>
       {error && (
         <p className="inline-error" role="alert">
@@ -163,63 +163,6 @@ export default function SourcingSettings({
               <Button disabled={busy}>Create profile sheet</Button>
             </form>
           </details>
-        ))}
-      </section>
-      <section>
-        <h3>Bidder sign-in</h3>
-        <p>
-          Create bidders and assign profiles on Bidder management first. Passwords
-          need at least 8 characters.
-        </p>
-        {index.bidders?.map((b) => (
-          <form
-            key={b.id}
-            className="bidder-password-row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const data = new FormData(e.currentTarget);
-              void run(
-                () =>
-                  api.post(`/api/auth/bidders/${b.id}/password`, {
-                    password: data.get("password"),
-                    enabled: true,
-                  }),
-                `${b.name} password updated`,
-              );
-            }}
-          >
-            <strong>{b.name}</strong>
-            <input
-              aria-label={`New password for ${b.name}`}
-              name="password"
-              type="password"
-              minLength={8}
-              maxLength={256}
-              required
-              autoComplete="new-password"
-            />
-            <Button disabled={busy}>
-              {b.login_enabled ? "Reset password" : "Enable sign-in"}
-            </Button>
-            {Boolean(b.login_enabled) && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  void run(
-                    () =>
-                      api.post(`/api/auth/bidders/${b.id}/password`, {
-                        enabled: false,
-                      }),
-                    `${b.name} sign-in disabled`,
-                  )
-                }
-              >
-                Disable
-              </Button>
-            )}
-          </form>
         ))}
       </section>
     </DialogContent>

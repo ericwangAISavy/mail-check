@@ -49,11 +49,13 @@ MAX_CHUNKS = 64
 
 
 def _cache_key(label: str) -> str:
-    return f"outlook-cache:{label}"
+    from .workspaces import credential_namespace
+    return f"{credential_namespace()}outlook-cache:{label}"
 
 
 def _chunk_key(label: str, index: int) -> str:
-    return f"outlook-cache:{label}:{index}"
+    from .workspaces import credential_namespace
+    return f"{credential_namespace()}outlook-cache:{label}:{index}"
 
 
 @credential_errors(OutlookAuthError)

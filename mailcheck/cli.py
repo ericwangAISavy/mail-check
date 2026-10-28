@@ -406,9 +406,12 @@ def web(
     host: str = typer.Option("127.0.0.1", help="Bind address. Use 0.0.0.0 for network access."),
     allow_host: list[str] = typer.Option([], "--allow-host", help="Allowed public hostname or IP, without scheme or port. Repeat as needed."),
     secure_cookies: bool = typer.Option(False, "--secure-cookies", help="Require HTTPS for sign-in cookies (use behind an HTTPS reverse proxy)."),
+    single_admin: bool = typer.Option(False, "--single-admin", help="Compatibility mode for rollback: use the original single-admin server."),
+    max_workspaces: int = typer.Option(4, min=1, max=64, help="Maximum enabled workspaces, including the owner."),
 ) -> None:
-    """Serve the dashboard with admin/guest sign-in."""
-    _load_cfg()
+    """Serve OfferPath with owner-managed, isolated admin workspaces."""
+    if single_admin:
+        _load_cfg()
     try:
         import uvicorn
     except ImportError:
@@ -417,7 +420,8 @@ def web(
 
     from .web.app import create_app
 
-    url = f"http://127.0.0.1:{port}"
+    from .workspace_workers import gateway_address
+    url = gateway_address(host,port)
     console.print(f"Dashboard: [bold]{url}[/bold]  (Ctrl+C to stop)")
     if open_browser:
         import webbrowser
@@ -429,8 +433,12 @@ def web(
         raise typer.Exit(1)
     from .web.server import run
 
-    run(create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies),
-                host=host, port=port, log_level="warning")
+    if single_admin:
+        application=create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies)
+    else:
+        from .web.gateway import create_gateway
+        application=create_gateway(allowed_hosts=allow_host,secure_cookies=secure_cookies,max_workspaces=max_workspaces,gateway_url=url)
+    run(application,host=host,port=port,log_level="warning")
 
 
 # ------------------------------------------------------------------------- config

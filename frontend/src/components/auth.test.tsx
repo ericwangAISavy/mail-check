@@ -1,95 +1,74 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter } from "react-router-dom"
+import {afterEach,beforeEach,expect,it,vi} from "vitest"
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
+import {MemoryRouter} from "react-router-dom"
 import App from "@/App"
-import { api } from "@/lib/api"
-
-vi.mock("@/pages/sourcing", () => ({ default: () => <h1>Bidder sheets</h1> }))
-vi.mock("@/pages/dashboard", () => ({ default: ({ readOnly }: { readOnly: boolean }) => <h1>{readOnly ? "Bidder sheets" : "Admin Dashboard"}</h1> }))
-
-const clients: QueryClient[] = []
-beforeEach(() => {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ok:true,headers:new Headers({"content-type":"application/json"}),json:async()=>({bidders:[{id:1,name:"Alex"}]})})))
-  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
-  vi.spyOn(api, "session").mockResolvedValue({ role: null })
-  vi.spyOn(api, "bootstrap").mockResolvedValue({ readiness: { model: true, accounts: true, privacy_ack: true, outlook: false }, counts: {}, taxonomy: [], presets: [], last_run: "Never checked", account_count: 0 })
-  vi.spyOn(api, "status").mockResolvedValue({ running: false, auto: false, next_in: null, completion_id: 0, message: "", detail: "", ok: true, stage_elapsed: null })
+import {api,setWorkspaceIdentity} from "@/lib/api"
+vi.mock("@/pages/dashboard",()=>({default:()=> <h1>Admin Dashboard</h1>}))
+const clients:QueryClient[]=[]
+beforeEach(()=>{
+  vi.stubGlobal("matchMedia",vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})))
+  vi.spyOn(api,"session").mockResolvedValue({role:null})
+  vi.spyOn(api,"bootstrap").mockResolvedValue({readiness:{model:true,accounts:true,privacy_ack:true,outlook:false},counts:{},taxonomy:[],presets:[],last_run:"",account_count:0})
+  vi.spyOn(api,"status").mockResolvedValue({running:false,auto:false,next_in:null,completion_id:0,message:"",detail:"",ok:true,stage_elapsed:null})
 })
-afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
-function mount(path = "/") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime:15_000, refetchOnWindowFocus:false }, mutations: { retry: false } } })
-  clients.push(client)
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
+afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.restoreAllMocks();vi.unstubAllGlobals();setWorkspaceIdentity()})
+function mount(path="/"){
+  const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App/></MemoryRouter></QueryClientProvider>)
   return client
 }
-
-describe("sign-in and role navigation", () => {
-  it("requires sign-in before loading any workspace data", async () => {
-    mount("/settings")
-    await screen.findByRole("heading", { name: "Sign in" })
-    expect(api.bootstrap).not.toHaveBeenCalled()
-    expect(screen.queryByRole("navigation")).toBeNull()
-  })
-  it("signs in a bidder and only shows the read-only Dashboard", async () => {
-    vi.spyOn(api, "login").mockImplementation(async () => {
-      vi.mocked(api.session).mockResolvedValue({ role: "bidder" })
-      return { role: "bidder" }
-    })
-    mount()
-    await screen.findByRole("option", {name:"Alex"})
-    fireEvent.change(screen.getByLabelText("Your name"), {target:{value:"1"}})
-    fireEvent.change(await screen.findByLabelText("Password"), { target: { value: "bidder" } })
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
-    await screen.findByRole("heading", { name: "Bidder sheets" })
-    expect(api.login).toHaveBeenCalledWith("bidder", "bidder", 1)
-    expect(screen.getByRole("link", { name: "Job sourcing" })).toBeTruthy()
-    for (const name of ["Triage", "Accounts", "Settings"]) expect(screen.queryByRole("link", { name })).toBeNull()
-    expect(screen.queryByRole("button", { name: "Check now" })).toBeNull()
-    expect(api.status).not.toHaveBeenCalled()
-  })
-  it.each(["/", "/accounts", "/settings", "/unknown"])("redirects a signed-in bidder from %s", async (path) => {
-    vi.mocked(api.session).mockResolvedValue({ role: "bidder" })
-    mount(path)
-    await screen.findByRole("heading", { name: "Bidder sheets" })
-    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull()
-  })
-  it("shows all navigation for admin", async () => {
-    vi.mocked(api.session).mockResolvedValue({ role: "admin" })
-    mount("/dashboard")
-    await screen.findByRole("heading", { name: "Admin Dashboard" })
-    for (const name of ["Triage", "Dashboard", "Accounts", "Settings"]) expect(screen.getByRole("link", { name })).toBeTruthy()
-  })
-  it("keeps a failed password attempt on the sign-in form", async () => {
-    vi.spyOn(api, "login").mockRejectedValue(new Error("Incorrect role or password."))
-    mount()
-    await screen.findByRole("option", {name:"Alex"})
-    fireEvent.change(screen.getByLabelText("Your name"), {target:{value:"1"}})
-    fireEvent.change(await screen.findByLabelText("Password"), { target: { value: "wrong" } })
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
-    expect((await screen.findByRole("alert")).textContent).toContain("Incorrect role or password")
-    expect(api.bootstrap).not.toHaveBeenCalled()
-  })
-  it("signs out and removes cached private data", async () => {
-    vi.mocked(api.session).mockResolvedValue({ role: "bidder" })
-    vi.spyOn(api, "post").mockResolvedValue({ ok: true })
-    const client = mount("/dashboard")
-    await screen.findByRole("heading", { name: "Bidder sheets" })
-    client.setQueryData(["reader", 1], { body_html: "private" })
-    vi.mocked(api.session).mockResolvedValue({ role: null })
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }))
-    await screen.findByRole("heading", { name: "Sign in" })
-    await waitFor(() => expect(client.getQueryData(["reader", 1])).toBeUndefined())
-  })
+it("offers only owner/admin username sign-in without publishing bidder names",async()=>{
+  mount("/settings");await screen.findByRole("heading",{name:"Sign in"})
+  expect(screen.getByLabelText("Username")).toHaveProperty("value","owner")
+  expect(screen.queryByLabelText("Sign in as")).toBeNull()
+  expect(screen.queryByLabelText("Your name")).toBeNull()
+  expect(api.bootstrap).not.toHaveBeenCalled()
 })
-
-
-it("refreshes bidder names when returning after other bidders are enabled", async () => {
-  mount("/login")
-  await screen.findByRole("option", {name:"Alex"})
-  vi.mocked(fetch).mockImplementation(async () => ({ok:true,headers:new Headers({"content-type":"application/json"}),json:async()=>({bidders:[{id:1,name:"Alex"},{id:2,name:"Blair"},{id:3,name:"Casey"},{id:4,name:"Drew"}]})}) as Response)
-  await act(async () => { focusManager.setFocused(false); focusManager.setFocused(true) })
-  await screen.findByRole("option", {name:"Drew"})
-  for(const name of ["Alex","Blair","Casey","Drew"])expect(screen.getByRole("option",{name})).toBeTruthy()
-  focusManager.setFocused(undefined)
+it("signs an additional admin into their own workspace without owner controls",async()=>{
+  const identity={role:"admin" as const,user_id:2,workspace_id:"alice",workspace_name:"Alice workspace",username:"alice",is_owner:false}
+  vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
+  mount();fireEvent.change(await screen.findByLabelText("Username"),{target:{value:"alice"}})
+  fireEvent.change(screen.getByLabelText("Password"),{target:{value:"alice-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  await screen.findByRole("link",{name:"Dashboard"})
+  expect(api.login).toHaveBeenCalledWith("admin","alice-password-123",undefined,"alice")
+  expect(screen.getByText("Alice workspace")).toBeTruthy()
+  expect(screen.queryByRole("link",{name:"Admin management"})).toBeNull()
+})
+it("shows owner controls and explicit workspace identity",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy",workspace_name:"Original workspace"})
+  mount("/dashboard");await screen.findByRole("heading",{name:"Admin Dashboard"})
+  expect(screen.getByRole("link",{name:"Admin management"})).toBeTruthy()
+  expect(screen.getByText("Owner’s original workspace")).toBeTruthy()
+})
+it("requires new admins to change their temporary password before fetching workspace data",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",workspace_id:"alice",must_change_password:true})
+  vi.spyOn(api,"post").mockImplementation(async()=>{const identity={role:"admin" as const,workspace_id:"alice",must_change_password:false};vi.mocked(api.session).mockResolvedValue(identity);return {session:identity} as never})
+  mount();await screen.findByRole("heading",{name:"Choose your password"})
+  expect(api.bootstrap).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText("New password"),{target:{value:"new-password-123"}})
+  fireEvent.change(screen.getByLabelText("Confirm password"),{target:{value:"new-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Save password"}))
+  await screen.findByRole("link",{name:"Dashboard"})
+  expect(api.post).toHaveBeenCalledWith("/api/auth/password",{password:"new-password-123",role:"admin"})
+})
+it("does not accept an old bidder identity",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"bidder",bidder_id:1})
+  mount();await screen.findByRole("heading",{name:"Sign in"})
+  expect(api.bootstrap).not.toHaveBeenCalled()
+})
+it("preserves a failed sign-in form and clears private caches on sign-out",async()=>{
+  vi.spyOn(api,"login").mockRejectedValue(new Error("Incorrect username or password."))
+  const client=mount();fireEvent.change(await screen.findByLabelText("Password"),{target:{value:"wrong"}})
+  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  expect((await screen.findByRole("alert")).textContent).toContain("Incorrect username")
+  vi.mocked(api.login).mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue({role:"admin"});return {role:"admin"}})
+  fireEvent.click(screen.getByRole("button",{name:"Sign in"}));await screen.findByRole("link",{name:"Dashboard"})
+  client.setQueryData(["reader",1],{body_html:"private"})
+  vi.spyOn(api,"post").mockResolvedValue({ok:true})
+  vi.mocked(api.session).mockResolvedValue({role:null})
+  fireEvent.click(screen.getByRole("button",{name:"Sign out"}))
+  await screen.findByRole("heading",{name:"Sign in"})
+  await waitFor(()=>expect(client.getQueryData(["reader",1])).toBeUndefined())
 })

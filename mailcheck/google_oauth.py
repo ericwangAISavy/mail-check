@@ -30,6 +30,8 @@ def _location(key):
     return prefix,count
 
 def read_secret(key):
+    from .workspaces import credential_namespace
+    key=credential_namespace()+key
     with _credential_lock:
         try:
             prefix,count=_location(key)
@@ -40,6 +42,8 @@ def read_secret(key):
             raise GoogleError('The operating system credential store is unavailable.') from exc
 
 def write_secret(key,value):
+    from .workspaces import credential_namespace
+    key=credential_namespace()+key
     with _credential_lock:
         try:
             old_prefix,old_count=_location(key)

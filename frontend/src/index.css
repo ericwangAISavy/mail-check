@@ -105,3 +105,16 @@ button { color: inherit; }
 .header-application-count { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 6px; min-width: max-content; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--accent); color: var(--primary); white-space: nowrap; font-size: 12px; line-height: 1.4; }
 .header-application-count strong { font-variant-numeric: tabular-nums; }
 .header-application-count > span { color: var(--muted-foreground); font-size: 11px; }
+.workspace-banner { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; padding:9px 24px; border-bottom:1px solid var(--border); background:var(--accent); color:var(--text-soft); font-size:12px; }
+.workspace-banner strong { color:var(--primary); }
+.workspace-banner a { margin-left:auto; color:var(--primary); text-decoration:underline; }
+.admin-management-page { display:grid; gap:20px; }
+.owner-create-card,.owner-admin-card { padding:20px; }
+.owner-create-card h2,.owner-admin-card h2 { font-size:16px; margin-bottom:8px; }
+.owner-admin-form { display:flex; flex-wrap:wrap; gap:14px; align-items:end; margin:14px 0; }
+.owner-admin-form label { display:grid; gap:6px; flex:1 1 190px; font-size:12px; }
+.owner-admin-form input { width:100%; min-width:0; border:1px solid var(--border); border-radius:6px; padding:9px; background:var(--background); color:var(--foreground); }
+.owner-admin-list { display:grid; gap:14px; }
+.owner-admin-card p,.owner-audit { color:var(--muted-foreground); font-size:12px; }
+.owner-admin-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.owner-audit li { margin:8px 0; overflow-wrap:anywhere; }

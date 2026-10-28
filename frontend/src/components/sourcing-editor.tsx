@@ -21,7 +21,7 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
-import { api, request } from "@/lib/api";
+import { api, request, downloadFile } from "@/lib/api";
 import {
   defaultView,
   chicagoDay,
@@ -90,6 +90,7 @@ export default function SourcingEditor({
     [typing, setTyping] = useState(false);
   const client = useQueryClient();
   const compactAfterPaste = useRef(false);
+  const [exportError,setExportError] = useState("");
   const [rowDeleteNotice, setRowDeleteNotice] = useState("");
   const [day, setDay] = useState(initialDay || chicagoDay());
   useEffect(() => { onDayChange?.(day); }, [day, onDayChange]);
@@ -762,18 +763,11 @@ export default function SourcingEditor({
         >
           <Upload size={16} />
         </Button>
-        <a
-          className={`sheet-export ${dirty || saving ? "is-disabled" : ""}`}
-          aria-label="Export CSV"
-          aria-disabled={dirty || saving}
-          href={`/api/sourcing/tabs/${tab.id}/export?work_date=${encodeURIComponent(day)}`}
-          download
-          onClick={(e) => {
-            if (dirty || saving) e.preventDefault();
-          }}
-        >
-          <Download size={16} />
-        </a>
+        <Button size="icon" variant="ghost" className="sheet-export" aria-label="Export CSV" disabled={dirty || saving} onClick={async () => {
+          setExportError("");
+          try { await downloadFile(`/api/sourcing/tabs/${tab.id}/export?work_date=${encodeURIComponent(day)}`, `applications-${day}.csv`) }
+          catch(e) { setExportError(e instanceof Error ? e.message : "Could not export CSV.") }
+        }}><Download size={16}/></Button>
         <Button
           size="icon"
           variant="ghost"
@@ -901,6 +895,7 @@ export default function SourcingEditor({
         </div>
       )}
       {snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies.</p>}
+      {exportError && <p role="alert" className="inline-error">{exportError}</p>}
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (
         <SheetGrid
