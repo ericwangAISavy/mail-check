@@ -12,6 +12,10 @@ Text = Annotated[str, Field(max_length=50_000)]
 Key = Annotated[str, Field(min_length=1, max_length=64)]
 
 
+class BlockedCompanies(BaseModel):
+    companies: list[Annotated[str, Field(min_length=1,max_length=200)]] = Field(max_length=1000)
+
+
 class Book(BaseModel):
     bidder_id: int
     title: str = Field(default="Applications", min_length=1, max_length=100)
@@ -123,6 +127,20 @@ def install(app, frontend_page, secure_cookies):
     @router.get("/sourcing")
     def page():
         return frontend_page()
+
+    @router.get("/api/sourcing/filters")
+    def filters(req: Request):
+        from ..sourcing_filters import companies
+        with db.session() as conn:return {"companies":companies(conn)}
+
+    @router.post("/api/sourcing/filters")
+    def save_filters(body: BlockedCompanies, req: Request):
+        admin(req)
+        from ..sourcing_filters import set_companies, companies
+        with db.session() as conn:
+            try:set_companies(conn,body.companies)
+            except ValueError as exc:raise HTTPException(400,str(exc))
+            return {"companies":companies(conn)}
 
     @router.get("/api/sourcing")
     def index(req: Request):

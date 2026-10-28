@@ -206,3 +206,22 @@ check-run processing timestamps remain separate. Admins can use **Refresh** on
 Bidder payments to repair timestamps and recheck the last seven Chicago dates of
 stored confirmations and sourcing rows. Existing checks remain permanent, and
 sourcing-date application totals keep their original date attribution.
+
+## Automatic incoming job filters
+
+Job sourcing → **Job link filters** lets admins save a workspace-wide company
+blocklist, one full company name per line. Company matching ignores case,
+whitespace and punctuation; it does not use the first-word email-matching rule.
+Saving the list does not remove historical jobs.
+
+Grid URL entry/paste, appended job rows and CSV imports filter incoming rows
+inside the write transaction. Duplicate URLs are compared against all stored
+native tabs for the same account, across bidders and sourcing dates, and against
+earlier rows in the same batch. Different accounts can keep the same job. URL
+comparison ignores `jr_id`, `utm_*`, `gclid`, and `fbclid`, normalizes query order,
+HTTP/HTTPS and trailing slashes, while preserving job identifiers in query values.
+Blocked company rows and duplicate rows are deleted as whole incoming rows;
+positions are compacted so no removed-row holes remain. Existing checked rows
+are protected during grid edits. Formatting edits do not trigger filtering.
+The save response reports duplicate and blocked-company counts. Operation retries
+reuse the recorded filtering result and do not insert the same batch twice.

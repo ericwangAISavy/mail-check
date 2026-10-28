@@ -203,7 +203,7 @@ class PaymentTests(unittest.TestCase):
         tab = sheets.owned(self.conn, tab_id, {"role": "admin"})
         base = sheets.snapshot(self.conn, tab)
         sheets.append(self.conn, tab, f"checks-{who}-{account}", base["revision"],
-            [["Acme", "Engineer", f"https://jobs.test/{i}", "true"] for i in range(count)], work_date=day)
+            [["Acme", "Engineer", f"https://jobs.test/{who}/{account}/{i}", "true"] for i in range(count)], work_date=day)
 
     def test_shared_receipts_are_allocated_by_account_day_weights_and_rounded_to_total(self):
         self.assign(); self.assign(who=2)

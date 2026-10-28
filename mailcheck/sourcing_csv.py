@@ -143,11 +143,12 @@ def import_rows(
                 from .sourcing_structure import reorder, ordered_rows
 
                 reorder(conn, ordered_rows(conn, tab["id"]))
-            append_cells(conn, tab, data, validated_import=True, work_date=work_date)
+            filtered=append_cells(conn, tab, data, validated_import=True, work_date=work_date)
             sheets.record_operation(
-                conn, tab["id"], operation, payload, structural=True
+                conn, tab["id"], operation, payload, structural=True, filtered=filtered
             )
-        return sheets.snapshot(conn, tab)
+        from .sourcing_filters import result
+        return result(conn,tab,operation)
 
 
 def export_rows(conn, tab, *, work_date="all"):

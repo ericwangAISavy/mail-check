@@ -17,6 +17,7 @@ import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import SourcingEditor from "@/components/sourcing-editor";
+import SourcingFilters from "@/components/sourcing-filters";
 import SourcingSettings from "@/components/sourcing-settings";
 import OwnPassword from "@/components/sourcing-password";
 import "./sourcing.css";
@@ -38,6 +39,7 @@ export default function SourcingPage() {
   const [params, setParams] = useSearchParams(),
     [bookId, setBookId] = useState(0),
     [settings, setSettings] = useState(false),
+    [filtersOpen, setFiltersOpen] = useState(false),
     [password, setPassword] = useState(false),
     [dirty, setDirty] = useState(false);
   const index = useQuery({
@@ -146,6 +148,7 @@ export default function SourcingPage() {
             Search
           </Button>
         </form>
+        {admin && <Button variant="outline" size="sm" disabled={dirty} onClick={() => setFiltersOpen(true)}>Job link filters</Button>}
         {admin ? (
           <Button
             size="icon"
@@ -309,6 +312,7 @@ export default function SourcingPage() {
           </button>}
         </div>
       )}
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>{filtersOpen && <SourcingFilters />}</Dialog>
       <Dialog open={deleting !== null} onOpenChange={open => {if (!open && !deletion.isPending) setDeleting(null)}}>
         {deleting && <DialogContent><DialogTitle>Delete {deleting.title} tab?</DialogTitle>
           <DialogDescription>This permanently deletes this tab and all its job rows. Its checked links will be removed from payment breakdowns. Received emails and recorded payments stay saved. This cannot be undone.</DialogDescription>

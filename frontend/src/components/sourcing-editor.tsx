@@ -957,6 +957,7 @@ export default function SourcingEditor({
           </div>
         </div>
       )}
+      {snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies.</p>}
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (
         <SheetGrid

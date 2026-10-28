@@ -197,7 +197,10 @@ def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
         ],
     )
 
+    from .sourcing_filters import filter_rows
+    filtered=filter_rows(conn,tab,ids)
     sheets.compact_blank_rows(conn, tab["id"])
+    return filtered
 
 
 def append(conn, tab, operation, revision, rows, *, work_date="all"):
@@ -211,8 +214,9 @@ def append(conn, tab, operation, revision, rows, *, work_date="all"):
     with sheets.atomic(conn):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
-            append_cells(conn, tab, rows, work_date=work_date)
+            filtered=append_cells(conn, tab, rows, work_date=work_date)
             sheets.record_operation(
-                conn, tab["id"], operation, payload, structural=True
+                conn, tab["id"], operation, payload, structural=True, filtered=filtered
             )
-        return sheets.snapshot(conn, tab)
+        from .sourcing_filters import result
+        return result(conn,tab,operation)

@@ -154,7 +154,7 @@ class SourcingVerificationTests(unittest.TestCase):
             tab = self.native.owned(self.conn, tab_id, self.principal)
             base = self.native.snapshot(self.conn, tab)
             appended = self.native.append(self.conn, tab, "append-" + mode, base["revision"],
-                [["Cube", "Staff Backend Engineer | Remote, US & Canada", "https://jobs.test/cleanup"]], work_date="2026-10-20")
+                [["Cube", "Staff Backend Engineer | Remote, US & Canada", f"https://jobs.test/cleanup/{mode}"]], work_date="2026-10-20")
             if mode == "manual":
                 verification.verify(self.conn, tab, "cleaned-manual", appended["revision"], "2026-10-20")
             else:

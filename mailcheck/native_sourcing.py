@@ -14,6 +14,7 @@ MAX_ROWS = 100_000
 MAX_COLUMNS = 101
 MAX_CELLS = 10_000
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS sourcing_blocked_companies (key TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS native_books (
  id INTEGER PRIMARY KEY AUTOINCREMENT, bidder_id INTEGER NOT NULL UNIQUE REFERENCES bidders(id),
  title TEXT NOT NULL, legacy_book_id INTEGER UNIQUE
@@ -261,7 +262,7 @@ def check_operation(conn, tab_id, operation, payload):
     return False
 
 
-def record_operation(conn, tab_id, operation, payload, *, structural=False):
+def record_operation(conn, tab_id, operation, payload, *, structural=False, filtered=None):
     conn.execute(
         "UPDATE native_tabs SET revision=revision+1,structure_revision=structure_revision+?,updated_at=? WHERE id=?",
         (int(structural), time.time(), tab_id),
@@ -275,7 +276,7 @@ def record_operation(conn, tab_id, operation, payload, *, structural=False):
             operation,
             tab_id,
             fingerprint(payload),
-            json.dumps({"revision": revision}),
+            json.dumps({"revision": revision, **({"filtered": filtered} if filtered else {})}),
             time.time(),
         ),
     )
@@ -307,6 +308,11 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
     }
     with atomic(conn):
         if not check_operation(conn, tab["id"], operation, payload):
+            from . import sourcing_filters
+            candidates=set()
+            protected={r[0] for r in conn.execute("""SELECT v.row_id FROM native_cells v
+                JOIN native_columns c ON c.id=v.column_id
+                WHERE c.tab_id=? AND c.kind='check' AND v.value='true'""",(tab['id'],))}
             seen = set()
             for change in changes:
                 row_id, column_id = change["row_id"], change["column_id"]
@@ -361,6 +367,10 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     raise ValueError("Check cells must be checked or unchecked.")
                 if kind == "check" and cell and cell["value"] == "true" and value != "true":
                     raise ValueError("Checked job links cannot be unchecked.")
+                if (kind == 'link' or kind == 'company' and not (cell['value'] if cell else '').strip()) and value != (cell['value'] if cell else ''):
+                    # Filter new URLs and newly completed company fields, never
+                    # remove an already checked historical application.
+                    if row_id not in protected:candidates.add(row_id)
                 style = {
                     **(json.loads(cell["style"]) if cell else {}),
                     **(change.get("style") or {}),
@@ -369,12 +379,14 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     "INSERT INTO native_cells(row_id,column_id,value,style,version) VALUES(?,?,?,?,1) ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,style=excluded.style,version=native_cells.version+1",
                     (row_id, column_id, value, json.dumps(style)),
                 )
+            filtered=sourcing_filters.filter_rows(conn,tab,candidates)
             from .sourcing_activity import record
             record(conn, "manual-edit")
             if compact_rows:
                 compact_blank_rows(conn, tab["id"])
-            record_operation(conn, tab["id"], operation, payload, structural=compact_rows)
-        return snapshot(conn, tab)
+            record_operation(conn, tab["id"], operation, payload, structural=compact_rows or bool(sum(filtered.values())), filtered=filtered)
+        from .sourcing_filters import result
+        return result(conn, tab, operation)
 
 
 def migrate(conn):
