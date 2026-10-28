@@ -55,7 +55,8 @@ def filter_rows(conn,tab,ids):
         link=link_key(v.get('link',''))
         # Incomplete rows are checked once their job URL is entered.
         if not link:continue
-        reason='blocked_companies' if company_key(v.get('company','')) in blocked else 'duplicates' if link in seen else None
+        company=company_key(v.get('company',''))
+        reason='blocked_companies' if any(name in company for name in blocked) else 'duplicates' if link in seen else None
         if reason:
             conn.execute('DELETE FROM native_rows WHERE id=? AND tab_id=?',(key,tab['id']))
             summary[reason]+=1

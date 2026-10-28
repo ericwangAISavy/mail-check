@@ -101,3 +101,14 @@ class IncomingFilterTests(unittest.TestCase):
         result=self.native.save(self.conn,self.tab(),'checked-paste',changes)
         self.assertEqual(result['filtered']['duplicates'],1)
         self.assertEqual(len(self.jobs()),1)
+
+    def test_blocked_company_matches_case_insensitive_substrings_in_new_rows(self):
+        self.add([['Acme Consulting','Engineer','https://jobs.test/history']],'history')
+        filters.set_companies(self.conn,['aCmE','BETA'])
+        self.conn.commit()
+        result=self.add([['ACME Inc.','Engineer','https://jobs.test/a'],
+                         ['The Acme Consulting Group','Engineer','https://jobs.test/b'],
+                         ['Alpha beta Labs','Engineer','https://jobs.test/c'],
+                         ['Other Company','Engineer','https://jobs.test/d']])
+        self.assertEqual(result['filtered']['blocked_companies'],3)
+        self.assertEqual([r[0]['value'] for r in self.jobs()],['Acme Consulting','Other Company'])

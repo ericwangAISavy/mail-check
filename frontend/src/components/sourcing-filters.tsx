@@ -12,7 +12,7 @@ export default function SourcingFilters() {
   return <DialogContent><DialogTitle>Job link filters</DialogTitle>
     <DialogDescription>New job rows are filtered automatically. Duplicate links are removed across all tabs for the same account, including other bidders and dates. Existing rows stay saved.</DialogDescription>
     <label htmlFor="blocked-companies">Blocked companies · one company per line</label>
-    <p className="form-hint">Applies to every account. Matches the full Company name, ignoring case, spaces and punctuation.</p>
+    <p className="form-hint">Applies to every account. Removes new rows when the Company name contains any listed name, ignoring case, spaces and punctuation.</p>
     <textarea id="blocked-companies" rows={10} maxLength={201000} value={draft ?? query.data?.companies.join("\n") ?? ""} onChange={e=>{setDraft(e.target.value);save.reset()}} disabled={query.isPending || save.isPending} placeholder={"Company One\nCompany Two"} style={{width:"100%",padding:12,background:"var(--background)",color:"var(--foreground)",border:"1px solid var(--border)",borderRadius:6}} />
     {(query.error || save.error) && <p role="alert" className="inline-error">{(query.error || save.error)?.message}</p>}
     {save.isSuccess && draft === null && <p role="status">Company filters saved.</p>}

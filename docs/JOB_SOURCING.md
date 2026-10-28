@@ -210,8 +210,10 @@ sourcing-date application totals keep their original date attribution.
 ## Automatic incoming job filters
 
 Job sourcing → **Job link filters** lets admins save a workspace-wide company
-blocklist, one full company name per line. Company matching ignores case,
-whitespace and punctuation; it does not use the first-word email-matching rule.
+blocklist, one company name or name fragment per line. A new row is blocked when
+its Company name contains any listed name, ignoring case, whitespace and
+punctuation. For example, `Acme` blocks `ACME Inc.` and `The Acme Group`.
+It does not use the first-word email-matching rule.
 Saving the list does not remove historical jobs.
 
 Grid URL entry/paste, appended job rows and CSV imports filter incoming rows
