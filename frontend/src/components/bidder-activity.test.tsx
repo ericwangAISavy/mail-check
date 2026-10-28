@@ -122,3 +122,24 @@ it("places a live current-time marker precisely within the Chicago workday", asy
   fireEvent.click(screen.getByRole("button", {name:"Confirmation time"}))
   expect(screen.queryByTestId("now-marker")).toBeNull()
 })
+
+it("plots running totals that stay flat in quiet intervals for bidders and accounts", async () => {
+  const base=payload()
+  const points=[{at:"2026-10-12T15:00:00Z",source:"confirmation",counts:{"1":3,"2":1}},
+    {at:"2026-10-12T15:15:00Z",source:"confirmation",counts:{"1":0,"2":0}},
+    {at:"2026-10-12T15:30:00Z",source:"confirmation",counts:{"1":2,"2":1}}]
+  vi.mocked(request).mockResolvedValue({...base,accounts:[{...base.bidders[0],id:10,name:"shared@example.test"}],workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:points,runs:points,account_confirmations:points.map(p=>({...p,counts:{"10":p.counts["1"]}})),account_runs:[]}})
+  mount();await screen.findByRole("button",{name:"Alex"})
+  const plotted=()=>JSON.parse(screen.getByTestId("chart-points").getAttribute("data-points")!)
+  expect(plotted().map((p:any)=>p["1"])).toEqual([0,3,3,5])
+  expect(plotted().map((p:any)=>p["2"])).toEqual([0,1,1,2])
+  expect(plotted()[0].at).toBe("2026-10-12T11:00:00Z")
+  fireEvent.click(screen.getByRole("button",{name:"By day"}))
+  expect(plotted().map((p:any)=>p["1"])).toEqual([0,5])
+  expect(plotted()[0].at).toBe("start")
+  fireEvent.click(screen.getByRole("button",{name:"Check runs"}))
+  expect(plotted().map((p:any)=>p["1"])).toEqual([0,3,3,5])
+  fireEvent.click(screen.getByRole("button",{name:"Confirmation time"}))
+  fireEvent.click(screen.getByRole("button",{name:"By account"}))
+  expect(plotted().map((p:any)=>p["10"])).toEqual([0,3,3,5])
+})

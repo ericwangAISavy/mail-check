@@ -134,3 +134,9 @@ Total: $44
 ```
 
 Amounts use the recorded payment if already paid; otherwise they use the saved manual amount or calculated weekly pay. If neither a rate nor manual amount is set, or wallet details are missing, nothing is copied and the page names the missing details. A selectable preview is provided for manual copying if browser clipboard access is unavailable. Recorded amounts and counts remain saved unless explicitly edited by an admin. This copies text only and never transfers money.
+
+Activity line charts show cumulative counts: confirmation-time and check-run modes
+accumulate within the selected 6 AM–6 AM Chicago workday; By day accumulates across
+the selected week. Quiet intervals stay flat, and each series' final point shows
+its period total. Bidder and account series accumulate independently. Heatmap cells
+and the check-run detail table retain their original interval counts.
