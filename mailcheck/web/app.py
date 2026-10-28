@@ -638,6 +638,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         response.headers["X-Frame-Options"] = "DENY"
         return response
 
+    @app.post("/_internal/settings-updated")
+    def shared_settings_updated():
+        if not worker_secret:return _err("Private worker endpoint.",403)
+        _reschedule(cfgmod.load())
+        return {"ok":True}
+
     @app.get("/_internal/ready")
     def workspace_ready():
         return {"ok": True}

@@ -231,7 +231,12 @@ def _read_toml(path: Path) -> dict:
 
 
 def load() -> Config:
-    return Config.model_validate(_read_toml(config_path()))
+    # Business data/credentials remain workspace-local; platform configuration
+    # is read from the owner's atomic settings file by managed workers.
+    from .workspaces import workspace_root
+    workspace_root()  # Invalid worker contexts must never fall back to owner paths.
+    shared=os.environ.get("OFFERPATH_SHARED_CONFIG_PATH")
+    return Config.model_validate(_read_toml(Path(shared) if shared else config_path()))
 
 
 #: Serializes writes within this process — the web console's request-handling
@@ -249,6 +254,8 @@ def save(cfg: Config) -> Path:
     (``os.replace`` uses ``MoveFileEx`` with ``MOVEFILE_REPLACE_EXISTING``), so
     a reader always sees either the old file or the fully-written new one.
     """
+    if os.environ.get("OFFERPATH_SHARED_CONFIG_PATH"):
+        raise ValueError("Settings are managed by the owner.")
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = cfg.model_dump(mode="json", exclude_none=True)

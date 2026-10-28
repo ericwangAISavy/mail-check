@@ -123,6 +123,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 return JSONResponse({'error':'Workspace changed. Reload before continuing.','workspace_changed':True},409)
             if identity['must_change_password'] and path not in ('/api/auth/password','/login'):
                 return JSONResponse({'error':'Change your temporary password before opening the workspace.'},403) if path.startswith('/api/') else page()
+        restricted_settings = path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
+        if identity and restricted_settings and not identity['is_owner']:
+            return JSONResponse({'error':'Settings are managed by the owner.'},403)
         try:response=await call_next(request)
         except RevokedSession as exc:
             response=JSONResponse({"error":str(exc)},401)
@@ -229,8 +232,16 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     async def proxy(path:str,request:Request):
         if not path.startswith('api/'):
             return page()
+        from urllib.parse import unquote
+        normalized=path
+        for _ in range(4):normalized=unquote(normalized)
+        if any(segment in ('.','..') for segment in normalized.split('/')) or '\\' in normalized:
+            raise HTTPException(400,'Invalid API path.')
         identity=request.state.identity
-        try:worker=await asyncio.to_thread(pool.ensure,store.workspace(identity['workspace_id']))
+        global_settings=path.startswith(('api/settings','api/rules')) or path.rstrip('/')=='api/autocheck'
+        if global_settings and not identity['is_owner']:raise HTTPException(403,'Settings are managed by the owner.')
+        target='legacy' if global_settings else identity['workspace_id']
+        try:worker=await asyncio.to_thread(pool.ensure,store.workspace(target))
         except (RuntimeError,OSError,ValueError):raise HTTPException(503,'This workspace worker is unavailable. Contact the owner or retry later.')
         body=await request.body()
         if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
@@ -245,6 +256,16 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             async with httpx.AsyncClient(trust_env=False,timeout=660) as client:
                 result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
         except httpx.HTTPError:raise HTTPException(503,'Workspace connection interrupted. Reload before retrying an email send.')
+        if path.rstrip('/') in ('api/settings','api/autocheck') and request.method=='POST' and result.is_success:
+            # Reload schedules without restarting workers or interrupting jobs.
+            async with httpx.AsyncClient(trust_env=False,timeout=5) as client:
+                async def notify(workspace):
+                    if workspace['id']=='legacy':return
+                    try:
+                        member=await asyncio.to_thread(pool.ensure,workspace)
+                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token})
+                    except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
+                await asyncio.gather(*(notify(workspace) for workspace in store.enabled_workspaces()))
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
         return Response(result.content,status_code=result.status_code,headers=response_headers)

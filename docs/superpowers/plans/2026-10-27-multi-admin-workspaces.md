@@ -2,11 +2,15 @@
 
 Status: approved and implemented on `feature/multi-admin-workspaces`; final code and browser verification complete. Not deployed or pushed. Native Windows multi-worker and production-load rollout checks remain manual.
 
-**Goal:** One owner provisions additional admins, each managing an isolated set of email accounts, bidders, jobs, interviews, settings and payments.
+**Goal:** One owner provisions additional admins, each managing an isolated set of email accounts, bidders, jobs, interviews and payments. Settings are shared and accessible only to the owner.
 
 **Architecture:** Add a control plane for owner/admin identities and workspace routing. Keep each workspace's existing business database schema and run its application in a separate worker process. Register the existing installation as the owner's original workspace without relocating or rewriting its database.
 
 **Tech stack:** Existing FastAPI, React and SQLite; a new control-plane SQLite database; local worker processes supervised by a gateway. Keep the existing Python CLI/package name and launch command compatible.
+
+## Settings revision (2026-10-28)
+
+The user selected owner-only Settings access. Added admins inherit the owner’s configuration and can change their own password from the header. Settings APIs route to the original workspace even while the owner is viewing another workspace. Existing per-workspace settings files remain preserved for rollback.
 
 ## Requirements and interpretation
 

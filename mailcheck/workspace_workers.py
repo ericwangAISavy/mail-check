@@ -120,9 +120,10 @@ class WorkerPool:
             sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
         token=secrets.token_urlsafe(48)
         env=os.environ.copy()
-        for key in ('OFFERPATH_WORKSPACE_ROOT','OFFERPATH_WORKSPACE_ID','OFFERPATH_LEGACY_CONFIG_PATH','OFFERPATH_LEGACY_DB_PATH'):env.pop(key,None)
+        for key in ('OFFERPATH_WORKSPACE_ROOT','OFFERPATH_WORKSPACE_ID','OFFERPATH_LEGACY_CONFIG_PATH','OFFERPATH_LEGACY_DB_PATH','OFFERPATH_SHARED_CONFIG_PATH'):env.pop(key,None)
         if workspace['root']:
             env['OFFERPATH_WORKSPACE_ROOT']=workspace['root'];env['OFFERPATH_WORKSPACE_ID']=wid
+            env['OFFERPATH_SHARED_CONFIG_PATH']=str(self.legacy_paths[0])
         else:
             env['OFFERPATH_LEGACY_CONFIG_PATH']=str(self.legacy_paths[0])
             env['OFFERPATH_LEGACY_DB_PATH']=str(self.legacy_paths[1])

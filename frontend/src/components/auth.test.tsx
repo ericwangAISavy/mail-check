@@ -35,6 +35,9 @@ it("signs an additional admin into their own workspace without owner controls",a
   expect(api.login).toHaveBeenCalledWith("admin","alice-password-123",undefined,"alice")
   expect(screen.getByText("Alice workspace")).toBeTruthy()
   expect(screen.queryByRole("link",{name:"Admin management"})).toBeNull()
+  expect(screen.queryByRole("link",{name:"Settings"})).toBeNull()
+  expect(screen.getByRole("button",{name:"Change password"})).toBeTruthy()
+  expect(screen.getByRole("button",{name:"Auto-check off"})).toHaveProperty("disabled",true)
 })
 it("shows owner controls and explicit workspace identity",async()=>{
   vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy",workspace_name:"Original workspace"})

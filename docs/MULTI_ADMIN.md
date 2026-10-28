@@ -19,7 +19,11 @@ Open **Admin management**. Create a username, workspace name, and temporary
 password of at least 12 characters. Give those credentials to the admin yourself;
 OfferPath does not email credentials. The new admin must replace the temporary
 password before accessing workspace data. They start with no email accounts or
-bidders and configure their own connections and settings.
+bidders and connect their own email accounts. Only the owner can open or edit
+Settings; all workspaces use the owner’s Model, Outlook client ID, local rules,
+and checking preferences. Added admins can change their own login password from
+the header. Automatic checking is managed by the owner; manual checks remain
+available to every admin.
 
 Only the owner can create/reset/suspend admins or explicitly open another
 workspace. The workspace banner always identifies whose data is open. Opening
@@ -35,7 +39,10 @@ retained for compatibility and rollback.
 ## Isolation and capacity
 
 Each enabled workspace has its own local worker process, SQLite database,
-configuration, check scheduler, email-send ledger and credential namespace. New
+check scheduler, email-send ledger and credential namespace. Settings are shared
+from the owner’s configuration file; any older workspace settings files remain
+preserved but are not used by managed workers. Owner settings changes update
+running workspace schedules without restarting their jobs. New
 workspaces live inside `offerpath-control/workspaces/<id>` beside the original
 configuration directory. The original workspace keeps its existing database,
 configuration and OS-keyring names. New workspace IDs are server-generated.

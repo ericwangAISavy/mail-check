@@ -61,8 +61,9 @@ password before accessing their own email accounts, bidders and application data
 Bidders are managed records and no longer sign in.
 
 The owner's existing database/configuration/OS-keyring entries stay in place.
-New workspaces have separate databases, settings, credential namespaces and worker
-processes. A separate control database manages admin identities and revocable
+New workspaces have separate databases, credential namespaces and worker
+processes. Only the owner can access Settings; all admins inherit that shared
+configuration while connecting their own email accounts. A separate control database manages admin identities and revocable
 12-hour HttpOnly sessions. See [Multi-admin setup and rollback](docs/MULTI_ADMIN.md)
 for capacity limits, backups and returning to the previous single-admin version.
 

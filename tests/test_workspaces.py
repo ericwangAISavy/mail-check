@@ -56,3 +56,16 @@ def test_incomplete_backup_marker_blocks_original_worker_start(tmp_path):
     pool=WorkerPool(SimpleNamespace(root=control),'http://127.0.0.1:1',(tmp_path/'config.toml',tmp_path/'db.sqlite',tmp_path/'auth.json'))
     with pytest.raises(RuntimeError,match='backup'):
         pool._backup()
+
+
+def test_managed_workspace_inherits_owner_settings_without_writing_them(tmp_path):
+    wid='b'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[llm]\nbase_url="http://owner-model:11434"\n[outlook]\nclient_id="shared-client"\n')
+    env={'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid,'OFFERPATH_SHARED_CONFIG_PATH':str(shared)}
+    with patch.dict('os.environ',env):
+        assert config.load().llm.base_url=='http://owner-model:11434'
+        assert config.load().outlook.client_id=='shared-client'
+        with pytest.raises(ValueError,match='owner'):config.save(config.load())
+        shared.write_text('[llm]\nbase_url="http://new-owner-model:11434"\n')
+        assert config.load().llm.base_url=='http://new-owner-model:11434'
+        assert config.db_path()==root/'data'/'mailcheck.db'

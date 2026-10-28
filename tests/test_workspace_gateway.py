@@ -204,3 +204,28 @@ def test_signing_into_another_admin_revokes_the_previous_browser_session(system)
         login(browser,'alice','temporary-pass-123')
         assert store.identity(previous) is None
         assert store.identity(browser.cookies.get('offerpath_session'))['username']=='alice'
+
+
+@pytest.mark.parametrize('path',['/settings','/api/settings','/api/settings/model','/api/settings/test','/api/rules','/api/autocheck'])
+def test_added_admin_cannot_access_settings_or_setting_mutations(system,path):
+    app,store,pool=system
+    store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    temporary=store.login('alice','temporary-pass-123','setup');store.change_password(temporary,'alice-final-pass-123')
+    with TestClient(app) as client:
+        login(client,'alice','alice-final-pass-123')
+        result=client.get(path) if path in ('/settings','/api/settings','/api/settings/model') else client.post(path,json={})
+        assert result.status_code==403,result.text
+        assert not pool.visited
+
+
+def test_owner_settings_use_original_workspace_even_when_viewing_another_admin(system):
+    app,store,pool=system
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    real_client=httpx.AsyncClient
+    transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'worker':request.headers['x-offerpath-worker']}))
+    with TestClient(app) as client,patch('mailcheck.web.gateway.httpx.AsyncClient',side_effect=lambda **kw:real_client(transport=transport,**kw)):
+        login(client)
+        assert client.post('/api/admin/switch',json={'workspace_id':wid}).status_code==200
+        client.headers['x-offerpath-workspace']=wid
+        assert client.get('/api/settings').json()['worker']=='secret-legacy'
+        assert pool.visited==['legacy']

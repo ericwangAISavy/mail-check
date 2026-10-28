@@ -1,3 +1,4 @@
+import ChangePassword from "@/components/change-password"
 import { OfferPathMark } from "@/components/offerpath-mark"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
@@ -82,6 +83,8 @@ function Countdown({ nextIn, receivedAt, onDue }: { nextIn: number; receivedAt: 
 }
 
 function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
+  const {session}=useAuth()
+  const canManageSettings=!session?.workspace_id || !!session.is_owner
   const calendarOnly = ["/interviews", "/interview-processes"].includes(useLocation().pathname)
   const queryClient = useQueryClient()
   const toast = useToast()
@@ -180,7 +183,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
       {elapsed != null && <small className="tabular status-elapsed">{elapsed}s</small>}
       {!status?.running && scheduled && status?.next_in != null && <Countdown nextIn={status.next_in} receivedAt={receivedAt} onDue={onDue} />}
     </span>
-    <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} title={status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>
+    <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} disabled={!canManageSettings} title={!canManageSettings ? "Automatic checking is managed by the owner." : status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>
     <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.accounts || (!calendarOnly && !bootstrap.readiness.model)}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>
   </div>
 }
@@ -188,6 +191,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const { role, signOut, session } = useAuth()
   const admin = role === "admin"
+  const canManageSettings = !session?.workspace_id || !!session.is_owner
   const toast = useToast()
   const [collapsed, setCollapsed] = useState(localStorage.getItem("mailcheck.sidebar") === "collapsed")
   const [mobileNav, setMobileNav] = useState(false)
@@ -203,7 +207,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
         <div className="sidebar-user"><span className="avatar-mark"><OfferPathMark size={27} /></span><div><strong>OfferPath</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
@@ -213,21 +217,21 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
       <header className="topbar">
         <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname)?.label || "Triage"}</strong>{location.pathname === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}><strong>{bootstrap.counts.applications_today.toLocaleString()}</strong><span>today</span></span>}</div></div>
-        <div className="top-right"><ThemeControl /><span className="signed-in-role">{session?.is_owner ? "Owner" : "Admin"}</span><Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
+        <div className="top-right"><ThemeControl /><span className="signed-in-role">{session?.is_owner ? "Owner" : "Admin"}</span>{!canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
       {admin && location.pathname !== "/admin-management" && location.pathname !== "/sourcing" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
-        <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} canManageSettings={canManageSettings} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/sourcing" replace />} />
         <Route path="/dashboard" element={admin ? <DashboardPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/sourcing" replace />} />
         <Route path="/sourcing" element={<SourcingPage />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
-        <Route path="/accounts" element={admin ? <AccountsPage /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
-        <Route path="/settings" element={admin ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/sourcing"} replace />} />
         <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/sourcing" replace />} />
       </Routes></Suspense></main>
@@ -242,8 +246,10 @@ function UnknownRoute() {
 }
 
 function Recovery({ message }: { message: string }) {
+  const {session}=useAuth()
+  const canManageSettings=!session?.workspace_id || !!session.is_owner
   const navigate = useNavigate()
-  return <main className="recovery-page"><div className="brand-mark"><OfferPathMark size={30} /></div><p className="eyebrow">SAFE RECOVERY</p><h1>Check your local settings</h1><p className="recovery-description">This saved configuration needs an update before OfferPath can open. Your mailbox and local mail are unchanged.</p><Card className="recovery-card"><pre>{message}</pre><Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button></Card><p className="muted">Credentials are never included in this recovery message.</p></main>
+  return <main className="recovery-page"><div className="brand-mark"><OfferPathMark size={30} /></div><p className="eyebrow">SAFE RECOVERY</p><h1>Check your local settings</h1><p className="recovery-description">This saved configuration needs an update before OfferPath can open. Your mailbox and local mail are unchanged.</p><Card className="recovery-card"><pre>{message}</pre>{canManageSettings ? <Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button> : <p>Ask the owner to review the shared Settings.</p>}</Card><p className="muted">Credentials are never included in this recovery message.</p></main>
 }
 
 function ReadyApp() {
