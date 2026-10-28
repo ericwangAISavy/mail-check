@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { request, triageParams } from "./api"
+import { request, triageParams, setWorkspaceIdentity } from "./api"
 
 describe("triageParams", () => {
   it("defaults invalid views and ranges while preserving supported filters", () => {
@@ -23,7 +23,7 @@ describe("triageParams", () => {
 })
 
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {vi.unstubAllGlobals();setWorkspaceIdentity()})
 it("shows FastAPI validation fields and messages for invalid form values", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
     { loc: ["body", "amount"], msg: "Decimal input should have no more than 2 decimal places" },
@@ -62,4 +62,14 @@ it("downloads CSV with the workspace header instead of an unauthenticated naviga
   expect(click).toHaveBeenCalledOnce()
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:export")
   setWorkspaceIdentity();click.mockRestore()
+})
+
+it("does not rebind live page requests before AuthGate completes a session handoff",async()=>{
+  const {api,getWorkspaceIdentity,setWorkspaceIdentity}=await import("./api")
+  setWorkspaceIdentity("alice")
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify({role:"admin",workspace_id:"bob"}),{status:200,headers:{"Content-Type":"application/json"}})))
+  const session=await api.session()
+  expect(session.workspace_id).toBe("bob")
+  expect(getWorkspaceIdentity()).toBe("alice")
+  setWorkspaceIdentity()
 })

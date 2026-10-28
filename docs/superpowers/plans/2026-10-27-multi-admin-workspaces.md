@@ -120,7 +120,7 @@ code boundary. The original workspace remains at its existing paths and business
 schema version 34. New control/identity data is stored separately. See
 `docs/MULTI_ADMIN.md` for sign-in, capacity and rollback instructions.
 
-Verification: 370 backend tests (plus 76 subtests), 228 frontend tests, production
+Verification: 371 backend tests (plus 76 subtests), 229 frontend tests, production
 build, and real-browser owner/admin/CSV workflows passed. Real worker tests cover
 concurrent startup, crash/restart, separate data, direct-access rejection, and a
 specific-interface heartbeat surviving beyond its failure threshold. Native

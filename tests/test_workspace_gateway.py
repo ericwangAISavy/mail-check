@@ -193,3 +193,14 @@ def test_held_business_write_cannot_outlive_admin_password_reset(system):
                     assert (await task).status_code in (401,403)
                     assert not dispatched
         asyncio.run(scenario())
+
+
+def test_signing_into_another_admin_revokes_the_previous_browser_session(system):
+    app,store,pool=system
+    store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    with TestClient(app) as browser:
+        login(browser)
+        previous=browser.cookies.get('offerpath_session')
+        login(browser,'alice','temporary-pass-123')
+        assert store.identity(previous) is None
+        assert store.identity(browser.cookies.get('offerpath_session'))['username']=='alice'

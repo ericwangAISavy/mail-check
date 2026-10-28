@@ -169,6 +169,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         try:token=await asyncio.to_thread(store.login,body.username,body.password,request.client.host if request.client else 'unknown')
         except ValueError:raise HTTPException(429,'Too many sign-in attempts. Try again in a minute.',headers={'Retry-After':'60'})
         if not token:raise HTTPException(401,'Incorrect username or password.')
+        # Replacing this browser's identity must invalidate in-flight old-session requests.
+        store.logout(request.cookies.get(COOKIE))
         return cookie(JSONResponse(store.identity(token)),token)
 
     @app.post('/api/auth/logout')

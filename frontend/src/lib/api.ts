@@ -38,8 +38,8 @@ export const api = {
     window.dispatchEvent(new Event("mailcheck:check-started"))
     return result
   },
-  session: async () => {const session=await request<Session>("/api/auth/session");setWorkspaceIdentity(session.workspace_id);return session},
-  login: async (role: "admin" | "bidder", password: string, _bidder_id?: number, username="owner") => {const session=await request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username }) });setWorkspaceIdentity(session.workspace_id);return session},
+  session: () => request<Session>("/api/auth/session"),
+  login: (role: "admin" | "bidder", password: string, _bidder_id?: number, username="owner") => request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username }) }),
   dashboardAccounts: () => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
