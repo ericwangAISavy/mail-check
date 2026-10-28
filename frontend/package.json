@@ -1,13 +1,14 @@
 {
   "name": "mail-check-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader runner --host 127.0.0.1",
     "build": "tsc -b && vite build --configLoader runner",
     "test": "vitest run --configLoader runner",
-    "test:ui": "vitest"
+    "test:ui": "vitest",
+    "prebuild": "python ../tools/release.py --check"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.6",

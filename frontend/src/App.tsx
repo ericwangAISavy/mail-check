@@ -1,3 +1,4 @@
+import ReleaseHistory from "@/components/release-history"
 import ChangePassword from "@/components/change-password"
 import { OfferPathMark } from "@/components/offerpath-mark"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
@@ -205,7 +206,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   return <div className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
-      <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button>
+      <div className="brand-header"><button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
       <div className="workspace-label">YOUR WORKSPACE</div>
       <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">

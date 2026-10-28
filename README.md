@@ -426,3 +426,7 @@ workspace: profile tabs, rectangular copy/paste, formatting, sorting/filtering, 
 autosaves, CSV import/export, and application search from interview details. Each
 workspace keeps its bidders’ workbooks separate from other admins. No Google connection is required.
 See [Job sourcing setup, import and backups](docs/JOB_SOURCING.md).
+
+OfferPath's current version is available beside the app name; select it to read
+update history. See [release history](docs/CHANGELOG.md) and
+[versioning instructions](docs/VERSIONING.md) for future updates.
