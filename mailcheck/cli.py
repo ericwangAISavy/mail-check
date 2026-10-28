@@ -427,7 +427,9 @@ def web(
     if any(not value or any(c in value for c in "/:@* ") for value in allow_host):
         console.print("[red]--allow-host must be a hostname or IPv4 address without a scheme, port, path, or wildcard.[/red]")
         raise typer.Exit(1)
-    uvicorn.run(create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies),
+    from .web.server import run
+
+    run(create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies),
                 host=host, port=port, log_level="warning")
 
 
