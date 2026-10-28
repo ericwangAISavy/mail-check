@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.7",
     "platformdirs>=4.2",
     "html2text>=2024.2.26",
+    "nh3>=0.3",
     "tomli-w>=1.0",
     "fastapi>=0.111",
     "uvicorn>=0.30",

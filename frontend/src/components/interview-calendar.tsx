@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom"
 import { CalendarCheck2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Circle, Columns2, Columns3, Download, Expand, Filter, Link, Minimize, PanelTop, Printer, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { InterviewEvent } from "@/lib/types"
-import { dayKey, exportInterviews, fallsOnDay, HOUR_HEIGHT, parseDay, placeEvents, shiftDays, startOfDay, viewDays, type CalendarView } from "@/lib/interview-calendar"
+import { calendarCounts, dayKey, exportInterviews, fallsOnDay, HOUR_HEIGHT, parseDay, placeEvents, shiftDays, startOfDay, viewDays, type CalendarView } from "@/lib/interview-calendar"
 import { useToast } from "@/components/common"
 
 const labels: Record<CalendarView,string> = {workweek:"Work week",week:"Week",month:"Month",day:"Day"}
@@ -13,11 +13,14 @@ const statusClass = (event: InterviewEvent) => event.display_status.toLowerCase(
 const title = (event: InterviewEvent) => `${event.company || "Unknown company"}${event.role ? " · " + event.role : ""} · ${event.stage}`
 const timeLabel = (event: InterviewEvent) => `${event.start_at ? new Date(event.start_at).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}) : "Time unknown"}${event.end_at ? " – " + clock(event.end_at) : " · End time unknown"}`
 const accessible = (event: InterviewEvent) => `${event.company || "Unknown company"}, ${event.stage}, ${timeLabel(event)}, ${event.display_status}`
-const accountColor = (event: InterviewEvent, accounts: Account[], account?: string) => Math.max(0,accounts.findIndex(a=>a.label===(account || event.account_labels?.[0]))) % 3
+const accountColor = (event: InterviewEvent, accounts: Account[], account?: string) => {
+  const owner=accounts.filter(a=>account ? a.label===account : event.account_labels?.includes(a.label)).sort((a,b)=>a.id-b.id)[0]
+  return Math.max(0,(owner?.id||1)-1)%6
+}
 
 type Account = {id:number;label:string;email:string}
-type Props = { events: InterviewEvent[]; accounts: Account[]; account: string; filterCount: number; filters: ReactNode; onSelect:(id:number)=>void }
-export default function InterviewCalendar({events,accounts,account,filterCount,filters,onSelect}:Props) {
+type Props = { events: InterviewEvent[]; accounts: Account[]; account: string; filterCount: number; filters: ReactNode; actions?: ReactNode; onSelect:(id:number)=>void }
+export default function InterviewCalendar({events,accounts,account,filterCount,filters,actions,onSelect}:Props) {
   const [params,setParams]=useSearchParams(), toast=useToast()
   const initialDay=useRef(startOfDay(new Date()))
   const viewParam=params.get("calendar_view"), dayParam=params.get("calendar_date")
@@ -47,6 +50,7 @@ export default function InterviewCalendar({events,accounts,account,filterCount,f
   const navigate=(direction:number)=>update(view,view==="month"?new Date(date.getFullYear(),date.getMonth()+direction,1):shiftDays(date,direction*(view==="day"?1:7)))
   const jumpDay=(day:Date)=>update("day",day)
   const heading=view==="month"?date.toLocaleDateString(undefined,{month:"long",year:"numeric"}):view==="day"?date.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric",year:"numeric"}):new Intl.DateTimeFormat(undefined,{month:"long",day:"numeric",year:"numeric"}).formatRange(days[0],days[days.length-1])
+  const counts=calendarCounts(events,view==="month"?days.filter(day=>day.getMonth()===date.getMonth()):days)
   const splitAccounts=accounts.filter(a=>!account||a.label===account)
   const hiddenWeekend=view==="workweek"?events.filter(e=>e.start_at && new Date(e.start_at)>=days[0] && new Date(e.start_at)<shiftDays(days[0],7) && !days.some(day=>fallsOnDay(e,day))).length:0
   const copyLink=async()=>{try{const url=new URL(window.location.href);url.search=params.toString();url.searchParams.delete("event");url.searchParams.set("calendar_view",view);url.searchParams.set("calendar_date",dayKey(date));await navigator.clipboard.writeText(url.toString());toast("Calendar link copied.","success");setShareOpen(false)}catch{toast("Could not copy the link. Copy this page’s address from your browser.","error")}}
@@ -56,10 +60,11 @@ export default function InterviewCalendar({events,accounts,account,filterCount,f
       <Button variant="ghost" size="sm" aria-pressed={split} onClick={()=>setSplit(!split)} title="Show each connected account’s calendar side by side"><Columns2 size={15}/>Split view</Button><span className="outlook-command-divider"/>
       <Button variant="ghost" size="sm" aria-expanded={filterOpen} aria-controls="calendar-filter-panel" onClick={()=>setFilterOpen(!filterOpen)}><Filter size={15}/>Filter{filterCount>0&&<span className="calendar-filter-count">{filterCount}</span>}<ChevronDown size={12}/></Button>
       <div className="outlook-menu-anchor" ref={shareRef}><Button variant="ghost" size="sm" aria-expanded={shareOpen} aria-controls="calendar-share-menu" onClick={()=>setShareOpen(!shareOpen)}><Share2 size={15}/>Share<ChevronDown size={12}/></Button>{shareOpen&&<div className="outlook-menu" id="calendar-share-menu"><button onClick={()=>void copyLink()}><Link size={15}/>Copy calendar link</button><button onClick={download}><Download size={15}/>Download calendar (.ics)</button></div>}</div>
+      {actions}
       <Button variant="ghost" size="sm" onClick={()=>window.print()}><Printer size={15}/>Print</Button><Button className="calendar-expand-button" variant="ghost" size="icon" aria-label={expanded?"Restore calendar size":"Expand calendar"} aria-pressed={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?<Minimize size={16}/>:<Expand size={16}/>}</Button>
     </div>
     {filterOpen&&<div id="calendar-filter-panel" className="outlook-filter-panel">{filters}</div>}
-    <div className="outlook-date-bar"><Button variant="outline" size="sm" onClick={()=>update(view,startOfDay(new Date()))}><CalendarCheck2 size={15}/>Today</Button><Button variant="ghost" size="icon" aria-label="Previous calendar period" onClick={()=>navigate(-1)}><ChevronLeft size={18}/></Button><Button variant="ghost" size="icon" aria-label="Next calendar period" onClick={()=>navigate(1)}><ChevronRight size={18}/></Button><div className="outlook-menu-anchor" ref={dateRef}><button className="outlook-period" aria-expanded={dateOpen} aria-controls="calendar-date-picker" onClick={()=>setDateOpen(!dateOpen)}><span aria-live="polite">{heading}</span><ChevronDown size={13}/></button>{dateOpen&&<div className="outlook-menu" id="calendar-date-picker"><label>Go to date<input type="date" aria-label="Go to date" value={dayKey(date)} onChange={e=>{const chosen=parseDay(e.target.value);if(chosen){update(view,chosen);setDateOpen(false)}}}/></label></div>}</div><span className="outlook-zone">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span></div>
+    <div className="outlook-date-bar"><Button variant="outline" size="sm" onClick={()=>update(view,startOfDay(new Date()))}><CalendarCheck2 size={15}/>Today</Button><Button variant="ghost" size="icon" aria-label="Previous calendar period" onClick={()=>navigate(-1)}><ChevronLeft size={18}/></Button><Button variant="ghost" size="icon" aria-label="Next calendar period" onClick={()=>navigate(1)}><ChevronRight size={18}/></Button><div className="outlook-menu-anchor" ref={dateRef}><button className="outlook-period" aria-expanded={dateOpen} aria-controls="calendar-date-picker" onClick={()=>setDateOpen(!dateOpen)}><span aria-live="polite">{heading}</span><ChevronDown size={13}/></button>{dateOpen&&<div className="outlook-menu" id="calendar-date-picker"><label>Go to date<input type="date" aria-label="Go to date" value={dayKey(date)} onChange={e=>{const chosen=parseDay(e.target.value);if(chosen){update(view,chosen);setDateOpen(false)}}}/></label></div>}</div><span className="calendar-interview-counts" role="status" aria-label="Interview counts" title="For the visible dates and filters. Intro: 30 minutes or less. Tech: over 30 minutes. Cancelled events excluded.">Total <strong>{counts.total}</strong> / Intro <strong>{counts.intro}</strong> / Tech <strong>{counts.tech}</strong>{counts.unknown>0 && <> / Unknown <strong>{counts.unknown}</strong></>}</span><span className="outlook-zone">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span></div>
 
     <div className={`outlook-calendars ${split&&splitAccounts.length>1?"is-split":""}`}>{(split&&splitAccounts.length?splitAccounts:[null]).map(a=><div className="outlook-account-calendar" key={a?.id||"all"}>{split&&a&&<div className="outlook-account-name"><Circle size={9} fill="currentColor"/>{a.label}<span>{a.email}</span></div>}{view==="month"?<MonthGrid date={date} days={days} events={a?events.filter(e=>e.account_labels?.includes(a.label)):events} accounts={accounts} account={a?.label||account} now={now} onSelect={onSelect} onDay={jumpDay}/>:<TimeGrid days={days} view={view} events={a?events.filter(e=>e.account_labels?.includes(a.label)):events} accounts={accounts} account={a?.label||account} now={now} onSelect={onSelect} onDay={jumpDay}/>}</div>)}</div>
     {(hiddenWeekend>0)&&<div className="outlook-calendar-notices">{hiddenWeekend>0&&<button onClick={()=>update("week",date)}>{hiddenWeekend} {hiddenWeekend===1?"interview is":"interviews are"} on the weekend · Show week</button>}</div>}

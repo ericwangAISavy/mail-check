@@ -16,13 +16,14 @@ from typing import Any
 
 import keyring
 
-from .secrets import SERVICE
+from .secrets import SERVICE, credential_errors
 
 #: Personal Microsoft accounts only. Work/school tenants are out of scope.
 AUTHORITY = "https://login.microsoftonline.com/consumers"
 #: Read-only calendar access for bookings; mail access remains for CLI triage.
 SCOPES = ["Mail.Read", "Calendars.Read"]
 CALENDAR_SCOPES = ["Calendars.Read"]
+CONNECT_SCOPES = SCOPES + ["Mail.Send"]
 
 #: How long a pending device-code flow may sit in memory before it is dropped.
 FLOW_TTL_SECONDS = 15 * 60
@@ -55,6 +56,7 @@ def _chunk_key(label: str, index: int) -> str:
     return f"outlook-cache:{label}:{index}"
 
 
+@credential_errors(OutlookAuthError)
 def _read_blob(label: str) -> str:
     header = keyring.get_password(SERVICE, _cache_key(label))
     if not header:
@@ -74,6 +76,7 @@ def _read_blob(label: str) -> str:
     return "".join(parts)
 
 
+@credential_errors(OutlookAuthError)
 def _write_blob(label: str, blob: str) -> None:
     chunks = [blob[i : i + CHUNK_CHARS] for i in range(0, len(blob), CHUNK_CHARS)] or [""]
     if len(chunks) > MAX_CHUNKS:
@@ -90,6 +93,7 @@ def _write_blob(label: str, blob: str) -> None:
         _delete_quietly(_chunk_key(label, i))
 
 
+@credential_errors(OutlookAuthError)
 def _delete_quietly(key: str) -> None:
     try:
         keyring.delete_password(SERVICE, key)
@@ -123,6 +127,7 @@ def delete_cache(label: str) -> None:
         _delete_quietly(_chunk_key(label, i))
 
 
+@credential_errors(OutlookAuthError)
 def has_cache(label: str) -> bool:
     return bool(keyring.get_password(SERVICE, _cache_key(label)))
 
@@ -178,7 +183,7 @@ class PendingFlow:
 def begin_device_flow(label: str, client_id: str) -> PendingFlow:
     cache = load_cache(label)
     app = _app(client_id, cache)
-    flow = app.initiate_device_flow(scopes=SCOPES)
+    flow = app.initiate_device_flow(scopes=CONNECT_SCOPES)
     if "user_code" not in flow:
         raise OutlookAuthError(
             f"Could not start Microsoft sign-in: {flow.get('error_description') or flow}"

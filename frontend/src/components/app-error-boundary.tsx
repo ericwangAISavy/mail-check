@@ -12,7 +12,7 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("mail-check failed while rendering", error, info.componentStack)
+    console.error("OfferPath failed while rendering", error, info.componentStack)
     this.setState({ componentStack: info.componentStack || "" })
   }
 

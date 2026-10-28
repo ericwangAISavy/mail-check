@@ -64,6 +64,20 @@ describe("header status after external text replacement", () => {
     const previous = vi.mocked(api.bootstrap).mock.calls.length
     fireEvent.click(screen.getByRole("button", { name: "Check now" }))
     await waitFor(() => expect(vi.mocked(api.bootstrap).mock.calls.length).toBeGreaterThan(previous))
+    expect(api.post).toHaveBeenCalledWith("/api/check", { mode: "mail" })
+  })
+  it.each(["/interviews", "/interview-processes"])("uses calendar collection on %s without a model", async (path) => {
+    vi.spyOn(api, "status").mockResolvedValue(idle)
+    vi.spyOn(api, "post").mockResolvedValue({ ok: true })
+    vi.mocked(api.bootstrap).mockResolvedValue({ readiness: { model: false, accounts: true, privacy_ack: true, outlook: true }, counts: { actionable: 0 }, taxonomy: [], presets: [], last_run: "Never checked", account_count: 1 })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    clients.push(client)
+    const { container } = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(container.querySelector(".top-actions button:last-child")).toBeTruthy())
+    const button = container.querySelector<HTMLButtonElement>(".top-actions button:last-child")!
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/check", { mode: "calendar" }))
   })
   it.each([
     ["idle to scheduled", idle, scheduled, "Next check", "2:00"],
@@ -162,4 +176,17 @@ describe("live countdown", () => {
     const toggle = await screen.findByRole("button", { name: "Auto-check on" })
     expect(toggle.getAttribute("aria-pressed")).toBe("true")
   })
+})
+
+it("shows today's received confirmations beside Bidder management", async () => {
+  vi.mocked(api.bootstrap).mockResolvedValue({readiness:{model:true,accounts:true,privacy_ack:true,outlook:false},counts:{actionable:0,applications_today:3400},taxonomy:[],presets:[],last_run:"",account_count:2})
+  vi.spyOn(api,"status").mockResolvedValue(idle)
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/payments"]}><App /></MemoryRouter></QueryClientProvider>)
+  const badge=await screen.findByLabelText("3400 application confirmations received today")
+  expect(badge.closest("a")).toBeNull()
+  expect(badge.closest("header")?.textContent).toContain("Bidder management")
+  expect(badge.textContent).toBe("3,400today")
+  expect(screen.getByRole("button", {name:"OfferPath home"})).toBeTruthy()
+  expect(document.title).toBe("OfferPath")
 })

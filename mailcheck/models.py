@@ -25,6 +25,7 @@ class RawMessage:
     calendar_data: list[str] = field(default_factory=list)
     thread_id: str | None = None
     references: list[str] = field(default_factory=list)
+    original_html: str | None = None
 
 
 @dataclass
@@ -47,6 +48,7 @@ class NormalizedMessage:
     thread_id: str | None = None
     references: list[str] = field(default_factory=list)
     interview_text: str | None = None
+    original_html: str | None = None
 
     @property
     def snippet(self) -> str:

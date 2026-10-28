@@ -1,7 +1,9 @@
-# mail-check
+# OfferPath
 
-Triage unread job-application email. Fetches your unread mail, classifies it with an LLM,
-and tells you what actually needs a reply today.
+**Every application, a step forward.**
+
+OfferPath brings job sourcing, application tracking, email replies, interview
+scheduling, and bidder management into one private workspace.
 
 ```
 Act now  (2)
@@ -20,8 +22,7 @@ For information  (2)
 12 unread | 4 classified | 5 cached | 3 prefiltered  across 1 account(s) in 6.2s
 ```
 
-**Your mail is never modified.** Mailboxes are opened read-only and nothing is ever
-marked as read — your unread state is your own triage signal.
+**Collection stays read-only.** Mail checks never mark messages as read. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
 
 ## Install
 
@@ -41,10 +42,12 @@ python -m mailcheck web
 It opens `127.0.0.1:52400` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
 
-Web **Check now** and automatic web checks collect native calendar bookings from
+On Triage, **Check now** and automatic web checks fetch and classify unread mail
+from all enabled accounts using the existing categories. On Interview, both
+**Check now** buttons collect native calendar bookings from
 connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
 phone and in-person bookings are included without reading inbox messages or running
-classification. Existing Dashboard/Triage history remains available. Calendar
+classification. Calendar
 collection requires read-only `Calendars.Read`; reconnect existing Outlook accounts
 in Accounts after adding that permission to your Microsoft application. IMAP does
 not expose calendar events and is not used as a fallback. See
@@ -52,15 +55,15 @@ not expose calendar events and is not used as a fallback. See
 existing behavior.
 
 The web console requires sign-in. Initially use role **Admin** with password
-`admin`, or role **Guest** with password `guest`. Admin can use Triage, Dashboard,
-Accounts, and Settings. Guest can only browse the Dashboard and its stored-message
-reader; guest cannot run checks, mark mail Done, or change anything. Only admin can
-change either password, under **Settings → Sign-in**.
+`admin`. Admin can manage the full workspace. Named bidders sign in with their
+own name and password and can access only their Job sourcing workbook and payment
+totals. Enable bidder sign-in and set initial passwords in Job sourcing settings.
+See [Job sourcing setup](docs/JOB_SOURCING.md) for native sheets, imports and permissions.
 
 Passwords are stored as salted scrypt hashes in `web-auth.json` next to
 `config.toml`, with private file permissions. Sign-in uses an HttpOnly cookie that
 expires after 12 hours. Password changes sign out every session for that role,
-including your own when changing the admin password. Authentication adds no database;
+including your own when changing the admin password. Authentication adds no separate database;
 the existing SQLite mail history remains unchanged. Keep this local file private and
 back it up with your application configuration. A damaged file fails closed rather
 than resetting passwords. Use one app process with this file.
@@ -99,17 +102,17 @@ publicly reachable server or an HTTPS tunnel instead. Binding to `0.0.0.0` alone
 does not create a public URL. A tunnel must forward the visitor's Host header and
 HTTPS scheme correctly and its public hostname must be included in `--allow-host`.
 
-**Before opening public access, change both default passwords locally.** Use HTTPS
+**Before opening public access, change the default admin password locally.** Use HTTPS
 for internet access and `--secure-cookies` so browser sign-in cookies are sent only
 over HTTPS. Leave that flag off for local HTTP development. The app trusts forwarded
 scheme/client information from a loopback reverse proxy; keep the proxy on the same
-computer and do not expose its backend port. Guest access includes the Dashboard's
-stored email subjects, summaries, and message bodies, so share its password only
+computer and do not expose its backend port. Bidder access is restricted to their own job sheets and payment totals. The admin Dashboard includes
+stored email subjects, summaries, and message bodies, so share the admin password only
 with people who should see that mail. These web passwords are separate from mailbox
 app passwords, which still use the OS keyring.
 
 After startup, an unauthenticated `GET /api/dashboard` must return HTTP 401. Sign in
-as guest and verify Dashboard works while Accounts and Settings return HTTP 403.
+as a named bidder and verify Job sourcing works while Accounts and Settings return HTTP 403.
 The React/Vite development server is for local development; share the Python app
 and its bundled console through the HTTPS proxy.
 
@@ -220,7 +223,7 @@ click it to switch automatic checks back off. It is off by default, because open
 should never start spending tokens on its own. The schedule belongs to the running console,
 so closing it stops the checks; use `mail-check watch` for unattended background runs.
 
-It binds `127.0.0.1` by default and requires admin or guest sign-in. For network
+It binds `127.0.0.1` by default and requires admin or named bidder sign-in. For network
 access, follow the server instructions above. Host headers are checked against the
 configured allowlist, and non-GET requests carrying a foreign `Origin` are rejected.
 
@@ -362,7 +365,7 @@ Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft inste
 mailbox password — Microsoft disabled basic-auth IMAP, so app passwords cannot work there.
 
 One-time setup: register a **public client** application in the Microsoft Entra admin
-center with delegated `Calendars.Read` and `Mail.Read` permissions and device-code flow enabled, then paste its
+center with delegated `Calendars.Read`, `Mail.Read` and `Mail.Send` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
 shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are
@@ -402,3 +405,19 @@ forwards API requests to the local FastAPI console.
 Runs the whole pipeline against a fake mailbox and a fake model — including the malformed-JSON
 paths — with no network and no credentials. See [docs/DESIGN.md](docs/DESIGN.md) for the
 architecture and the reasoning behind each decision.
+
+### Bidder payments
+
+Admins can assign accounts to bidders and record manual weekly payments. Named bidders
+can view their own daily and weekly “Application received” totals. Weeks run
+Monday–Sunday in America/Chicago. See [Bidder payments](docs/BIDDER_PAYMENTS.md)
+for setup, counting rules, and payment history behavior.
+
+
+### Native Job sourcing
+
+Use Job sourcing to keep bidder job applications in mail-check’s own spreadsheet
+workspace: profile tabs, rectangular copy/paste, formatting, sorting/filtering, checked
+autosaves, CSV import/export, and application search from interview details. Each
+named bidder can access only their own workbook. No Google connection is required.
+See [Job sourcing setup, import and backups](docs/JOB_SOURCING.md).
