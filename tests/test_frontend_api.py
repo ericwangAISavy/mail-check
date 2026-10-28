@@ -206,6 +206,13 @@ class FrontendApiTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 200)
                     self.assertIn("React app", response.text)
 
+    def test_bootstrap_reads_queue_counts_once_without_changing_response(self):
+        with patch.object(db, "queue_counts", wraps=db.queue_counts) as counts:
+            response = self.client.get("/api/bootstrap")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(counts.call_count, 1)
+        self.assertIn("applications_today", response.json()["counts"])
+
 
 if __name__ == "__main__":
     unittest.main()

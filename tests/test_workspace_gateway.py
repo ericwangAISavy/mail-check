@@ -256,3 +256,64 @@ def test_disconnected_request_is_not_forwarded_or_reported_as_server_error(syste
     asyncio.run(app(scope, receive, send))
     assert pool.visited == []
     assert [message['status'] for message in sent if message['type'] == 'http.response.start'] == [499]
+
+
+def test_worker_client_reuses_connections_without_retaining_cookies(system):
+    app, store, pool = system
+    wid = store.create_admin(store.owner_token, 'alice', 'Alice', 'temporary-pass-123')
+    original_client = httpx.AsyncClient
+    created = []
+    observed = []
+    def respond(request):
+        observed.append((request.headers.get('cookie'), request.headers['x-offerpath-worker']))
+        return httpx.Response(200, json={'ok':True}, headers={'set-cookie':'worker_secret=private; Path=/'})
+    def factory(**kwargs):
+        client = original_client(transport=httpx.MockTransport(respond), **kwargs)
+        created.append(client)
+        return client
+    with TestClient(app) as client, patch('mailcheck.web.gateway.httpx.AsyncClient', side_effect=factory):
+        login(client)
+        assert client.get('/api/messages/1').status_code == 200
+        assert client.get('/api/messages/2').status_code == 200
+        assert client.post('/api/admin/switch', json={'workspace_id':wid}).status_code == 200
+        client.headers['x-offerpath-workspace'] = wid
+        assert client.get('/api/messages/3').status_code == 200
+        assert observed == [(None,'secret-legacy'), (None,'secret-legacy'), (None,'secret-'+wid)]
+        assert len(created) == 1
+        assert len(created[0].cookies) == 0
+    assert created[0].is_closed
+
+
+def test_public_hashed_assets_are_cacheable_without_private_identity_queries(system):
+    from mailcheck.web.gateway import HERE
+    app, store, pool = system
+    asset = next((HERE/'frontend_dist'/'assets').glob('index-*.js'))
+    with TestClient(app) as client, patch.object(store, 'identity', wraps=store.identity) as identity:
+        client.cookies.set('offerpath_session', store.owner_token)
+        response = client.get('/assets/'+asset.name)
+        assert response.status_code == 200
+        assert response.headers['cache-control'] == 'public, max-age=31536000, immutable'
+        assert identity.call_count == 0
+        assert client.get('/').headers['cache-control'] == 'no-store'
+        assert client.get('/api/auth/session').headers['cache-control'] == 'no-store'
+
+
+def test_slow_workspace_lookup_does_not_run_on_gateway_event_loop(system):
+    import asyncio
+    import threading
+    app, store, pool = system
+    original_client = httpx.AsyncClient
+    original_workspace = store.workspace
+    lookup_threads = []
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={'ok':True}))
+    def lookup(wid):
+        lookup_threads.append(threading.get_ident())
+        return original_workspace(wid)
+    async def scenario():
+        loop_thread = threading.get_ident()
+        async with original_client(transport=httpx.ASGITransport(app), base_url='http://testserver') as client:
+            with patch.object(store, 'workspace', side_effect=lookup), patch('mailcheck.web.gateway.httpx.AsyncClient', side_effect=lambda **kw: original_client(transport=transport, **kw)):
+                response = await client.get('/api/bootstrap', headers={'cookie':'offerpath_session='+store.owner_token, 'x-offerpath-workspace':'legacy'})
+                assert response.status_code == 200
+        assert lookup_threads and all(thread != loop_thread for thread in lookup_threads)
+    asyncio.run(scenario())

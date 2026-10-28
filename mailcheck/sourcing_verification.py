@@ -111,10 +111,36 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         sync_receipts(conn, since=refresh_since if week_only else None, until=refresh_until if week_only else None)
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
             JOIN accounts a ON a.id=t.account_id WHERE t.archived=0 OR ?""", (week_only,))}
-        rows = conn.execute("""SELECT r.id,r.tab_id,r.work_date,t.account_id,check_col.id AS check_column,
+        row_prefix = ""
+        row_source = "native_rows"
+        row_parameters = []
+        receipt_scope = ""
+        receipt_parameters = []
+        if refresh_since:
+            lower = datetime.combine(source_since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+            upper = datetime.combine(refresh_until + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+            row_scope = "((r.work_date>=? AND r.work_date<=?)"
+            row_parameters.extend((source_since.isoformat(), refresh_until.isoformat()))
+            if week_only:
+                event_lower = datetime.combine(refresh_since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+                row_scope += " OR (julianday(e.confirmed_at)>=julianday(?) AND julianday(e.confirmed_at)<julianday(?)) OR (e.confirmed_at IS NOT NULL AND julianday(e.confirmed_at) IS NULL)"
+                row_parameters.extend((event_lower, upper))
+            row_scope += ")"
+            # Materialize the small date candidate set before touching the four
+            # cell columns. Otherwise SQLite can join every historical cell
+            # before applying the OR on a stale confirmation's timestamp.
+            row_prefix = "WITH candidate_rows AS MATERIALIZED (SELECT r.* FROM native_rows r LEFT JOIN sourcing_check_activity e ON e.row_id=r.id WHERE " + row_scope + ") "
+            row_source = "candidate_rows"
+            # Keep Python's existing parser authoritative for unusual legacy
+            # timestamps that SQLite cannot parse. Standard receipts use the
+            # existing category/date index; no new index or schema is needed.
+            receipt_scope = " AND ((julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)) OR julianday(received_at) IS NULL)"
+            receipt_parameters.extend((lower, upper))
+        row_parameters.extend((week_only, week_only))
+        rows = conn.execute(row_prefix + """SELECT r.id,r.tab_id,r.work_date,t.account_id,check_col.id AS check_column,
             company.value AS company,role.value AS role,link.value AS link,checked.value AS checked,
             e.confirmed_at,e.source AS check_source
-            FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id
+            FROM """ + row_source + """ r JOIN native_tabs t ON t.id=r.tab_id
             JOIN accounts a ON a.id=t.account_id
             JOIN native_columns company_col ON company_col.tab_id=t.id AND company_col.kind='company'
             JOIN native_columns role_col ON role_col.tab_id=t.id AND role_col.kind='role'
@@ -126,13 +152,13 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             LEFT JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=check_col.id
             LEFT JOIN sourcing_check_activity e ON e.row_id=r.id
             WHERE (t.archived=0 OR ?) AND (r.work_date IS NOT NULL OR (? AND e.confirmed_at IS NOT NULL))
-            AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='' OR e.confirmed_at IS NOT NULL)""", (week_only, week_only)).fetchall()
+            AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='' OR e.confirmed_at IS NOT NULL)""", row_parameters).fetchall()
         if refresh_since:
             rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"] <= refresh_until.isoformat())
                     or (week_only and in_week(r["confirmed_at"]))]
         relevant = {(row["account_id"], row["work_date"]) for row in rows}
         matches = {}
-        for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''"):
+        for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters):
             try:
                 received = datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00"))
             except (ValueError, TypeError):

@@ -308,7 +308,7 @@ def _err(message: str, status: int = 400) -> JSONResponse:
                         headers={"Cache-Control": "no-store"})
 
 
-def _state(conn=None, accounts=None) -> dict:
+def _state(conn=None, accounts=None, summary=None) -> dict:
     """Everything the shell needs to render nav badges and setup prompts.
 
     Takes an open connection (and an already-read account list) when the caller
@@ -319,14 +319,16 @@ def _state(conn=None, accounts=None) -> dict:
     if conn is None:
         with db.session() as own:
             accounts = db.list_accounts(own)
-            summary = db.queue_counts(own, since_iso=_default_since())
+            if summary is None:
+                summary = db.queue_counts(own, since_iso=_default_since())
     else:
         if accounts is None:
             accounts = db.list_accounts(conn)
         # Same definition as the queue itself (unhandled act/reply/unknown), so
         # the nav dot means exactly "there is something in your queue" — not a
         # lifetime count that includes mail already marked Done.
-        summary = db.queue_counts(conn, since_iso=_default_since())
+        if summary is None:
+            summary = db.queue_counts(conn, since_iso=_default_since())
     due = _sched["next_due"]
     return {
         "llm_ready": cfg.is_llm_ready(),
@@ -949,9 +951,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[],"presets":[],"last_run":"","account_count":0}
         with db.session() as conn:
             accounts = db.list_accounts(conn)
-            state = _state(conn, accounts)
-            run = db.last_run(conn)
             summary = db.queue_counts(conn, since_iso=_default_since())
+            state = _state(conn, accounts, summary)
+            run = db.last_run(conn)
             summary["applications_today"] = payments.received_today(conn)
         return {
             "readiness": {

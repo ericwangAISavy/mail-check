@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -19,6 +20,15 @@ from .auth import AuthStore, AuthFileError
 
 COOKIE='offerpath_session'
 HERE=Path(__file__).parent
+
+
+class _NoWorkerCookies(DefaultCookiePolicy):
+    """Connections are shared across ports/workspaces; credentials never are."""
+    def set_ok(self, cookie, request):
+        return False
+
+    def return_ok(self, cookie, request):
+        return False
 
 
 class Login(BaseModel):
@@ -54,6 +64,30 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
     model_slots=asyncio.Semaphore(1)
     leases={}
+    worker_clients={}
+
+    def new_worker_client():
+        return httpx.AsyncClient(trust_env=False, timeout=660,
+            cookies=CookieJar(policy=_NoWorkerCookies()),
+            limits=httpx.Limits(max_connections=None, max_keepalive_connections=64, keepalive_expiry=30))
+
+    @asynccontextmanager
+    async def worker_http_client():
+        loop=asyncio.get_running_loop()
+        if loop in worker_clients:
+            if worker_clients[loop] is None:
+                worker_clients[loop]=new_worker_client()
+            yield worker_clients[loop]
+        else:
+            # ASGI callers without lifespan (including one-shot test/browser
+            # clients) must never keep transports tied to an already-closed loop.
+            async with new_worker_client() as client:
+                yield client
+
+    def ensure_workspace(wid):
+        # Evaluate the SQLite lookup in the same thread as worker readiness;
+        # passing store.workspace(...) as a to_thread argument blocks the loop.
+        return pool.ensure(store.workspace(wid))
 
     async def recover_leases():
         while True:
@@ -64,7 +98,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
 
     @asynccontextmanager
     async def lifespan(app):
+        loop=asyncio.get_running_loop()
         with InstanceLock(store.root/'gateway.lock'):
+            worker_clients[loop]=None
             # Start independently from browser sessions, so scheduled checks survive tab closure.
             monitor=asyncio.create_task(pool.monitor()) if start_workers else None
             recovery=asyncio.create_task(recover_leases())
@@ -75,7 +111,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                     with suppress(asyncio.CancelledError):await monitor
                 recovery.cancel()
                 with suppress(asyncio.CancelledError):await recovery
-                await asyncio.to_thread(pool.close)
+                try:
+                    client=worker_clients.pop(loop,None)
+                    if client is not None:
+                        await client.aclose()
+                finally:
+                    await asyncio.to_thread(pool.close)
 
     app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,lifespan=lifespan)
     @app.exception_handler(ClientDisconnect)
@@ -118,7 +159,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if request.method not in ('GET','HEAD','OPTIONS'):
             origin=request.headers.get('origin')
             if (origin and origin!=f'{request.url.scheme}://{request.headers.get("host","")}') or request.headers.get('sec-fetch-site')=='cross-site':return JSONResponse({'error':'Cross-origin requests are not allowed.'},403)
-        try:identity=await asyncio.to_thread(store.identity,request.cookies.get(COOKIE))
+        asset_request=path.startswith('/assets/')
+        try:identity=None if asset_request else await asyncio.to_thread(store.identity,request.cookies.get(COOKIE))
         except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
         public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session') or path.startswith(('/assets/','/static/'))
@@ -140,7 +182,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             response=JSONResponse({'error':str(exc)},403 if isinstance(exc,PermissionError) else 400)
         except AuthFileError:
             response=JSONResponse({'error':'The original owner sign-in file is unavailable.'},503)
-        response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY'})
+        response.headers.update({'Cache-Control':('public, max-age=31536000, immutable' if asset_request and response.status_code in (200,206,304) else 'no-store'),'X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY'})
         return response
 
     @app.get('/_internal/ping')
@@ -250,7 +292,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         target='legacy' if global_settings else identity['workspace_id']
         body=await request.body()
         if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
-        try:worker=await asyncio.to_thread(pool.ensure,store.workspace(target))
+        try:worker=await asyncio.to_thread(ensure_workspace,target)
         except (RuntimeError,OSError,ValueError):raise HTTPException(503,'This workspace worker is unavailable. Contact the owner or retry later.')
         # Revalidate after potentially slow body reads and worker startup.
         # A reset, suspension, logout or workspace switch may have completed
@@ -260,19 +302,20 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         for name in ('accept','content-type'):
             if name in request.headers:headers[name]=request.headers[name]
         try:
-            async with httpx.AsyncClient(trust_env=False,timeout=660) as client:
+            async with worker_http_client() as client:
                 result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
         except httpx.HTTPError:raise HTTPException(503,'Workspace connection interrupted. Reload before retrying an email send.')
         if path.rstrip('/') in ('api/settings','api/autocheck') and request.method=='POST' and result.is_success:
             # Reload schedules without restarting workers or interrupting jobs.
-            async with httpx.AsyncClient(trust_env=False,timeout=5) as client:
-                async def notify(workspace):
-                    if workspace['id']=='legacy':return
-                    try:
-                        member=await asyncio.to_thread(pool.ensure,workspace)
-                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token})
-                    except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
-                await asyncio.gather(*(notify(workspace) for workspace in store.enabled_workspaces()))
+            async def notify(workspace):
+                if workspace['id']=='legacy':return
+                try:
+                    member=await asyncio.to_thread(pool.ensure,workspace)
+                    async with worker_http_client() as client:
+                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token},timeout=5)
+                except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
+            workspaces=await asyncio.to_thread(store.enabled_workspaces)
+            await asyncio.gather(*(notify(workspace) for workspace in workspaces))
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
         return Response(result.content,status_code=result.status_code,headers=response_headers)

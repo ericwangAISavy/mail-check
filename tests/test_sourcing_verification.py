@@ -425,3 +425,13 @@ class SourcingVerificationTests(unittest.TestCase):
         verification.verify_all(self.conn)
         sample = self.conn.execute('SELECT new_checks FROM sourcing_activity_samples WHERE bidder_id=1 ORDER BY run_id DESC LIMIT 1').fetchone()
         self.assertEqual(sample['new_checks'], 1)
+
+    def test_scoped_query_preserves_confirmation_at_last_microsecond_of_week(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-25')
+        self.receipt('last-microsecond', 'Acme', '2026-10-26T04:59:59.999999+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn, refresh_since=date(2026,10,19), refresh_until=date(2026,10,25), week_only=True, sample=False)
+        cell = self.snapshot()['rows'][1][3]
+        self.assertEqual(cell['value'], 'true')
+        self.assertEqual(cell['checked_at'], '2026-10-26T04:59:59.999999+00:00')
