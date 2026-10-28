@@ -1,3 +1,4 @@
+import { OfferPathMark } from "@/components/offerpath-mark"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -192,18 +193,18 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const navigate = useNavigate()
   useEffect(() => { setMobileNav(false) }, [location.pathname])
   // The queue size in the tab title is visible from other tabs and the taskbar.
-  useEffect(() => { document.title = bootstrap.counts.actionable > 0 ? `(${bootstrap.counts.actionable}) mail-check` : "mail-check" }, [bootstrap.counts.actionable])
+  useEffect(() => { document.title = bootstrap.counts.actionable > 0 ? `(${bootstrap.counts.actionable}) OfferPath` : "OfferPath" }, [bootstrap.counts.actionable])
   const toggleSidebar = () => { const next = !collapsed; setCollapsed(next); localStorage.setItem("mailcheck.sidebar", next ? "collapsed" : "expanded") }
 
   return <div className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
-      <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="mail-check home"><span className="brand-mark"><MailCheck size={21} /></span><span className="brand-word">mail<span>check</span></span></button>
+      <button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button>
       <div className="workspace-label">YOUR WORKSPACE</div>
       <nav className="side-nav" aria-label="Main navigation">{sections.filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}{to === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="nav-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}>{bootstrap.counts.applications_today}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
-        <div className="sidebar-user"><span className="avatar-mark">m</span><div><strong>mail-check</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
+        <div className="sidebar-user"><span className="avatar-mark"><OfferPathMark size={27} /></span><div><strong>OfferPath</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
       </div>
     </aside>
 
@@ -238,7 +239,7 @@ function UnknownRoute() {
 
 function Recovery({ message }: { message: string }) {
   const navigate = useNavigate()
-  return <main className="recovery-page"><div className="brand-mark"><MailCheck /></div><p className="eyebrow">SAFE RECOVERY</p><h1>Check your local settings</h1><p className="recovery-description">This saved configuration needs an update before mail-check can open. Your mailbox and local mail are unchanged.</p><Card className="recovery-card"><pre>{message}</pre><Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button></Card><p className="muted">Credentials are never included in this recovery message.</p></main>
+  return <main className="recovery-page"><div className="brand-mark"><OfferPathMark size={30} /></div><p className="eyebrow">SAFE RECOVERY</p><h1>Check your local settings</h1><p className="recovery-description">This saved configuration needs an update before OfferPath can open. Your mailbox and local mail are unchanged.</p><Card className="recovery-card"><pre>{message}</pre><Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button></Card><p className="muted">Credentials are never included in this recovery message.</p></main>
 }
 
 function ReadyApp() {

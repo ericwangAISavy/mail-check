@@ -46,7 +46,7 @@ export default function SourcingSettings({
       <section>
         <h3>Workbooks</h3>
         <p>
-          Each bidder has one workbook. Sheets are saved directly in mail-check.
+          Each bidder has one workbook. Sheets are saved directly in OfferPath.
         </p>
         <form
           onSubmit={(e) => {

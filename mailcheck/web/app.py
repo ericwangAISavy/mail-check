@@ -534,7 +534,7 @@ def _scheduler() -> None:
 
 
 def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False) -> FastAPI:
-    app = FastAPI(title="mail-check", docs_url=None, redoc_url=None)
+    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
     from .sourcing_routes import install as install_sourcing

@@ -1,7 +1,9 @@
-# mail-check
+# OfferPath
 
-Triage unread job-application email. Fetches your unread mail, classifies it with an LLM,
-and tells you what actually needs a reply today.
+**Every application, a step forward.**
+
+OfferPath brings job sourcing, application tracking, email replies, interview
+scheduling, and bidder management into one private workspace.
 
 ```
 Act now  (2)

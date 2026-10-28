@@ -186,4 +186,6 @@ it("shows today's received confirmations beside Bidder management", async () => 
   const badge=await screen.findByLabelText("37 application confirmations received today")
   expect(badge.closest("a")?.getAttribute("href")).toBe("/payments")
   expect(badge.closest("a")?.textContent).toContain("Bidder management")
+  expect(screen.getByRole("button", {name:"OfferPath home"})).toBeTruthy()
+  expect(document.title).toBe("OfferPath")
 })
