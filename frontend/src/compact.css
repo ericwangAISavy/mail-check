@@ -158,3 +158,11 @@
     .top-actions > .btn,.top-actions > .schedule-button { height: 34px; min-height: 34px; padding-inline: 8px; font-size: 12px; }
   }
 }
+@media screen {
+  .page-content:has(> .triage-page) { display: flex; flex-direction: column; }
+  .triage-page { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-bottom: 0; }
+  .triage-page > :not(.triage-split) { flex-shrink: 0; }
+  .triage-page .triage-split { flex: 1 1 auto; height: auto; max-height: none; min-height: 180px; }
+  .triage-page .keyboard-note { margin: 6px auto 4px; font-size: 11px; }
+  .app-content:has(.triage-page) > .app-footer { padding: 4px 20px 6px; }
+}

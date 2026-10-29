@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.25 — 2026-10-29
+
+Full-height triage reading area
+
+- Remove excess bottom spacing and allow the triage mail list and reader to fill the available content height.
+
 ## 2.3.24 — 2026-10-29
 
 Retention safety and faster activity reporting

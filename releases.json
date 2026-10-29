@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.3.25",
+    "date": "2026-10-29",
+    "title": "Full-height triage reading area",
+    "changes": [
+      "Remove excess bottom spacing and allow the triage mail list and reader to fill the available content height."
+    ]
+  },
+  {
     "version": "2.3.24",
     "date": "2026-10-29",
     "title": "Retention safety and faster activity reporting",
