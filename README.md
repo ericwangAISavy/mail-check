@@ -42,7 +42,7 @@ python -m mailcheck web
 It opens `127.0.0.1:52400` and walks you through setup if nothing is configured yet.
 Prefer the terminal? The same steps are below.
 
-On Triage, **Check now** and automatic web checks fetch and classify unread mail
+On Triage, **Check now** and automatic web checks fetch and classify read and unread mail
 from all enabled accounts using the existing categories. On Interview, both
 **Check now** buttons collect native calendar bookings from
 connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
@@ -185,7 +185,7 @@ mail-check check
 ## Usage
 
 ```bash
-mail-check check                  # triage unread mail, print the report
+mail-check check                  # triage read and unread mail, print the report
 mail-check check --since 7d       # only the last week
 mail-check check --all            # include job-board noise
 mail-check check --no-cache       # re-classify everything
@@ -362,7 +362,7 @@ than `retain_days`; the effective window is whichever is longer. That is what ke
 from quietly undoing itself: a message deleted and re-downloaded on the same run would
 come back as a new row with nothing marked on it. The one way to resurface finished mail
 is to deliberately reach back past the retention window — `mail-check check --since 30d`
-will re-fetch anything still unread that has already been pruned, and it arrives as new.
+will re-fetch matching mail that has already been pruned, and it arrives as new.
 
 ## Outlook
 
@@ -430,3 +430,5 @@ See [Job sourcing setup, import and backups](docs/JOB_SOURCING.md).
 OfferPath's current version is available beside the app name; select it to read
 update history. See [release history](docs/CHANGELOG.md) and
 [versioning instructions](docs/VERSIONING.md) for future updates.
+
+Inbox checks collect both read and unread messages within the configured checking lookback. Outlook pagination is followed to completion, including inboxes with more than 2,000 messages in that window. Existing local retention and view filters still apply; checking never changes Outlook read status.

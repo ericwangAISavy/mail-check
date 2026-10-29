@@ -24,7 +24,7 @@ from .sources.presets import BY_KEY, PRESETS, guess_from_email
 from .watch import watch as run_watch
 
 app = typer.Typer(
-    help="Triage unread job-application email.",
+    help="Triage job-application email, whether read or unread.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -331,7 +331,7 @@ def check(
     no_cache: bool = typer.Option(False, "--no-cache", help="Re-classify everything."),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
-    """Fetch unread mail, classify it, and print the triage report."""
+    """Fetch read and unread mail, classify it, and print the triage report."""
     cfg = _load_cfg()
     _require_llm(cfg)
 

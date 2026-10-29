@@ -108,7 +108,7 @@ class FakeSource:
     def test(self):
         pass
 
-    def fetch_unread(self, since):
+    def fetch_unread(self, since, *, include_read=False):
         return iter(self.messages)
 
 

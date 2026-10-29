@@ -161,20 +161,24 @@ class OutlookGraphSource:
             # Graph requires the $orderby property to appear first in $filter,
             # or the messages endpoint rejects the query with InefficientFilter.
             "$filter": f"receivedDateTime ge {since_iso}" + ("" if include_read else " and isRead eq false"),
-            "$select": "id,internetMessageId,subject,from,receivedDateTime,conversationId,internetMessageHeaders" if include_read else SELECT,
+            "$select": SELECT,
             # Invitation attachments arrive with this same read-only mailbox request.
             "$expand": "attachments",
             "$top": str(PAGE_SIZE),
             "$orderby": "receivedDateTime desc",
         }
         with self._client() as client:
-            url, pages = MESSAGES_URL, 0
-            while url and pages < MAX_PAGES:
+            url = MESSAGES_URL
+            visited: set[str] = set()
+            while url:
+                if url in visited:
+                    raise SourceError("Microsoft Graph repeated a mail page; collection is incomplete. Retry the check.")
+                visited.add(url)
                 data = self._get(client, url, params)
                 for item in data.get("value") or []:
                     yield _to_raw(item)
                 # nextLink already carries every query parameter.
-                url, params, pages = data.get("@odata.nextLink"), None, pages + 1
+                url, params = data.get("@odata.nextLink"), None
 
 
 def _to_raw(item: dict) -> RawMessage:

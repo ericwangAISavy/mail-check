@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.20 — 2026-10-29
+
+Collect read and unread inbox messages
+
+- Normal mail checks now include read and unread messages for Outlook and IMAP within the configured lookback, without changing mailbox read status.
+- Keep full message bodies and Outlook links for inclusive checks, and follow every mail page rather than silently stopping after 2,000 messages.
+- Report fetched messages accurately instead of labeling all fetched mail as unread.
+
 ## 2.3.19 — 2026-10-28
 
 Distinctive OfferPath sign-in branding

@@ -67,7 +67,7 @@ def fetch_account(
 ) -> list[NormalizedMessage]:
     source = build_source(account, cfg)
     out: list[NormalizedMessage] = []
-    for raw in source.fetch_unread(since):
+    for raw in source.fetch_unread(since, include_read=True):
         out.append(
             normalize.normalize(
                 raw,

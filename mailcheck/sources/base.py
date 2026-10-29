@@ -26,8 +26,8 @@ class MailSource(Protocol):
     def test(self) -> None:
         """Connect and authenticate. Raises SourceError on failure."""
 
-    def fetch_unread(self, since: date) -> Iterator[RawMessage]:
-        """Yield unread messages newer than ``since``, without mutating them."""
+    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
+        """Yield messages since the date, including read mail when requested; never mutate them."""
 
     def fetch_calendar(self, since: date) -> Iterator[CalendarBooking]:
         """Read native calendar bookings without consulting email."""

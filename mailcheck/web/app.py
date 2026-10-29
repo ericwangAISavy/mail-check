@@ -423,7 +423,7 @@ def _run_check(body: CheckBody) -> None:
                 event=event,
             )
         _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
-        bits = [f"{result.fetched} unread", f"{result.classified} classified"]
+        bits = [f"{result.fetched} messages", f"{result.classified} classified"]
         if result.from_cache:
             bits.append(f"{result.from_cache} cached")
         if result.prefiltered:
@@ -1915,4 +1915,4 @@ def _fmt_run(row) -> str:
         when = datetime.fromisoformat(row["finished_at"]).astimezone().strftime("%H:%M")
     except (ValueError, TypeError):
         return "Never checked"
-    return f"Last checked {when} · {row['fetched']} unread"
+    return f"Last checked {when} · {row['fetched']} messages"

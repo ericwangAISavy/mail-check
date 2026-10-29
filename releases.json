@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.3.20",
+    "date": "2026-10-29",
+    "title": "Collect read and unread inbox messages",
+    "changes": [
+      "Normal mail checks now include read and unread messages for Outlook and IMAP within the configured lookback, without changing mailbox read status.",
+      "Keep full message bodies and Outlook links for inclusive checks, and follow every mail page rather than silently stopping after 2,000 messages.",
+      "Report fetched messages accurately instead of labeling all fetched mail as unread."
+    ]
+  },
+  {
     "version": "2.3.19",
     "date": "2026-10-28",
     "title": "Distinctive OfferPath sign-in branding",
