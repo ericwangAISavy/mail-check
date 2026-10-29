@@ -2,6 +2,18 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.3 — 2026-10-28
+
+More space for sidebar navigation
+
+- Removed the sidebar's privacy card and repeated application/account footer to give navigation more room.
+
+## 2.3.2 — 2026-10-28
+
+Refined sidebar selection
+
+- Refined sidebar navigation with soft selected surfaces, a slim accent rail, inset icon emphasis, quieter badges, and distinct hover and keyboard-focus states in both themes.
+
 ## 2.3.1 — 2026-10-28
 
 Clearer sidebar navigation icons

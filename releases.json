@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.3",
+    "date": "2026-10-28",
+    "title": "More space for sidebar navigation",
+    "changes": [
+      "Removed the sidebar's privacy card and repeated application/account footer to give navigation more room."
+    ]
+  },
+  {
+    "version": "2.3.2",
+    "date": "2026-10-28",
+    "title": "Refined sidebar selection",
+    "changes": [
+      "Refined sidebar navigation with soft selected surfaces, a slim accent rail, inset icon emphasis, quieter badges, and distinct hover and keyboard-focus states in both themes."
+    ]
+  },
+  {
     "version": "2.3.1",
     "date": "2026-10-28",
     "title": "Clearer sidebar navigation icons",
