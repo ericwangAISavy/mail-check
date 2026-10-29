@@ -612,6 +612,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
         path = request.url.path
+        request.state.viewer_read_only = bool(worker_secret and request.headers.get('x-offerpath-viewer') == 'bidder')
+        if request.state.viewer_read_only:
+            from ..bidder_access import viewer_read_allowed
+            if not viewer_read_allowed(path,request.method):
+                return _err('Bidder access is read-only.',403)
+            viewer_id=request.headers.get('x-offerpath-bidder')
+            if viewer_id:
+                with db.session() as conn:
+                    member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
+                if not member:return _err('Bidder access is no longer available.',401)
         public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
         try:
             identity = {"role":"admin", "bidder_id":None} if worker_secret else auth.identity(request.cookies.get(COOKIE))
@@ -650,6 +660,13 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if not worker_secret:return _err("Private worker endpoint.",403)
         _reschedule(cfgmod.load())
         return {"ok":True}
+
+    @app.get("/_internal/bidders/{bidder_id}")
+    def workspace_bidder(bidder_id:int):
+        if not worker_secret:return _err("Private worker endpoint.",403)
+        with db.session() as conn:
+            row=conn.execute("SELECT id,name FROM bidders WHERE id=? AND removed_at IS NULL",(bidder_id,)).fetchone()
+        return dict(row) if row else _err("Bidder not found.",404)
 
     @app.get("/_internal/ready")
     def workspace_ready():
@@ -833,9 +850,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
         with db.session() as conn:
             start = payments.monday(week or payments.today())
-            sourcing_verification.verify_all(conn, refresh_since=start,
-                refresh_until=start + timedelta(days=6), sample=False, week_only=True)
-            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id)
+            read_only = getattr(request.state,"viewer_read_only",False)
+            if read_only:conn.execute("PRAGMA query_only=ON")
+            if not read_only:
+                sourcing_verification.verify_all(conn, refresh_since=start,
+                    refresh_until=start + timedelta(days=6), sample=False, week_only=True)
+            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=read_only)
 
     def payment_write(action):
         try:

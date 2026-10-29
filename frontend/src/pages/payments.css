@@ -127,3 +127,6 @@
 .payment-confirmed-edit:hover { text-decoration: underline; }
 .payment-confirmed-edit:focus-visible { outline: 2px solid var(--payment-blue); outline-offset: 3px; }
 .payment-confirmed-edit:disabled { cursor: default; }
+.bidder-access { margin-block: 22px; padding-block: 18px; border-block: 1px solid var(--border); }
+.bidder-access h3 { margin: 0; }
+.bidder-access .payment-inline-form { margin-block: 14px; }

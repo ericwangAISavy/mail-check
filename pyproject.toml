@@ -1,6 +1,6 @@
 [project]
 name = "mail-check"
-version = "2.1.3"
+version = "2.2.0"
 description = "Triage unread job-application email: fetch, classify with an LLM, report what needs action."
 readme = "README.md"
 requires-python = ">=3.11"

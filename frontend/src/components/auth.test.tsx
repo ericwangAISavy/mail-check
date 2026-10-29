@@ -21,7 +21,7 @@ function mount(path="/"){
 it("offers only owner/admin username sign-in without publishing bidder names",async()=>{
   mount("/settings");await screen.findByRole("heading",{name:"Sign in"})
   expect(screen.getByLabelText("Username")).toHaveProperty("value","owner")
-  expect(screen.queryByLabelText("Sign in as")).toBeNull()
+  expect(screen.getByLabelText("Sign in as")).toBeTruthy()
   expect(screen.queryByLabelText("Your name")).toBeNull()
   expect(api.bootstrap).not.toHaveBeenCalled()
 })
@@ -74,4 +74,20 @@ it("preserves a failed sign-in form and clears private caches on sign-out",async
   fireEvent.click(screen.getByRole("button",{name:"Sign out"}))
   await screen.findByRole("heading",{name:"Sign in"})
   await waitFor(()=>expect(client.getQueryData(["reader",1])).toBeUndefined())
+})
+
+it("signs bidders into their admin team with only viewer navigation",async()=>{
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({bidders:[{id:9,name:"Dany + alice"}]}),{headers:{"Content-Type":"application/json"}})))
+  const identity={role:"bidder" as const,bidder_id:1,workspace_id:"alice",workspace_name:"Alice team",username:"alice",managed:true}
+  vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
+  mount();fireEvent.change(await screen.findByLabelText("Sign in as"),{target:{value:"bidder"}})
+  await screen.findByRole("option",{name:"Dany + alice"})
+  fireEvent.change(screen.getByLabelText("Your name"),{target:{value:"9"}})
+  fireEvent.change(screen.getByLabelText("Password"),{target:{value:"bidder-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  await screen.findByRole("heading",{name:"Admin Dashboard"})
+  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",9,"owner")
+  expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Dashboard","Bidder management"])
+  expect(screen.queryByRole("button",{name:"Check now"})).toBeNull()
+  expect(screen.queryByRole("button",{name:"Change password"})).toBeNull()
 })

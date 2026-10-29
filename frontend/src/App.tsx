@@ -192,7 +192,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const { role, signOut, session } = useAuth()
   const admin = role === "admin"
-  const canManageSettings = !session?.workspace_id || !!session.is_owner
+  const canManageSettings = admin && (!session?.workspace_id || !!session.is_owner)
   const toast = useToast()
   const [collapsed, setCollapsed] = useState(localStorage.getItem("mailcheck.sidebar") === "collapsed")
   const [mobileNav, setMobileNav] = useState(false)
@@ -206,9 +206,9 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   return <div className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
-      <div className="brand-header"><button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/sourcing")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
+      <div className="brand-header"><button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/dashboard")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/sourcing" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/dashboard" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
         <div className="sidebar-user"><span className="avatar-mark"><OfferPathMark size={27} /></span><div><strong>OfferPath</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
@@ -218,23 +218,23 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
       <header className="topbar">
         <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname)?.label || "Triage"}</strong>{location.pathname === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}><strong>{bootstrap.counts.applications_today.toLocaleString()}</strong><span>today</span></span>}</div></div>
-        <div className="top-right"><ThemeControl /><span className="signed-in-role">{session?.is_owner ? "Owner" : "Admin"}</span>{!canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
+        <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? `${session?.bidder_name || "Bidder"} · Read only` : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
       {admin && location.pathname !== "/admin-management" && location.pathname !== "/sourcing" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><Suspense fallback={<Loading />}><Routes>
-        <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} canManageSettings={canManageSettings} /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/dashboard" element={admin ? <DashboardPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/sourcing" element={<SourcingPage />} />
+        <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} readOnly={!admin} />} />
+        <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/sourcing" element={admin ? <SourcingPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
-        <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
-        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/sourcing" replace />} />
-        <Route path="/login" element={<Navigate to={admin ? "/" : "/sourcing"} replace />} />
-        <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/sourcing" replace />} />
+        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
+        <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/dashboard" replace />} />
       </Routes></Suspense></main>
       <footer className="app-footer"><span><span className="footer-dot" />{admin ? "Admin workspace" : "Bidder workspace"}</span><span>Unread stays unread. Always.</span></footer>
     </section>

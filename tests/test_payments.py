@@ -413,3 +413,17 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(len(self.conn.execute('SELECT * FROM bidder_payment_edits').fetchall()),1)
         sign_in_bidder(self.client,1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid/edit',json={**body,'expected_revision':1}).status_code,403)
+
+    def test_viewer_reads_do_not_reconcile_or_sync_receipts(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        with WorkerClient(create_app(worker_secret="worker-only")) as client:
+            headers={"x-offerpath-worker":"worker-only","x-offerpath-viewer":"bidder","x-offerpath-bidder":"1"}
+            with patch("mailcheck.web.app.sourcing_verification.verify_all") as verify, patch("mailcheck.payments.sync_receipts") as sync:
+                result=client.get("/api/payments",headers=headers)
+                self.assertEqual(result.status_code,200,result.text)
+                self.assertEqual([b['name'] for b in result.json()['bidders']],['Alex','Blair'])
+                verify.assert_not_called();sync.assert_not_called()
+            self.assertEqual(client.post("/api/payments/refresh",json={},headers=headers).status_code,403)
+            self.assertEqual(client.get("/api/accounts",headers=headers).status_code,403)
+            self.conn.execute("UPDATE bidders SET removed_at='2026-10-28' WHERE id=1");self.conn.commit()
+            self.assertEqual(client.get("/api/dashboard",headers=headers).status_code,401)

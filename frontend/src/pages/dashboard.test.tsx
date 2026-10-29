@@ -155,3 +155,11 @@ it("filters by bidder together with account and resets the selection", async () 
   await lastParam("bidder", null)
   expect((screen.getByLabelText("Bidder") as HTMLSelectElement).value).toBe("")
 })
+
+it("hides refresh and account management for bidder viewers",async()=>{
+  mount("/dashboard",true)
+  await screen.findByRole("heading",{name:"Dashboard"})
+  expect(screen.queryByRole("button",{name:"Refresh"})).toBeNull()
+  expect(screen.queryByRole("link",{name:/Manage accounts/})).toBeNull()
+  expect(api.accounts).not.toHaveBeenCalled()
+})

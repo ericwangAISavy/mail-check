@@ -1,6 +1,6 @@
 import type { Account, Bootstrap, Settings, TriageData } from "./types"
 
-export type Session = {role: "admin" | "bidder" | null; bidder_id?: number; user_id?: number; username?: string; is_owner?: boolean; workspace_id?: string; workspace_name?: string; must_change_password?: boolean; managed?: boolean}
+export type Session = {role: "admin" | "bidder" | null; bidder_id?: number; bidder_name?:string; user_id?: number; username?: string; is_owner?: boolean; workspace_id?: string; workspace_name?: string; must_change_password?: boolean; managed?: boolean}
 let workspaceId: string | undefined
 export function setWorkspaceIdentity(id?: string) { workspaceId = id }
 export function getWorkspaceIdentity() {return workspaceId}
@@ -39,7 +39,7 @@ export const api = {
     return result
   },
   session: () => request<Session>("/api/auth/session"),
-  login: (role: "admin" | "bidder", password: string, _bidder_id?: number, username="owner") => request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username }) }),
+  login: (role: "admin" | "bidder", password: string, bidder_id?: number, username="owner") => request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username, ...(role==="bidder"?{bidder_id}: {}) }) }),
   dashboardAccounts: () => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),

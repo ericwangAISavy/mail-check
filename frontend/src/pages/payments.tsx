@@ -53,7 +53,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const [copying,setCopying]=useState(false)
   const client = useQueryClient()
   const toast = useToast()
-  const query = useQuery({ queryKey: ["payments", week], queryFn: () => request<Report>(`/api/payments${week ? `?week=${week}` : ""}`), refetchInterval: 30_000 })
+  const query = useQuery({ queryKey: ["payments", week], queryFn: () => request<Report>(`/api/payments${week ? `?week=${week}` : ""}`), refetchInterval: readOnly ? false : 30_000 })
   useEffect(()=>{setReportPreview(null);setCopyError("")},[week,query.data])
   const mutation = useMutation({ mutationFn: ({ url, body }: { url: string; body: unknown }) => api.post(url, body), onSuccess: async () => { setPaying(null); await client.invalidateQueries({ queryKey: ["payments"] }); toast("Saved.", "success") } })
   const refresh = useMutation({mutationFn: (mode: "refresh" | "rebuild") => api.post("/api/payments/refresh", {week: query.data!.week_start, mode}), onSuccess: async () => {
@@ -117,7 +117,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     </Card>
     {data.bidders.length > 0 && <p className="payment-mobile-hint">Swipe the table to see all days and payment status.</p>}
     {!readOnly && data.unassigned > 0 && <p className="payment-unassigned">{data.unassigned.toLocaleString()} confirmations this week have no bidder assignment. <a href="/accounts#bidder-management">Assign their accounts with the correct dates on Accounts</a> to include them.</p>}
-    <BidderActivity week={data.week_start} selected={selected} onSelect={setSelected} />
+    <BidderActivity readOnly={readOnly} week={data.week_start} selected={selected} onSelect={setSelected} />
 
   </div>
 }

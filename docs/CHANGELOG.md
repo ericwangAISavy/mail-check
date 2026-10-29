@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.2.0 — 2026-10-28
+
+Read-only bidder team accounts
+
+- Added Admin and Bidder sign-in options with workspace-qualified bidder names and admin-managed passwords.
+- Bidders can view their admin's whole team on Dashboard and Bidder management, with server-enforced read-only access and revocable sessions.
+
 ## 2.1.3 — 2026-10-28
 
 Refined OfferPath identity

@@ -1,3 +1,4 @@
+import { BidderAccess } from "@/components/bidder-access"
 import { useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Pencil, Plus, Trash2 } from "lucide-react"
@@ -15,8 +16,9 @@ export default function BidderManagement() {
   const client = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["bidder-management"], queryFn: () => request<Report>("/api/payments"), enabled: open })
+  const access=useQuery({queryKey:["bidder-access"],queryFn:()=>request<{bidders:{bidder_id:number;enabled:boolean}[]}>("/api/auth/bidders/manage"),enabled:open})
   const mutation = useMutation({ mutationFn: ({ url, body }: { url: string; body: unknown }) => api.post(url, body), onSuccess: async () => {
-    await Promise.all(["bidder-management", "payments", "dashboard-accounts", "dashboard", "sourcing-index", "sourcing-search", "login-bidders"].map(key => client.invalidateQueries({ queryKey: [key] })))
+    await Promise.all(["bidder-access", "bidder-management", "payments", "dashboard-accounts", "dashboard", "sourcing-index", "sourcing-search", "login-bidders"].map(key => client.invalidateQueries({ queryKey: [key] })))
     toast("Saved.", "success")
   } })
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
@@ -25,15 +27,16 @@ export default function BidderManagement() {
     <details id="bidder-management" className="payment-management" open={open} onToggle={e => setOpen(e.currentTarget.open)}><summary>Manage bidders and account assignments</summary>
       {query.isPending && <Loading label="Loading bidders and assignments…" />}
       {query.error && <p role="alert" className="inline-error">{query.error.message} <Button onClick={() => void query.refetch()}>Try again</Button></p>}
+      {access.error && <p role="alert" className="inline-error">Could not load bidder web access. <Button onClick={()=>void access.refetch()}>Try again</Button></p>}
       {mutation.error && <p role="alert" className="inline-error">{mutation.error.message}</p>}
       {data && <><Card className="payment-admin-card"><h2>Add bidder</h2><form className="payment-inline-form" onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const values = new FormData(form); try { await write("/api/payments/bidders", { name: values.get("name") }); form.reset() } catch { /* shown above */ } }}><label>Bidder name<input name="name" required maxLength={100} placeholder="e.g. Alex" /></label><Button disabled={mutation.isPending}><Plus size={16} />Add bidder</Button></form></Card>
-      {data.bidders.map(b => <BidderManager key={b.id} bidder={b} accounts={data.accounts} today={data.today} busy={mutation.isPending} write={write} />)}
+      {data.bidders.map(b => <BidderManager accessEnabled={!!access.data?.bidders.find(member=>member.bidder_id===b.id)?.enabled} accessReady={access.isSuccess} key={b.id} bidder={b} accounts={data.accounts} today={data.today} busy={mutation.isPending} write={write} />)}
     </>}
     </details>
   )
 }
 
-function BidderManager({ bidder, accounts, today, busy, write }: { bidder: Bidder; accounts: Report["accounts"]; today: string; busy: boolean; write: (url: string, body: unknown) => Promise<unknown> }) {
+function BidderManager({ bidder, accounts, today, busy, write,accessEnabled,accessReady }: { accessEnabled:boolean;accessReady:boolean;bidder: Bidder; accounts: Report["accounts"]; today: string; busy: boolean; write: (url: string, body: unknown) => Promise<unknown> }) {
   const [removing, setRemoving] = useState(false)
   const submit = (url: string, body: (form: FormData) => unknown) => async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); try { await write(url, body(new FormData(e.currentTarget))) } catch { /* page shows server error */ } }
   return <Card className="payment-admin-card"><div className="payment-section-heading"><h2>{bidder.name}</h2><Button variant="destructive" size="sm" disabled={busy} onClick={() => setRemoving(true)}><Trash2 size={14} />Remove bidder</Button></div>
@@ -49,6 +52,7 @@ function BidderManager({ bidder, accounts, today, busy, write }: { bidder: Bidde
       <label>Wallet address<input name="wallet_address" key={bidder.wallet_address} defaultValue={bidder.wallet_address || ""} placeholder="0x…" maxLength={128} autoComplete="off" spellCheck={false}/></label>
       <Button variant="outline" disabled={busy}>Save wallet</Button>
     </form><p className="payment-muted">Used in copied weekly payment reports. Enter a public receiving address; leave it empty to remove the saved wallet.</p>
+    {accessReady&&<BidderAccess bidderId={bidder.id} name={bidder.name} enabled={accessEnabled} busy={busy} write={write}/>}
     <h3>Assigned accounts</h3>{!bidder.assignments.length && <p className="payment-muted">No accounts assigned.</p>}{bidder.assignments.map(a => <AssignmentRule key={a.id} assignment={a} accounts={accounts} busy={busy} write={write} />)}
     <form className="payment-inline-form payment-assign-form" onSubmit={submit(`/api/payments/bidders/${bidder.id}/assignments`, form => ({ account_id: Number(form.get("account")), start_date: form.get("start"), end_date: form.get("end") || null }))}><label>Account<select name="account" required defaultValue=""><option value="" disabled>Select account</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select></label><label>First assigned day<input name="start" type="date" defaultValue={today} required /></label><label>Last day (optional)<input name="end" type="date" /></label><Button disabled={busy || !accounts.length}>Assign account</Button></form><p className="payment-muted">An account can be assigned to several bidders on the same day. Receipt estimates for shared accounts are split between assigned bidders in proportion to their checked sourcing links for that account and day. Checked links stay with the bidder who owns the document.</p>
   </Card>

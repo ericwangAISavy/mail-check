@@ -197,10 +197,11 @@ def received_today(conn: sqlite3.Connection) -> int:
         AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
 
 
-def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None) -> dict:
+def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None, read_only: bool = False) -> dict:
     start = monday(week or today())
     end = start + timedelta(days=6)
-    sync_receipts(conn, since=start, until=end)
+    if not read_only:
+        sync_receipts(conn, since=start, until=end)
     dates = [(start + timedelta(days=i)).isoformat() for i in range(7)]
     # Bound in UTC, then bucket in the accounting timezone, including DST days.
     lower = datetime.combine(start, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()

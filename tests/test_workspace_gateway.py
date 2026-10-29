@@ -35,14 +35,14 @@ def login(client,username='owner',password='owner-password-123'):
     return session
 
 
-def test_owner_admin_provisioning_and_no_bidder_auth(system):
+def test_owner_admin_provisioning_and_opt_in_bidder_auth(system):
     app,store,pool=system
     with TestClient(app) as owner:
         assert owner.get('/api/bootstrap').status_code==401
         assert owner.post('/api/auth/login',json={'role':'bidder','password':'anything'}).status_code==401
         login(owner)
-        assert owner.get('/api/auth/bidders').status_code==410
-        assert owner.post('/api/auth/bidders/1/password',json={'password':'new'}).status_code==410
+        assert owner.get('/api/auth/bidders').json()=={'bidders':[]}
+        assert owner.post('/api/auth/bidders/1/password',json={'password':'new'}).status_code==422
         assert owner.post('/api/admin/users',json={'username':'alice','workspace_name':'Alice workspace','password':'temporary-pass-123'}).status_code==200
         alice=TestClient(app)
         try:

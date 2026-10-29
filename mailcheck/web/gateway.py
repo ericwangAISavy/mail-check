@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 from pydantic import BaseModel, Field
 
+from ..bidder_access import BidderAccess, viewer_read_allowed
 from .. import config
 from ..control_store import ControlStore, RevokedSession
 from ..workspace_workers import InstanceLock, WorkerPool
@@ -35,6 +36,12 @@ class Login(BaseModel):
     username: str = Field(default='owner',max_length=64)
     password: str = Field(min_length=1,max_length=256)
     role: str = Field(default='admin',max_length=16)
+    bidder_id: int | None = Field(default=None,ge=1)
+
+
+class BidderPassword(BaseModel):
+    password: str | None = Field(default=None,min_length=12,max_length=256)
+    enabled: bool = True
 
 
 class NewAdmin(BaseModel):
@@ -62,6 +69,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     original_config=config.config_path(); original_db=config.db_path(); original_auth=config.config_dir()/'web-auth.json'
     store=store or ControlStore(config.config_dir()/'offerpath-control',AuthStore(lambda:original_auth),max_workspaces)
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
+    bidder_access=BidderAccess(store)
     model_slots=asyncio.Semaphore(1)
     leases={}
     worker_clients={}
@@ -141,6 +149,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         response.delete_cookie('mailcheck_session',path='/')
         return response
 
+    def identity_for(token):
+        return store.identity(token) or bidder_access.identity(token)
+
     def owner(request):
         identity=request.state.identity
         if not identity or not identity['is_owner']:raise HTTPException(403,'Owner access required.')
@@ -160,10 +171,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             origin=request.headers.get('origin')
             if (origin and origin!=f'{request.url.scheme}://{request.headers.get("host","")}') or request.headers.get('sec-fetch-site')=='cross-site':return JSONResponse({'error':'Cross-origin requests are not allowed.'},403)
         asset_request=path.startswith('/assets/')
-        try:identity=None if asset_request else await asyncio.to_thread(store.identity,request.cookies.get(COOKIE))
+        try:identity=None if asset_request else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
         except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
-        public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session') or path.startswith(('/assets/','/static/'))
+        public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session','/api/auth/bidders') or path.startswith(('/assets/','/static/'))
         if not public:
             if not identity:
                 return JSONResponse({'error':'Sign in to continue.'},401) if path.startswith('/api/') else RedirectResponse('/login',303)
@@ -172,6 +183,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 return JSONResponse({'error':'Workspace changed. Reload before continuing.','workspace_changed':True},409)
             if identity['must_change_password'] and path not in ('/api/auth/password','/login'):
                 return JSONResponse({'error':'Change your temporary password before opening the workspace.'},403) if path.startswith('/api/') else page()
+        if identity and identity['role']=='bidder' and not path.startswith(('/assets/','/static/')):
+            if path not in ('/api/auth/session','/api/auth/logout') and not viewer_read_allowed(path,request.method):
+                return JSONResponse({'error':'Bidder access is read-only and limited to Dashboard and Bidder management.'},403)
         restricted_settings = path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)
@@ -217,17 +231,21 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
 
     @app.post('/api/auth/login')
     async def login(body:Login,request:Request):
-        if body.role!='admin':raise HTTPException(401,'Bidder sign-in has been removed. Sign in with an owner or admin account.')
-        try:token=await asyncio.to_thread(store.login,body.username,body.password,request.client.host if request.client else 'unknown')
+        if body.role not in ('admin','bidder'):raise HTTPException(401,'Choose Admin or Bidder.')
+        try:
+            if body.role=='bidder':
+                token=await asyncio.to_thread(bidder_access.login,body.bidder_id,body.password,request.client.host if request.client else 'unknown')
+            else:
+                token=await asyncio.to_thread(store.login,body.username,body.password,request.client.host if request.client else 'unknown')
         except ValueError:raise HTTPException(429,'Too many sign-in attempts. Try again in a minute.',headers={'Retry-After':'60'})
         if not token:raise HTTPException(401,'Incorrect username or password.')
         # Replacing this browser's identity must invalidate in-flight old-session requests.
-        store.logout(request.cookies.get(COOKIE))
-        return cookie(JSONResponse(store.identity(token)),token)
+        store.logout(request.cookies.get(COOKIE));bidder_access.logout(request.cookies.get(COOKIE))
+        return cookie(JSONResponse(identity_for(token)),token)
 
     @app.post('/api/auth/logout')
     def logout(request:Request):
-        store.logout(request.cookies.get(COOKIE))
+        store.logout(request.cookies.get(COOKIE));bidder_access.logout(request.cookies.get(COOKIE))
         response=JSONResponse({'ok':True});response.delete_cookie(COOKIE,path='/');response.delete_cookie('mailcheck_session',path='/')
         return response
 
@@ -237,8 +255,32 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         token=store.change_password(request.cookies.get(COOKIE),body.password,expected_workspace=request.headers.get('x-offerpath-workspace'))
         return cookie(JSONResponse({'ok':True,'message':'Password updated. Other sessions have been signed out.','session':store.identity(token)}),token)
 
+    @app.get('/api/auth/bidders')
+    def bidder_directory():
+        return {'bidders':bidder_access.directory()}
+
+    @app.get('/api/auth/bidders/manage')
+    def managed_bidders(request:Request):
+        return {'bidders':bidder_access.managed(request.cookies.get(COOKIE),request.state.identity['workspace_id'])}
+
+    @app.post('/api/auth/bidders/{bidder_id}/password')
+    async def bidder_password(bidder_id:int,body:BidderPassword,request:Request):
+        identity=request.state.identity
+        try:
+            worker=await asyncio.to_thread(ensure_workspace,identity['workspace_id'])
+            async with worker_http_client() as client:
+                result=await client.get(f'http://127.0.0.1:{worker.port}/_internal/bidders/{bidder_id}',
+                    headers={'x-offerpath-worker':worker.token})
+        except (httpx.HTTPError,RuntimeError,OSError):
+            raise HTTPException(503,'Could not load workspace bidders. Try again when the workspace is available.')
+        if result.status_code==404:raise HTTPException(404,'Bidder not found in this workspace.')
+        if not result.is_success:raise HTTPException(503,'Could not load workspace bidders.')
+        member=result.json()
+        await asyncio.to_thread(bidder_access.configure,request.cookies.get(COOKIE),identity['workspace_id'],bidder_id,member['name'],password=body.password,enabled=body.enabled)
+        return {'ok':True}
+
     @app.api_route('/api/auth/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH'])
-    def removed_auth(path:str):raise HTTPException(410,'Bidder sign-in and credential management have been removed.')
+    def missing_auth(path:str):raise HTTPException(404,'Unknown authentication endpoint.')
 
     @app.get('/api/admin/users')
     def admins(request:Request):
@@ -297,14 +339,27 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # Revalidate after potentially slow body reads and worker startup.
         # A reset, suspension, logout or workspace switch may have completed
         # since the initial middleware check.
-        await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+        await asyncio.to_thread(bidder_access.validate_dispatch if identity['role']=='bidder' else store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
         headers={'x-offerpath-worker':worker.token}
+        if identity['role']=='bidder':
+            headers['x-offerpath-viewer']='bidder'
+            headers['x-offerpath-bidder']=str(identity['bidder_id'])
         for name in ('accept','content-type'):
             if name in request.headers:headers[name]=request.headers[name]
         try:
             async with worker_http_client() as client:
                 result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
         except httpx.HTTPError:raise HTTPException(503,'Workspace connection interrupted. Reload before retrying an email send.')
+        if identity['role']=='admin' and result.is_success and request.method=='POST':
+            import re
+            match=re.fullmatch(r'api/payments/bidders/([0-9]+)(/remove)?',path)
+            if match:
+                who=int(match[1])
+                if match[2]:
+                    await asyncio.to_thread(bidder_access.configure,request.cookies.get(COOKIE),identity['workspace_id'],who,'Removed bidder',enabled=False)
+                else:
+                    import json
+                    await asyncio.to_thread(bidder_access.rename,identity['workspace_id'],who,json.loads(body)['name'].strip())
         if path.rstrip('/') in ('api/settings','api/autocheck') and request.method=='POST' and result.is_success:
             # Reload schedules without restarting workers or interrupting jobs.
             async def notify(workspace):

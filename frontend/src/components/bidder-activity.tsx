@@ -23,7 +23,7 @@ const time = (value: unknown) => {const date = chartDate(value); return date ? n
 const dayLabel = (value: unknown) => {if (value === "start") return "Start"; const date = chartDate(value); return date ? new Intl.DateTimeFormat("en-US", {month:"short",day:"numeric",timeZone:"UTC"}).format(date) : ""}
 const axisHour = (value: unknown) => {const date = chartDate(value); return date ? new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",hour:"numeric"}).format(date) : ""}
 const hourLabel = (hour: number) => `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`
-export default function BidderActivity({ week, selected, onSelect }: { week: string; selected: string; onSelect: (id: string) => void }) {
+export default function BidderActivity({ week, selected, onSelect,readOnly=false }: { readOnly?:boolean;week: string; selected: string; onSelect: (id: string) => void }) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     const timer = globalThis.setInterval(() => setNow(Date.now()), 1000)
@@ -37,7 +37,7 @@ export default function BidderActivity({ week, selected, onSelect }: { week: str
   const [account, setAccount] = useState("")
   useEffect(() => { setAccount(""); }, [week, selected])
   const scope = group === "accounts" ? selected : ""
-  const query = useQuery({ queryKey: ["payments", "activity", week, scope, day], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: 30_000 })
+  const query = useQuery({ queryKey: ["payments", "activity", week, scope, day], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: readOnly ? false : 30_000 })
   const data = query.data
   const valid = data && Array.isArray(data.timeline)
   const entities = valid ? group === "accounts" ? data.accounts || [] : data.bidders : []
@@ -92,7 +92,7 @@ export default function BidderActivity({ week, selected, onSelect }: { week: str
         <Button variant="outline" size="icon" disabled={!window} aria-label="Previous activity workday" onClick={() => moveDay(-1)}><ChevronLeft size={16}/></Button>
         <label>Workday <input type="date" aria-label="Activity workday" min="1971-01-01" max="2100-12-30" value={window?.date || day} onChange={e => {if(e.target.value) setDay(e.target.value)}} /></label>
         <Button variant="outline" size="icon" disabled={!window} aria-label="Next activity workday" onClick={() => moveDay(1)}><ChevronRight size={16}/></Button>
-        <Button variant="outline" size="sm" onClick={() => {setDay(""); void query.refetch()}}>Current workday</Button>
+        <Button variant="outline" size="sm" onClick={() => {setDay(""); if(!readOnly)void query.refetch()}}>Current workday</Button>
         <span>{window ? `${time(window.start)} – ${time(window.end)}` : "6:00 AM – next 6:00 AM"} · America/Chicago</span>
       </div>}
       <p className="activity-mode-description">{!cumulative ? mode === "days" ? "Daily totals · each point shows that day’s count." : mode === "checks" ? `Every recorded run · ${points.length} checkpoints. Each point shows newly checked links for that run.` : "15-minute intervals · each point shows matched links received in that interval." : mode === "days" ? "Weekly running totals · each day adds to the previous total. The heatmap also covers the selected week." : mode === "checks" ? `Every recorded run · ${points.length} checkpoints in this workday. Lines show running totals; quiet runs stay flat. Hover for the exact time and cumulative counts.` : "15-minute intervals · running totals of matched links by confirmation receipt time. Quiet intervals stay flat; the last point shows each bidder or account’s workday total. The heatmap covers the selected week."}</p>

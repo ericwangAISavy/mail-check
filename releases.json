@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.2.0",
+    "date": "2026-10-28",
+    "title": "Read-only bidder team accounts",
+    "changes": [
+      "Added Admin and Bidder sign-in options with workspace-qualified bidder names and admin-managed passwords.",
+      "Bidders can view their admin's whole team on Dashboard and Bidder management, with server-enforced read-only access and revocable sessions."
+    ]
+  },
+  {
     "version": "2.1.3",
     "date": "2026-10-28",
     "title": "Refined OfferPath identity",
