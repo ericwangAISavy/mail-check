@@ -2,6 +2,30 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.14 — 2026-10-28
+
+Unified bidder totals and week filters
+
+- Place Today, weekly estimated confirmations, and recorded payments beside right-aligned week and bidder controls in a single compact desktop row.
+
+## 2.3.13 — 2026-10-28
+
+Unified job sourcing command bar
+
+- Combine date navigation and editing tools in one compact desktop row while retaining accessible controls on smaller screens.
+
+## 2.3.12 — 2026-10-28
+
+Balanced triage header spacing
+
+- Group mail tabs beside the heading and align filters, counts, and Undo in a compact continuous header.
+
+## 2.3.11 — 2026-10-28
+
+Single-row triage navigation
+
+- Center mail-view tabs, filters, and message count beside the triage heading on wide screens, with responsive wrapping on smaller screens.
+
 ## 2.3.10 — 2026-10-28
 
 Sign-in availability and pending request safeguards

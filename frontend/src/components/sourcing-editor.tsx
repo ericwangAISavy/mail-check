@@ -588,6 +588,7 @@ export default function SourcingEditor({
       {dataRouter && (
         <SourcingDraftGuard dirty={dirty || saving} saving={saving} />
       )}
+      <div className="sourcing-command-bar">
       <SourcingDays
         day={day}
         onChange={(next) => {
@@ -694,6 +695,7 @@ export default function SourcingEditor({
         >
           <RefreshCw size={16} />
         </Button>
+      </div>
       </div>
       {showFilters && snapshot && (
         <div className="native-sheet-filters">

@@ -41,3 +41,70 @@
     .page-heading { flex-wrap: wrap; }
   }
 }
+
+@media screen {
+  .triage-heading-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 24px; margin-bottom: 14px; }
+  .triage-heading-row .page-heading { margin: 0; min-width: 0; }
+  .triage-heading-row .triage-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 0; margin: 0; padding: 0; border: 0; }
+  .triage-heading-row .triage-tools { flex: none; }
+  .triage-heading-row .list-count { white-space: nowrap; }
+  .triage-heading-row .view-tabs { flex: none; }
+  .triage-undo { justify-self: end; border-left: 1px solid var(--border); border-radius: 0; padding-left: 16px; }
+  @media (max-width: 1200px) {
+    .triage-heading-row { grid-template-columns: minmax(0,1fr) auto; gap: 12px; }
+    .triage-heading-row .triage-bar { grid-row: 2; grid-column: 1 / -1; justify-content: space-between; }
+    .triage-undo { grid-row: 1; grid-column: 2; }
+  }
+  @media (max-width: 700px) {
+    .triage-heading-row .triage-bar { gap: 8px; flex-wrap: wrap; }
+  }
+}
+
+@media screen {
+  .sourcing-command-bar { display: flex; align-items: center; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: thin; }
+  .sourcing-command-bar .sheet-days { flex: none; flex-wrap: nowrap; border: 0; padding: 4px 6px; gap: 3px; min-height: 36px; }
+  .sourcing-command-bar .native-sheet-toolbar { flex: 1 0 auto; flex-wrap: nowrap; border: 0; border-left: 1px solid var(--border); min-height: 30px; padding: 3px 6px; gap: 3px; }
+  .sourcing-command-bar .sheet-days > svg { display: none; }
+  .sourcing-command-bar .sheet-days select { max-width: 90px; }
+  .sourcing-command-bar .sheet-days input { width: 125px; }
+  .sourcing-command-bar .sheet-day-count { white-space: nowrap; font-size: 11px; }
+  .sourcing-command-bar .sheet-assign-date { margin-left: 3px; }
+  .sourcing-command-bar .btn { flex-shrink: 0; }
+  @media (max-width: 1000px) {
+    .sourcing-command-bar { flex-wrap: wrap; overflow-x: visible; }
+    .sourcing-command-bar .sheet-days { flex-wrap: wrap; flex: 1 1 100%; }
+    .sourcing-command-bar .native-sheet-toolbar { flex-wrap: wrap; flex: 1 1 100%; border-left: 0; border-top: 1px solid var(--border); }
+  }
+}
+@media screen and (min-width: 1001px) {
+  .sourcing-command-bar .btn { font-size: 11px; padding-inline: 5px; }
+  .sourcing-command-bar .btn.size-10 { width: 26px; height: 28px; min-height: 28px; padding: 4px; }
+  .sourcing-command-bar .sheet-days input { width: 118px; }
+  .sourcing-command-bar .sheet-days select { max-width: 78px; }
+  .sourcing-command-bar .sheet-toolbar-group { padding-right: 3px; }
+  .sourcing-command-bar .sheet-save-status { font-size: 11px; }
+}
+
+@media screen {
+  .payment-summary-bar { display: flex; align-items: center; gap: 18px; margin-bottom: 14px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+  .payments-page .payment-summary-bar .payment-overview { flex: 1; min-width: 0; margin: 0; gap: 14px; grid-template-columns: .8fr 1.4fr 1fr; }
+  .payments-page .payment-summary-bar .payment-overview > div { padding: 0; gap: 9px; background: transparent; border: 0; box-shadow: none; border-radius: 0; }
+  .payments-page .payment-summary-bar .payment-overview strong { font-size: 22px; }
+  .payments-page .payment-summary-bar .payment-overview span,.payments-page .payment-summary-bar .payment-overview small { font-size: 11px; }
+  .payments-page .payment-summary-bar .payment-controls { flex: none; gap: 10px; margin: 0 0 0 auto; padding: 0 0 0 16px; border: 0; border-left: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
+  .payment-summary-bar .payment-week { gap: 3px; }
+  .payment-summary-bar .payment-controls label { font-size: 11px; gap: 3px; }
+  .payment-summary-bar .payment-controls input { width: 135px; }
+  .payment-summary-bar .payment-bidder-filter select { max-width: 145px; }
+  .payment-summary-bar .payment-week .btn.size-10 { width: 28px; padding: 4px; }
+  @media (max-width: 1250px) {
+    .payment-summary-bar { flex-wrap: wrap; }
+    .payments-page .payment-summary-bar .payment-overview { flex-basis: 100%; }
+    .payments-page .payment-summary-bar .payment-controls { flex: 1; border-left: 0; border-top: 1px solid var(--border); padding: 10px 0 0; margin: 0; justify-content: flex-end; }
+  }
+  @media (max-width: 700px) {
+    .payment-summary-bar { padding: 12px; }
+    .payment-summary-bar .payment-overview svg { display: none; }
+    .payments-page .payment-summary-bar .payment-controls { justify-content: flex-start; }
+  }
+}

@@ -253,7 +253,7 @@ describe("unclassified banner", () => {
     renderPage()
     expect(await screen.findByText("16 messages need a closer look")).toBeTruthy()
     const banner = document.querySelector(".attention-banner")!
-    expect(banner.compareDocumentPosition(document.querySelector(".triage-bar")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(banner.compareDocumentPosition(document.querySelector(".triage-split")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Try classification again" }))
     await waitFor(() => expect(requests.some((request) => request.includes("POST /api/reclassify {}"))).toBe(true))
   })

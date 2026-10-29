@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.3.14",
+    "date": "2026-10-28",
+    "title": "Unified bidder totals and week filters",
+    "changes": [
+      "Place Today, weekly estimated confirmations, and recorded payments beside right-aligned week and bidder controls in a single compact desktop row."
+    ]
+  },
+  {
+    "version": "2.3.13",
+    "date": "2026-10-28",
+    "title": "Unified job sourcing command bar",
+    "changes": [
+      "Combine date navigation and editing tools in one compact desktop row while retaining accessible controls on smaller screens."
+    ]
+  },
+  {
+    "version": "2.3.12",
+    "date": "2026-10-28",
+    "title": "Balanced triage header spacing",
+    "changes": [
+      "Group mail tabs beside the heading and align filters, counts, and Undo in a compact continuous header."
+    ]
+  },
+  {
+    "version": "2.3.11",
+    "date": "2026-10-28",
+    "title": "Single-row triage navigation",
+    "changes": [
+      "Center mail-view tabs, filters, and message count beside the triage heading on wide screens, with responsive wrapping on smaller screens."
+    ]
+  },
+  {
     "version": "2.3.10",
     "date": "2026-10-28",
     "title": "Sign-in availability and pending request safeguards",
