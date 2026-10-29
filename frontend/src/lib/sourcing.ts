@@ -89,6 +89,10 @@ export const normalStyle = (style: CellStyle = {}) => ({
   wrap: false,
   ...style,
 });
+export function sourcingColumnTitle(column: Pick<SheetColumn,"kind"|"title">,index=0) {
+  const titles:Record<string,string>={company:"Company",role:"Role",link:"Job link",check:"Check"}
+  return (column.kind&&titles[column.kind])||column.title||columnName(index)
+}
 export function columnName(index: number) {
   let result = "";
   for (index++; index; index = Math.floor((index - 1) / 26))

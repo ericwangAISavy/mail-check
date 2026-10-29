@@ -174,6 +174,9 @@ def _snapshot(conn, tab):
             (tab["id"],),
         )
     ]
+    fixed_titles={'company':'Company','role':'Role','link':'Job link','check':'Check'}
+    for column in columns:
+        column['title']=fixed_titles.get(column['kind'],column['title'])
     row_records = [
         dict(r)
         for r in conn.execute(

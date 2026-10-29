@@ -94,3 +94,31 @@ it("shows the matching confirmation received time on checked links", () => {
   render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()}/>);
   expect(screen.getByRole("checkbox", {name:"Check row 1"}).getAttribute("title")).toContain("9:23 AM")
 });
+
+it("uses fixed field headings and starts with the first job instead of an editable header row",()=>{
+ const data=snapshot();data.columns[0].title="Old custom label";data.rows[0][0]=cell("Old custom label")
+ const change=vi.fn()
+ render(<SheetGrid snapshot={data} changes={[]} onChange={change}/>)
+ expect(screen.getByRole("columnheader",{name:"Company"})).toBeTruthy()
+ expect(screen.getByRole("columnheader",{name:"Role"})).toBeTruthy()
+ expect(screen.getByRole("columnheader",{name:"Job link"})).toBeTruthy()
+ expect(screen.getByRole("columnheader",{name:"Check"})).toBeTruthy()
+ expect(screen.queryByRole("columnheader",{name:"A"})).toBeNull()
+ expect(screen.queryByRole("gridcell",{name:"Old custom label"})).toBeNull()
+ fireEvent.doubleClick(screen.getByRole("columnheader",{name:"Company"}))
+ expect(screen.queryByRole("textbox",{name:"Edit cell"})).toBeNull()
+ fireEvent.doubleClick(screen.getByRole("gridcell",{name:"Acme"}))
+ const editor=screen.getByRole("textbox",{name:"Edit cell"})
+ fireEvent.change(editor,{target:{value:"Updated company"}});fireEvent.blur(editor)
+ expect(change).toHaveBeenCalledWith([{row:1,col:0,value:"Updated company",style:undefined}])
+})
+
+it("preserves the saved row identity when the first visible job is filtered",()=>{
+ const data=snapshot();data.rows.push([cell("Beta"),cell("Designer"),cell("https://jobs.test/2"),cell("false")]);data.row_ids.push("row2")
+ const change=vi.fn()
+ render(<SheetGrid snapshot={data} changes={[]} onChange={change} view={{find:"Beta",filterColumn:0,filter:"",sortColumn:0,direction:"none"}}/>)
+ fireEvent.doubleClick(screen.getByRole("gridcell",{name:"Beta"}))
+ const editor=screen.getByRole("textbox",{name:"Edit cell"})
+ fireEvent.change(editor,{target:{value:"Beta updated"}});fireEvent.blur(editor)
+ expect(change).toHaveBeenCalledWith([{row:2,col:0,value:"Beta updated",style:undefined}])
+})

@@ -113,12 +113,12 @@ def structure(conn, tab, operation, revision, command):
                 ).fetchone()
                 if not column:
                     raise ValueError("Choose a column from this sheet.")
-                if column["kind"] == "check" and action == "rename_column":
-                    raise ValueError("The Check column keeps its name.")
+                if column["kind"] in ("company","role","link","check") and action == "rename_column":
+                    raise ValueError("Company, Role, Job link and Check column names are fixed.")
                 if action == "delete_column":
                     if column["kind"]:
                         raise ValueError(
-                            "Company, Role and Job link columns are required. Their names can be changed."
+                            "Company, Role, Job link and Check columns are required."
                         )
                     conn.execute(
                         "DELETE FROM native_columns WHERE id=?", (column["id"],)

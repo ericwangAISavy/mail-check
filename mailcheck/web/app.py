@@ -622,7 +622,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 with db.session() as conn:
                     member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
                 if not member:return _err('Bidder access is no longer available.',401)
-        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
+        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/admins", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
         try:
             identity = {"role":"admin", "bidder_id":None} if worker_secret else auth.identity(request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder":
@@ -702,6 +702,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
                             secure=secure_cookies, samesite="strict", path="/")
         return response
+
+    @app.get("/api/auth/admins")
+    def admin_names():
+        return {"admins": [{"username": "owner"}]}
 
     @app.get("/api/auth/bidders")
     def bidder_names():

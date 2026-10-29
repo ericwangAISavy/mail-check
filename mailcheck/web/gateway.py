@@ -1,6 +1,7 @@
 """Network-facing multi-workspace gateway; business APIs execute in isolated workers."""
 from __future__ import annotations
 import asyncio
+import threading
 from contextlib import asynccontextmanager, suppress
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
@@ -69,6 +70,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     original_config=config.config_path(); original_db=config.db_path(); original_auth=config.config_dir()/'web-auth.json'
     store=store or ControlStore(config.config_dir()/'offerpath-control',AuthStore(lambda:original_auth),max_workspaces)
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
+    admin_change_lock=threading.Lock()
     bidder_access=BidderAccess(store)
     model_slots=asyncio.Semaphore(1)
     leases={}
@@ -174,7 +176,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         try:identity=None if asset_request else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
         except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
-        public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session','/api/auth/bidders') or path.startswith(('/assets/','/static/'))
+        public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session','/api/auth/admins','/api/auth/bidders') or path.startswith(('/assets/','/static/'))
         if not public:
             if not identity:
                 return JSONResponse({'error':'Sign in to continue.'},401) if path.startswith('/api/') else RedirectResponse('/login',303)
@@ -255,6 +257,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         token=store.change_password(request.cookies.get(COOKIE),body.password,expected_workspace=request.headers.get('x-offerpath-workspace'))
         return cookie(JSONResponse({'ok':True,'message':'Password updated. Other sessions have been signed out.','session':store.identity(token)}),token)
 
+    @app.get('/api/auth/admins')
+    def admin_directory():
+        return {'admins':[{'username':u['username']} for u in store.list_admins() if u['enabled']]}
+
     @app.get('/api/auth/bidders')
     def bidder_directory():
         return {'bidders':bidder_access.directory()}
@@ -296,13 +302,20 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # The supervisor starts the worker; provisioning can succeed independently of mailbox setup.
         return {'ok':True,'workspace_id':wid}
 
+    def apply_admin_update(token,user_id,body,workspace):
+        # Keep committed access and runtime state ordered together. Otherwise a
+        # delayed suspension can stop a workspace after a re-enable completed.
+        # Run this whole blocking operation off the gateway's event loop.
+        with admin_change_lock:
+            wid=store.update_admin(token,user_id,enabled=body.enabled,password=body.password,expected_workspace=workspace)
+            if body.enabled is False:pool.stop(wid)
+            elif body.enabled is True:pool.enable(wid)
+
     @app.post('/api/admin/users/{user_id}')
     async def update_admin(user_id:int,body:AdminUpdate,request:Request):
         identity=owner(request)
         if body.enabled is None and body.password is None:raise HTTPException(400,'Choose a password reset or access change.')
-        wid=await asyncio.to_thread(store.update_admin,request.cookies.get(COOKIE),user_id,enabled=body.enabled,password=body.password,expected_workspace=request.headers.get('x-offerpath-workspace'))
-        if body.enabled is False:await asyncio.to_thread(pool.stop,wid)
-        elif body.enabled is True:pool.enable(wid)
+        await asyncio.to_thread(apply_admin_update,request.cookies.get(COOKIE),user_id,body,request.headers.get('x-offerpath-workspace'))
         return {'ok':True}
 
     @app.post('/api/admin/switch')

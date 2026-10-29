@@ -383,13 +383,12 @@ it("protects active uncommitted typing from refresh and navigation", async () =>
   await act(async () => {});
   expect(vi.mocked(fetch).mock.calls.length).toBe(requests);
 });
-it("keeps original row identity and revision in a deletion confirmation", async () => {
+it("keeps original job identity and revision when inserting rows", async () => {
   const post = vi.spyOn(api, "post").mockResolvedValue(snapshot);
   mount();
   await screen.findByRole("button", { name: "Edit company" });
-  fireEvent.change(screen.getByLabelText("Row and column actions"), {
-    target: { value: "delete_rows" },
-  });
+  fireEvent.click(screen.getByRole("button",{name:"Rows"}));
+  fireEvent.change(screen.getByLabelText("Number of rows"),{target:{value:"2"}});
   const refreshed = {
     ...snapshot,
     revision: "inserted",
@@ -410,11 +409,11 @@ it("keeps original row identity and revision in a deletion confirmation", async 
   await waitFor(() =>
     expect(screen.getByLabelText("Saved company").textContent).toBe("Inserted"),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  fireEvent.click(screen.getByRole("button", { name: "Insert rows" }));
   await waitFor(() => expect(post).toHaveBeenCalled());
   expect(post.mock.calls[0][1]).toMatchObject({
     revision: "one",
-    ids: ["row-one"],
+    action: "insert_rows",at_row_id:"row-one",count:2,
   });
 });
 
@@ -429,28 +428,12 @@ it("waits to autosave committed cells while another cell is still being typed", 
   expect(post).not.toHaveBeenCalled();
 });
 
-it("confirms discarding pasted append rows and unlocks the sheet after closing", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-  mount();
-  await screen.findByRole("button", { name: "Edit company" });
-  fireEvent.change(screen.getByLabelText("Row and column actions"), {
-    target: { value: "append_jobs" },
-  });
-  fireEvent.change(screen.getByLabelText("Job rows to append"), {
-    target: { value: "Draft company\tEngineer" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
-  expect(confirm).toHaveBeenCalled();
-  expect(screen.getByLabelText("Job rows to append")).toBeTruthy();
-  confirm.mockReturnValue(true);
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
-  await waitFor(() =>
-    expect(screen.queryByLabelText("Job rows to append")).toBeNull(),
-  );
-  expect(
-    screen.getByLabelText("Row and column actions").hasAttribute("disabled"),
-  ).toBe(false);
-});
+it("removes the Insert/edit menu while keeping direct row and import actions",async()=>{
+ mount();await screen.findByRole("button",{name:"Edit company"})
+ expect(screen.queryByLabelText("Row and column actions")).toBeNull()
+ expect(screen.getByRole("button",{name:"Rows"})).toBeTruthy()
+ expect(screen.getByRole("button",{name:"Import CSV"})).toBeTruthy()
+})
 
 it("autosaves on HTTP browsers without crypto.randomUUID", async () => {
   vi.stubGlobal("crypto", {

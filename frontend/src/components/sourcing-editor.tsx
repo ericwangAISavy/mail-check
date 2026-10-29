@@ -30,7 +30,6 @@ import {
   mergeChanges,
   nativeChanges,
   normalStyle,
-  parseTSV,
   type CellStyle,
   type Change,
   type Selection,
@@ -85,8 +84,6 @@ export default function SourcingEditor({
     [structureOpen, setStructureOpen] = useState<StructureAction | null>(null),
     [importOpen, setImportOpen] = useState(false),
     [importDirty, setImportDirty] = useState(false),
-    [appendOpen, setAppendOpen] = useState(false),
-    [appendText, setAppendText] = useState(""),
     [typing, setTyping] = useState(false);
   const client = useQueryClient();
   const compactAfterPaste = useRef(false);
@@ -95,10 +92,6 @@ export default function SourcingEditor({
   const [day, setDay] = useState(initialDay || chicagoDay());
   useEffect(() => { onDayChange?.(day); }, [day, onDayChange]);
   const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
-  const [headerDraft, setHeaderDraft] = useState<{
-    col: number;
-    title: string;
-  } | null>(null);
   const [assignOpen, setAssignOpen] = useState(false),
     [assignDay, setAssignDay] = useState(chicagoDay());
   const assignContext = useRef<{ revision: string; ids: string[] } | null>(
@@ -128,15 +121,13 @@ export default function SourcingEditor({
     resizeTimer = useRef(0);
   draft.current = changes;
   base.current = snapshot;
-  auxDirty.current = importDirty || !!appendText || !!headerDraft || assignOpen;
+  auxDirty.current = importDirty || assignOpen;
   const dirty =
       changes.length > 0 ||
       importDirty ||
-      !!appendText ||
       typing ||
-      !!headerDraft ||
       assignOpen,
-    locked = saving || !!error || importOpen || appendOpen;
+    locked = saving || !!error || importOpen;
   const load = useCallback(async () => {
     if (
       inFlight.current ||
@@ -288,13 +279,12 @@ export default function SourcingEditor({
       saving ||
       error ||
       importOpen ||
-      appendOpen ||
       typing
     )
       return;
     const timer = window.setTimeout(() => void save(), 1200);
     return () => window.clearTimeout(timer);
-  }, [changes, saving, error, save, importOpen, appendOpen, typing]);
+  }, [changes, saving, error, save, importOpen, typing]);
   const edit = (next: Change[]) => {
     if (locked || !snapshot) return;
     const keys = new Map(
@@ -449,11 +439,8 @@ export default function SourcingEditor({
       return;
     setChanges([]);
     draft.current = [];
-    setAppendText("");
-    setHeaderDraft(null);
     setImportDirty(false);
     auxDirty.current = false;
-    setAppendOpen(false);
     setImportOpen(false);
     saveOperation.current = null;
     history.current = [];
@@ -471,9 +458,7 @@ export default function SourcingEditor({
               row_ids: snapshot?.row_ids,
               columns: snapshot?.columns,
               changes,
-              appendRows: appendText,
               work_date: day,
-              headerDraft,
             },
             null,
             2,
@@ -488,9 +473,9 @@ export default function SourcingEditor({
     link.click();
     URL.revokeObjectURL(url);
   };
-  const appendJobs = async (pastedRows?: string[][]) => {
-    if (!snapshot || (!appendText && !pastedRows)) return;
-    const rows = (pastedRows || parseTSV(appendText)).filter(row => row.some(value => value.trim()));
+  const appendJobs = async (pastedRows: string[][]) => {
+    if (!snapshot) return;
+    const rows = pastedRows.filter(row => row.some(value => value.trim()));
     if (!rows.length) return;
     if (rows.reduce((n, r) => n + r.length, 0) > 10000) {
       setError("Append up to 10,000 cells at a time.");
@@ -507,10 +492,6 @@ export default function SourcingEditor({
         `/api/sourcing/tabs/${tab.id}/append`,
         payload,
       );
-      if (alive.current) {
-        setAppendText("");
-        setAppendOpen(false);
-      }
       return result;
     }, true);
   };
@@ -553,32 +534,6 @@ export default function SourcingEditor({
             snapshot.row_dates[r] === (day === "undated" ? null : day)),
       )
     : [];
-  const renameHeader = async (col: number, title: string) => {
-    const current = base.current;
-    if (
-      !current ||
-      draft.current.length ||
-      inFlight.current ||
-      title === current.columns[col].title
-    )
-      return;
-    setHeaderDraft({ col, title });
-    const payload = {
-      operation: operationId(),
-      revision: current.revision,
-      action: "rename_column",
-      column_id: current.columns[col].id,
-      title,
-    };
-    await execute(async () => {
-      const result = await api.post<Snapshot>(
-        `/api/sourcing/tabs/${tab.id}/structure`,
-        payload,
-      );
-      if (alive.current) setHeaderDraft(null);
-      return result;
-    }, true);
-  };
   const openAssign = () => {
     if (!snapshot || !selectedJobs.length) return;
     assignContext.current = {
@@ -608,25 +563,6 @@ export default function SourcingEditor({
       return result;
     }, true);
   };
-  const displaySnapshot =
-    snapshot && headerDraft
-      ? {
-          ...snapshot,
-          rows: snapshot.rows.map((row, r) =>
-            r === 0
-              ? row.map((cell, c) =>
-                  c === headerDraft.col
-                    ? {
-                        ...cell,
-                        value: headerDraft.title,
-                        display: headerDraft.title,
-                      }
-                    : cell,
-                )
-              : row,
-          ),
-        }
-      : snapshot;
   const keyboard = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (
       !(e.metaKey || e.ctrlKey) ||
@@ -701,25 +637,6 @@ export default function SourcingEditor({
             onClick={() => void deleteSelectedRows()} title="Delete selected job rows (Delete)">
             <Trash2 size={14} />Delete rows{selection.rows.length > 1 ? ` (${selection.rows.length})` : ""}
           </Button>
-          <select
-            aria-label="Row and column actions"
-            value=""
-            disabled={locked || dirty || !snapshot}
-            onChange={(e) => {
-              if (e.target.value === "append_jobs") setAppendOpen(true);
-              else openStructure(e.target.value as StructureAction);
-            }}
-          >
-            <option value="" disabled>
-              Insert / edit
-            </option>
-            <option value="insert_rows">Insert rows</option>
-            <option value="append_jobs">Append job rows</option>
-            <option value="delete_rows">Delete selected rows</option>
-            <option value="add_column">Add column</option>
-            <option value="rename_column">Rename selected column</option>
-            <option value="delete_column">Delete selected column</option>
-          </select>
           <Button
             size="icon"
             variant="ghost"
@@ -899,8 +816,7 @@ export default function SourcingEditor({
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (
         <SheetGrid
-          snapshot={displaySnapshot!}
-          headerRow={1}
+          snapshot={snapshot}
           changes={changes}
           onChange={edit}
           disabled={locked}
@@ -910,8 +826,6 @@ export default function SourcingEditor({
           onDeleteRows={rows => void deleteSelectedRows(rows)}
           onResize={resize}
           onEditingChange={setTyping}
-          onHeaderChange={(col, title) => void renameHeader(col, title)}
-          headersEditable={!changes.length}
           onPaste={() => {compactAfterPaste.current = true}}
           onAppendRows={rows => void appendJobs(rows)}
         />
@@ -1006,39 +920,7 @@ export default function SourcingEditor({
               />
             )}
           </Dialog>
-          <Dialog
-            open={appendOpen}
-            onOpenChange={(open) => {
-              if (saving) return;
-              if (
-                !open &&
-                appendText &&
-                !window.confirm("Discard the job rows you have not appended?")
-              )
-                return;
-              setAppendOpen(open);
-              if (!open) setAppendText("");
-            }}
-          >
-            <DialogContent>
-              <DialogTitle>Append jobs</DialogTitle>
-              <DialogDescription>
-                Paste job rows in the sheet’s column order.
-              </DialogDescription>
-              <textarea
-                className="append-jobs-input"
-                aria-label="Job rows to append"
-                value={appendText}
-                onChange={(e) => setAppendText(e.target.value)}
-              />
-              <Button
-                disabled={saving || !appendText}
-                onClick={() => void appendJobs()}
-              >
-                Append jobs
-              </Button>
-            </DialogContent>
-          </Dialog>
+
         </>
       )}
     </div>

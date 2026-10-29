@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.3.10",
+    "date": "2026-10-28",
+    "title": "Sign-in availability and pending request safeguards",
+    "changes": [
+      "Prevent sign-in until a valid enabled account is selected and its directory is available.",
+      "Lock account and password controls during sign-in to avoid conflicting submissions."
+    ]
+  },
+  {
+    "version": "2.3.9",
+    "date": "2026-10-28",
+    "title": "Compact workspace and admin account selection",
+    "changes": [
+      "Reduced heading sizes, toolbar spacing, and summary card height across the workspace.",
+      "Choose an enabled admin username from a sign-in selector, with password authentication preserved.",
+      "Simplified sign-in and moved workbook creation into a collapsible section."
+    ]
+  },
+  {
+    "version": "2.3.8",
+    "date": "2026-10-28",
+    "title": "Fixed job sourcing column headers",
+    "changes": [
+      "Replaced spreadsheet letters and the duplicate header row with fixed Company, Role, Job link and Check headings, and removed the Insert/edit menu while preserving job editing, paste and CSV workflows."
+    ]
+  },
+  {
+    "version": "2.3.7",
+    "date": "2026-10-28",
+    "title": "Modern Dashboard activity chart",
+    "changes": [
+      "Redesigned the main Dashboard chart with rounded gradient stacks, accurate total badges, a subtle trend overlay, polished tooltips and legend, and responsive range controls."
+    ]
+  },
+  {
+    "version": "2.3.6",
+    "date": "2026-10-28",
+    "title": "Reliable workspace and page recovery",
+    "changes": [
+      "Fixed owner Settings recovery when bootstrap fails and added a way to clear invalid Dashboard filters.",
+      "Fixed overlapping admin suspension and re-enabling that could leave an enabled workspace stopped."
+    ]
+  },
+  {
+    "version": "2.3.5",
+    "date": "2026-10-28",
+    "title": "Clear gateway error recovery",
+    "changes": [
+      "Replaced raw proxy HTML and malformed responses with concise connection errors, preserved API validation messages and CSV downloads, and verified Dashboard recovery without automatically retrying writes."
+    ]
+  },
+  {
     "version": "2.3.4",
     "date": "2026-10-28",
     "title": "Professional workspace design",

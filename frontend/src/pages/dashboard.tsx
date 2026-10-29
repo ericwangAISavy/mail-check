@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { CartesianGrid, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import ApplicationActivityChart from "@/components/application-activity-chart"
 import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Bootstrap, Message } from "@/lib/types"
@@ -15,10 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 const colors = Array.from({length:10},(_,index)=>`var(--category-color-${index})`)
 const isoToday = () => new Intl.DateTimeFormat("en-CA").format(new Date())
-const localCalendarDate = (value: string) => {
-  const [year, month, day] = value.slice(0, 10).split("-").map(Number)
-  return new Date(year, month - 1, day)
-}
+
 
 export default function DashboardPage({ bootstrap, readOnly = false }: { bootstrap: Bootstrap; readOnly?: boolean }) {
   const [search, setSearch] = useSearchParams()
@@ -117,7 +114,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     })
   }
   if (isPending && !data) return <div className="page-wrap"><Loading label="Gathering your local mail history…" /></div>
-  if (error && !data) return <div className="page-wrap"><EmptyState title="Dashboard is unavailable" description={error instanceof Error ? error.message : "Try loading this dashboard again."} action={<Button onClick={() => void refetch()}>Try again</Button>} /></div>
+  if (error && !data) return <div className="page-wrap"><EmptyState title="Dashboard is unavailable" description={error instanceof Error ? error.message : "Try loading this dashboard again."} action={<div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void refetch()}>Try again</Button>{search.toString()&&<Button variant="outline" onClick={clear}>Clear filters</Button>}</div>} /></div>
   return <div className="page-wrap analytics-page">
     <PageHeading title="Dashboard" description="A little perspective on the applications in motion." action={!readOnly && <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refresh()}>{isFetching ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}Refresh</Button>} />
     {error && data && <p role="alert" className="inline-error">Could not update this view: {error.message}. Showing the last loaded results.</p>}
@@ -138,9 +135,9 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       { label: "Unclassified", value: summary?.unclassified, Icon: HelpCircle },
     ].map(({ label, value, Icon }, index) => <div key={label} className={`stat-card stat-${index + 1}`} title={label}><span className="sr-only">{label}</span><span className="stat-icon-wrap" aria-hidden="true"><Icon className="stat-icon" size={26} /></span><strong className="stat-value tabular">{value == null ? "—" : value.toLocaleString()}</strong></div>)}</div>
     {focusDate || focusCategory ? <div className="focus-banner"><span>Focused on {focusDate || "all dates"}{focusCategory ? ` · ${categories.find((category) => category.name === focusCategory)?.label || focusCategory}` : ""}</span><Button variant="ghost" size="sm" onClick={() => update({ focus_date: null, focus_category: null })}>Clear focus</Button></div> : null}
-    <div className="analytics-main-grid"><Card className="chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{params.get("interval") === "week" ? "Select a segment to focus its first visible day." : "Select a bar to focus on that date. Colors follow the filters below."}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
+    <div className="analytics-main-grid"><Card className="chart-card activity-chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{params.get("interval") === "week" ? "Select a segment to focus its first visible day." : "Select a bar to focus on that date. Colors follow the filters below."}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
       <div className="timeline-ranges" role="group" aria-label="Timeline range">{[["7", "1 week"], ["14", "2 weeks"], ["30", "1 month"], ["90", "3 months"]].map(([days, label]) => <Button key={days} type="button" size="sm" variant={!params.has("start") && params.get("days") === days ? "secondary" : "ghost"} aria-pressed={!params.has("start") && params.get("days") === days} onClick={() => update({ days, start: null, end: null })}>{label}</Button>)}</div>
-      <div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={intervalRows} margin={{ top: 12, right: 8, left: -18, bottom: 0 }} ><CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" /><XAxis dataKey="date" tickFormatter={(value: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(localCalendarDate(value))} tick={{ fill: "var(--muted-foreground)", fontSize: "var(--text-small)" }} tickLine={false} axisLine={false} minTickGap={32} /><YAxis tick={{ fill: "var(--muted-foreground)", fontSize: "var(--text-small)" }} allowDecimals={false} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: "var(--muted)", opacity: .48 }} labelFormatter={(value) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(localCalendarDate(String(value)))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--foreground)" }} />{categories.map((category, index) => <Bar key={category.name} dataKey={`counts.${category.name}`} name={category.label} stackId="mail" fill={colors[index % colors.length]} radius={0} isAnimationActive={false} style={{ cursor: "pointer" }} onClick={(item: any) => { if (item?.date) focusChart(item.date, category.name) }} />)}</BarChart></ResponsiveContainer></div>
+      <ApplicationActivityChart rows={intervalRows} categories={categories} colors={colors} onFocus={focusChart}/>
       <div className="chart-legend">{categories.filter((category) => category.count).map((category) => <button key={category.name} onClick={() => toggleCategory(category.name)}><span style={{ backgroundColor: colors[categories.findIndex((item) => item.name === category.name) % colors.length] }} />{category.label}<b>{category.count}</b></button>)}</div>
       <details className="accessible-chart-data"><summary>View chart data as a table</summary><div className="table-scroll"><table><thead><tr><th>Date</th>{categories.map((c) => <th key={c.name}>{c.label}</th>)}<th>Total</th></tr></thead><tbody>{intervalRows.map((row: any) => <tr key={row.date}><th>{row.date}{row.partial ? " *" : ""}</th>{categories.map((c) => <td key={c.name}>{row.counts?.[c.name] || 0}</td>)}<td>{row.total}</td></tr>)}</tbody></table></div></details>
     </Card>

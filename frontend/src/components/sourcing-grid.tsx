@@ -8,6 +8,7 @@ import {
 import "react-data-grid/lib/styles.css";
 import {
   columnName,
+  sourcingColumnTitle,
   defaultView,
   mergeChanges,
   normalStyle,
@@ -30,14 +31,11 @@ export function SheetGrid({
   onSelection,
   onResize,
   onEditingChange,
-  onHeaderChange,
-  headersEditable = true,
   onPaste,
   onAppendRows,
   onDeleteRows,
 }: {
   snapshot: Snapshot;
-  headerRow?: number;
   changes: Change[];
   onChange: (changes: Change[]) => void;
   disabled?: boolean;
@@ -46,21 +44,19 @@ export function SheetGrid({
   onSelection?: (selection: Selection) => void;
   onResize?: (col: number, width: number) => void;
   onEditingChange?: (active: boolean) => void;
-  onHeaderChange?: (col: number, title: string) => void;
-  headersEditable?: boolean;
   onPaste?: () => void;
   onAppendRows?: (rows: string[][]) => void;
   onDeleteRows?: (rows: number[]) => void;
 }) {
   const grid = useRef<DataGridHandle>(null),
-    anchor = useRef({ row: 1, col: 0 }),
+    anchor = useRef({ row: 0, col: 0 }),
     selected = useRef(anchor.current),
     extending = useRef(false),
     stopDrag = useRef<() => void>(() => {});
   const [position, setPosition] = useState(anchor.current);
   const count = snapshot.columns.length;
   const visible = useMemo(
-    () => visibleRows(snapshot, changes, view),
+    () => visibleRows(snapshot, changes, view).filter(row=>row>0),
     [snapshot, changes, view],
   );
   const indices = useMemo(
@@ -108,13 +104,15 @@ export function SheetGrid({
   useEffect(() => {
     const index =
       highlightRow === undefined ? -1 : visible.indexOf(highlightRow);
-    const rowIdx = index >= 0 ? index : Math.min(1, visible.length - 1);
+    const rowIdx = index >= 0 ? index : 0;
     anchor.current = { row: rowIdx, col: 0 };
     selected.current = anchor.current;
     setPosition(anchor.current);
     notify(anchor.current, anchor.current);
-    grid.current?.scrollToCell({ rowIdx, idx: 1 });
-    grid.current?.setActivePosition({ rowIdx, idx: 1 });
+    if(visible.length){
+      grid.current?.scrollToCell({ rowIdx, idx: 1 });
+      grid.current?.setActivePosition({ rowIdx, idx: 1 });
+    }
   }, [highlightRow, view.day, rowOrder]);
   useEffect(() => () => stopDrag.current(), []);
   const apply = (values: Change[]) => {
@@ -153,17 +151,17 @@ export function SheetGrid({
       frozen: true,
       renderCell: ({ row }) => (
         <span className="sheet-row-number">
-          {row.id === 0 ? "" : (indices.get(row.id) ?? row.id)}
+          {(indices.get(row.id) ?? 0)+1}
         </span>
       ),
     },
     ...snapshot.columns.map((definition, c): Column<Row> => ({
       key: String(c),
-      name: columnName(c),
+      name: sourcingColumnTitle(definition,c),
       width: definition.width || 220,
       resizable: !disabled,
       editable: (row) =>
-        !disabled && definition.kind !== "check" && (row.id > 0 || (!!onHeaderChange && headersEditable)),
+        !disabled && definition.kind !== "check" && row.id > 0,
       renderEditCell: (props) => (
         <NativeCellEditor {...props} onEditingChange={onEditingChange} />
       ),
@@ -184,7 +182,7 @@ export function SheetGrid({
           style = normalStyle({ ...cell?.style, ...change?.style }),
           text = String(row[String(c)]);
         if (definition.kind === "check" && row.id > 0) return <input
-          type="checkbox" aria-label={`Check row ${indices.get(row.id) ?? row.id}`}
+          type="checkbox" aria-label={`Check row ${(indices.get(row.id) ?? 0)+1}`}
           title={cell?.checked_at ? `Confirmation received ${new Intl.DateTimeFormat("en-US", {timeZone:"America/Chicago",dateStyle:"medium",timeStyle:"short"}).format(new Date(cell.checked_at))} · Chicago` : text === "true" ? "Checked; no matching confirmation timestamp recorded" : "Not checked"}
           className="sourcing-check" checked={text === "true"} disabled={disabled || text === "true" || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
           onClick={event => event.stopPropagation()}
@@ -222,7 +220,7 @@ export function SheetGrid({
       <div className="sheet-formula-bar">
         <span>
           {columnName(position.col)}
-          {position.row || ""}
+          {position.row+1}
         </span>
         <i>fx</i>
         <span>{String(rows[position.row]?.[String(position.col)] ?? "")}</span>
@@ -282,21 +280,7 @@ export function SheetGrid({
           document.addEventListener("mouseup", stop);
         }}
         onRowsChange={(next, { indexes, column }) => {
-          if (indexes.length === 1 && next[indexes[0]].id === 0) {
-            const title = String(next[indexes[0]][column.key]).trim();
-            if (!title) {
-              window.alert("Enter a column title of 1–100 characters.");
-              return;
-            }
-            onHeaderChange?.(Number(column.key), title);
-          } else
-            apply(
-              indexes.map((index) => ({
-                row: next[index].id,
-                col: Number(column.key),
-                value: String(next[index][column.key]),
-              })),
-            );
+          apply(indexes.map(index=>({row:next[index].id,col:Number(column.key),value:String(next[index][column.key])})));
         }}
         onColumnResize={(column, width) => {
           if (column.key !== "id")
@@ -334,12 +318,6 @@ export function SheetGrid({
         onCellPaste={({ row, column }, event) => {
           event.preventDefault();
           if (disabled) return row;
-          if (row.id === 0) {
-            window.alert(
-              "Double-click a column title to rename it. Paste job rows below the titles.",
-            );
-            return row;
-          }
           const matrix = parseTSV(event.clipboardData.getData("text/plain")).filter(values => values.some(value => value.trim())),
             start = indices.get(row.id) ?? 0;
           if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {

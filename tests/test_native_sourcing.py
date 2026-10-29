@@ -512,3 +512,12 @@ class NativeSheetTests(unittest.TestCase):
             self.assertEqual(client.get('/api/sourcing/filters',headers=headers).status_code,403)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM native_books').fetchone()[0],2)
         self.assertEqual(self.conn.total_changes,before)
+
+    def test_standard_column_names_are_fixed_without_changing_saved_job_data(self):
+        from mailcheck.sourcing_structure import structure
+        before=self.snapshot()
+        for column in before['columns']:
+            if column['kind'] not in ('company','role','link','check'):continue
+            with self.assertRaises(ValueError):
+                structure(self.conn,self.tab(),'rename-'+column['id'],before['revision'],{'action':'rename_column','column_id':column['id'],'title':'Changed'})
+        self.assertEqual(self.snapshot(),before)

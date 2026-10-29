@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { request, triageParams, setWorkspaceIdentity } from "./api"
+import { request, triageParams, setWorkspaceIdentity, ApiError } from "./api"
 
 describe("triageParams", () => {
   it("defaults invalid views and ranges while preserving supported filters", () => {
@@ -72,4 +72,43 @@ it("does not rebind live page requests before AuthGate completes a session hando
   expect(session.workspace_id).toBe("bob")
   expect(getWorkspaceIdentity()).toBe("alice")
   setWorkspaceIdentity()
+})
+
+it.each([502,503,504,520,522,524])("replaces upstream HTML errors (%s) with a concise connection message",async status=>{
+ vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response('<!DOCTYPE html><html><head><title>Cloudflare Bad gateway</title></head><body>private proxy diagnostics</body></html>',{status,headers:{"Content-Type":"text/html"}})))
+ const error=await request("/api/dashboard").catch(error=>error) as ApiError
+ expect(error.status).toBe(status)
+ expect(error.message).toContain(String(status))
+ expect(error.message).not.toMatch(/DOCTYPE|<html|diagnostics/)
+ expect(error.message.length).toBeLessThan(180)
+})
+it("handles a gateway error whose JSON content type does not match its HTML body",async()=>{
+ vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response('<html>Bad gateway</html>',{status:502,headers:{"Content-Type":"application/json"}})))
+ await expect(request("/api/dashboard")).rejects.toThrow("OfferPath is temporarily unavailable (502)")
+})
+it("rejects an HTML login or proxy page returned with a successful status",async()=>{
+ vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response('<html><body>Proxy login</body></html>',{headers:{"Content-Type":"text/html"}})))
+ await expect(request("/api/dashboard")).rejects.toThrow("unexpected response")
+})
+it("provides a readable connection error when fetch fails",async()=>{
+ vi.stubGlobal("fetch",vi.fn().mockRejectedValue(new TypeError("Failed to fetch")))
+ await expect(request("/api/dashboard")).rejects.toThrow("Could not connect to OfferPath")
+})
+it("does not retry a failed mutation automatically",async()=>{
+ const fetchMock=vi.fn().mockResolvedValue(new Response('<html>Bad gateway</html>',{status:502,headers:{"Content-Type":"text/html"}}));vi.stubGlobal("fetch",fetchMock)
+ await expect(request("/api/messages/1/send",{method:"POST",body:"{}"})).rejects.toThrow("temporarily unavailable")
+ expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+it("retains the cancellation signal instead of reporting a server outage",async()=>{
+ const controller=new AbortController();controller.abort()
+ const error=new DOMException("Cancelled","AbortError")
+ vi.stubGlobal("fetch",vi.fn().mockRejectedValue(error))
+ await expect(request("/api/dashboard",{signal:controller.signal})).rejects.toBe(error)
+})
+it("rejects HTML returned to a CSV download without creating a file",async()=>{
+ const create=vi.spyOn(URL,"createObjectURL")
+ vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response('<html>Bad gateway</html>',{headers:{"Content-Type":"text/html"}})))
+ const {downloadFile}=await import("./api")
+ await expect(downloadFile("/api/sourcing/tabs/1/export","jobs.csv")).rejects.toThrow("unexpected response")
+ expect(create).not.toHaveBeenCalled();create.mockRestore()
 })

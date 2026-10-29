@@ -2,6 +2,46 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.10 — 2026-10-28
+
+Sign-in availability and pending request safeguards
+
+- Prevent sign-in until a valid enabled account is selected and its directory is available.
+- Lock account and password controls during sign-in to avoid conflicting submissions.
+
+## 2.3.9 — 2026-10-28
+
+Compact workspace and admin account selection
+
+- Reduced heading sizes, toolbar spacing, and summary card height across the workspace.
+- Choose an enabled admin username from a sign-in selector, with password authentication preserved.
+- Simplified sign-in and moved workbook creation into a collapsible section.
+
+## 2.3.8 — 2026-10-28
+
+Fixed job sourcing column headers
+
+- Replaced spreadsheet letters and the duplicate header row with fixed Company, Role, Job link and Check headings, and removed the Insert/edit menu while preserving job editing, paste and CSV workflows.
+
+## 2.3.7 — 2026-10-28
+
+Modern Dashboard activity chart
+
+- Redesigned the main Dashboard chart with rounded gradient stacks, accurate total badges, a subtle trend overlay, polished tooltips and legend, and responsive range controls.
+
+## 2.3.6 — 2026-10-28
+
+Reliable workspace and page recovery
+
+- Fixed owner Settings recovery when bootstrap fails and added a way to clear invalid Dashboard filters.
+- Fixed overlapping admin suspension and re-enabling that could leave an enabled workspace stopped.
+
+## 2.3.5 — 2026-10-28
+
+Clear gateway error recovery
+
+- Replaced raw proxy HTML and malformed responses with concise connection errors, preserved API validation messages and CSV downloads, and verified Dashboard recovery without automatically retrying writes.
+
 ## 2.3.4 — 2026-10-28
 
 Professional workspace design

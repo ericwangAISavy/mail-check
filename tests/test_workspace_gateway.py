@@ -317,3 +317,47 @@ def test_slow_workspace_lookup_does_not_run_on_gateway_event_loop(system):
                 assert response.status_code == 200
         assert lookup_threads and all(thread != loop_thread for thread in lookup_threads)
     asyncio.run(scenario())
+
+
+def test_suspend_and_reenable_keep_registry_and_runtime_consistent(system):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    app,store,pool=system
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    stop_entered=threading.Event();release_stop=threading.Event();enabled=threading.Event()
+    stopped=set()
+    def stop(workspace):
+        stop_entered.set()
+        if not release_stop.wait(5):raise RuntimeError('Test stop barrier timed out')
+        stopped.add(workspace)
+    def enable(workspace):
+        stopped.discard(workspace);enabled.set()
+    with TestClient(app) as owner,patch.object(pool,'stop',side_effect=stop),patch.object(pool,'enable',side_effect=enable),ThreadPoolExecutor(max_workers=2) as executor:
+        login(owner)
+        path='/api/admin/users/'+str(user['id'])
+        disable=executor.submit(owner.post,path,json={'enabled':False})
+        assert stop_entered.wait(5)
+        reenable=executor.submit(owner.post,path,json={'enabled':True})
+        try:
+            enabled.wait(.5) # Before the fix, re-enable overtakes the paused stop.
+        finally:release_stop.set()
+        assert disable.result(timeout=5).status_code==200
+        assert reenable.result(timeout=5).status_code==200
+        assert store.workspace(wid)['enabled']==1
+        assert wid not in stopped
+
+
+def test_public_admin_selector_only_exposes_enabled_usernames(system):
+    app,store,pool=system
+    with TestClient(app) as client:
+        assert client.get('/api/auth/admins').json()=={'admins':[{'username':'owner'}]}
+        login(client)
+        created=client.post('/api/admin/users',json={'username':'alice','workspace_name':'Private team','password':'temporary-pass-123'})
+        assert created.status_code==200
+        directory=client.get('/api/auth/admins').json()
+        assert directory=={'admins':[{'username':'owner'},{'username':'alice'}]}
+        user_id=next(u['id'] for u in store.list_admins() if u['username']=='alice')
+        assert client.post(f'/api/admin/users/{user_id}',json={'enabled':False}).status_code==200
+        client.post('/api/auth/logout')
+        assert client.get('/api/auth/admins').json()=={'admins':[{'username':'owner'}]}

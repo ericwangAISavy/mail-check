@@ -9,26 +9,62 @@ export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
 }
 
+function errorText(value:unknown):string {
+  if(typeof value!=="string")return ""
+  const text=value.trim()
+  // Proxy documents and diagnostics never belong in user-facing error panels.
+  return text.length<=400&&!/<[!/?a-z][^>]*>/i.test(text)?text:""
+}
+
 export async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   const requestWorkspace = workspaceId
-  const response = await fetch(url, {
-    ...init,
-    headers: { ...(requestWorkspace ? {"X-OfferPath-Workspace":requestWorkspace} : {}), ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
-  })
-  const contentType = response.headers.get("content-type") || ""
-  const value = contentType.includes("json") ? await response.json() : await response.text()
+  const mutating=!["GET","HEAD","OPTIONS"].includes((init.method||"GET").toUpperCase())
+  const advice=mutating?"Check whether the action completed before trying again.":"Please try again shortly."
+  const unavailable=(status:number)=>`${status===504||status===524?"OfferPath took too long to respond":"OfferPath is temporarily unavailable"} (${status}). ${advice}`
+  let response:Response
+  try {
+    response=await fetch(url, {
+      ...init,
+      headers: { ...(requestWorkspace ? {"X-OfferPath-Workspace":requestWorkspace} : {}), ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
+    })
+  } catch(reason) {
+    if(init.signal?.aborted || reason instanceof Error && reason.name==="AbortError")throw reason
+    throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
+  }
+  if (!url.startsWith("/api/auth/") && requestWorkspace !== workspaceId) throw new ApiError("Workspace changed. Reload before continuing.",409)
+  const contentType = (response.headers.get("content-type") || "").toLowerCase()
+  let html=contentType.includes("html")
+  let value:any
+  let malformed=false
+  try {
+    if(contentType.includes("json")) {
+      try{value=await response.json()}catch(reason){
+        if(init.signal?.aborted || reason instanceof Error && reason.name==="AbortError")throw reason
+        malformed=true
+      }
+    } else {
+      value=await response.text()
+      html ||= /^\s*(?:<!doctype\b|<html\b|<head\b|<body\b)/i.test(value)
+    }
+  } catch(reason) {
+    if(init.signal?.aborted || reason instanceof Error && reason.name==="AbortError")throw reason
+    throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
+  }
   if (!url.startsWith("/api/auth/") && requestWorkspace !== workspaceId) throw new ApiError("Workspace changed. Reload before continuing.",409)
   if (response.status === 409 && value?.workspace_changed) window.dispatchEvent(new Event("offerpath:workspace-changed"))
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mailcheck:unauthorized"))
     const detail = value?.detail
-    const validation = Array.isArray(detail) ? detail.map((item: { loc?: (string | number)[]; msg?: string }) => {
-      const field = (item.loc || []).filter(part => part !== "body" && part !== "query").join(".")
-      return item.msg ? `${field ? field + ": " : ""}${item.msg}` : ""
-    }).filter(Boolean).join("; ") : typeof detail === "string" ? detail : ""
-    const message = typeof value === "string" ? value : value?.error || validation || "Something went wrong."
-    throw new ApiError(message, response.status)
+    const validation = Array.isArray(detail) ? detail.map((item) => {
+      if(!item||typeof item!=="object")return ""
+      const field = (Array.isArray(item.loc)?item.loc:[]).filter((part:unknown)=>part!=="body"&&part!=="query").join(".")
+      const message=errorText(item.msg)
+      return message ? `${field ? field + ": " : ""}${message}` : ""
+    }).filter(Boolean).join("; ") : errorText(detail)
+    const message = html||malformed?"":typeof value === "string"?errorText(value):errorText(value?.error)||errorText(validation)
+    throw new ApiError(message||(response.status>=500?unavailable(response.status):`The request could not be completed (${response.status}). ${advice}`),response.status)
   }
+  if(html||malformed)throw new ApiError(`OfferPath returned an unexpected response. ${advice}`,502)
   return value as T
 }
 

@@ -45,9 +45,7 @@ export default function SourcingSettings({
       {message && <p role="status">{message}</p>}
       <section>
         <h3>Workbooks</h3>
-        <p>
-          Each bidder has one workbook. Sheets are saved directly in OfferPath.
-        </p>
+        <details className="workbook-create"><summary>Add workbook</summary>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -88,6 +86,7 @@ export default function SourcingSettings({
           </label>
           <Button disabled={busy}>Create workbook</Button>
         </form>
+        </details>
         {index.books.map((book) => (
           <details className="book-mapping" key={book.id}>
             <summary>
