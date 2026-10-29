@@ -43,7 +43,7 @@
 }
 
 @media screen {
-  .triage-heading-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 24px; margin-bottom: 14px; }
+  .triage-heading-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: end; gap: 24px; margin-bottom: 14px; }
   .triage-heading-row .page-heading { margin: 0; min-width: 0; }
   .triage-heading-row .triage-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 0; margin: 0; padding: 0; border: 0; }
   .triage-heading-row .triage-tools { flex: none; }
@@ -106,5 +106,39 @@
     .payment-summary-bar { padding: 12px; }
     .payment-summary-bar .payment-overview svg { display: none; }
     .payments-page .payment-summary-bar .payment-controls { justify-content: flex-start; }
+  }
+}
+@media screen {
+  /* The command bar owns the surface; its two control groups share the fill. */
+  .sourcing-command-bar { background: var(--card); align-items: stretch; }
+  .sourcing-command-bar .sheet-days,
+  .sourcing-command-bar .native-sheet-toolbar { background: transparent; box-shadow: none; }
+}
+@media screen {
+  .app-frame { height: 100dvh; min-height: 0; overflow: hidden; }
+  .app-frame > .app-content { height: 100%; min-height: 0; overflow: hidden; }
+  .app-content > :is(.topbar,.workspace-banner,.setup-ribbon,.app-footer) { flex-shrink: 0; }
+  .app-content > .page-content { min-height: 0; }
+  .app-content:not(.sourcing-workspace) > .page-content:not(:has(> .interviews-page)) { overflow: auto; overscroll-behavior-y: contain; }
+  .page-content .settings-nav { top: 0; }
+}
+
+@media screen {
+  .sign-in-page { background-image: radial-gradient(ellipse at 50% 20%,color-mix(in srgb,var(--primary) 10%,transparent),transparent 55%); }
+  .sign-in-shell { width: min(100%,400px); display: flex; flex-direction: column; align-items: center; gap: 28px; padding-block: 24px; }
+  .sign-in-brand { display: flex; align-items: center; justify-content: center; gap: 16px; position: relative; isolation: isolate; }
+  .sign-in-brand::before { content: ""; position: absolute; inset: -28px -40px; z-index: -1; background: radial-gradient(ellipse,color-mix(in srgb,var(--primary) 13%,transparent),transparent 70%); pointer-events: none; }
+  .sign-in-brand-icon { display: grid; place-items: center; width: 76px; height: 76px; border-radius: 23px; border: 1px solid color-mix(in srgb,var(--primary) 32%,var(--border)); background: linear-gradient(145deg,var(--surface-raised),var(--card)); box-shadow: inset 0 1px 0 color-mix(in srgb,var(--primary) 18%,transparent),0 10px 30px color-mix(in srgb,var(--primary) 10%,transparent); }
+  .sign-in-wordmark { font-size: 39px; font-weight: 650; letter-spacing: -.055em; line-height: 1.1; color: var(--foreground); }
+  .sign-in-wordmark > span { color: var(--primary); font-weight: 450; }
+  .sign-in-shell .sign-in-card { max-width: none; padding: 28px; border-radius: 18px; border-top-color: color-mix(in srgb,var(--primary) 25%,var(--border)); }
+  .sign-in-shell .sign-in-card h1 { margin-top: 0; font-size: 23px; }
+  @media (max-width: 480px) {
+    .sign-in-shell { gap: 24px; padding-block: 8px; }
+    .sign-in-brand { gap: 12px; }
+    .sign-in-brand-icon { width: 64px; height: 64px; border-radius: 19px; }
+    .sign-in-brand-icon img { width: 54px; height: 54px; }
+    .sign-in-wordmark { font-size: 34px; }
+    .sign-in-shell .sign-in-card { padding: 24px; }
   }
 }

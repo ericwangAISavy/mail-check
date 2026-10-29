@@ -71,7 +71,7 @@ export function AuthGate({children}:{children:ReactNode}) {
   }
   if(session.isPending || activeIdentity!==identity)return <Loading label="Checking sign-in…"/>
   if((data?.role==="admin" || data?.role==="bidder" && data.managed && data.workspace_id) && !data.must_change_password)return <AuthContext.Provider value={{role:data.role,session:data,signOut}}>{children}</AuthContext.Provider>
-  return <main className="sign-in-page"><Card className="sign-in-card"><span className="brand-mark"><OfferPathMark size={30}/></span><p className="eyebrow">OFFERPATH</p><h1>{data?.must_change_password?"Choose your password":"Sign in"}</h1>{data?.must_change_password&&<p className="page-description">Replace your temporary password before opening your workspace.</p>}
+  return <main className="sign-in-page"><div className="sign-in-shell"><div className="sign-in-brand" aria-label="OfferPath"><span className="sign-in-brand-icon"><OfferPathMark size={64}/></span><span className="sign-in-wordmark">Offer<span>Path</span></span></div><Card className="sign-in-card"><h1>{data?.must_change_password?"Choose your password":"Sign in"}</h1>{data?.must_change_password&&<p className="page-description">Replace your temporary password before opening your workspace.</p>}
     {session.error && <div role="alert" className="inline-error">Could not reach sign-in. <button onClick={()=>void session.refetch()}>Try again</button></div>}
     <form onSubmit={event=>void submit(event)}>
       {!data?.must_change_password && <label className="setting-field"><span>Sign in as</span><select disabled={busy} value={loginRole} onChange={e=>{setLoginRole(e.target.value as Role);setPassword("");setBidderId("");setError("")}}><option value="admin">Admin</option><option value="bidder">Bidder</option></select></label>}
@@ -82,5 +82,5 @@ export function AuthGate({children}:{children:ReactNode}) {
       {error && <p role="alert" className="inline-error">{error}</p>}
       <Button type="submit" disabled={busy||(!data?.must_change_password&&!accountReady)}><LogIn size={16}/>{busy?"Please wait…":data?.must_change_password?"Save password":"Sign in"}</Button>
     </form>{data?.must_change_password && <Button variant="ghost" onClick={()=>void signOut()}>Sign out</Button>}
-  </Card></main>
+  </Card></div></main>
 }

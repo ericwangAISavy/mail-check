@@ -2,6 +2,36 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.19 — 2026-10-28
+
+Distinctive OfferPath sign-in branding
+
+- Place a larger decorated OfferPath mark and wordmark above the sign-in panel, with responsive sizing and theme-aware lighting.
+
+## 2.3.18 — 2026-10-28
+
+Content-only workspace scrolling
+
+- Keep the workspace header and banner outside the main page scrollbar while preserving dedicated calendar and sourcing scroll areas.
+
+## 2.3.17 — 2026-10-28
+
+Simplified bidder week controls
+
+- Remove visible Week of and Bidder labels while preserving accessible control names.
+
+## 2.3.16 — 2026-10-28
+
+Consistent sourcing toolbar surface
+
+- Use one continuous theme-aware background across date navigation and editing controls.
+
+## 2.3.15 — 2026-10-28
+
+Bottom-aligned triage controls
+
+- Align mail-view tabs and header controls to the bottom of the triage heading block.
+
 ## 2.3.14 — 2026-10-28
 
 Unified bidder totals and week filters

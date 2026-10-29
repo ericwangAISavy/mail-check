@@ -1,5 +1,45 @@
 [
   {
+    "version": "2.3.19",
+    "date": "2026-10-28",
+    "title": "Distinctive OfferPath sign-in branding",
+    "changes": [
+      "Place a larger decorated OfferPath mark and wordmark above the sign-in panel, with responsive sizing and theme-aware lighting."
+    ]
+  },
+  {
+    "version": "2.3.18",
+    "date": "2026-10-28",
+    "title": "Content-only workspace scrolling",
+    "changes": [
+      "Keep the workspace header and banner outside the main page scrollbar while preserving dedicated calendar and sourcing scroll areas."
+    ]
+  },
+  {
+    "version": "2.3.17",
+    "date": "2026-10-28",
+    "title": "Simplified bidder week controls",
+    "changes": [
+      "Remove visible Week of and Bidder labels while preserving accessible control names."
+    ]
+  },
+  {
+    "version": "2.3.16",
+    "date": "2026-10-28",
+    "title": "Consistent sourcing toolbar surface",
+    "changes": [
+      "Use one continuous theme-aware background across date navigation and editing controls."
+    ]
+  },
+  {
+    "version": "2.3.15",
+    "date": "2026-10-28",
+    "title": "Bottom-aligned triage controls",
+    "changes": [
+      "Align mail-view tabs and header controls to the bottom of the triage heading block."
+    ]
+  },
+  {
     "version": "2.3.14",
     "date": "2026-10-28",
     "title": "Unified bidder totals and week filters",
