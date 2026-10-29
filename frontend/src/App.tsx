@@ -4,7 +4,7 @@ import { OfferPathMark } from "@/components/offerpath-mark"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, BarChart3, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, UsersRound } from "lucide-react"
+import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
 import { api, request } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -26,12 +26,12 @@ const sections = [
   { to: "/", label: "Triage", icon: Inbox },
   { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { to: "/interviews", label: "Interview", icon: CalendarDays },
-  { to: "/interview-processes", label: "Interview processes", icon: UsersRound },
-  { to: "/sourcing", label: "Job sourcing", icon: MailCheck },
+  { to: "/interview-processes", label: "Interview processes", icon: Workflow },
+  { to: "/sourcing", label: "Job sourcing", icon: BriefcaseBusiness },
   { to: "/payments", label: "Bidder management", icon: UsersRound },
-  { to: "/accounts", label: "Accounts", icon: UsersRound },
-  { to: "/settings", label: "Settings", icon: Settings2 },
-  { to: "/admin-management", label: "Admin management", icon: UsersRound },
+  { to: "/accounts", label: "Accounts", icon: Mails },
+  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/admin-management", label: "Admin management", icon: ShieldCheck },
 ]
 
 function ThemeControl() {

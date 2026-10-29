@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.3.1",
+    "date": "2026-10-28",
+    "title": "Clearer sidebar navigation icons",
+    "changes": [
+      "Replaced repeated and mismatched sidebar icons with workflow, briefcase, mailbox, settings gear, and admin shield symbols."
+    ]
+  },
+  {
     "version": "2.3.0",
     "date": "2026-10-28",
     "title": "Read-only bidder job sourcing",

@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.1 — 2026-10-28
+
+Clearer sidebar navigation icons
+
+- Replaced repeated and mismatched sidebar icons with workflow, briefcase, mailbox, settings gear, and admin shield symbols.
+
 ## 2.3.0 — 2026-10-28
 
 Read-only bidder job sourcing
