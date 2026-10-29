@@ -18,6 +18,9 @@ def palette(mode):
     if mode == 'light':
         values |= variables(cyber, r':root\[data-theme="light"\]')
         values |= variables(shared, r':root\[data-theme="light"\]')
+    professional=(ROOT/'professional.css').read_text() if (ROOT/'professional.css').exists() else ''
+    values |= variables(professional,r':root')
+    if mode == 'light':values |= variables(professional,r':root\[data-theme="light"\]')
     return values
 
 
@@ -63,3 +66,13 @@ def test_calendar_account_palette_remains_readable_in_each_theme(mode):
         colors = dict(re.findall(r'(--[\w-]+)\s*:\s*([^;]+);',rule))
         foreground = colors.get('--oc-event-text','#ffffff')
         assert contrast(foreground, colors['--oc-event']) >= 4.5
+
+
+@pytest.mark.parametrize('mode',['dark','light'])
+def test_professional_text_controls_and_primary_actions_have_contrast(mode):
+    colors=palette(mode)
+    for text in ('--foreground','--muted-foreground','--text-soft'):
+        for background in ('--background','--card','--surface'):
+            assert contrast(colors[text],colors[background])>=4.5,(mode,text,background)
+    assert contrast(colors['--primary-foreground'],colors['--primary'])>=4.5
+    assert contrast(colors['--input'],colors['--surface'])>=3

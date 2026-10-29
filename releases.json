@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.3.4",
+    "date": "2026-10-28",
+    "title": "Professional workspace design",
+    "changes": [
+      "Refined the entire interface with calm slate and white surfaces, clearer typography, neutral dividers, cohesive cards, controls, tables, dialogs, and responsive layouts.",
+      "Improved visual hierarchy across dashboards, sourcing, calendars, accounts, bidder management, Settings, and admin workspaces while preserving existing actions and access permissions."
+    ]
+  },
+  {
     "version": "2.3.3",
     "date": "2026-10-28",
     "title": "More space for sidebar navigation",
