@@ -285,15 +285,22 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         await asyncio.to_thread(bidder_access.configure,request.cookies.get(COOKIE),identity['workspace_id'],bidder_id,member['name'],password=body.password,enabled=body.enabled)
         return {'ok':True}
 
+    @app.post('/api/auth/presence')
+    def admin_presence(request:Request):
+        if request.state.identity['role']!='admin':raise HTTPException(403,'Admin access required.')
+        store.record_presence(request.cookies.get(COOKIE))
+        return {'ok':True}
+
     @app.api_route('/api/auth/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH'])
     def missing_auth(path:str):raise HTTPException(404,'Unknown authentication endpoint.')
 
     @app.get('/api/admin/users')
     def admins(request:Request):
         owner(request)
+        online=store.online_admin_ids()
         status=pool.status()
         starts=getattr(pool,"start_times",lambda:{})()
-        return {'admins':[{**u,'worker_started_at':starts.get(u['workspace_id']),'health':status.get(u['workspace_id'],'starting or unavailable') if u['enabled'] else 'suspended'} for u in store.list_admins()], 'max_workspaces':store.max_workspaces}
+        return {'admins':[{**u,'online':u['id'] in online,'worker_started_at':starts.get(u['workspace_id']),'health':status.get(u['workspace_id'],'starting or unavailable') if u['enabled'] else 'suspended'} for u in store.list_admins()], 'max_workspaces':store.max_workspaces}
 
     @app.post('/api/admin/users')
     async def create_admin(body:NewAdmin,request:Request):

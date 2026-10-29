@@ -31,6 +31,17 @@ export function AuthGate({children}:{children:ReactNode}) {
       setActiveIdentity(identity)
     }
   },[identity,activeIdentity,session.isPending,client])
+  useEffect(()=>{
+    if(activeIdentity!==identity||data?.role!=="admin"||!data.workspace_id||data.must_change_password)return
+    const heartbeat=async()=>{
+      if(document.visibilityState!=="visible")return
+      try{await api.post("/api/auth/presence",{})}catch{/* Presence must not interrupt the workspace. */}
+    }
+    void heartbeat()
+    const interval=window.setInterval(()=>void heartbeat(),30000)
+    document.addEventListener("visibilitychange",heartbeat)
+    return ()=>{window.clearInterval(interval);document.removeEventListener("visibilitychange",heartbeat)}
+  },[activeIdentity,identity,data?.role,data?.workspace_id,data?.must_change_password])
   const [loginRole,setLoginRole]=useState<Role>("admin"),[bidderId,setBidderId]=useState("")
   const bidders=useQuery({queryKey:["login-bidders"],queryFn:()=>request<{bidders:{id:number;name:string}[]}>("/api/auth/bidders"),enabled:loginRole==="bidder"&&!data?.role,retry:false,staleTime:0})
   const admins=useQuery({queryKey:["login-admins"],queryFn:()=>request<{admins:{username:string}[]}>("/api/auth/admins"),enabled:loginRole==="admin"&&!data?.role,retry:false,staleTime:0})

@@ -2,6 +2,35 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.24 — 2026-10-29
+
+Retention safety and faster activity reporting
+
+- Protect the whole date-based fetch window from pruning so early-day messages keep their saved Done state.
+- Reuse confirmation data and batch-load checkpoint samples to reduce database work without changing graph counts.
+- Keep the graph's default date within the selected payment week and reset the day selection when changing weeks.
+
+## 2.3.23 — 2026-10-29
+
+Midnight-to-midnight bidder activity
+
+- Use Chicago calendar days, from 12 AM to the next 12 AM, for confirmation graphs and check-run timelines to align dates with the daily breakdown.
+- Use today's date before 6 AM and honor 23-hour and 25-hour daylight-saving days.
+
+## 2.3.22 — 2026-10-29
+
+Aligned check controls and scheduled calendar collection
+
+- Match Check now and Auto-check button heights, spacing, typography, and corner styling.
+- Automatic checks now collect native calendar events and inbox mail together, reporting calendar failures without stopping mail collection.
+
+## 2.3.21 — 2026-10-29
+
+Owner-visible admin online status
+
+- Show Online or Offline for each admin based on recent visible browser activity, independently of workspace server health.
+- Keep Admin management and presence listings owner-only; expire presence after 90 seconds and clear it when access is revoked.
+
 ## 2.3.20 — 2026-10-29
 
 Collect read and unread inbox messages

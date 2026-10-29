@@ -663,7 +663,7 @@ def test_schedule():
         W._sched["next_due"] = clock.time() - 1  # pretend it just came due
         fired = {"n": 0}
         original = W._run_check
-        W._run_check = lambda body: (
+        W._run_check = lambda body, **kwargs: (
             fired.__setitem__("n", fired["n"] + 1), W._job_lock.release()
         )
         try:

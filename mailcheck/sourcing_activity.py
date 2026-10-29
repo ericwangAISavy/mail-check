@@ -185,17 +185,21 @@ def report(conn, week=None, *, bidder_id=None, day=None):
         if event['bidder_id'] in bidders and event['account_id'] in accounts:
             account_confirmation_points[key]['counts'][str(event['account_id'])] += 1
     meta = conn.execute("SELECT started_at FROM sourcing_activity_meta WHERE id=1").fetchone()
-    return {'workday':workday_report(conn,activity_day,bidders,accounts,bidder_id), 'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
+    selected_day = activity_day or now().astimezone(ZONE).date()
+    if activity_day is None and not start <= selected_day < end:
+        selected_day = start
+    day_events = events if start <= selected_day < end else None
+    return {'workday':workday_report(conn,selected_day,bidders,accounts,bidder_id,events=day_events), 'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
             'confirmation_timeline':list(confirmation_points.values()),'account_confirmation_timeline':list(account_confirmation_points.values()),
             'accounts':list(accounts.values()),'account_timeline':account_timeline[-240:],
             'bidders':list(bidders.values()),'check_count':len(timeline),'timeline':list(timeline.values())[-240:]}
 
 
-def workday_report(conn, day, bidders, accounts, bidder_id):
+def workday_report(conn, day, bidders, accounts, bidder_id, *, events=None):
     local = now().astimezone(ZONE)
-    day = day or (local - timedelta(hours=6)).date()
-    lower = datetime.combine(day,datetime.min.time(),ZONE).replace(hour=6).astimezone(timezone.utc)
-    upper = datetime.combine(day+timedelta(days=1),datetime.min.time(),ZONE).replace(hour=6).astimezone(timezone.utc)
+    day = day or local.date()
+    lower = datetime.combine(day,datetime.min.time(),ZONE).astimezone(timezone.utc)
+    upper = datetime.combine(day+timedelta(days=1),datetime.min.time(),ZONE).astimezone(timezone.utc)
     def point(stamp, ids, source):
         return {'at':stamp,'source':source,'counts':{str(who):0 for who in ids}}
     confirmations, account_confirmations = {}, {}
@@ -209,8 +213,10 @@ def workday_report(conn, day, bidders, accounts, bidder_id):
         AND a.account_id=e.account_id AND a.start_date<=e.work_date
         AND (a.end_date IS NULL OR a.end_date>=e.work_date))"""
     from .sourcing_verification import confirmation_events
-    for event in confirmation_events(conn,lower.isoformat(),upper.isoformat(),bidder_id):
+    timed_events = events if events is not None else confirmation_events(conn,lower.isoformat(),upper.isoformat(),bidder_id)
+    for event in timed_events:
         stamp = datetime.fromisoformat(event['confirmed_at']).astimezone(timezone.utc)
+        if not lower <= stamp < upper:continue
         key = stamp.replace(minute=stamp.minute//15*15,second=0,microsecond=0).isoformat()
         if event['bidder_id'] in bidders:
             confirmations[key]['counts'][str(event['bidder_id'])] += 1
@@ -228,11 +234,15 @@ def workday_report(conn, day, bidders, accounts, bidder_id):
             WHERE e.rowid>? AND e.rowid<=? AND e.detected_at IS NOT NULL
             AND (? IS NULL OR e.bidder_id=?) AND {eligible} ORDER BY e.rowid""",
             (runs[0]['previous_event'],runs[-1]['through_event'],bidder_id,bidder_id)).fetchall()
+    samples = {}
+    if runs:
+        for sample in conn.execute('SELECT run_id,bidder_id,new_checks FROM sourcing_activity_samples WHERE run_id>=? AND run_id<=?',(runs[0]['id'],runs[-1]['id'])):
+            samples.setdefault(sample['run_id'],[]).append(sample)
     index = 0
     for run in runs:
         bidder_point = point(run['recorded_at'],bidders,run['source'])
         account_point = point(run['recorded_at'],accounts,run['source'])
-        for sample in conn.execute('SELECT bidder_id,new_checks FROM sourcing_activity_samples WHERE run_id=?',(run['id'],)):
+        for sample in samples.get(run['id'],[]):
             if sample['bidder_id'] in bidders:
                 bidder_point['counts'][str(sample['bidder_id'])] = sample['new_checks']
         while index < len(events) and events[index]['event_id']<=run['through_event']:

@@ -385,7 +385,7 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
     threading.Thread(target=runner, daemon=True).start()
 
 
-def _run_check(body: CheckBody) -> None:
+def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
     if body.mode == "calendar":
         _run_calendar_check(body)
         return
@@ -409,6 +409,20 @@ def _run_check(body: CheckBody) -> None:
             }:
                 _job.update(message="Ollama busy; remaining mail will retry next check")
 
+        calendar_changes = []
+        calendar_errors = []
+        if include_calendar:
+            try:
+                with db.session() as conn:
+                    calendar = interviews.collect_calendar_events(conn, cfg,
+                        account_label=body.account, since_days=body.since_days,
+                        status=lambda message: _job.update(message=message))
+                calendar_changes = calendar['changes']
+                calendar_errors = calendar['errors']
+            except Exception as exc:
+                calendar_errors = [f"Calendar collection failed: {exc}"]
+            _job['interview_changes'] = calendar_changes
+
         with db.session() as conn:
             result = check_once(
                 conn,
@@ -422,8 +436,10 @@ def _run_check(body: CheckBody) -> None:
                 ),
                 event=event,
             )
-        _job["interview_changes"] = list({item["id"]: item for item in result.interview_changes}.values())
+        _job["interview_changes"] = list({item["id"]: item for item in [*calendar_changes, *result.interview_changes]}.values())
         bits = [f"{result.fetched} messages", f"{result.classified} classified"]
+        if include_calendar:
+            bits.append(f"{len(calendar_changes)} calendar event updates")
         if result.from_cache:
             bits.append(f"{result.from_cache} cached")
         if result.prefiltered:
@@ -434,8 +450,8 @@ def _run_check(body: CheckBody) -> None:
             bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
         _job.update(
             message=" · ".join(bits),
-            detail="\n".join(result.errors[:5]),
-            ok=not result.errors or result.retryable > 0,
+            detail="\n".join((calendar_errors + result.errors)[:5]),
+            ok=(not result.errors or result.retryable > 0) and not calendar_errors,
         )
 
     # A manual check counts as a check: restart the clock from now.
@@ -532,7 +548,7 @@ def _scheduler() -> None:
                 continue
             if _job_lock.acquire(blocking=False):
                 _reschedule(cfg)
-                _run_check(CheckBody())
+                _run_check(CheckBody(), include_calendar=True)
         except Exception:  # noqa: BLE001 - the scheduler must outlive a bad cycle
             _sched["next_due"] = None
 

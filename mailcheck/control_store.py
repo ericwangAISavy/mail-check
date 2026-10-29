@@ -35,6 +35,7 @@ class ControlStore:
         self.max_workspaces=max_workspaces
         self._lock=threading.RLock()
         self._attempts={}
+        self._presence={}  # Ephemeral browser activity; never business data.
         with self.connect() as conn:
             conn.executescript(SCHEMA)
             conn.execute("INSERT OR IGNORE INTO workspaces VALUES('legacy','Original workspace',NULL,1)")
@@ -128,6 +129,25 @@ class ControlStore:
     def logout(self,token):
         if token:
             with self.connect() as conn:conn.execute('DELETE FROM sessions WHERE token_hash=?',(hashlib.sha256(token.encode()).hexdigest(),))
+            with self._lock:self._presence.pop(hashlib.sha256(token.encode()).hexdigest(),None)
+
+    def record_presence(self,token):
+        if not self.identity(token):raise RevokedSession('Sign in to continue.')
+        key=hashlib.sha256(token.encode()).hexdigest()
+        with self._lock:self._presence[key]=time.monotonic()
+
+    def online_admin_ids(self):
+        now=time.monotonic()
+        with self._lock:
+            self._presence={key:seen for key,seen in self._presence.items() if 0<=now-seen<90}
+            active=set(self._presence)
+        if not active:return set()
+        online=set()
+        with self.connect() as conn:
+            rows=conn.execute('SELECT *,workspace_id AS selected_workspace FROM sessions WHERE expires>?',(time.time(),)).fetchall()
+            for row in rows:
+                if row['token_hash'] in active and self._identity(conn,row):online.add(row['user_id'])
+        return online
 
     def list_admins(self):
         with self.connect() as conn:

@@ -361,3 +361,44 @@ def test_public_admin_selector_only_exposes_enabled_usernames(system):
         assert client.post(f'/api/admin/users/{user_id}',json={'enabled':False}).status_code==200
         client.post('/api/auth/logout')
         assert client.get('/api/auth/admins').json()=={'admins':[{'username':'owner'}]}
+
+
+def test_admin_presence_is_owner_only_and_tracks_valid_recent_sessions(system):
+    app,store,pool=system
+    with TestClient(app) as owner:
+        alice=TestClient(app)
+        assert alice.post('/api/auth/presence').status_code==401
+        login(owner)
+        owner.post('/api/admin/users',json={'username':'alice','workspace_name':'Alice workspace','password':'temporary-pass-123'})
+        login(alice,'alice','temporary-pass-123')
+        alice.post('/api/auth/password',json={'password':'alice-final-pass-123'})
+        assert alice.get('/api/admin/users').status_code==403
+        def online():
+            return {a['username']:a['online'] for a in owner.get('/api/admin/users').json()['admins']}
+        assert online()['alice'] is False
+        with patch('mailcheck.control_store.time.monotonic',return_value=100):
+            assert alice.post('/api/auth/presence').status_code==200
+            assert online()['alice'] is True
+        with patch('mailcheck.control_store.time.monotonic',return_value=191):
+            assert online()['alice'] is False
+        assert alice.post('/api/auth/presence').status_code==200
+        assert online()['alice'] is True
+        alice.post('/api/auth/logout')
+        assert online()['alice'] is False
+
+
+def test_admin_presence_disappears_after_access_is_suspended(system):
+    app,store,pool=system
+    with TestClient(app) as owner:
+        alice=TestClient(app)
+        login(owner)
+        owner.post('/api/admin/users',json={'username':'alice','workspace_name':'Alice workspace','password':'temporary-pass-123'})
+        login(alice,'alice','temporary-pass-123')
+        alice.post('/api/auth/password',json={'password':'alice-final-pass-123'})
+        assert alice.post('/api/auth/presence').status_code==200
+        users=owner.get('/api/admin/users').json()['admins']
+        entry=next(a for a in users if a['username']=='alice')
+        assert entry['online'] is True
+        owner.post(f"/api/admin/users/{entry['id']}",json={'enabled':False})
+        assert next(a for a in owner.get('/api/admin/users').json()['admins'] if a['username']=='alice')['online'] is False
+        assert alice.post('/api/auth/presence').status_code==401

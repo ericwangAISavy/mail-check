@@ -9,7 +9,7 @@ vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()},setWorkspaceIdentit
 const clients:QueryClient[]=[]
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.resetAllMocks();vi.restoreAllMocks();state.owner=true})
 function mount(){
-  vi.mocked(request).mockImplementation(async url=>url==="/api/admin/users"?{max_workspaces:4,admins:[{id:1,username:"owner",owner:1,enabled:1,workspace_id:"legacy",workspace_name:"Original workspace",health:"running"},{id:2,username:"alice",owner:0,enabled:1,workspace_id:"alice",workspace_name:"Alice workspace",health:"running"}]} as never:{events:[]} as never)
+  vi.mocked(request).mockImplementation(async url=>url==="/api/admin/users"?{max_workspaces:4,admins:[{id:1,username:"owner",owner:1,enabled:1,workspace_id:"legacy",workspace_name:"Original workspace",health:"running",online:true},{id:2,username:"alice",owner:0,enabled:1,workspace_id:"alice",workspace_name:"Alice workspace",health:"running",online:false}]} as never:{events:[]} as never)
   const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client)
   render(<QueryClientProvider client={client}><AdminManagement/></QueryClientProvider>)
 }
@@ -34,4 +34,11 @@ it("does not offer owner controls or load other workspaces to an added admin",as
   expect(screen.getByRole("heading",{name:"Owner access required"})).toBeTruthy()
   expect(request).not.toHaveBeenCalled()
   expect(screen.queryByRole("button",{name:"Create admin"})).toBeNull()
+})
+
+it("shows browser presence separately from workspace server health",async()=>{
+  mount()
+  await screen.findByText("Alice workspace")
+  expect(screen.getByText("Online")).toBeTruthy()
+  expect(screen.getByText("Offline")).toBeTruthy()
 })

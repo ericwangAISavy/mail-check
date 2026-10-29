@@ -129,3 +129,18 @@ it("locks account selection and credentials while signing in",async()=>{
   expect(screen.getByLabelText("Username")).toHaveProperty("disabled",true)
   expect(screen.getByLabelText("Password")).toHaveProperty("disabled",true)
 })
+
+it("sends admin presence only while the workspace tab is visible",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy"})
+  const post=vi.spyOn(api,"post").mockResolvedValue({ok:true})
+  const visibility=vi.spyOn(document,"visibilityState","get").mockReturnValue("visible")
+  mount("/dashboard")
+  await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/auth/presence",{}))
+  post.mockClear()
+  visibility.mockReturnValue("hidden")
+  fireEvent(document,new Event("visibilitychange"))
+  expect(post).not.toHaveBeenCalled()
+  visibility.mockReturnValue("visible")
+  fireEvent(document,new Event("visibilitychange"))
+  await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/auth/presence",{}))
+})

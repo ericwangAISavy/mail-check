@@ -120,11 +120,11 @@ a shared account. Receipt times can be delayed and are not measured working hour
 
 The Activity Monitor distinguishes three graph views:
 
-- **Confirmation time:** matched link arrivals in 15-minute intervals for one Chicago workday, including zero-count intervals.
-- **Check runs:** every recorded processing checkpoint in that workday, including quiet checks. Hover shows exact Chicago time and source; the expandable checkpoint table shows all per-bidder or per-account counts. This daily view has no 240-run truncation.
+- **Confirmation time:** matched link arrivals in 15-minute intervals for one Chicago calendar day, including zero-count intervals.
+- **Check runs:** every recorded processing checkpoint in that calendar day, including quiet checks. Hover shows exact Chicago time and source; the expandable checkpoint table shows all per-bidder or per-account counts. This daily view has no 240-run truncation.
 - **By day:** calendar-day confirmation totals for the payment table's selected week.
 
-Intraday views default to the most recent 6:00 AM in America/Chicago through the following 6:00 AM. Before 6 AM, this is the previous date's workday. A separate date selector browses other workdays without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. The heatmap remains explicitly weekly.
+Intraday views use midnight to the following midnight in America/Chicago, matching the daily breakdown's calendar dates. The default is today's Chicago date, including before 6 AM. A separate date selector browses other calendar days without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. The heatmap remains explicitly weekly.
 
 ## Wallet details and copying a payment report
 
@@ -142,7 +142,7 @@ Amounts use the recorded payment if already paid; otherwise they use the saved m
 
 Activity line charts offer **Per interval** (the original counts) and
 **Cumulative** (the default running totals). In cumulative mode, confirmation-time and check-run modes
-accumulate within the selected 6 AM–6 AM Chicago workday; By day accumulates across
+accumulate within the selected midnight–midnight Chicago calendar day; By day accumulates across
 the selected week. Quiet intervals stay flat, and each series' final point shows
 its period total. Dots appear only when a series changes value, keeping flat
 sections clear. Bidder and account series accumulate independently. Heatmap cells

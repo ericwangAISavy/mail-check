@@ -142,3 +142,19 @@
     .sign-in-shell .sign-in-card { padding: 24px; }
   }
 }
+
+@media screen {
+  .owner-admin-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .owner-admin-heading h2 { margin: 0; }
+  .admin-presence { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-weight: 550; line-height: 1.4; color: var(--muted-foreground); background: var(--surface); }
+  .admin-presence > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .admin-presence.is-online { color: var(--primary); background: var(--accent); border-color: color-mix(in srgb,var(--primary) 30%,var(--border)); }
+}
+
+@media screen {
+  .top-actions > .btn,.top-actions > .schedule-button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 36px; min-height: 36px; padding: 0 12px; border-radius: 9px; font-size: 13px; line-height: 1; font-weight: 600; }
+  .top-actions > .btn svg { width: 16px; height: 16px; }
+  @media (max-width: 700px) {
+    .top-actions > .btn,.top-actions > .schedule-button { height: 34px; min-height: 34px; padding-inline: 8px; font-size: 12px; }
+  }
+}

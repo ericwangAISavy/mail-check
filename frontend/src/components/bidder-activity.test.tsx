@@ -38,7 +38,7 @@ it("filters graph and heatmap by bidder without redundant cards or summary table
 })
 it("does not invent historical activity when no checks are recorded", async () => {
   vi.mocked(request).mockResolvedValue({...payload(), bidders:[],timeline:[],check_count:0}); mount()
-  expect(await screen.findByText("No confirmations in this workday")).toBeTruthy()
+  expect(await screen.findByText("No confirmations in this day")).toBeTruthy()
   expect(screen.getByText(/not exact working hours/)).toBeTruthy()
 })
 it("offers a retry when activity cannot be loaded", async () => {
@@ -69,7 +69,7 @@ it("switches to account trends and filters an account without mixing bidder cont
 
 it("separates quarter-hour confirmations, exact workday runs and weekly totals", async () => {
   const base = payload()
-  const workday = {date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",
+  const workday = {date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",
     confirmations:[{at:"2026-10-12T15:15:00Z",source:"confirmation",counts:{"1":3,"2":1}}],
     runs:[{at:"2026-10-13T10:59:12Z",source:"global-check",counts:{"1":2,"2":0}}],account_confirmations:[],account_runs:[]}
   vi.mocked(request).mockResolvedValue({...base,workday}); mount()
@@ -81,16 +81,16 @@ it("separates quarter-hour confirmations, exact workday runs and weekly totals",
   expect(screen.getByText(/Every recorded run/)).toBeTruthy()
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
   expect(screen.getByTestId("chart-points").getAttribute("data-points")).toContain('"1":5')
-  expect(screen.queryByLabelText("Activity workday")).toBeNull()
+  expect(screen.queryByLabelText("Activity day")).toBeNull()
   fireEvent.click(screen.getByRole("button", {name:"Check runs"}))
-  fireEvent.change(screen.getByLabelText("Activity workday"), {target:{value:"2026-10-13"}})
+  fireEvent.change(screen.getByLabelText("Activity day"), {target:{value:"2026-10-13"}})
   expect(vi.mocked(request).mock.calls.some(([url]) => String(url).includes("day=2026-10-13"))).toBe(true)
 })
 
 
 it("formats tooltip dates safely during mode changes and uses connected lines", async () => {
   const base = payload()
-  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:base.timeline,runs:base.timeline,account_runs:[],account_confirmations:[]}})
+  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",confirmations:base.timeline,runs:base.timeline,account_runs:[],account_confirmations:[]}})
   mount(); await screen.findByRole("button", {name:"Alex"})
   expect(() => probe.tooltip("2026-10-12", [])).not.toThrow()
   expect(probe.tooltip("stale label", [{payload:{at:"2026-10-12T15:00:00Z",stamp:Date.parse("2026-10-12T15:00:00Z")}}])).toContain("10:00:00 AM")
@@ -106,7 +106,7 @@ it("places a live current-time marker precisely within the Chicago workday", asy
   vi.useFakeTimers({toFake:["setInterval","clearInterval"]})
   const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse("2026-10-12T15:23:45Z"))
   const base = payload()
-  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:base.timeline,runs:base.timeline,account_runs:[],account_confirmations:[]}})
+  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",confirmations:base.timeline,runs:base.timeline,account_runs:[],account_confirmations:[]}})
   mount(); await screen.findByRole("button", {name:"Alex"})
   expect(screen.getByTestId("now-marker").getAttribute("data-time")).toBe(String(Date.parse("2026-10-12T15:23:45Z")))
   expect(screen.getByText(/Now · Oct 12, 10:23:45 AM CDT/)).toBeTruthy()
@@ -117,7 +117,7 @@ it("places a live current-time marker precisely within the Chicago workday", asy
   expect(screen.getByTestId("now-marker")).toBeTruthy()
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
   expect(screen.queryByTestId("now-marker")).toBeNull()
-  clock.mockReturnValue(Date.parse("2026-10-13T11:00:00Z"))
+  clock.mockReturnValue(Date.parse("2026-10-13T05:00:00Z"))
   act(() => {vi.advanceTimersByTime(1000)})
   fireEvent.click(screen.getByRole("button", {name:"Confirmation time"}))
   expect(screen.queryByTestId("now-marker")).toBeNull()
@@ -128,12 +128,12 @@ it("plots running totals that stay flat in quiet intervals for bidders and accou
   const points=[{at:"2026-10-12T15:00:00Z",source:"confirmation",counts:{"1":3,"2":1}},
     {at:"2026-10-12T15:15:00Z",source:"confirmation",counts:{"1":0,"2":0}},
     {at:"2026-10-12T15:30:00Z",source:"confirmation",counts:{"1":2,"2":1}}]
-  vi.mocked(request).mockResolvedValue({...base,accounts:[{...base.bidders[0],id:10,name:"shared@example.test"}],workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:points,runs:points,account_confirmations:points.map(p=>({...p,counts:{"10":p.counts["1"]}})),account_runs:[]}})
+  vi.mocked(request).mockResolvedValue({...base,accounts:[{...base.bidders[0],id:10,name:"shared@example.test"}],workday:{date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",confirmations:points,runs:points,account_confirmations:points.map(p=>({...p,counts:{"10":p.counts["1"]}})),account_runs:[]}})
   mount();await screen.findByRole("button",{name:"Alex"})
   const plotted=()=>JSON.parse(screen.getByTestId("chart-points").getAttribute("data-points")!)
   expect(plotted().map((p:any)=>p["1"])).toEqual([0,3,3,5])
   expect(plotted().map((p:any)=>p["2"])).toEqual([0,1,1,2])
-  expect(plotted()[0].at).toBe("2026-10-12T11:00:00Z")
+  expect(plotted()[0].at).toBe("2026-10-12T05:00:00Z")
   fireEvent.click(screen.getByRole("button",{name:"By day"}))
   expect(plotted().map((p:any)=>p["1"])).toEqual([0,5])
   expect(plotted()[0].at).toBe("start")
@@ -149,7 +149,7 @@ it("offers original interval counts and cumulative totals and marks only value c
   const points=[{at:"2026-10-12T15:00:00Z",source:"confirmation",counts:{"1":3,"2":1}},
     {at:"2026-10-12T15:15:00Z",source:"confirmation",counts:{"1":0,"2":0}},
     {at:"2026-10-12T15:30:00Z",source:"confirmation",counts:{"1":2,"2":1}}]
-  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T11:00:00Z",end:"2026-10-13T11:00:00Z",confirmations:points,runs:points,account_confirmations:[],account_runs:[]}})
+  vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",confirmations:points,runs:points,account_confirmations:[],account_runs:[]}})
   mount();await screen.findByRole("button",{name:"Alex"})
   const values=()=>JSON.parse(screen.getByTestId("chart-points").getAttribute("data-points")!).map((p:any)=>p["1"])
   const dot=(index:number)=>probe.dots["1"]({index,cx:20,cy:20,stroke:"cyan"}).type
