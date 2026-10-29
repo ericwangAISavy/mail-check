@@ -208,7 +208,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <div className="brand-header"><button className="brand-lockup" onClick={() => navigate(admin ? "/" : "/dashboard")} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/dashboard" || s.to === "/payments").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">
         <div className="privacy-chip"><span className="privacy-pulse" /><span>Your mail stays local</span></div>
         <div className="sidebar-user"><span className="avatar-mark"><OfferPathMark size={27} /></span><div><strong>OfferPath</strong><span>{bootstrap.account_count} {bootstrap.account_count === 1 ? "account" : "accounts"} connected</span></div><CircleHelp size={17} className="help-icon" /></div>
@@ -228,7 +228,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} readOnly={!admin} />} />
         <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/sourcing" element={admin ? <SourcingPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/sourcing" element={<SourcingPage />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />

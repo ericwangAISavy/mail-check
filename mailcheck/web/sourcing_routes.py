@@ -102,6 +102,8 @@ def install(app, frontend_page, secure_cookies):
     router = APIRouter()
 
     def principal(req):
+        if getattr(req.state,'viewer_read_only',False):
+            return {'role':'bidder','bidder_id':int(req.headers['x-offerpath-bidder'])}
         return {"role": req.state.role, "bidder_id": req.state.bidder_id}
 
     def admin(req):
@@ -145,21 +147,25 @@ def install(app, frontend_page, secure_cookies):
     @router.get("/api/sourcing")
     def index(req: Request):
         with db.session() as conn:
-            is_admin = req.state.role == "admin"
+            viewer=getattr(req.state,'viewer_read_only',False)
+            identity=principal(req)
+            is_admin = identity['role'] == "admin"
+            if viewer:conn.execute("PRAGMA query_only=ON")
             # Older bidders predate automatic workbook creation. Reconcile only
             # missing workbooks so the picker always represents active bidders.
-            conn.execute(
-                "INSERT OR IGNORE INTO native_books(bidder_id,title) "
-                "SELECT p.id,'Applications' FROM bidders p WHERE p.removed_at IS NULL "
-                "AND (? OR p.id=?) AND NOT EXISTS ("
-                "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id)",
-                (is_admin, req.state.bidder_id),
-            )
+            if not viewer:
+                conn.execute(
+                    "INSERT OR IGNORE INTO native_books(bidder_id,title) "
+                    "SELECT p.id,'Applications' FROM bidders p WHERE p.removed_at IS NULL "
+                    "AND (? OR p.id=?) AND NOT EXISTS ("
+                    "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id)",
+                    (is_admin, identity["bidder_id"]),
+                )
             books = [
                 dict(r)
                 for r in conn.execute(
                     "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND (? OR b.bidder_id=?) ORDER BY p.name",
-                    (is_admin, req.state.bidder_id),
+                    (is_admin, identity["bidder_id"]),
                 )
             ]
             for book in books:
@@ -260,6 +266,7 @@ def install(app, frontend_page, secure_cookies):
     @router.get("/api/sourcing/tabs/{tab_id}")
     def snapshot(tab_id: int, req: Request):
         with db.session() as conn:
+            if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
             return sheets.snapshot(conn, owned(conn, tab_id, req))
 
     @router.post("/api/sourcing/tabs/{tab_id}/save")
@@ -353,9 +360,11 @@ def install(app, frontend_page, secure_cookies):
     @router.get("/api/sourcing/search")
     def search(req: Request, q: str = "", account: int | None = None):
         with db.session() as conn:
+            if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
+            identity=principal(req)
             tabs = conn.execute(
                 "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
-                (req.state.role == "admin", req.state.bidder_id, account, account),
+                (identity["role"] == "admin", identity["bidder_id"], account, account),
             ).fetchall()
             results = []
             for tab in tabs:

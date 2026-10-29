@@ -483,3 +483,32 @@ class NativeSheetTests(unittest.TestCase):
         self.conn.commit()
         retried = self.native.save(self.conn, self.tab(), "legacy-save-id", changes)
         self.assertEqual(retried["revision"], saved["revision"])
+
+    def test_gateway_bidder_reads_only_own_saved_sourcing_without_writes(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        from mailcheck.web.app import create_app
+        other_book=self.native.create_book(self.conn,2,'Other workbook')
+        other_tab=self.native.create_tab(self.conn,other_book,self.account_id,'Other tab')
+        self.conn.execute("INSERT INTO bidders(name,created_at) VALUES('No workbook','2026-10-28')")
+        self.conn.commit()
+        other=self.native.owned(self.conn,other_tab,self.principal)
+        base=self.native.snapshot(self.conn,other)
+        self.native.append(self.conn,other,'other-job',base['revision'],[['Private Company','Engineer','https://private.test/job']],work_date='2026-10-20')
+        self.conn.commit()
+        before=self.conn.total_changes
+        headers={'x-offerpath-worker':'worker-secret','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+        with WorkerClient(create_app(worker_secret='worker-secret')) as client:
+            result=client.get('/api/sourcing',headers=headers)
+            self.assertEqual(result.status_code,200,result.text)
+            self.assertEqual([b['bidder_id'] for b in result.json()['books']],[1])
+            self.assertNotIn('accounts',result.json())
+            self.assertEqual(client.get(f'/api/sourcing/tabs/{self.tab_id}',headers=headers).status_code,200)
+            self.assertEqual(client.get(f'/api/sourcing/tabs/{other_tab}',headers=headers).status_code,404)
+            search=client.get('/api/sourcing/search?q=Private',headers=headers)
+            self.assertEqual(search.status_code,200)
+            self.assertEqual(search.json()['results'],[])
+            for action in ('save','append','verify','structure','import','archive','delete'):
+                self.assertEqual(client.post(f'/api/sourcing/tabs/{self.tab_id}/{action}',headers=headers,json={}).status_code,403)
+            self.assertEqual(client.get('/api/sourcing/filters',headers=headers).status_code,403)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM native_books').fetchone()[0],2)
+        self.assertEqual(self.conn.total_changes,before)

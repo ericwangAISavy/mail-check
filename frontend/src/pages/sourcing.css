@@ -643,3 +643,15 @@
   .sourcing-toolbar:has(.sourcing-missing-links) { flex-wrap: wrap; }
   .sourcing-missing-links { flex: 1 1 240px; }
 }
+.sourcing-viewer .sheet-edit-toolbar { justify-content: space-between; flex-wrap: wrap; padding: 10px 16px; }
+.sourcing-viewer-scroll { overflow: auto; max-height: 65vh; }
+.sourcing-viewer-table { width: 100%; border-collapse: collapse; font-size: 13px; user-select: text; }
+.sourcing-viewer-table th,.sourcing-viewer-table td { border: 1px solid var(--border); padding: 9px 12px; vertical-align: top; white-space: pre-wrap; }
+.sourcing-viewer-table thead th { position: sticky; top: 0; background: var(--card); text-align: left; z-index: 1; }
+.sourcing-viewer-table tbody th { color: var(--muted-foreground); font-weight: 400; }
+.sourcing-viewer-link { display: flex; align-items: flex-start; gap: 8px; }
+.sourcing-viewer-link a { min-width: 180px; overflow-wrap: anywhere; user-select: text; }
+.sourcing-viewer-link button { flex-shrink: 0; }
+.sourcing-viewer-message { padding: 12px 16px; color: var(--muted-foreground); }
+.sourcing-viewer-pagination { display:flex; align-items:center; gap:12px; padding:12px; flex-wrap:wrap; }
+.sourcing-viewer-highlight { background: var(--muted); }

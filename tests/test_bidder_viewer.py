@@ -45,7 +45,7 @@ def test_directory_login_read_only_and_tenant_isolation(system,worker_mock):
             assert bidder.get(path).status_code==200,path
         assert bidder.get('/api/dashboard').json()=={'worker':'secret-legacy','viewer':'bidder'}
         assert bidder.get('/api/dashboard',headers={'x-offerpath-workspace':'other'}).status_code==409
-        for path in ['/api/accounts','/api/settings','/api/status','/api/sourcing','/api/interviews','/api/admin/users','/api/auth/bidders/manage','/sourcing','/settings']:
+        for path in ['/api/accounts','/api/settings','/api/status','/api/interviews','/api/admin/users','/api/auth/bidders/manage','/settings']:
             assert bidder.get(path).status_code==403,path
         for path in ['/api/check','/api/payments/refresh','/api/payments/bidders/1/amount','/api/admin/switch','/api/auth/password','/api/auth/bidders/1/password']:
             assert bidder.post(path,json={}).status_code==403,path
@@ -140,3 +140,16 @@ def test_successful_bidder_signins_do_not_exhaust_the_failure_budget(system,work
         for _ in range(12):
             bidder_login(bidder,entry)
             assert bidder.post('/api/auth/logout').status_code==200
+
+
+def test_bidder_sourcing_read_allowlist(system,worker_mock):
+    app,store,pool=system
+    with TestClient(app) as admin,closing(TestClient(app)) as bidder:
+        login(admin);enable(admin)
+        bidder_login(bidder,bidder.get('/api/auth/bidders').json()['bidders'][0])
+        for path in ['/sourcing','/api/sourcing','/api/sourcing/search?q=Engineer','/api/sourcing/tabs/7']:
+            assert bidder.get(path).status_code==200,path
+        for path in ['/api/sourcing/filters','/api/sourcing/tabs/7/export','/api/sourcing/tabs/7/verify']:
+            assert bidder.get(path).status_code==403,path
+        for action in ['save','append','verify','structure','import','archive','delete']:
+            assert bidder.post('/api/sourcing/tabs/7/'+action,json={}).status_code==403

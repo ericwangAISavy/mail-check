@@ -87,7 +87,7 @@ it("signs bidders into their admin team with only viewer navigation",async()=>{
   fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
   await screen.findByRole("heading",{name:"Admin Dashboard"})
   expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",9,"owner")
-  expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Dashboard","Bidder management"])
+  expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Dashboard","Job sourcing","Bidder management"])
   expect(screen.queryByRole("button",{name:"Check now"})).toBeNull()
   expect(screen.queryByRole("button",{name:"Change password"})).toBeNull()
 })

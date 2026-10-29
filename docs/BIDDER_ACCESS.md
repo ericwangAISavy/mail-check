@@ -4,7 +4,7 @@ An admin opens **Accounts → Manage bidders and account assignments → Bidder 
 
 On the sign-in screen, choose **Bidder**, select **bidder name + admin username**, and enter the password. The original workspace uses the admin username `owner`. Bidder accounts are opt-in; existing bidders are not automatically granted access.
 
-Bidders can view their admin's whole team on **Dashboard** and **Bidder management**, including team statistics, stored dashboard messages, and weekly payment totals. They cannot edit, check applications, refresh/rebuild stored matches, send messages, manage accounts, access Settings or Job sourcing, or switch workspaces. Date/account/bidder filters are available for browsing saved data. Access restrictions apply at both the public gateway and private worker boundary.
+Bidders can view their admin's whole team on **Dashboard** and **Bidder management**, including team statistics, stored dashboard messages, and weekly payment totals. They can also view and copy their own saved Job sourcing workbook, navigating account tabs, dates, and saved history. Sourcing search is limited to their own workbook. They cannot edit, paste, import, check applications, refresh/rebuild stored matches, send messages, manage accounts, access Settings, or switch workspaces. Date/account/bidder filters are available for browsing saved data. Access restrictions apply at both the public gateway and private worker boundary.
 
 Admins can reset a bidder's password or disable access from the same account card. Reset, disable, or removal revokes the bidder's sessions. Admin password changes/resets and workspace suspension also invalidate the associated bidder sessions. Bidder names are updated when renamed through the Accounts page.
 

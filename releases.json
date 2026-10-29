@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.3.0",
+    "date": "2026-10-28",
+    "title": "Read-only bidder job sourcing",
+    "changes": [
+      "Bidders can browse their own saved sourcing workbook by date and account tab, search their jobs, and copy links or a day's rows without editing or refreshing data."
+    ]
+  },
+  {
     "version": "2.2.0",
     "date": "2026-10-28",
     "title": "Read-only bidder team accounts",

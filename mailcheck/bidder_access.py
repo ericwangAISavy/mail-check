@@ -10,12 +10,14 @@ from .web.auth import _password, _record
 
 # Explicit endpoints, never prefix-based access to future admin routes.
 VIEWER_APIS = frozenset(('/api/bootstrap', '/api/dashboard', '/api/dashboard/accounts',
-                         '/api/payments', '/api/payments/activity'))
-VIEWER_PAGES = frozenset(('/', '/dashboard', '/payments', '/login'))
+                         '/api/payments', '/api/payments/activity', '/api/sourcing', '/api/sourcing/search'))
+VIEWER_PAGES = frozenset(('/', '/dashboard', '/payments', '/login', '/sourcing'))
 
 
 def viewer_read_allowed(path, method):
+    import re
     return method in ('GET', 'HEAD') and (path in VIEWER_APIS or path in VIEWER_PAGES
+        or re.fullmatch(r'/api/sourcing/tabs/[0-9]+',path) is not None
         or path.startswith('/api/messages/') and path.removeprefix('/api/messages/').isascii()
         and path.removeprefix('/api/messages/').isdigit())
 

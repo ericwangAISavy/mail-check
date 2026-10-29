@@ -15,6 +15,7 @@ import { chicagoDay } from "@/lib/sourcing";
 import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import SourcingViewer from "@/components/sourcing-viewer";
 import SourcingEditor from "@/components/sourcing-editor";
 import SourcingFilters from "@/components/sourcing-filters";
 import SourcingSettings from "@/components/sourcing-settings";
@@ -42,7 +43,9 @@ export default function SourcingPage() {
   const index = useQuery({
     queryKey: ["sourcing-index"],
     queryFn: () => request<Index>("/api/sourcing"),
-    refetchInterval: 15_000,
+    refetchInterval: admin ? 15_000 : false,
+    refetchOnWindowFocus: admin,
+    refetchOnReconnect:admin,
   });
   const client = useQueryClient();
   const [workDay, setWorkDay] = useState(chicagoDay);
@@ -93,6 +96,8 @@ export default function SourcingPage() {
   const results = useQuery({
     queryKey: ["sourcing-search", search, account],
     enabled: !!search,
+    refetchOnWindowFocus:admin,
+    refetchOnReconnect:admin,
     queryFn: () =>
       request<{ results: SearchResult[] }>(
         `/api/sourcing/search?q=${encodeURIComponent(search)}${account ? `&account=${encodeURIComponent(account)}` : ""}`,
@@ -157,9 +162,9 @@ export default function SourcingPage() {
         <div className="sourcing-search-results">
           <div className="sheet-actions">
             <h2>Applications matching “{search}”</h2>
-            <Button variant="outline" onClick={() => void results.refetch()}>
+            {admin && <Button variant="outline" onClick={() => void results.refetch()}>
               Refresh results
-            </Button>
+            </Button>}
             <Button variant="ghost" onClick={() => setParams({})}>
               Back to sheet
             </Button>
@@ -224,6 +229,8 @@ export default function SourcingPage() {
             </table>
           )}
         </div>
+      ) : tab && !admin ? (
+        <SourcingViewer key={tab.id} tab={tab} onDayChange={setWorkDay} highlightId={params.get("row_id")||undefined} highlightRow={params.has("row")?Number(params.get("row")):undefined}/>
       ) : tab ? (
         <SourcingEditor
           key={tab.id}

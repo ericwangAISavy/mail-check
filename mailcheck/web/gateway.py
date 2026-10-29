@@ -185,7 +185,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 return JSONResponse({'error':'Change your temporary password before opening the workspace.'},403) if path.startswith('/api/') else page()
         if identity and identity['role']=='bidder' and not path.startswith(('/assets/','/static/')):
             if path not in ('/api/auth/session','/api/auth/logout') and not viewer_read_allowed(path,request.method):
-                return JSONResponse({'error':'Bidder access is read-only and limited to Dashboard and Bidder management.'},403)
+                return JSONResponse({'error':'Bidder access is read-only and limited to Dashboard, Bidder management, and your Job sourcing.'},403)
         restricted_settings = path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)

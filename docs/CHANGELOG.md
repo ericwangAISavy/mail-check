@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.3.0 — 2026-10-28
+
+Read-only bidder job sourcing
+
+- Bidders can browse their own saved sourcing workbook by date and account tab, search their jobs, and copy links or a day's rows without editing or refreshing data.
+
 ## 2.2.0 — 2026-10-28
 
 Read-only bidder team accounts
