@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.4.1",
+    "date": "2026-10-30",
+    "title": "Reliable Outlook calendar synchronization",
+    "changes": [
+      "Refresh now collects current Outlook events instead of only reloading saved data.",
+      "Reconcile deleted bookings after complete successful calendar snapshots, preserve other account copies and manual corrections, and apply updated meeting details.",
+      "Correct Microsoft Graph calendar requests and sync a year of calendar history independently of the mail lookback."
+    ]
+  },
+  {
     "version": "2.4.0",
     "date": "2026-10-29",
     "title": "Portable installation backup and restore",

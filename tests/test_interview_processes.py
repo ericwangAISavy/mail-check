@@ -185,7 +185,8 @@ class ProcessCollectionTests(unittest.TestCase):
             processes.create_process(self.conn, "  ACME labs  ")
         later = calendar_fixtures.event("manual-new")
         later["subject"] = "Acme next round"
-        self.collect(self.source([later]))
+        # A calendarView response is a complete snapshot, not an incremental feed.
+        self.collect(self.source([booking, later]))
         self.assertEqual(next(p for p in processes.list_processes(self.conn) if p["organization"] == "Acme Labs")["event_count"], 2)
         processes.set_pin(self.conn, "Acme Labs", True)
         processes.set_removed(self.conn, "Acme Labs", True)
@@ -310,7 +311,7 @@ class ProcessCollectionTests(unittest.TestCase):
         self.assertEqual([p["organization"] for p in interview_processes.list_processes(self.conn)], ["appian.com", "rava.com"])
         first.update(attendees=[{"emailAddress": {"address": "hr@rava.com"}}],
                      lastModifiedDateTime="2026-10-16T15:00:00Z", isCancelled=True)
-        self.collect(self.source([first]))
+        self.collect(self.source([first, second]))
         processes = interview_processes.list_processes(self.conn, now=datetime(2026, 10, 16, tzinfo=timezone.utc))
         self.assertEqual(len(processes), 1)
         self.assertEqual(processes[0]["organization"], "rava.com")

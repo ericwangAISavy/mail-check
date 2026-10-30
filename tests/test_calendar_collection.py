@@ -187,7 +187,7 @@ class CalendarDuplicateTests(unittest.TestCase):
         first=event('original',organizer={'emailAddress':{'address':'recruiter@test'}})
         second=event('copy',organizer=first['organizer']);second['subject']='Temporary different title'
         self.collect(self.source([first]))
-        self.collect(self.source([second]))
+        self.collect(self.source([first,second]))
         rows=self.conn.execute('SELECT id FROM interview_events ORDER BY id').fetchall()
         self.conn.execute("UPDATE interview_events SET company='Booked appointment'")
         interviews.correct_event(self.conn,rows[0][0],{'notes':'Keep my correction'})
@@ -230,3 +230,116 @@ class CalendarDuplicateTests(unittest.TestCase):
         self.assertEqual(events[0]['id'],ids[0])
         self.assertFalse(events[0]['needs_review'])
         self.assertEqual(len(interviews.event_sources(self.conn,ids[0])),2)
+
+class CalendarSyncRegressionTests(unittest.TestCase):
+    setUp=NativeCalendarTests.setUp
+    source=NativeCalendarTests.source
+    collect=NativeCalendarTests.collect
+    def current_event(self, identity='booking-1'):
+        from datetime import timedelta
+        item=event(identity)
+        start=datetime.now(timezone.utc)+timedelta(days=1)
+        item['start']={'dateTime':start.isoformat(),'timeZone':'UTC'}
+        item['end']={'dateTime':(start+timedelta(hours=1)).isoformat(),'timeZone':'UTC'}
+        return item
+
+    def test_deleted_booking_disappears_and_returning_booking_reappears(self):
+        item=self.current_event()
+        self.collect(self.source([item]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.collect(self.source([]))
+        self.assertEqual(interviews.list_events(self.conn),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.collect(self.source([item]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+    def test_partial_failure_does_not_remove_missing_bookings(self):
+        item=self.current_event()
+        self.collect(self.source([item]))
+        def respond(request):
+            if request.url.path.endswith('/calendars'):
+                return httpx.Response(200,json={'value':[{'id':'one','name':'Work'}]})
+            return httpx.Response(200,json={'value':[dict(event('bad'),start={})]})
+        self.assertTrue(self.collect(self.source(handler=respond))['errors'])
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+    def test_native_update_clears_removed_details_and_reinstates_cancelled_event(self):
+        item=self.current_event()
+        item.update(isCancelled=True,location={'displayName':'Old room'},onlineMeeting={'joinUrl':'https://zoom.us/j/12345'})
+        self.collect(self.source([item]))
+        item.update(isCancelled=False,location=None,onlineMeeting=None,lastModifiedDateTime='2026-10-17T12:00:00Z')
+        self.collect(self.source([item]))
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual(row['status'],'Scheduled')
+        self.assertIsNone(row['location'])
+        self.assertIsNone(row['meeting_url'])
+        self.assertIsNone(row['meeting_platform'])
+
+    def test_calendar_history_is_not_limited_to_mail_two_day_lookback(self):
+        self.collect(self.source([]))
+        view=next(r for r in self.requests if 'calendarView' in r.url.path)
+        start=datetime.fromisoformat(view.url.params['startDateTime'])
+        self.assertGreaterEqual((datetime.now(timezone.utc)-start).days,365)
+
+    def test_graph_calendar_view_does_not_select_unsupported_revision_fields(self):
+        def respond(request):
+            if request.url.path.endswith('/calendars'):
+                return httpx.Response(200,json={'value':[{'id':'one','name':'Work'}]})
+            if '$select' in request.url.params:
+                return httpx.Response(400,json={'error':{'message':'Revision properties do not support $select'}})
+            return httpx.Response(200,json={'value':[self.current_event()]})
+        result=self.collect(self.source(handler=respond))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+    def test_missing_account_copy_does_not_hide_other_accounts_booking(self):
+        item=self.current_event()
+        self.conn.execute("UPDATE accounts SET provider='outlook' WHERE id=?",(self.b,))
+        self.conn.commit()
+        self.collect(self.source([item]))
+        self.collect(self.source([item]),label='personal')
+        self.collect(self.source([]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        self.assertEqual(interviews.list_events(self.conn,account='work'),[])
+        self.assertEqual(len(interviews.list_events(self.conn,account='personal')),1)
+
+    def test_failed_later_page_keeps_bookings_not_seen_on_first_page(self):
+        item=self.current_event()
+        self.collect(self.source([item]))
+        def respond(request):
+            if request.url.path.endswith('/calendars'):
+                return httpx.Response(200,json={'value':[{'id':'one','name':'Work'}]})
+            if request.url.path.endswith('/calendarView'):
+                return httpx.Response(200,json={'value':[],'@odata.nextLink':GRAPH+'/failed-page'})
+            return httpx.Response(403,json={'error':{'code':'ErrorAccessDenied'}})
+        self.assertTrue(self.collect(self.source(handler=respond))['errors'])
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+    def test_deletion_does_not_hide_history_outside_synced_window(self):
+        old=event('old')
+        old['start']={'dateTime':'2020-01-01T15:00:00Z','timeZone':'UTC'}
+        old['end']={'dateTime':'2020-01-01T16:00:00Z','timeZone':'UTC'}
+        self.collect(self.source([old]))
+        self.collect(self.source([]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+    def test_native_changes_preserve_manual_corrections(self):
+        item=self.current_event()
+        self.collect(self.source([item]))
+        identity=self.conn.execute('SELECT id FROM interview_events').fetchone()[0]
+        interviews.correct_event(self.conn,identity,{'location':'My correction','notes':'Keep notes'})
+        item.update(location=None,lastModifiedDateTime='2026-10-17T12:00:00Z')
+        self.collect(self.source([item]))
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual(row['location'],'My correction')
+        self.assertEqual(row['notes'],'Keep notes')
+
+    def test_malformed_snapshot_cannot_be_treated_as_empty_calendar(self):
+        item=self.current_event()
+        self.collect(self.source([item]))
+        def respond(request):
+            if request.url.path.endswith('/calendars'):
+                return httpx.Response(200,json={'value':[{'id':'one','name':'Work'}]})
+            return httpx.Response(200,json={})
+        self.assertTrue(self.collect(self.source(handler=respond))['errors'])
+        self.assertEqual(len(interviews.list_events(self.conn)),1)

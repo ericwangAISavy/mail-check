@@ -120,7 +120,6 @@ class OutlookGraphSource:
         """
         start = datetime(since.year,since.month,since.day,tzinfo=timezone.utc)
         end = until or (datetime.now(timezone.utc) + timedelta(days=365))
-        fields = "id,iCalUId,subject,start,end,originalStart,originalStartTimeZone,isCancelled,location,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,organizer,attendees,lastModifiedDateTime,type,showAs,isAllDay"
         invalid_events = 0
         with self._client(calendar=True) as client:
             url, params, pages = f"{GRAPH}/me/calendars", {"$select":"id,name", "$top":"100"}, 0
@@ -128,22 +127,29 @@ class OutlookGraphSource:
                 if pages >= MAX_PAGES:
                     raise SourceError("Calendar listing exceeded the paging limit; collection is incomplete.")
                 data = self._get(client,url,params)
+                if not isinstance(data, dict) or not isinstance(data.get("value"), list):
+                    raise SourceError("Microsoft returned an invalid calendar listing; collection is incomplete.")
                 for calendar in data.get("value") or []:
-                    calendar_id = calendar.get("id")
+                    calendar_id = calendar.get("id") if isinstance(calendar, dict) else None
                     if not calendar_id:
-                        continue
+                        raise SourceError("Microsoft returned a calendar without an identity; collection is incomplete.")
                     from urllib.parse import quote
                     event_url = f"{GRAPH}/me/calendars/{quote(calendar_id,safe='')}/calendarView"
-                    event_params = {"startDateTime":start.isoformat(),"endDateTime":end.isoformat(),"$select":fields,"$top":"100"}
+                    # Graph calendarView revision timestamps do not support
+                    # $select; request the default event projection so changes
+                    # can be ordered by lastModifiedDateTime reliably.
+                    event_params = {"startDateTime":start.isoformat(),"endDateTime":end.isoformat(),"$top":"100"}
                     event_pages = 0
                     while event_url:
                         if event_pages >= MAX_PAGES:
                             raise SourceError(f"Calendar '{calendar.get('name','')}' exceeded the paging limit; collection is incomplete.")
                         events = self._get(client,event_url,event_params)
+                        if not isinstance(events, dict) or not isinstance(events.get("value"), list):
+                            raise SourceError("Microsoft returned an invalid event listing; collection is incomplete.")
                         for item in events.get("value") or []:
                             try:
                                 yield _calendar_booking(item,calendar)
-                            except (ValueError,TypeError,KeyError):
+                            except (ValueError,TypeError,KeyError,AttributeError):
                                 invalid_events += 1
                         event_url, event_params = events.get("@odata.nextLink"), None
                         event_pages += 1

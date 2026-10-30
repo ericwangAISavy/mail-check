@@ -138,3 +138,9 @@ it("keeps the event details open if removal fails", async () => {
   expect((await within(dialog).findByRole("alert")).textContent).toBe("Could not remove event")
   expect((within(dialog).getByRole("button", {name:"Remove from calendar"}) as HTMLButtonElement).disabled).toBe(false)
 })
+
+it('Refresh requests a real Outlook calendar sync',async()=>{
+  mount();await screen.findByRole('button',{name:'Month'})
+  fireEvent.click(screen.getByRole('button',{name:'Refresh'}))
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/sync'))
+})

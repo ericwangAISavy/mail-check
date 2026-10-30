@@ -67,7 +67,7 @@ class IMAPSource:
         finally:
             _quiet_logout(box)
 
-    def fetch_calendar(self, since: date):
+    def fetch_calendar(self, since: date, *, until=None):
         """IMAP has no calendar event API. Never fall back to reading email."""
         raise SourceError("IMAP cannot read calendar events. Connect this Outlook account with Microsoft sign-in and grant Calendars.Read access.")
 

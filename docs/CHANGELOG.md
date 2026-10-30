@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.4.1 — 2026-10-30
+
+Reliable Outlook calendar synchronization
+
+- Refresh now collects current Outlook events instead of only reloading saved data.
+- Reconcile deleted bookings after complete successful calendar snapshots, preserve other account copies and manual corrections, and apply updated meeting details.
+- Correct Microsoft Graph calendar requests and sync a year of calendar history independently of the mail lookback.
+
 ## 2.4.0 — 2026-10-29
 
 Portable installation backup and restore

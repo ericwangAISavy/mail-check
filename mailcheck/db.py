@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS interview_sources (
     source_subject TEXT, source_sender TEXT, source_received_at TEXT,
     candidate_key TEXT NOT NULL DEFAULT '',
     UNIQUE(account_id, external_message_id, candidate_key)
+);
+CREATE TABLE IF NOT EXISTS interview_calendar_state (
+    source_id INTEGER PRIMARY KEY REFERENCES interview_sources(id) ON DELETE CASCADE,
+    start_at TEXT NOT NULL,
+    end_at TEXT,
+    present INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_interviews_start ON interview_events(start_at);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_event ON interview_sources(event_id, account_id);

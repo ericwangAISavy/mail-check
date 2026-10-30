@@ -85,13 +85,13 @@ matches candidate domains in Unassigned events.
 ## Collection
 
 On Triage, Check now (`/api/check`, default `mode: "mail"`) and automatic web
-checks fetch unread emails from all enabled accounts and classify them into the
+checks fetch read and unread emails from all enabled accounts and classify them into the
 existing categories. On Interview, both Check now buttons use calendar-only
 collection (`/api/check` with `mode: "calendar"`, or `/api/interviews/sync`) and
 read native calendar events using Microsoft Graph. The collector lists every
 accessible calendar and reads each calendar's `calendarView`, following calendar
-and event pagination. The date window runs from the configured lookback through
-one year ahead. It is based on event dates, not invitation receipt dates.
+and event pagination. The default date window covers at least the previous year
+and one year ahead, independently of the mail lookback. It is based on event dates, not invitation receipt dates.
 
 `calendarView` expands recurring occurrences and exceptions. Bookings are accepted
 regardless of title, organizer, meeting provider, or whether they have a join link.
@@ -99,8 +99,10 @@ Teams, Google Meet, Zoom, Webex, Skype, telephone and in-person bookings all use
 same collection path. This does not connect to Google Calendar itself: Google Meet
 bookings must exist on a connected Outlook calendar.
 
-Only event metadata is requested: title, start/end, original timezone, organizer,
+Only event metadata is used and saved: title, start/end, original timezone, organizer,
 attendees, location, online-meeting link/provider, cancellation and revision data.
+Graph calendarView uses its default projection because revision timestamps do not
+support `$select`; unused properties, including event bodies, are discarded.
 The calendar client requests UTC timestamps and uses read-only `Calendars.Read`.
 There are no inbox/message endpoints, attachment scans, email bodies, model calls,
 or meeting-relevance classification in this flow. The saved-mail scan endpoint is
@@ -141,8 +143,9 @@ records even when an old ICS sequence is larger. Reschedules and cancellation
 updates retain local event identity. Manually corrected fields remain protected.
 Invalid provider events are reported while subsequent valid events continue.
 Paging limits produce an explicit incomplete-collection error rather than silently
-claiming success. Deletion of a booking that the provider entirely omits from its
-calendar response is not inferred as a cancellation.
+claiming success. A booking omitted from a complete successful snapshot is hidden
+within the synchronized window, while its stored history remains intact. It is
+not rewritten as a cancellation.
 
 Native timestamps are stored in UTC; original provider timezone metadata is retained
 in the event notes. Provider times, locations, participants and join links appear in
@@ -211,3 +214,19 @@ Processes sort with pinned processes first, then oldest first by completed days
 since the first calendar event. Equal ages sort by calendar-event count, highest
 first, then organization name for a stable order. Empty and future-only processes
 come after started processes within each pin group. Messages do not affect sorting.
+
+
+### Outlook synchronization
+
+On Interview, **Refresh** and **Check now** both collect current Outlook calendar
+bookings. Automatic checks also collect calendar events. The default calendar
+window covers the previous year (or the configured mail lookback if longer) and
+the next year, independently of the usual two-day mail lookback.
+
+A complete successful account snapshot hides bookings deleted from Outlook within
+that window. Historical records and source details remain stored. Failed or
+incomplete snapshots never remove bookings; copies still present in another
+enabled account remain visible. Returning events reappear automatically. Outlook
+updates clear removed meeting links/locations and can reinstate cancelled events;
+explicit local corrections remain protected. Calendar collection is read-only
+and never edits Outlook.

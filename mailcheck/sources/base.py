@@ -29,5 +29,5 @@ class MailSource(Protocol):
     def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
         """Yield messages since the date, including read mail when requested; never mutate them."""
 
-    def fetch_calendar(self, since: date) -> Iterator[CalendarBooking]:
+    def fetch_calendar(self, since: date, *, until=None) -> Iterator[CalendarBooking]:
         """Read native calendar bookings without consulting email."""
