@@ -435,3 +435,69 @@ class SourcingVerificationTests(unittest.TestCase):
         cell = self.snapshot()['rows'][1][3]
         self.assertEqual(cell['value'], 'true')
         self.assertEqual(cell['checked_at'], '2026-10-26T04:59:59.999999+00:00')
+
+    def test_automatic_check_includes_pre_registered_future_rows(self):
+        from unittest.mock import patch
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-11-20')
+        self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
+        self.conn.commit()
+        with patch.object(payments,'today',return_value=date(2026,10,20)):
+            verification.verify_all(self.conn)
+        row=self.snapshot()['rows'][1][3]
+        self.assertEqual(row['value'],'true')
+        self.assertEqual(row['checked_at'],'2026-10-20T15:00:00+00:00')
+        self.assertEqual(self.snapshot()['row_dates'][1],'2026-11-20')
+
+    def test_selected_week_refresh_includes_future_pre_registered_rows(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-11-20')
+        self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+        self.assertEqual(self.snapshot()['rows'][1][3]['checked_at'],'2026-10-20T15:00:00+00:00')
+
+    def test_manual_check_from_today_also_checks_future_rows(self):
+        from unittest.mock import patch
+        from mailcheck import sourcing_verification as verification
+        base=self.jobs('2026-10-21')
+        self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
+        self.conn.commit()
+        with patch.object(payments,'today',return_value=date(2026,10,20)):
+            verification.verify(self.conn,self.tab(),'early-manual',base['revision'],'2026-10-20')
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+
+    def test_manual_check_on_future_date_finds_early_confirmation(self):
+        from unittest.mock import patch
+        from mailcheck import sourcing_verification as verification
+        base=self.jobs('2026-11-20')
+        self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
+        self.conn.commit()
+        with patch.object(payments,'today',return_value=date(2026,10,20)):
+            verification.verify(self.conn,self.tab(),'early-future',base['revision'],'2026-11-20')
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+
+    def test_future_completion_is_counted_on_actual_receipt_day(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-11-20')
+        self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,))
+        self.conn.commit()
+        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
+        table=payments.report(self.conn,date(2026,10,19))
+        self.assertEqual(table['bidders'][0]['checked_daily'][1],1)
+        self.assertEqual(table['bidders'][0]['daily'][1],1)
+
+    def test_future_rows_do_not_match_wrong_account_role_or_old_receipts(self):
+        from unittest.mock import patch
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-11-20')
+        other=db.add_account(self.conn,label='wrong',email='wrong@example.test')
+        self.receipt('wrong-account','Acme','2026-10-20T15:00:00+00:00',account=other)
+        self.receipt('wrong-role','Beta','2026-10-20T15:00:00+00:00',role='Accountant')
+        self.receipt('old-receipt','Other','2026-09-20T15:00:00+00:00')
+        self.conn.commit()
+        with patch.object(payments,'today',return_value=date(2026,10,20)):
+            verification.verify_all(self.conn)
+        self.assertEqual([r[3]['value'] for r in self.snapshot()['rows'][1:4]],['false','false','false'])

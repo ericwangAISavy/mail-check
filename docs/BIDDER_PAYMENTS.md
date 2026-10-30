@@ -46,8 +46,8 @@ counts once; archived sheets retain historical checked counts.
 After mail collection and classification finish, scheduled auto-checks and the
 top-level **Check now** job compare confirmation emails against every active account
 tab. A confirmation received on day D can check rows dated D through D−6, using
-Chicago calendar dates. Company, role when present, and account must match. Manual
-**Check applications** on a tab uses the same seven-day relationship.
+Chicago calendar dates. Company, role when present, and account must match. Pre-registered future dates are also eligible for early work: recent confirmations from the last seven Chicago dates can check future rows, with no limit on how far ahead the row is scheduled. A selected-week refresh compares that week’s receipts with future rows too. Manual
+**Check applications** checks the selected date plus future rows on that account tab.
 
 Checked rows stay checked through later checks, reclassification, and edits. A
 confirmation arriving next week counts on its received date, including links given the previous week. Manually checked rows count too. The checkbox cannot be cleared, although
@@ -105,7 +105,7 @@ and how many newly checked rows were observed. It includes every run in the sele
 counts use the confirmation’s Chicago calendar date, even if links were given earlier. Untimed manual or legacy checks keep their sourcing date.
 
 Admins can click **Refresh** on Bidder payments to recheck stored confirmation
-messages and active sourcing rows dated today through six days earlier in Chicago.
+messages and active sourcing rows, including pre-registered future rows.
 It repairs receipt timestamps for already-checked rows, adds newly matched checks,
 and refreshes payment totals, activity graphs, and open clean sourcing sheets.
 Checked statuses are never cleared. This uses local saved mail; Check now collects

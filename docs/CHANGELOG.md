@@ -2,6 +2,23 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.4.0 — 2026-10-29
+
+Portable installation backup and restore
+
+- Owner-only plain ZIP backups include the original database, all admin workspaces, settings, and sign-in accounts.
+- Daily automatic backups retain seven successful archives by default, with owner-managed scheduling and downloads.
+- Offline restore validates files and databases, rebases paths, preserves business status, creates rollback backups, and supports interrupted-restore recovery.
+- Restored installations use fresh credential namespaces and require mail-account reconnection.
+
+## 2.3.26 — 2026-10-29
+
+Check early applications on future job lists
+
+- Match recent confirmations to pre-registered future job dates during automatic checks and manual Check applications, preserving account and role matching.
+- Include future rows in selected-week refresh and rebuild while keeping completion counts on the actual Chicago receipt date.
+- Show future-dated checked totals in the manual verification result without changing scheduled job dates.
+
 ## 2.3.25 — 2026-10-29
 
 Full-height triage reading area

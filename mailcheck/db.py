@@ -221,8 +221,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     re-issued on every open.
     """
     path = path or config.db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    from .maintenance import connect_database
+    conn = connect_database(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL lets the console read while a check is writing, instead of the two

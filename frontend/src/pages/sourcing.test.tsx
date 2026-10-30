@@ -489,13 +489,13 @@ it("clears undo when switching job days", async () => {
 });
 
 it("checks applications for the selected day and displays the verified count", async () => {
-  const post = vi.spyOn(api, "post").mockResolvedValue({...snapshot, revision: "two", verification: {day: "2026-10-20", timezone: "America/Chicago", checked: 1}})
+  const post = vi.spyOn(api, "post").mockResolvedValue({...snapshot, revision: "two", verification: {day: "2026-10-20", timezone: "America/Chicago", checked: 1, future_checked: 2}})
   mount()
   await screen.findByText("Saved")
   fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}})
   fireEvent.click(screen.getByRole("button", {name: "Check applications"}))
   await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/verify", expect.objectContaining({revision: "one", work_date: "2026-10-20"})))
-  expect(await screen.findByText("1 links checked · 7 days from 2026-10-20 · Chicago")).toBeTruthy()
+  expect(await screen.findByText("1 links checked · 2026-10-20 · 2 future-dated checked · Chicago")).toBeTruthy()
 })
 it("requires a dated sheet before checking applications", async () => {
   mount()

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
+from ..maintenance import MaintenanceLock,lock_path,shared_writer
 import threading
 import sqlite3
 import time
@@ -556,10 +558,14 @@ def _scheduler() -> None:
 # ----------------------------------------------------------------------------- app
 
 
+@shared_writer
 def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None) -> FastAPI:
     if worker_secret is not None and not worker_secret:
         raise ValueError("A private workspace worker requires an authentication secret.")
-    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None)
+    @asynccontextmanager
+    async def lifespan(app):
+        with MaintenanceLock(lock_path()):yield
+    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None, lifespan=lifespan)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
     from .sourcing_routes import install as install_sourcing

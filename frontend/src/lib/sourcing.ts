@@ -21,7 +21,7 @@ export interface SheetColumn {
 }
 export interface Snapshot {
   filtered?: {duplicates: number; blocked_companies: number};
-  verification?: {day: string; timezone: string; checked: number};
+  verification?: {day: string; timezone: string; checked: number; future_checked?: number};
   id: number;
   rows: Cell[][];
   row_ids: string[];

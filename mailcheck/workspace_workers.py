@@ -119,7 +119,9 @@ class WorkerPool:
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
         token=secrets.token_urlsafe(48)
+        from .maintenance import lock_path
         env=os.environ.copy()
+        env['OFFERPATH_MAINTENANCE_LOCK']=str(lock_path(self.legacy_paths[0]))
         for key in ('OFFERPATH_WORKSPACE_ROOT','OFFERPATH_WORKSPACE_ID','OFFERPATH_LEGACY_CONFIG_PATH','OFFERPATH_LEGACY_DB_PATH','OFFERPATH_SHARED_CONFIG_PATH'):env.pop(key,None)
         if workspace['root']:
             env['OFFERPATH_WORKSPACE_ROOT']=workspace['root'];env['OFFERPATH_WORKSPACE_ID']=wid
@@ -195,7 +197,8 @@ def main():
                     failures=0 if response.status==200 else failures+1
             except Exception:failures+=1
             if failures>=3:os._exit(1)
-    with InstanceLock(os.environ['OFFERPATH_WORKER_LOCK']):
+    from .maintenance import MaintenanceLock, lock_path
+    with MaintenanceLock(lock_path()), InstanceLock(os.environ['OFFERPATH_WORKER_LOCK']):
         threading.Thread(target=parent_watch,daemon=True).start()
         run(create_app(worker_secret=token),host='127.0.0.1',port=args.port,log_level='warning')
 

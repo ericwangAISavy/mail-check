@@ -10,6 +10,8 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .maintenance import shared_writer
+
 import tomli_w
 from platformdirs import user_config_dir, user_data_dir
 from pydantic import BaseModel, Field, field_validator
@@ -52,6 +54,10 @@ def db_path() -> Path:
         return root / "data" / "mailcheck.db"
     legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
     return Path(legacy) if legacy else data_dir() / "mailcheck.db"
+
+
+def control_dir() -> Path:
+    return Path(os.environ.get('OFFERPATH_CONTROL_ROOT') or config_dir()/'offerpath-control')
 
 
 class LLMConfig(BaseModel):
@@ -244,6 +250,7 @@ def load() -> Config:
 _save_lock = threading.Lock()
 
 
+@shared_writer
 def save(cfg: Config) -> Path:
     """Write config.toml atomically.
 

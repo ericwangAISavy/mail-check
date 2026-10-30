@@ -24,7 +24,14 @@ def workspace_root() -> Path | None:
 
 def credential_namespace() -> str:
     root=workspace_root()
-    return f"workspace:{os.environ['OFFERPATH_WORKSPACE_ID']}:" if root else ''
+    from .config import config_dir
+    marker=(root/'config' if root else config_dir())/'credential-namespace'
+    restored=''
+    if marker.exists():
+        token=marker.read_text(encoding='ascii').strip()
+        if not re.fullmatch('[a-f0-9]{32}',token):raise ValueError('Restored credential namespace is invalid. Restore it from backup.')
+        restored=f'restored:{token}:'
+    return restored+(f"workspace:{os.environ['OFFERPATH_WORKSPACE_ID']}:" if root else '')
 
 
 def provision(root: Path, wid: str) -> Path:

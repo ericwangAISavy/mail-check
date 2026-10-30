@@ -5,11 +5,11 @@ import {api,request} from "@/lib/api"
 import AdminManagement from "./admin-management"
 const state=vi.hoisted(()=>({owner:true}))
 vi.mock("@/components/auth",()=>({useAuth:()=>({role:"admin",session:{is_owner:state.owner,workspace_id:"legacy"}})}))
-vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()},setWorkspaceIdentity:vi.fn()}))
+vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()},setWorkspaceIdentity:vi.fn(),getWorkspaceIdentity:vi.fn()}))
 const clients:QueryClient[]=[]
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.resetAllMocks();vi.restoreAllMocks();state.owner=true})
 function mount(){
-  vi.mocked(request).mockImplementation(async url=>url==="/api/admin/users"?{max_workspaces:4,admins:[{id:1,username:"owner",owner:1,enabled:1,workspace_id:"legacy",workspace_name:"Original workspace",health:"running",online:true},{id:2,username:"alice",owner:0,enabled:1,workspace_id:"alice",workspace_name:"Alice workspace",health:"running",online:false}]} as never:{events:[]} as never)
+  vi.mocked(request).mockImplementation(async url=>url==="/api/admin/backups"?{enabled:true,retain:7,folder:"/backups",running:false,last_error:null,last_success:null,next_due:null,archives:[]} as never:url==="/api/admin/users"?{max_workspaces:4,admins:[{id:1,username:"owner",owner:1,enabled:1,workspace_id:"legacy",workspace_name:"Original workspace",health:"running",online:true},{id:2,username:"alice",owner:0,enabled:1,workspace_id:"alice",workspace_name:"Alice workspace",health:"running",online:false}]} as never:{events:[]} as never)
   const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client)
   render(<QueryClientProvider client={client}><AdminManagement/></QueryClientProvider>)
 }

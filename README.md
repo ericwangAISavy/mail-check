@@ -432,3 +432,7 @@ update history. See [release history](docs/CHANGELOG.md) and
 [versioning instructions](docs/VERSIONING.md) for future updates.
 
 Inbox checks collect both read and unread messages within the configured checking lookback. Outlook pagination is followed to completion, including inboxes with more than 2,000 messages in that window. Existing local retention and view filters still apply; checking never changes Outlook read status.
+
+## Portable backups and server migration
+
+The owner can create and download plain ZIP installation backups in **Admin management → Backup & restore**. Daily automatic backups retain seven successful copies by default. Restore is an offline operation with validation and rollback. See [Backup and restore](docs/BACKUP_RESTORE.md) for the Windows migration commands and reconnect checklist.

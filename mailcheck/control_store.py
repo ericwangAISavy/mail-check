@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import time
 
+from .maintenance import shared_writer, connect_database
 from .web.auth import AuthStore, _password, _record
 from .workspaces import provision
 
@@ -27,6 +28,7 @@ class RevokedSession(PermissionError):
 
 
 class ControlStore:
+    @shared_writer
     def __init__(self, root: Path, legacy_auth: AuthStore, max_workspaces=4):
         self.root=root.resolve()
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
@@ -45,7 +47,7 @@ class ControlStore:
 
     @contextmanager
     def connect(self):
-        conn=sqlite3.connect(self.path,timeout=30)
+        conn=connect_database(self.path,timeout=30)
         conn.row_factory=sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
         try:

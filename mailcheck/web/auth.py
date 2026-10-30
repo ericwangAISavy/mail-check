@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from ..maintenance import shared_writer
+
 COOKIE = "mailcheck_session"
 SESSION_SECONDS = 12 * 60 * 60
 ROLES = ("admin", "bidder")
@@ -48,6 +50,7 @@ class AuthStore:
         self._attempt_lock = threading.Lock()
         self._attempts: dict[str, list[float]] = {}
 
+    @shared_writer
     def _save(self, data: dict) -> None:
         path = self.path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +64,7 @@ class AuthStore:
         finally:
             Path(name).unlink(missing_ok=True)
 
+    @shared_writer
     def _load(self) -> dict:
         path = self.path()
         try:
@@ -80,6 +84,7 @@ class AuthStore:
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise AuthFileError("The local web-auth.json file cannot be read. Restore it from a trusted backup.") from exc
 
+    @shared_writer
     def login(self, role: str, password: str, address: str, bidder_id: int | None = None) -> tuple[str | None, bool]:
         now = time.time()
         with self._attempt_lock:
@@ -108,6 +113,7 @@ class AuthStore:
         signature = _encode(hmac.digest(bytes.fromhex(data["secret"]),payload.encode(),"sha256"))
         return f"{payload}.{signature}"
 
+    @shared_writer
     def identity(self, token: str | None) -> dict | None:
         if not token or len(token) > 2048:
             return None
@@ -128,6 +134,7 @@ class AuthStore:
             except (ValueError, KeyError, TypeError, UnicodeError):
                 return None
 
+    @shared_writer
     def change_password(self, role: str, password: str) -> None:
         if role != "admin" or not 1 <= len(password) <= 256:
             raise ValueError("Choose admin and a password of 1–256 characters.")
@@ -140,6 +147,7 @@ class AuthStore:
         identity = self.identity(token)
         return identity["role"] if identity else None
 
+    @shared_writer
     def set_bidder_password(self, bidder_id: int, password: str) -> None:
         if not 8 <= len(password) <= 256:
             raise ValueError("Choose a password of 8–256 characters.")
@@ -148,6 +156,7 @@ class AuthStore:
             data["bidders"][str(bidder_id)] = _record(password)
             self._save(data)
 
+    @shared_writer
     def change_bidder_password(self, bidder_id: int, current: str, password: str) -> str:
         with _file_lock:
             data = self._load()

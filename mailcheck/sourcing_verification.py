@@ -3,6 +3,8 @@ from datetime import date, datetime, timedelta, timezone
 import re
 import unicodedata
 import time
+from bisect import bisect_right
+from . import payments
 from . import native_sourcing as sheets
 from .payments import ZONE, sync_receipts
 from .sourcing_structure import check_revision
@@ -49,6 +51,9 @@ def verify(conn, tab, operation, revision, work_date):
     if not tab["account_id"]:
         raise ValueError("This sheet needs a connected account before checking applications.")
     selected = date.fromisoformat(day)
+    current = payments.today()
+    early_lower = datetime.combine(current - timedelta(days=6), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+    early_upper = datetime.combine(current + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     lower = datetime.combine(selected, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(selected + timedelta(days=7), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     payload = {"action": "verify", "revision": revision, "work_date": day}
@@ -60,17 +65,28 @@ def verify(conn, tab, operation, revision, work_date):
             for receipt in conn.execute("""SELECT company,role,received_at,message_id FROM application_receipts WHERE account_id=? AND category='application_ack'
                 AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)""",(tab['account_id'],lower,upper)):
                 add_receipt(matches,receipt)
+            early_matches = {}
+            for receipt in conn.execute("""SELECT company,role,received_at,message_id FROM application_receipts
+                WHERE account_id=? AND category='application_ack' AND julianday(received_at)>=julianday(?)
+                AND julianday(received_at)<julianday(?)""", (tab['account_id'],early_lower,early_upper)):
+                add_receipt(early_matches,receipt)
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
-            for row in conn.execute("""SELECT r.id,company.value AS company,role.value AS role,link.value AS link
+            for row in conn.execute("""SELECT r.id,r.work_date,company.value AS company,role.value AS role,link.value AS link
                 FROM native_rows r LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=?
                 LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=?
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=?
-                WHERE r.tab_id=? AND r.work_date=?""", (columns["company"], columns["link"], columns["role"], tab["id"], day)).fetchall():
+                WHERE r.tab_id=? AND (r.work_date=? OR r.work_date>?)""", (columns["company"], columns["link"], columns["role"], tab["id"], day, current.isoformat())).fetchall():
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
                     continue
-                match = receipt_match(row['company'],row['role'],matches) if (row['link'] or '').strip() else None
+                candidates = []
+                if (row['link'] or '').strip():
+                    if row['work_date'] == day:
+                        candidates.append(receipt_match(row['company'],row['role'],matches))
+                    if row['work_date'] > current.isoformat():
+                        candidates.append(receipt_match(row['company'],row['role'],early_matches))
+                match = min((match for match in candidates if match),default=None)
                 checked = bool(match)
                 if match:
                     from .sourcing_activity import confirm
@@ -84,14 +100,16 @@ def verify(conn, tab, operation, revision, work_date):
         result = sheets.snapshot(conn, tab)
         check = next(i for i, col in enumerate(result["columns"]) if col["kind"] == "check")
         result["verification"] = {"day": day, "timezone": ZONE.key,
-            "checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1) if result["row_dates"][i] == day)}
+            "checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1) if result["row_dates"][i] == day),
+            "future_checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1)
+                if result["row_dates"][i] and result["row_dates"][i] > current.isoformat() and result["row_dates"][i] != day)}
         return result
 
 
 def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, week_only=False, rebuild=False):
     """Refresh active account sheets against receipts in each row’s seven-day window.
 
-    A bounded refresh includes links from six days before its receipt window.
+    A bounded refresh includes links from six days before its receipt window and all later pre-registered dates. Recent receipts can match early work on future rows.
     Keep earlier receipts too so reconciliation never shifts an existing match
     to a later duplicate email. Passive report reads do not create check runs.
 
@@ -119,8 +137,8 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         if refresh_since:
             lower = datetime.combine(source_since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
             upper = datetime.combine(refresh_until + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-            row_scope = "((r.work_date>=? AND r.work_date<=?)"
-            row_parameters.extend((source_since.isoformat(), refresh_until.isoformat()))
+            row_scope = "(r.work_date>=?"
+            row_parameters.append(source_since.isoformat())
             if week_only:
                 event_lower = datetime.combine(refresh_since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
                 row_scope += " OR (julianday(e.confirmed_at)>=julianday(?) AND julianday(e.confirmed_at)<julianday(?)) OR (e.confirmed_at IS NOT NULL AND julianday(e.confirmed_at) IS NULL)"
@@ -154,10 +172,15 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             WHERE (t.archived=0 OR ?) AND (r.work_date IS NOT NULL OR (? AND e.confirmed_at IS NOT NULL))
             AND (trim(COALESCE(company.value,''))!='' OR trim(COALESCE(link.value,''))!='' OR e.confirmed_at IS NOT NULL)""", row_parameters).fetchall()
         if refresh_since:
-            rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"] <= refresh_until.isoformat())
+            rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"])
                     or (week_only and in_week(r["confirmed_at"]))]
         relevant = {(row["account_id"], row["work_date"]) for row in rows}
         matches = {}
+        future_dates = {}
+        for account, work_date in relevant:
+            if work_date:future_dates.setdefault(account,[]).append(work_date)
+        for dates in future_dates.values():dates.sort()
+        early_since = refresh_since or (payments.today() - timedelta(days=6))
         for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters):
             try:
                 received = datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00"))
@@ -170,6 +193,12 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                 key = (receipt["account_id"], (received_day - timedelta(days=offset)).isoformat())
                 if key in relevant and match:
                     add_receipt(matches.setdefault(key, {}),receipt)
+            # A scheduled sourcing date is not a lower bound on actual completion.
+            # Recent receipts may belong to any pre-registered future date.
+            if received_day >= early_since and match:
+                dates = future_dates.get(receipt['account_id'],[])
+                for future_day in dates[bisect_right(dates,received_day.isoformat()):]:
+                    add_receipt(matches.setdefault((receipt['account_id'],future_day),{}),receipt)
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:

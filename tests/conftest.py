@@ -19,3 +19,10 @@ def assert_smoke_checks(request, monkeypatch):
         assert cond, f"{label}: {detail}"
 
     monkeypatch.setattr(request.module, "check", checked)
+
+
+@pytest.fixture(autouse=True)
+def isolate_maintenance_lock(tmp_path,monkeypatch):
+    import os
+    if not os.environ.get('OFFERPATH_MAINTENANCE_LOCK'):
+        monkeypatch.setenv('OFFERPATH_MAINTENANCE_LOCK',str(tmp_path/'installation.lock'))

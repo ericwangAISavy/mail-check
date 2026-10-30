@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.4.0",
+    "date": "2026-10-29",
+    "title": "Portable installation backup and restore",
+    "changes": [
+      "Owner-only plain ZIP backups include the original database, all admin workspaces, settings, and sign-in accounts.",
+      "Daily automatic backups retain seven successful archives by default, with owner-managed scheduling and downloads.",
+      "Offline restore validates files and databases, rebases paths, preserves business status, creates rollback backups, and supports interrupted-restore recovery.",
+      "Restored installations use fresh credential namespaces and require mail-account reconnection."
+    ]
+  },
+  {
+    "version": "2.3.26",
+    "date": "2026-10-29",
+    "title": "Check early applications on future job lists",
+    "changes": [
+      "Match recent confirmations to pre-registered future job dates during automatic checks and manual Check applications, preserving account and role matching.",
+      "Include future rows in selected-week refresh and rebuild while keeping completion counts on the actual Chicago receipt date.",
+      "Show future-dated checked totals in the manual verification result without changing scheduled job dates."
+    ]
+  },
+  {
     "version": "2.3.25",
     "date": "2026-10-29",
     "title": "Full-height triage reading area",

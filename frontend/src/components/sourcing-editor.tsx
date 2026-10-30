@@ -650,10 +650,10 @@ export default function SourcingEditor({
           </Button>
         </div>
         <Button variant="outline" size="sm" disabled={locked || dirty || loading || !snapshot || day === "undated" || day === "all"}
-          title="Match company, role and account over seven days starting on the selected date in America/Chicago. Use company only if the email has no role. Checks are permanent."
+          title="Match the selected date and pre-registered future rows by account, company, and role. Recent early confirmations can check future-dated jobs. Use company only if the email has no role. Checks are permanent."
           onClick={() => void checkApplications()}><Check size={14} />Check applications</Button>
         {snapshot?.verification && snapshot.verification.day === day && <span className="sheet-verification-result" role="status">
-          {snapshot.verification.checked} links checked · 7 days from {day} · Chicago
+          {snapshot.verification.checked} links checked · {day}{snapshot.verification.future_checked ? ` · ${snapshot.verification.future_checked} future-dated checked` : ""} · Chicago
         </span>}
         <span className="sheet-toolbar-spacer" />
         <span className="sheet-save-status" role="status">

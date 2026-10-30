@@ -15,6 +15,9 @@ from starlette.requests import ClientDisconnect
 from pydantic import BaseModel, Field
 
 from ..bidder_access import BidderAccess, viewer_read_allowed
+from ..maintenance import MaintenanceLock, lock_path
+from ..backups import BackupLayout
+from ..backup_manager import BackupManager
 from .. import config
 from ..control_store import ControlStore, RevokedSession
 from ..workspace_workers import InstanceLock, WorkerPool
@@ -68,8 +71,9 @@ class Switch(BaseModel):
 def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True):
     if not 1<=max_workspaces<=64:raise ValueError('Choose 1–64 maximum workspaces.')
     original_config=config.config_path(); original_db=config.db_path(); original_auth=config.config_dir()/'web-auth.json'
-    store=store or ControlStore(config.config_dir()/'offerpath-control',AuthStore(lambda:original_auth),max_workspaces)
+    store=store or ControlStore(config.control_dir(),AuthStore(lambda:original_auth),max_workspaces)
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
+    backup_manager=BackupManager(BackupLayout(original_config,original_db,store.root),store._lock)
     admin_change_lock=threading.Lock()
     bidder_access=BidderAccess(store)
     model_slots=asyncio.Semaphore(1)
@@ -106,16 +110,26 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 if not await asyncio.to_thread(pool.authenticate_worker,lease[2]):
                     if leases.pop(token,None):lease[1].cancel();model_slots.release()
 
+    async def backup_loop():
+        while True:
+            await asyncio.sleep(30)
+            try:await asyncio.to_thread(backup_manager.run_due)
+            except Exception:pass  # The manager retains the error and retries; never stop other workspaces.
+
     @asynccontextmanager
     async def lifespan(app):
         loop=asyncio.get_running_loop()
-        with InstanceLock(store.root/'gateway.lock'):
+        with MaintenanceLock(lock_path(original_config)), InstanceLock(store.root/'gateway.lock'):
             worker_clients[loop]=None
             # Start independently from browser sessions, so scheduled checks survive tab closure.
             monitor=asyncio.create_task(pool.monitor()) if start_workers else None
             recovery=asyncio.create_task(recover_leases())
+            backups=asyncio.create_task(backup_loop()) if start_workers else None
             try:yield
             finally:
+                if backups:
+                    backups.cancel()
+                    with suppress(asyncio.CancelledError):await backups
                 if monitor:
                     monitor.cancel()
                     with suppress(asyncio.CancelledError):await monitor
@@ -181,6 +195,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             if not identity:
                 return JSONResponse({'error':'Sign in to continue.'},401) if path.startswith('/api/') else RedirectResponse('/login',303)
             expected=request.headers.get('x-offerpath-workspace')
+            if not expected and request.method=='GET' and path.startswith('/api/admin/backups/file/'):
+                expected=request.query_params.get('workspace')
             if path.startswith('/api/') and expected!=identity['workspace_id']:
                 return JSONResponse({'error':'Workspace changed. Reload before continuing.','workspace_changed':True},409)
             if identity['must_change_password'] and path not in ('/api/auth/password','/login'):
@@ -293,6 +309,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
 
     @app.api_route('/api/auth/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH'])
     def missing_auth(path:str):raise HTTPException(404,'Unknown authentication endpoint.')
+
+    from .backup_routes import install as install_backups
+    install_backups(app,backup_manager,owner)
+    app.state.backup_manager=backup_manager
 
     @app.get('/api/admin/users')
     def admins(request:Request):
