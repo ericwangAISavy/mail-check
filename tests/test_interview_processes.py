@@ -426,3 +426,15 @@ def test_milestone_preview_summary_is_readable_text(description, expected):
     for markup in ('<p>', '<strong>', '<li>', '<a ', '<script>', 'hidden_script()'):
         assert markup not in result
     assert len(result) <= 1000
+
+class ProcessPerformanceTests(unittest.TestCase):
+    setUp = ProcessCollectionTests.setUp
+    def test_empty_process_page_does_not_scan_saved_mail(self):
+        from mailcheck import interview_processes
+        statements=[]
+        self.conn.set_trace_callback(statements.append)
+        try:
+            self.assertEqual(interview_processes.list_processes(self.conn),[])
+        finally:
+            self.conn.set_trace_callback(None)
+        self.assertFalse(any('FROM messages' in sql for sql in statements))

@@ -221,3 +221,15 @@ it("keeps owner Settings available when background bootstrap fails",async()=>{
  await screen.findByText("Settings service reached")
  expect(api.bootstrap).toHaveBeenCalled()
 })
+
+it('does not overlap status polls when focus events arrive during a slow response',async()=>{
+ let finish!:(value:Status)=>void
+ const status=vi.spyOn(api,'status').mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByText('Your queue is clear')
+ const calls=status.mock.calls.length
+ fireEvent.focus(window);fireEvent.focus(window)
+ expect(status.mock.calls.length).toBe(calls)
+ await act(async()=>finish(idle))
+})

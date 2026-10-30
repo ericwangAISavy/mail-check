@@ -343,3 +343,39 @@ class CalendarSyncRegressionTests(unittest.TestCase):
             return httpx.Response(200,json={})
         self.assertTrue(self.collect(self.source(handler=respond))['errors'])
         self.assertEqual(len(interviews.list_events(self.conn)),1)
+
+class CalendarPerformanceTests(unittest.TestCase):
+    setUp = NativeCalendarTests.setUp
+    source = NativeCalendarTests.source
+    collect = NativeCalendarTests.collect
+    def test_bulk_source_resolution_uses_constant_queries_and_preserves_copies(self):
+        from datetime import timedelta
+        items=[]
+        for i in range(40):
+            item=event(str(i))
+            start=datetime.now(timezone.utc)+timedelta(days=1,minutes=i)
+            item['start']={'dateTime':start.isoformat(),'timeZone':'UTC'}
+            item['end']={'dateTime':(start+timedelta(minutes=1)).isoformat(),'timeZone':'UTC'}
+            items.append(item)
+        self.collect(self.source(items))
+        ids=[r[0] for r in self.conn.execute('SELECT id FROM interview_events')]
+        statements=[]
+        self.conn.set_trace_callback(statements.append)
+        try:
+            sources=interviews.event_sources_many(self.conn,ids)
+        finally:
+            self.conn.set_trace_callback(None)
+        self.assertEqual(set(sources),set(ids))
+        self.assertTrue(all(len(values)==1 for values in sources.values()))
+        self.assertLessEqual(len(statements),3)
+
+    def test_bulk_sources_preserve_duplicate_sources_and_ordering(self):
+        one=event('one',organizer={'emailAddress':{'address':'hr@acme.test'}})
+        two=event('two',organizer=one['organizer'])
+        self.collect(self.source([one,two]))
+        identity=self.conn.execute('SELECT id FROM interview_events').fetchone()[0]
+        self.conn.execute('UPDATE interview_sources SET source_received_at=NULL WHERE id=(SELECT MIN(id) FROM interview_sources)')
+        old=interviews.event_sources(self.conn,identity)
+        bulk=interviews.event_sources_many(self.conn,[identity])[identity]
+        self.assertEqual(old,[{key:value for key,value in source.items() if key!='calendar_present'} for source in bulk])
+        self.assertEqual(len(bulk),2)

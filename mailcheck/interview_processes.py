@@ -150,7 +150,9 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
             "organization": manual.get(key, key), "events": [], "milestones": [],
             "account_emails": [accounts[account_id].email] if account_id is not None else [],
             "message_count": 0, "pinned": bool(pinned) if pinned is not None else (key or "") in pins})
-    for event in interviews.list_events(conn, now=now):
+    events = interviews.list_events(conn, now=now)
+    sources = interviews.event_sources_many(conn, (event['id'] for event in events))
+    for event in events:
         # Match the Interview page's calendar evidence boundary.
         if event["extraction_rank"] < 2 or not event["start_at"]:
             continue
@@ -164,8 +166,8 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         event["assignment_reason"] = "Multiple matching manual processes" if len(matches) > 1 else None if organization else "Multiple organization domains" if domains else "No eligible organization domain"
         # Calendar display may combine retained copies. Project every enabled
         # source account, including those attached to a hidden duplicate.
-        source_accounts = {source['account_id'] for source in interviews.event_sources(conn,event['id'])
-                           if source['account_enabled']}
+        source_accounts = {source['account_id'] for source in sources[event['id']]
+                           if source['account_enabled'] and source['calendar_present']}
         for account_id in sorted(source_accounts):
             if is_removed(organization, account_id):
                 hidden_manual.add(organization)
@@ -183,7 +185,10 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
 
     # Manual names can match saved mail without a calendar event. Domain-only
     # mail still requires an established calendar group. No provider/model calls.
-    messages = conn.execute("""SELECT m.id,m.from_addr,m.from_name,m.subject,m.body_text,m.snippet,c.summary AS classification_summary,
+    # Domain processes need metadata and summaries, not full bodies for manual
+    # matching. No groups and no manual names means no mail can join this page.
+    body_projection = "m.body_text" if manual else "NULL AS body_text"
+    messages = conn.execute(f"""SELECT m.id,m.from_addr,m.from_name,m.subject,{body_projection},m.snippet,c.summary AS classification_summary,
         COALESCE(m.date_utc,m.fetched_at) AS occurred_at,
         COALESCE(NULLIF(c.summary,''),NULLIF(m.snippet,''),m.body_text,'') AS summary,
         m.provider_url,a.label,a.email,a.id AS account_id,c.category
@@ -191,7 +196,7 @@ def list_processes(conn, *, now: datetime | None = None) -> list[dict]:
         LEFT JOIN classifications c ON c.id=(SELECT id FROM classifications
             WHERE message_pk=m.id ORDER BY created_at DESC,id DESC LIMIT 1)
         ORDER BY m.id"""
-    )
+    ) if groups or manual else ()
     for message in messages:
         domains = organization_domains([], message["from_addr"], own_emails=own)
         matches = _manual_matches(manual, " ".join(str(message[field] or "") for field in

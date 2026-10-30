@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Loading, PageHeading, ToastProvider, useToast } from "@/components/common"
 import type { Bootstrap } from "@/lib/types"
-import TriagePage from "@/pages/triage"
 import { AuthGate, useAuth } from "@/components/auth"
 
+const TriagePage = lazy(() => import("@/pages/triage"))
 const SourcingPage = lazy(() => import("@/pages/sourcing"))
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
 const PaymentsPage = lazy(() => import("@/pages/payments"))
@@ -105,10 +105,16 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
   useEffect(() => {
     let stopped = false
     let timer = 0
+    let polling = false
+    let latestRunning = false
     const poll = async () => {
+      if (stopped || polling) return
+      polling = true
+      window.clearTimeout(timer)
       try {
         const current = await api.status()
         if (stopped) return
+        latestRunning = current.running
         setStatus(current)
         if (seen.current === null) seen.current = current.completion_id
         else if (seen.current !== current.completion_id) {
@@ -144,7 +150,8 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
           } catch { /* Notification permissions and browser settings are optional. */ }
         }
       } catch { if (!stopped) setStatusValue(null) }
-      if (!stopped) timer = window.setTimeout(poll, status?.running ? 1000 : Date.now() < fastPollUntil.current ? 2000 : 30000)
+      polling = false
+      if (!stopped) timer = window.setTimeout(poll, latestRunning ? 1000 : Date.now() < fastPollUntil.current ? 2000 : 30000)
     }
     const focus = () => { window.clearTimeout(timer); void poll() }
     const checkStarted = () => { fastPollUntil.current = Date.now() + 10_000; focus() }
@@ -154,7 +161,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
     window.addEventListener("focus", focus)
     window.addEventListener("mailcheck:settings-updated", focus)
     return () => { window.removeEventListener("mailcheck:check-started", checkStarted); stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
-  }, [queryClient, toast, setStatus, status?.running])
+  }, [queryClient, toast, setStatus])
 
   const runCheck = async () => {
     try {

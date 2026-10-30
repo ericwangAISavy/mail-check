@@ -577,3 +577,51 @@ it("warns which bidders have no links on the selected date and hides it for Unda
   fireEvent.click(screen.getByRole("button", {name: /^Undated/}));
   await waitFor(() => expect(document.querySelector(".sourcing-missing-links")).toBeNull());
 });
+
+it('does not discard a slow initial sheet response when focus triggers another refresh', async () => {
+  let finish!: (value: Response) => void;
+  const original=vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+    ? new Promise<Response>(resolve=>{finish=resolve}) : original(url,init));
+  mount();
+  await screen.findByText('Loading your spreadsheet…');
+  fireEvent(window,new Event('focus'));
+  fireEvent(window,new Event('mailcheck:check-completed'));
+  expect(vi.mocked(fetch).mock.calls.filter(([url])=>String(url)==='/api/sourcing/tabs/1')).toHaveLength(1);
+  await act(async()=>finish({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>snapshot} as Response));
+  expect((await screen.findByLabelText('Saved company')).textContent).toBe('Acme');
+});
+
+it('ends a stalled sheet load with a retryable timeout instead of an endless spinner',async()=>{
+  const timer=vi.spyOn(window,'setTimeout');
+  const original=vi.mocked(fetch).getMockImplementation()!;
+  let signal:AbortSignal|undefined;
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+    ? new Promise<Response>((_resolve,reject)=>{
+        signal=init?.signal as AbortSignal;
+        signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')));
+      }) : original(url,init));
+  mount();await screen.findByText('Loading your spreadsheet…');
+  const timeout=timer.mock.calls.filter(([,delay])=>delay===30_000).at(-1)?.[0];
+  expect(timeout).toBeTypeOf('function');
+  await act(async()=>{(timeout as ()=>void)()});
+  expect(signal?.aborted).toBe(true);
+  expect((await screen.findByRole('alert')).textContent).toMatch(/took too long/i);
+  expect(screen.queryByText('Loading your spreadsheet…')).toBeNull();
+  vi.mocked(fetch).mockImplementation(original);
+  fireEvent.click(screen.getByRole('button',{name:'Reload sheet'}));
+  expect((await screen.findByLabelText('Saved company')).textContent).toBe('Acme');
+});
+
+it('cancels the old sheet request when leaving the page',async()=>{
+  const original=vi.mocked(fetch).getMockImplementation()!;
+  let signal:AbortSignal|undefined;
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+    ? new Promise<Response>((_resolve,reject)=>{
+        signal=init?.signal as AbortSignal;
+        signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')));
+      }) : original(url,init));
+  mount();await screen.findByText('Loading your spreadsheet…');
+  await act(async()=>cleanup());
+  expect(signal?.aborted).toBe(true);
+});

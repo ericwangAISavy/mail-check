@@ -16,7 +16,27 @@ function errorText(value:unknown):string {
   return text.length<=400&&!/<[!/?a-z][^>]*>/i.test(text)?text:""
 }
 
+/** Bound page reads through body parsing; writes retain their completion semantics. */
 export async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  if (!["GET", "HEAD", "OPTIONS"].includes((init.method || "GET").toUpperCase())) return performRequest<T>(url, init)
+  const controller = new AbortController()
+  const cancel = () => controller.abort(init.signal?.reason)
+  if (init.signal?.aborted) cancel()
+  else init.signal?.addEventListener("abort", cancel, {once: true})
+  let timedOut = false
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort() }, 30_000)
+  try {
+    return await performRequest<T>(url, {...init, signal: controller.signal})
+  } catch (error) {
+    if (timedOut) throw new ApiError("OfferPath took too long to respond. Check your connection and try again.", 504)
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+    init.signal?.removeEventListener("abort", cancel)
+  }
+}
+
+async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   const requestWorkspace = workspaceId
   const mutating=!["GET","HEAD","OPTIONS"].includes((init.method||"GET").toUpperCase())
   const advice=mutating?"Check whether the action completed before trying again.":"Please try again shortly."

@@ -116,6 +116,7 @@ export default function SourcingEditor({
     base = useRef(snapshot),
     auxDirty = useRef(false),
     loadSequence = useRef(0),
+    pendingLoad = useRef<AbortController | null>(null),
     lastAction = useRef<(() => Promise<Snapshot>) | null>(null),
     saveOperation = useRef<{ body: string; id: string } | null>(null),
     resizeTimer = useRef(0);
@@ -130,6 +131,7 @@ export default function SourcingEditor({
     locked = saving || !!error || importOpen;
   const load = useCallback(async () => {
     if (
+      pendingLoad.current ||
       inFlight.current ||
       draft.current.length ||
       auxDirty.current ||
@@ -137,9 +139,16 @@ export default function SourcingEditor({
     )
       return;
     const sequence = ++loadSequence.current;
+    const controller = new AbortController();
+    pendingLoad.current = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 30_000);
     setLoading(true);
     try {
-      const data = await request<Snapshot>(`/api/sourcing/tabs/${tab.id}`);
+      const data = await request<Snapshot>(`/api/sourcing/tabs/${tab.id}`, { signal: controller.signal });
       if (
         alive.current &&
         sequence === loadSequence.current &&
@@ -158,9 +167,11 @@ export default function SourcingEditor({
         lastAction.current = null;
       }
     } catch (e) {
-      if (alive.current)
-        setError(e instanceof Error ? e.message : "Could not load sheet.");
+      if (alive.current && sequence === loadSequence.current)
+        setError(timedOut ? "Loading this sheet took too long. Check your connection and reload the sheet." : e instanceof Error ? e.message : "Could not load sheet.");
     } finally {
+      window.clearTimeout(timeout);
+      if (pendingLoad.current === controller) pendingLoad.current = null;
       if (alive.current && sequence === loadSequence.current) setLoading(false);
     }
   }, [tab.id]);
@@ -169,6 +180,9 @@ export default function SourcingEditor({
     void load();
     return () => {
       alive.current = false;
+      loadSequence.current++;
+      pendingLoad.current?.abort();
+      pendingLoad.current = null;
       window.clearTimeout(resizeTimer.current);
     };
   }, [load]);
@@ -213,6 +227,8 @@ export default function SourcingEditor({
       if (inFlight.current) return;
       const starting = base.current;
       loadSequence.current++;
+      pendingLoad.current?.abort();
+      pendingLoad.current = null;
       setLoading(false);
       actionContext.current = { structural, expected };
       inFlight.current = true;

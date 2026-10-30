@@ -10,6 +10,8 @@ def _instant(value):
     except (ValueError,TypeError):return None
 
 def decorate(conn,processes,now):
+    if not processes:
+        return
     now=_instant(now.isoformat())
     messages={r['id']:dict(r) for r in conn.execute('SELECT id,account_id,message_id,thread_id,references_json,from_addr,COALESCE(date_utc,fetched_at) AS contact_at FROM messages')}
     from .interview_processes import organization_domains

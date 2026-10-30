@@ -112,3 +112,30 @@ it("rejects HTML returned to a CSV download without creating a file",async()=>{
  await expect(downloadFile("/api/sourcing/tabs/1/export","jobs.csv")).rejects.toThrow("unexpected response")
  expect(create).not.toHaveBeenCalled();create.mockRestore()
 })
+
+it('times out stalled read requests including response body reads',async()=>{
+ vi.useFakeTimers()
+ try {
+  vi.stubGlobal('fetch',vi.fn((_url,init)=>new Promise((_resolve,reject)=>{
+   init.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')))
+  })))
+  const pending=request('/api/dashboard')
+  const rejected=expect(pending).rejects.toThrow(/took too long/i)
+  await vi.advanceTimersByTimeAsync(30_000)
+  await rejected
+ } finally {vi.useRealTimers()}
+})
+
+it('keeps the read deadline active while parsing a stalled response body',async()=>{
+ vi.useFakeTimers()
+ try {
+  vi.stubGlobal('fetch',vi.fn(async(_url,init)=>({
+   ok:true,headers:new Headers({'content-type':'application/json'}),
+   json:()=>new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))))
+  })))
+  const pending=request('/api/interviews')
+  const rejected=expect(pending).rejects.toThrow(/took too long/i)
+  await vi.advanceTimersByTimeAsync(30_000)
+  await rejected
+ } finally {vi.useRealTimers()}
+})

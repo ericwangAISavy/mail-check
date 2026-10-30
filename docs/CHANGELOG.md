@@ -2,6 +2,21 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.4.3 — 2026-10-30
+
+Faster calendar pages and resilient page loading
+
+- Batch calendar source resolution to avoid repeated full-history scans and database queries on calendar and interview process pages.
+- Avoid unused full-mail reads on process pages and load Triage code only when its route is opened.
+- Prevent overlapping status polls and bound page-read requests with a clear timeout while preserving write completion behavior.
+
+## 2.4.2 — 2026-10-30
+
+Prevent endless spreadsheet loading
+
+- Prevent overlapping sheet refreshes from discarding slow responses and leaving the spreadsheet loading indefinitely.
+- Cancel obsolete sheet requests and show a retryable error after 30 seconds while preserving existing data and drafts.
+
 ## 2.4.1 — 2026-10-30
 
 Reliable Outlook calendar synchronization

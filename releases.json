@@ -1,5 +1,24 @@
 [
   {
+    "version": "2.4.3",
+    "date": "2026-10-30",
+    "title": "Faster calendar pages and resilient page loading",
+    "changes": [
+      "Batch calendar source resolution to avoid repeated full-history scans and database queries on calendar and interview process pages.",
+      "Avoid unused full-mail reads on process pages and load Triage code only when its route is opened.",
+      "Prevent overlapping status polls and bound page-read requests with a clear timeout while preserving write completion behavior."
+    ]
+  },
+  {
+    "version": "2.4.2",
+    "date": "2026-10-30",
+    "title": "Prevent endless spreadsheet loading",
+    "changes": [
+      "Prevent overlapping sheet refreshes from discarding slow responses and leaving the spreadsheet loading indefinitely.",
+      "Cancel obsolete sheet requests and show a retryable error after 30 seconds while preserving existing data and drafts."
+    ]
+  },
+  {
     "version": "2.4.1",
     "date": "2026-10-30",
     "title": "Reliable Outlook calendar synchronization",

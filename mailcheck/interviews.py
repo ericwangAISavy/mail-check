@@ -542,6 +542,41 @@ def display_event(row: dict, *, now=None) -> dict:
     return value
 
 
+def event_sources_many(conn, event_ids) -> dict[int, list[dict]]:
+    """Resolve retained copies in bulk, comparing only equal-start bookings.
+
+    Calendar lists used to scan every event and issue a source query per event.
+    Two reads now serve the entire list, without caching private workspace data.
+    """
+    requested = set(event_ids)
+    if not requested:
+        return {}
+    events = {row['id']: dict(row) for row in conn.execute('SELECT * FROM interview_events')}
+    by_start = {}
+    for event in events.values():
+        if event['start_at']:
+            by_start.setdefault(_utc(event['start_at']), []).append(event)
+    sources = {}
+    source_order = {}
+    for row in conn.execute("""SELECT s.*,a.label AS account_label,a.email AS account_email,
+        a.enabled AS account_enabled,COALESCE(c.present,1) AS calendar_present
+        FROM interview_sources s JOIN accounts a ON a.id=s.account_id
+        LEFT JOIN interview_calendar_state c ON c.source_id=s.id
+        ORDER BY julianday(s.source_received_at) DESC,s.id DESC"""):
+        source_order[row['id']] = len(source_order)
+        sources.setdefault(row['event_id'], []).append(dict(row))
+    result = {}
+    for identity in requested:
+        event = events.get(identity)
+        copies = {identity}
+        if event and event['start_at']:
+            copies.update(other['id'] for other in by_start.get(_utc(event['start_at']), [])
+                          if _same_booking(event, other))
+        result[identity] = sorted((source for copy in copies for source in sources.get(copy, [])),
+            key=lambda source: source_order[source['id']])
+    return result
+
+
 def event_sources(conn, event_id: int) -> list[dict]:
     ids=_copy_ids(conn,event_id)
     marks=','.join('?' for _ in ids)
