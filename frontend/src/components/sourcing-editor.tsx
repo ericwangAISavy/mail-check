@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/dialog";
 import SourcingDraftGuard from "./sourcing-draft-guard";
 import SourcingImport from "./sourcing-import";
+import SourcingProgress, { useSourcingProgress } from "./sourcing-progress";
 import SourcingDays from "./sourcing-days";
 import { SheetGrid } from "./sourcing-grid";
 type History = { undo: Change[]; redo: Change[] };
@@ -86,6 +87,7 @@ export default function SourcingEditor({
     [importDirty, setImportDirty] = useState(false),
     [typing, setTyping] = useState(false);
   const client = useQueryClient();
+  const {progress,run:runJobOperation} = useSourcingProgress(tab.id,snapshot?.revision);
   const compactAfterPaste = useRef(false);
   const [exportError,setExportError] = useState("");
   const [rowDeleteNotice, setRowDeleteNotice] = useState("");
@@ -281,14 +283,14 @@ export default function SourcingEditor({
         ...(compactAfterPaste.current ? {compact_rows: true} : {}),
       };
       await execute(
-        () => api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/save`, payload),
+        () => compactAfterPaste.current ? runJobOperation(`/api/sourcing/tabs/${tab.id}/save`,payload) : api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/save`, payload),
         false,
         draft.current,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
     }
-  }, [execute, tab.id, day]);
+  }, [execute, tab.id, day, runJobOperation]);
   useEffect(() => {
     if (
       !changes.length ||
@@ -504,7 +506,7 @@ export default function SourcingEditor({
       rows,
     };
     await execute(async () => {
-      const result = await api.post<Snapshot>(
+      const result = await runJobOperation(
         `/api/sourcing/tabs/${tab.id}/append`,
         payload,
       );
@@ -829,7 +831,8 @@ export default function SourcingEditor({
           </div>
         </div>
       )}
-      {snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies.</p>}
+      {!importOpen && <SourcingProgress progress={progress}/>}
+      {!progress && snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies.</p>}
       {exportError && <p role="alert" className="inline-error">{exportError}</p>}
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (
@@ -919,6 +922,8 @@ export default function SourcingEditor({
             {importOpen && (
               <SourcingImport
                 snapshot={snapshot}
+                runOperation={runJobOperation}
+                progress={progress}
                 day={day}
                 onBusy={(busy) => {
                   if (busy) loadSequence.current++;

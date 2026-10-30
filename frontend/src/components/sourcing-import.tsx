@@ -1,6 +1,7 @@
 import { operationId } from "@/lib/operation-id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import SourcingProgress, {type JobProgress,type RunJobOperation} from "./sourcing-progress";
 import { csvDestinations, parseCSV, type Snapshot } from "@/lib/sourcing";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,12 +11,16 @@ import {
 } from "@/components/ui/dialog";
 export default function SourcingImport({
   snapshot,
+  runOperation,
+  progress,
   onSaved,
   onDirty,
   onBusy,
   day = "all",
 }: {
   day?: string;
+  runOperation?: RunJobOperation;
+  progress?: JobProgress|null;
   snapshot: Snapshot;
   onSaved: (snapshot: Snapshot) => void;
   onDirty: (dirty: boolean) => void;
@@ -106,7 +111,7 @@ export default function SourcingImport({
     if (operation.current?.payload !== key)
       operation.current = { payload: key, id: operationId() };
     try {
-      const result = await api.post<Snapshot>(
+      const result = await (runOperation || api.post<Snapshot>)(
         `/api/sourcing/tabs/${snapshot.id}/import`,
         { ...payload, operation: operation.current.id },
       );
@@ -149,6 +154,7 @@ export default function SourcingImport({
         />
       </label>
       {reading && <p role="status">Reading file…</p>}
+      <SourcingProgress progress={progress||null}/>
       <textarea
         aria-label="CSV content"
         value={text}

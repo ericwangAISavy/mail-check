@@ -100,6 +100,9 @@ class Archive(BaseModel):
 
 def install(app, frontend_page, secure_cookies):
     router = APIRouter()
+    from ..sourcing_progress import ProgressStore
+    from contextlib import nullcontext
+    progress = ProgressStore()
 
     def principal(req):
         if getattr(req.state,'viewer_read_only',False):
@@ -116,11 +119,12 @@ def install(app, frontend_page, secure_cookies):
         except PermissionError:
             raise HTTPException(404, "Sheet not found.")
 
-    def mutation(tab_id, req, function):
+    def mutation(tab_id, req, function, operation=None):
         with db.session() as conn:
             tab = owned(conn, tab_id, req)
             try:
-                return function(conn, tab)
+                with progress.track(tab_id, operation) if operation else nullcontext():
+                    return function(conn, tab)
             except FileExistsError as exc:
                 raise HTTPException(409, str(exc))
             except ValueError as exc:
@@ -263,6 +267,13 @@ def install(app, frontend_page, secure_cookies):
         admin(req)
         return mutation(tab_id, req, lambda conn, tab: sheets.delete_tab(conn, tab, body.revision))
 
+    @router.get("/api/sourcing/tabs/{tab_id}/progress/{operation}")
+    def operation_progress(tab_id: int, operation: uuid.UUID, req: Request):
+        admin(req)
+        with db.session() as conn:
+            owned(conn, tab_id, req)
+        return progress.get(tab_id, str(operation)) or {"stage":"preparing","processed":0,"total":None}
+
     @router.get("/api/sourcing/tabs/{tab_id}")
     def snapshot(tab_id: int, req: Request):
         with db.session() as conn:
@@ -282,6 +293,7 @@ def install(app, frontend_page, secure_cookies):
                 work_date=body.work_date,
                 compact_rows=body.compact_rows,
             ),
+            operation=str(body.operation),
         )
 
     @router.post("/api/sourcing/tabs/{tab_id}/structure")
@@ -321,6 +333,7 @@ def install(app, frontend_page, secure_cookies):
                 body.rows,
                 work_date=body.work_date,
             ),
+            operation=str(body.operation),
         )
 
     @router.post("/api/sourcing/tabs/{tab_id}/import")
@@ -338,6 +351,7 @@ def install(app, frontend_page, secure_cookies):
                 has_header=body.has_header,
                 work_date=body.work_date,
             ),
+            operation=str(body.operation),
         )
 
     @router.get("/api/sourcing/tabs/{tab_id}/export")

@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.5",
+    "date": "2026-10-30",
+    "title": "Cleaner sourcing toolbar",
+    "changes": [
+      "Remove thin vertical dividers between job-sourcing toolbar button groups."
+    ]
+  },
+  {
+    "version": "2.4.4",
+    "date": "2026-10-30",
+    "title": "Job filtering progress",
+    "changes": [
+      "Show live row-based progress while pasted jobs and CSV imports are filtered for duplicate links and blocked companies.",
+      "Show 100 percent only once the saved filtered sheet is rendered, with clear failure states that preserve existing content."
+    ]
+  },
+  {
     "version": "2.4.3",
     "date": "2026-10-30",
     "title": "Faster calendar pages and resilient page loading",

@@ -21,11 +21,13 @@ vi.mock("@/components/sourcing-grid", () => ({
     disabled,
     onEditingChange,
     onSelection,
+    onAppendRows,
     view,
   }: {
     view?: unknown;
     snapshot: { rows: { value: string }[][] };
     changes: { value: string }[];
+    onAppendRows?: (rows: string[][]) => void;
     onChange: (changes: unknown[]) => void;
     disabled: boolean;
     onEditingChange?: (active: boolean) => void;
@@ -34,6 +36,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     gridViews.values.push(view);
     return (
       <div>
+        <button disabled={disabled} onClick={()=>onAppendRows?.([['New company','Engineer','https://jobs.test/new']])}>Paste new jobs</button>
         <output aria-label="Saved company">
           {snapshot.rows[1]?.[0]?.value}
         </output>
@@ -625,3 +628,29 @@ it('cancels the old sheet request when leaving the page',async()=>{
   await act(async()=>cleanup());
   expect(signal?.aborted).toBe(true);
 });
+
+
+it('shows real filtering progress and reaches 100 only when the saved sheet is displayed',async()=>{
+ let finish!:(value:unknown)=>void
+ const post=vi.spyOn(api,'post').mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
+ const original=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation((url,init)=>String(url).includes('/progress/')
+  ? Promise.resolve({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>({stage:'filtering',processed:2,total:5})} as Response)
+  : original(url,init))
+ mount();fireEvent.click(await screen.findByRole('button',{name:'Paste new jobs'}))
+ await waitFor(()=>expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('40'))
+ expect(screen.getByLabelText('Saved company').textContent).toBe('Acme')
+ const result={...snapshot,revision:'two',rows:[[],[{...snapshot.rows[1][0],value:'New company',display:'New company'}]],filtered:{duplicates:1,blocked_companies:2}}
+ await act(async()=>finish(result))
+ await waitFor(()=>expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100'))
+ expect(screen.getByLabelText('Saved company').textContent).toBe('New company')
+ expect(post).toHaveBeenCalledTimes(1)
+})
+
+it('never reports 100 percent when adding jobs fails',async()=>{
+ vi.spyOn(api,'post').mockRejectedValue(new Error('Could not save jobs'))
+ mount();fireEvent.click(await screen.findByRole('button',{name:'Paste new jobs'}))
+ await screen.findByText('Could not save jobs')
+ expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).not.toBe('100')
+ expect(screen.getByLabelText('Saved company').textContent).toBe('Acme')
+})

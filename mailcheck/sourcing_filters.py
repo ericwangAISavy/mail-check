@@ -38,7 +38,9 @@ def set_companies(conn,names):
 def filter_rows(conn,tab,ids):
     """Only supplied incoming rows can be deleted. Keep the first incoming copy."""
     from .sourcing_structure import reorder, ordered_rows
+    from .sourcing_progress import report
     ids=set(ids)
+    report(0,len(ids))
     summary={'duplicates':0,'blocked_companies':0}
     if not ids:return summary
     blocked={company_key(name) for name in companies(conn)}
@@ -50,8 +52,12 @@ def filter_rows(conn,tab,ids):
     values={}
     for row in rows:values.setdefault(row['id'],{})[row['kind']]=row['value']
     seen={link_key(v['link']) for key,v in values.items() if key not in ids and v.get('link','').strip()}
+    processed=0
     for key,v in values.items():
         if key not in ids:continue
+        processed+=1
+        if processed % 16 == 0:
+            report(processed,len(ids))
         link=link_key(v.get('link',''))
         # Incomplete rows are checked once their job URL is entered.
         if not link:continue
@@ -61,6 +67,7 @@ def filter_rows(conn,tab,ids):
             conn.execute('DELETE FROM native_rows WHERE id=? AND tab_id=?',(key,tab['id']))
             summary[reason]+=1
         else:seen.add(link)
+    report(len(ids),len(ids))
     if sum(summary.values()):reorder(conn,ordered_rows(conn,tab['id']))
     return summary
 

@@ -2,6 +2,19 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.4.5 — 2026-10-30
+
+Cleaner sourcing toolbar
+
+- Remove thin vertical dividers between job-sourcing toolbar button groups.
+
+## 2.4.4 — 2026-10-30
+
+Job filtering progress
+
+- Show live row-based progress while pasted jobs and CSV imports are filtered for duplicate links and blocked companies.
+- Show 100 percent only once the saved filtered sheet is rendered, with clear failure states that preserve existing content.
+
 ## 2.4.3 — 2026-10-30
 
 Faster calendar pages and resilient page loading
