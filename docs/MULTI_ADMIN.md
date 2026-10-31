@@ -70,7 +70,19 @@ for private operational information.
 This is a bounded single-host design, not a claim of unlimited capacity or a
 multi-host deployment. Tests exercise two real workers on Linux. Native Windows
 multi-process and production load verification are required before expanding the
-workspace limit; Windows web servers keep the existing selector-loop workaround.
+workspace limit. Windows servers now use the native Proactor (IOCP) loop rather
+than the older forced Selector workaround. A failed native listening socket
+triggers lifespan cleanup and a nonzero server exit instead of leaving the
+process alive without a working listener. Workspace supervision can then notice
+the exited worker. A narrowly identified WinError 10054 during an already-closing
+Proactor connection completes socket cleanup; unrelated errors remain visible.
+
+If an existing Windows instance repeatedly reports WinError 10022 from
+`BaseSelectorEventLoop._accept_connection`, press Ctrl+C and restart with the
+updated application using the same launch command and flags. If listener failures
+continue, retain the first traceback and check whether the host network or VPN
+changed at that time. No database reset or account reconnection is part of this
+fix. Native Windows network/VPN transitions still require testing on the host.
 
 ## Reverting the feature
 

@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.4.6",
+    "date": "2026-10-30",
+    "title": "Windows HTTP listener reliability",
+    "changes": [
+      "Use the native Windows IOCP event loop instead of the forced selector loop that could repeatedly log WinError 10022 and stop accepting requests.",
+      "Finish cleanup after closing-connection resets and shut down clearly if a Windows listening socket fails, while keeping application errors visible."
+    ]
+  },
+  {
     "version": "2.4.5",
     "date": "2026-10-30",
     "title": "Cleaner sourcing toolbar",

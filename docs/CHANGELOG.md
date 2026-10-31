@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.4.6 — 2026-10-30
+
+Windows HTTP listener reliability
+
+- Use the native Windows IOCP event loop instead of the forced selector loop that could repeatedly log WinError 10022 and stop accepting requests.
+- Finish cleanup after closing-connection resets and shut down clearly if a Windows listening socket fails, while keeping application errors visible.
+
 ## 2.4.5 — 2026-10-30
 
 Cleaner sourcing toolbar
