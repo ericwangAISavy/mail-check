@@ -1,0 +1,11 @@
+import{r as c,j as g}from"./index-Cq04HYBv.js";function f({html:d}){const n=c.useRef(null),a=c.useRef(null),[i,u]=c.useState({foreground:"#e7edf4",background:"#071118",link:"#00c8ed",border:"#24404c"});c.useEffect(()=>{const t=()=>{const e=getComputedStyle(document.documentElement);u({foreground:e.getPropertyValue("--foreground").trim(),background:e.getPropertyValue("--card").trim(),link:e.getPropertyValue("--primary").trim(),border:e.getPropertyValue("--border").trim()})};t();const r=new MutationObserver(t);return r.observe(document.documentElement,{attributes:!0,attributeFilter:["class","data-theme"]}),()=>{var e;r.disconnect(),(e=a.current)==null||e.disconnect()}},[]);const p=`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${d}<style>
+    html { overflow-x: auto; }
+    html, body { height: auto !important; min-height: 0 !important; max-height: none !important; }
+    body { margin: 0; padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; overflow-wrap: break-word; }
+    body, body * { color: ${i.foreground} !important; background-color: transparent !important; background-image: none !important; border-color: ${i.border} !important; }
+    html, body { background-color: ${i.background} !important; }
+    a, a * { color: ${i.link} !important; }
+    img { max-width: 100%; object-fit: contain; }
+    table { max-width: 100%; }
+    pre { white-space: pre-wrap; }
+  </style></body></html>`,b=()=>{var e,l,s;(e=a.current)==null||e.disconnect();const t=(s=(l=n.current)==null?void 0:l.contentDocument)==null?void 0:s.body;if(!t||!n.current)return;const r=()=>{const o=n.current,m=o==null?void 0:o.contentDocument;!o||!m||(o.style.height="80px",o.style.height=`${Math.max(80,m.documentElement.scrollHeight,t.scrollHeight)+20}px`)};r(),a.current=new ResizeObserver(r),a.current.observe(t)};return g.jsx("iframe",{ref:n,className:"email-original",title:"Original email content",sandbox:"allow-same-origin allow-popups allow-popups-to-escape-sandbox",referrerPolicy:"no-referrer",srcDoc:p,onLoad:b})}export{f as E};

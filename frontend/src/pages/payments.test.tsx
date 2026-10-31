@@ -29,7 +29,7 @@ it("shows only estimated and confirmed amounts without payment metadata", async 
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
   const row=(await screen.findByRole("rowheader",{name:/Alex/})).closest("tr")!
-  expect(within(row).getByLabelText("Estimated / confirmed payment").textContent).toBe("— / $10.25")
+  expect(within(row).getByLabelText("Estimated / confirmed payment").textContent).toBe("Rate not set / $10.25")
   expect(screen.queryByText("Count changed since payment")).toBeNull()
   expect(screen.queryByText("Paid by bank")).toBeNull()
   expect(screen.queryByText(/applications at recording/)).toBeNull()
@@ -56,7 +56,7 @@ it("shows daily and weekly totals to guests without management or payment contro
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 3","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","— / —"])
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 3","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Rate not set / UnavailableAsk your admin to set your payment rate."])
   expect(screen.queryByRole("button", { name: /Edit confirmed payment for Alex/ })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
@@ -191,4 +191,47 @@ it("offers full rebuild for the displayed week", async () => {
   mount(); await screen.findByRole("rowheader", {name:/Alex/})
   fireEvent.click(screen.getByRole("button", {name:"Fully rebuild this week"}))
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"rebuild"}))
+})
+
+it('explains missing Nifemi rates and saves a rate during an in-progress week',async()=>{
+ let report:any=data();report.today='2026-10-17';Object.assign(report.bidders[0],{name:'Nifemi',daily:[1,9,0,0,0,0,0],total:10,pay_per_bid:null,adjustment_percent:'20',calculated_amount_cents:null,payable_amount_cents:null})
+ vi.mocked(request).mockImplementation(async()=>report)
+ vi.mocked(api.post).mockImplementation(async()=>{
+  report={...report,bidders:report.bidders.map((b:any)=>({...b,pay_per_bid:'0.05',calculated_amount_cents:60,payable_amount_cents:60}))};return {ok:true}
+ })
+ mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Set payment rate for Nifemi'}))
+ expect((screen.getByLabelText('Pay per bid (USD)') as HTMLInputElement).value).toBe('')
+ fireEvent.change(screen.getByLabelText('Pay per bid (USD)'),{target:{value:'0.05'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save rate'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/rate',{pay_per_bid:'0.05',adjustment_percent:'20'}))
+ const row=(await screen.findByRole('rowheader',{name:/Nifemi/})).closest('tr')!
+ await waitFor(()=>expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$0.60 / $0.60'))
+})
+
+it('explains unavailable amounts to bidders without offering financial editing',async()=>{
+ const report:any=data();Object.assign(report.bidders[0],{name:'Nifemi',pay_per_bid:null,calculated_amount_cents:null,payable_amount_cents:null})
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ const row=(await screen.findByRole('rowheader',{name:/Nifemi/})).closest('tr')!
+ expect(within(row).getByText('Rate not set')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:/Set payment rate/})).toBeNull()
+ expect(within(row).getByText(/Ask your admin/)).toBeTruthy()
+})
+
+it('keeps the entered rate and missing-rate explanation when saving fails',async()=>{
+ vi.mocked(api.post).mockRejectedValue(new Error('Could not save rate'))
+ mount();fireEvent.click(await screen.findByRole('button',{name:'Set payment rate for Alex'}))
+ fireEvent.change(screen.getByLabelText('Pay per bid (USD)'),{target:{value:'0.07'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save rate'}))
+ await screen.findByText('Could not save rate')
+ expect((screen.getByLabelText('Pay per bid (USD)') as HTMLInputElement).value).toBe('0.07')
+ expect(screen.getByRole('button',{name:'Set payment rate for Alex'})).toBeTruthy()
+})
+
+it('displays an explicitly zero rate as zero money instead of a missing rate',async()=>{
+ const report:any=data();Object.assign(report.bidders[0],{pay_per_bid:'0',calculated_amount_cents:0,payable_amount_cents:0})
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ const row=(await screen.findByRole('rowheader',{name:/Alex/})).closest('tr')!
+ expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$0.00 / $0.00')
+ expect(within(row).queryByText('Rate not set')).toBeNull()
 })

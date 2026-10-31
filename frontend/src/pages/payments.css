@@ -130,3 +130,5 @@
 .bidder-access { margin-block: 22px; padding-block: 18px; border-block: 1px solid var(--border); }
 .bidder-access h3 { margin: 0; }
 .bidder-access .payment-inline-form { margin-block: 14px; }
+
+.payment-rate-entry{padding:16px 20px;margin-bottom:16px}.payment-rate-entry p{color:var(--muted-foreground);font-size:13px;line-height:1.5;margin:8px 0 12px}.payment-missing-rate{margin-top:4px;color:var(--muted-foreground);font-size:12px}.payment-missing-rate .btn{height:28px;min-height:28px;padding:2px 6px}

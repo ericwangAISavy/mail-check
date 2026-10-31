@@ -17,6 +17,7 @@ const SourcingPage = lazy(() => import("@/pages/sourcing"))
 const DashboardPage = lazy(() => import("@/pages/dashboard"))
 const PaymentsPage = lazy(() => import("@/pages/payments"))
 const InterviewsPage = lazy(() => import("@/pages/interviews"))
+const InterviewPipelinePage = lazy(() => import("@/pages/interview-pipeline"))
 const InterviewProcessesPage = lazy(() => import("@/pages/interview-processes"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
 const AdminManagement = lazy(() => import("@/pages/admin-management"))
@@ -26,7 +27,7 @@ const sections = [
   { to: "/", label: "Triage", icon: Inbox },
   { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { to: "/interviews", label: "Interview", icon: CalendarDays },
-  { to: "/interview-processes", label: "Interview processes", icon: Workflow },
+  { to: "/interview-processes", label: "Interview pipeline", icon: Workflow },
   { to: "/sourcing", label: "Job sourcing", icon: BriefcaseBusiness },
   { to: "/payments", label: "Bidder management", icon: UsersRound },
   { to: "/accounts", label: "Accounts", icon: Mails },
@@ -86,7 +87,7 @@ function Countdown({ nextIn, receivedAt, onDue }: { nextIn: number; receivedAt: 
 function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
   const {session}=useAuth()
   const canManageSettings=!session?.workspace_id || !!session.is_owner
-  const calendarOnly = ["/interviews", "/interview-processes"].includes(useLocation().pathname)
+  const calendarOnly = ["/interviews", "/interview-processes", "/interview-processes/legacy"].includes(useLocation().pathname)
   const queryClient = useQueryClient()
   const toast = useToast()
   const [status, setStatusValue] = useState<Awaited<ReturnType<typeof api.status>> | null>(null)
@@ -126,6 +127,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
             queryClient.invalidateQueries({ queryKey: ["reader"] }),
             queryClient.invalidateQueries({ queryKey: ["interviews"] }),
+            queryClient.invalidateQueries({ queryKey: ["pipeline"] }),
           ])
           window.dispatchEvent(new Event("mailcheck:check-completed"))
           toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
@@ -220,7 +222,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
 
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
       <header className="topbar">
-        <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname)?.label || "Triage"}</strong>{location.pathname === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}><strong>{bootstrap.counts.applications_today.toLocaleString()}</strong><span>today</span></span>}</div></div>
+        <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong>{location.pathname === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}><strong>{bootstrap.counts.applications_today.toLocaleString()}</strong><span>today</span></span>}</div></div>
         <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? `${session?.bidder_name || "Bidder"} · Read only` : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
@@ -230,7 +232,8 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage bootstrap={bootstrap} readOnly={!admin} />} />
         <Route path="/interviews" element={admin ? <InterviewsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/interview-processes" element={admin ? <InterviewProcessesPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/interview-processes" element={admin ? <InterviewPipelinePage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/interview-processes/legacy" element={admin ? <InterviewProcessesPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/sourcing" element={<SourcingPage />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />

@@ -2,6 +2,21 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.5.1 — 2026-10-31
+
+Explain and resolve missing bidder payment amounts
+
+- Show an explicit missing-rate explanation instead of unexplained payment dashes, with an admin Set rate action directly on Bidder management.
+- Refresh estimated and payable amounts after saving a rate while preserving paid amounts, manual overrides and read-only bidder access.
+
+## 2.5.0 — 2026-10-31
+
+Clear interview opportunity tracking
+
+- Track separate interview opportunities with confirmed stages, outcomes, attendance, tasks and evidence-backed next actions.
+- Replace the default interview-process timeline with a compact worklist, four filters and progressively disclosed detail; keep the legacy timeline available.
+- Review existing evidence and reminders before activation, preserve corrections and history, and keep calendar and mail data scoped to each profile.
+
 ## 2.4.6 — 2026-10-30
 
 Windows HTTP listener reliability

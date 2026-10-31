@@ -569,6 +569,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
     from .sourcing_routes import install as install_sourcing
+    from .pipeline_routes import install as install_pipeline
+    install_pipeline(app)
     # Register after the local frontend helper is defined below.
     trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")

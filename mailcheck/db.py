@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -255,9 +255,10 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 from .sourcing import SCHEMA as SOURCING_SCHEMA
                 from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 from .interview_processes import SCHEMA as PROCESS_SCHEMA
+                from .interview_pipeline import SCHEMA as PIPELINE_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + ACTIVITY_SCHEMA).split(";"):
+                for statement in (SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)

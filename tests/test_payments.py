@@ -427,3 +427,25 @@ class PaymentTests(unittest.TestCase):
             self.assertEqual(client.get("/api/accounts",headers=headers).status_code,403)
             self.conn.execute("UPDATE bidders SET removed_at='2026-10-28' WHERE id=1");self.conn.commit()
             self.assertEqual(client.get("/api/dashboard",headers=headers).status_code,401)
+
+    def test_new_bidder_amounts_need_explicit_rate_and_refresh_after_rate_save(self):
+        self.conn.execute("UPDATE bidders SET name='Nifemi' WHERE id=1")
+        self.conn.commit()
+        self.assign()
+        for i in range(10):
+            self.message(f'nifemi-{i}')
+        before=payments.report(self.conn,date(2026,10,12),bidder_id=1)['bidders'][0]
+        self.assertEqual(before['total'],10)
+        self.assertIsNone(before['calculated_amount_cents'])
+        self.assertIsNone(before['payable_amount_cents'])
+        self.conn.commit()
+        saved=self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0.05','adjustment_percent':'20'})
+        self.assertEqual(saved.status_code,200,saved.text)
+        after=payments.report(self.conn,date(2026,10,12),bidder_id=1)['bidders'][0]
+        self.assertEqual(after['total'],10)
+        self.assertEqual(after['calculated_amount_cents'],60)
+        self.assertEqual(after['payable_amount_cents'],60)
+        self.conn.commit()
+        zero=self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0','adjustment_percent':'20'})
+        self.assertEqual(zero.status_code,200,zero.text)
+        self.assertEqual(payments.report(self.conn,date(2026,10,12),bidder_id=1)['bidders'][0]['calculated_amount_cents'],0)

@@ -87,6 +87,10 @@ def _snapshot(messages):
 
 
 def list_followups(conn, account_id=None, now=None):
+    from . import interview_pipeline
+    if interview_pipeline.is_activated(conn):
+        from .pipeline_followups import list_followups as pipeline_followups
+        return pipeline_followups(conn,account_id,now)
     now = _instant(now.isoformat()) if isinstance(now, datetime) else _instant(now)
     now = now or _now()
     accounts = {a.id: a for a in db.list_accounts(conn, only_enabled=True)}
@@ -191,6 +195,10 @@ def list_followups(conn, account_id=None, now=None):
 
 
 def update_state(conn, key: str, body: FollowupAction) -> None:
+    from . import interview_pipeline
+    if interview_pipeline.is_activated(conn):
+        from .pipeline_followups import update_state as update_pipeline
+        return update_pipeline(conn,key,body)
     item = next((item for item in list_followups(conn)['items'] if item['id'] == key), None)
     if item is None:
         raise ValueError('Follow-up item not found')

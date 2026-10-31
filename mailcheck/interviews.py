@@ -451,6 +451,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     from .pipeline import build_source
     from .sources import SourceError
     from . import secrets
+    from .interview_pipeline import note_calendar_sync
     accounts = db.list_accounts(conn, only_enabled=True)
     if account_label:
         accounts = [account for account in accounts if account.label == account_label]
@@ -460,6 +461,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     until = datetime.now(timezone.utc) + timedelta(days=365)
     changes, errors, checked = [], [], 0
     for account in accounts:
+        first_error = len(errors)
         status(f"Collecting calendar events from {account.label}…")
         try:
             if account.provider != "outlook":
@@ -522,9 +524,13 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                         VALUES(?,?,?,0) ON CONFLICT(source_id) DO UPDATE SET present=0""",
                         (old['id'],old['start_at'],old['end_at']))
                 conn.commit()
+            note_calendar_sync(conn,account.id,errors[first_error:] or None)
+            conn.commit()
             checked += 1
         except (SourceError, secrets.SecretError) as exc:
             errors.append(f"[{account.label}] {exc}")
+            note_calendar_sync(conn,account.id,errors[first_error:])
+            conn.commit()
     return {"changes":changes,"errors":errors,"accounts":checked}
 
 

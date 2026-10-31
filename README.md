@@ -436,3 +436,5 @@ Inbox checks collect both read and unread messages within the configured checkin
 ## Portable backups and server migration
 
 The owner can create and download plain ZIP installation backups in **Admin management → Backup & restore**. Daily automatic backups retain seven successful copies by default. Restore is an offline operation with validation and rollback. See [Backup and restore](docs/BACKUP_RESTORE.md) for the Windows migration commands and reconnect checklist.
+
+Interview opportunity tracking and migration: [Interview pipeline](docs/INTERVIEW_PIPELINE.md).

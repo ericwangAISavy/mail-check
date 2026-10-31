@@ -147,3 +147,15 @@ the selected week. Quiet intervals stay flat, and each series' final point shows
 its period total. Dots appear only when a series changes value, keeping flat
 sections clear. Bidder and account series accumulate independently. Heatmap cells
 and the check-run detail table retain their original interval counts.
+
+
+### Missing calculated amounts
+
+A bidder with application counts but no saved pay-per-bid rate has an unavailable
+calculated payment, rather than a zero-dollar payment. The Payment column now
+shows **Rate not set** and an admin **Set rate** action directly on Bidder
+management. Enter the agreed rate and adjustment; this is available during the
+current week as well as completed weeks. Saving refreshes estimated/payable
+amounts immediately. Recorded payments and saved manual overrides are preserved.
+Bidder viewers see an explanation to contact their admin and cannot edit rates.
+No rate is inferred from another bidder or from the input placeholder.
