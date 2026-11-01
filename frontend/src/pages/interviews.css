@@ -86,7 +86,7 @@
 .outlook-view-options { display: flex; align-items: center; gap: 2px; }
 .outlook-command-divider { align-self: center; height: 24px; width: 1px; background: var(--oc-line); margin: 0 4px; }
 .outlook-command-bar .calendar-expand-button { margin-left: auto; width: 30px; padding: 4px; }
-.outlook-date-bar { display: flex; align-items: center; gap: 5px; padding: 9px 12px; min-height: 58px; background: var(--oc-toolbar); border-bottom: 1px solid var(--oc-line); }
+.outlook-date-bar { display: flex; flex-wrap:wrap; align-items: center; gap: 5px; padding: 9px 12px; min-height: 58px; background: var(--oc-toolbar); border-bottom: 1px solid var(--oc-line); }
 .outlook-date-bar > .btn:first-child { border-color: var(--oc-line); min-width: 110px; margin-right: 5px; }
 .outlook-date-bar > .btn:not(:first-child) { width: 32px; padding: 0; }
 .outlook-period { display: flex; align-items: center; gap: 10px; padding: 5px 8px; text-align: left; border: 0; border-radius: 3px; color: var(--oc-text); background: none; cursor: pointer; font-size: var(--text-heading); font-weight: 600; font-family: inherit; }
@@ -347,3 +347,7 @@
   .outlook-weekday > span { display:none; }
   .outlook-weekday abbr { display:inline; }
 }
+
+.outlook-zone-selector { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--text-small); color:var(--muted-foreground); }
+.outlook-zone-selector select { max-width:240px; min-height:36px; padding:5px 8px; border:1px solid var(--border); border-radius:8px; background:var(--background); color:var(--foreground); }
+@media(max-width:640px) { .outlook-zone-selector { width:100%; margin-left:0; } .outlook-zone-selector select { flex:1; max-width:none; min-width:0; } }

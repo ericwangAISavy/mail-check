@@ -43,3 +43,22 @@ it('counts visible unique interviews by actual duration, with 30 minutes counted
  expect(calendarCounts([intro,short,tech,unknown,cancelled,outside,intro],[day])).toEqual({total:4,intro:2,tech:1,unknown:1})
  expect(calendarCounts([intro,tech],[])).toEqual({total:0,intro:0,tech:0,unknown:0})
 })
+
+it('places and counts events on the date in the chosen display timezone',()=>{
+ const value={...event(90,10),id:90,start_at:'2026-11-02T00:30:00Z',end_at:'2026-11-02T01:30:00Z'}
+ const chicagoDay=new Date(2026,10,1)
+ expect(fallsOnDay(value,chicagoDay,'America/Chicago')).toBe(true)
+ expect(fallsOnDay(value,new Date(2026,10,2),'America/Chicago')).toBe(false)
+ expect(placeEvents([value],chicagoDay,'America/Chicago')[0].start).toBe(18*60+30)
+ expect(calendarCounts([value],[chicagoDay],'America/Chicago').total).toBe(1)
+ expect(value.start_at).toBe('2026-11-02T00:30:00Z')
+})
+
+it('keeps midnight ends exclusive and handles a DST fold in the selected timezone',()=>{
+ const endMidnight={...event(91,10),id:91,start_at:'2026-11-02T05:30:00Z',end_at:'2026-11-02T06:00:00Z'}
+ expect(fallsOnDay(endMidnight,new Date(2026,10,2),'America/Chicago')).toBe(false)
+ const fold={...event(92,10),id:92,start_at:'2026-11-01T06:45:00Z',end_at:'2026-11-01T07:15:00Z'}
+ const placed=placeEvents([fold],new Date(2026,10,1),'America/Chicago')[0]
+ expect(placed.start).toBe(105)
+ expect(placed.end).toBe(135)
+})

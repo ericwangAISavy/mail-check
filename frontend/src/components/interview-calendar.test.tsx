@@ -7,7 +7,7 @@ import type { InterviewEvent } from "@/lib/types"
 const accounts=[{id:1,label:'personal',email:'me@example.test'},{id:2,label:'work',email:'work@example.test'}]
 const event=(id:number,label:string):InterviewEvent=>({id,account_labels:[label],company:label==='work'?'Work Company':'Personal Company',role:'Engineer',stage:'Technical Interview',calendar_uid:null,status:'Scheduled',display_status:'Scheduled',start_at:new Date(2026,9,15,10).toISOString(),end_at:new Date(2026,9,15,11).toISOString(),timezone:'UTC',meeting_platform:null,meeting_url:null,location:null,organizer_name:null,organizer_email:null,participants:[],notes:null,confidence:1,needs_review:false,review_reason:null,manual_fields:[],created_at:'2026-10-15T00:00:00Z',updated_at:'2026-10-15T00:00:00Z'})
 const clipboard=Object.getOwnPropertyDescriptor(navigator,'clipboard')
-afterEach(()=>{cleanup();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks()})
+afterEach(()=>{cleanup();localStorage.clear();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks();vi.useRealTimers()})
 function mount(){render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&account=work']}><ToastProvider><InterviewCalendar events={[event(1,'personal'),event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={<label>Account filter<input aria-label="Account filter"/></label>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)}
 it('opens real filters and partitions split calendars by source account',()=>{
  mount();expect(screen.queryByLabelText('Account filter')).toBeNull()
@@ -57,4 +57,41 @@ it('keeps an account color unchanged when the account list is reordered',()=>{
  const before=screen.getByRole('button',{name:/Work Company, Technical Interview/}).className.match(/account-color-\d/)![0]
  cleanup();draw([...accounts].reverse())
  expect(screen.getByRole('button',{name:/Work Company, Technical Interview/}).className).toContain(before)
+})
+
+it('saves the chosen timezone and updates event placement without changing instants',()=>{
+ const value={...event(1,'personal'),start_at:'2026-10-15T10:00:00Z',end_at:'2026-10-15T11:00:00Z'}
+ const draw=()=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ draw()
+ fireEvent.change(screen.getByLabelText('Calendar timezone'),{target:{value:'Asia/Tokyo'}})
+ expect(document.querySelector('[data-event-id="1"]')?.getAttribute('data-start-minute')).toBe('1140')
+ expect(localStorage.getItem('mailcheck.calendar.timezone')).toBe('Asia/Tokyo')
+ expect(value.start_at).toBe('2026-10-15T10:00:00Z')
+ cleanup();draw()
+ expect((screen.getByLabelText('Calendar timezone') as HTMLSelectElement).value).toBe('Asia/Tokyo')
+ expect(document.querySelector('[data-event-id="1"]')?.getAttribute('data-start-minute')).toBe('1140')
+})
+it('uses the selected timezone for month grouping and shared links',async()=>{
+ const writeText=vi.fn().mockResolvedValue(undefined);Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
+ const value={...event(1,'personal'),start_at:'2026-11-02T00:30:00Z',end_at:'2026-11-02T01:30:00Z'}
+ render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-11-01&calendar_view=month&calendar_tz=America/Chicago']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ const item=screen.getByRole('button',{name:/Personal Company, Technical Interview/})
+ expect(item.closest('section')?.getAttribute('aria-label')).toContain('November 1')
+ fireEvent.click(screen.getByRole('button',{name:'Share'}));fireEvent.click(screen.getByRole('button',{name:'Copy calendar link'}))
+ await waitFor(()=>expect(writeText).toHaveBeenCalledTimes(1))
+ expect(new URL(writeText.mock.calls[0][0]).searchParams.get('calendar_tz')).toBe('America/Chicago')
+})
+it('ignores malformed event dates when checking hidden weekend interviews',()=>{
+ const broken={...event(1,'personal'),start_at:'not-a-date'}
+ render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&calendar_tz=Asia/Tokyo']}><ToastProvider><InterviewCalendar events={[broken]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ expect(document.querySelectorAll('.outlook-time-event')).toHaveLength(0)
+ expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toContain('Total 0')
+})
+
+it('uses the chosen timezone for Today near a UTC date boundary',()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-02T00:30:00Z'))
+ render(<MemoryRouter initialEntries={['/interviews?calendar_view=day&calendar_date=2026-11-03&calendar_tz=America/Chicago']}><ToastProvider><InterviewCalendar events={[]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ fireEvent.click(screen.getByRole('button',{name:'Today'}))
+ expect(screen.getByRole('button',{name:/^Sunday, November 1, 2026/})).toBeTruthy()
+ expect(document.querySelector('.outlook-day-heading')?.className).toContain('is-today')
 })

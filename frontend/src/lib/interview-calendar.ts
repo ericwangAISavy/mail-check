@@ -1,4 +1,5 @@
 import type { InterviewEvent } from "./types"
+import {calendarParts} from "./calendar-timezone"
 
 export type CalendarView = "workweek" | "week" | "month" | "day"
 export const HOUR_HEIGHT = 80
@@ -16,16 +17,20 @@ export function viewDays(date: Date, view: CalendarView) {
   const first = view === "month" ? startOfWeek(new Date(date.getFullYear(), date.getMonth(), 1)) : view === "day" ? startOfDay(date) : startOfWeek(date)
   return Array.from({ length: view === "month" ? 42 : view === "workweek" ? 5 : view === "week" ? 7 : 1 }, (_, index) => shiftDays(first, index))
 }
-export function fallsOnDay(event: InterviewEvent, day: Date) {
+export function fallsOnDay(event: InterviewEvent, day: Date, timeZone?:string) {
   if (!event.start_at) return false
-  const start = new Date(event.start_at), end = event.end_at ? new Date(event.end_at) : start
-  return Number.isFinite(start.getTime()) && start < shiftDays(day, 1) && (end > day || dayKey(start) === dayKey(day))
+  const start=new Date(event.start_at), end=event.end_at?new Date(event.end_at):start
+  if(!Number.isFinite(start.getTime()))return false
+  const startWall=calendarParts(start,timeZone), endWall=Number.isFinite(end.getTime())?calendarParts(end,timeZone):startWall
+  const key=dayKey(day), first=startWall.key, last=endWall.key
+  if(first===key)return true
+  return first<key && (last>key || last===key && endWall.minutes>0)
 }
-export function calendarCounts(events: InterviewEvent[], days: Date[]) {
+export function calendarCounts(events: InterviewEvent[], days: Date[], timeZone?:string) {
   const counts = {total:0,intro:0,tech:0,unknown:0}
   const seen = new Set<number>()
   for (const event of events) {
-    if (seen.has(event.id) || event.status === "Cancelled" || !days.some(day => fallsOnDay(event,day))) continue
+    if (seen.has(event.id) || event.status === "Cancelled" || !days.some(day => fallsOnDay(event,day,timeZone))) continue
     seen.add(event.id); counts.total++
     const duration = event.start_at && event.end_at ? new Date(event.end_at).getTime()-new Date(event.start_at).getTime() : NaN
     if (!Number.isFinite(duration) || duration<=0) counts.unknown++
@@ -36,19 +41,20 @@ export function calendarCounts(events: InterviewEvent[], days: Date[]) {
 }
 
 export type TimePlacement = { event: InterviewEvent; start: number; end: number; lane: number; lanes: number; continuesBefore: boolean; continuesAfter: boolean; unknownEnd: boolean }
-export function placeEvents(events: InterviewEvent[], day: Date): TimePlacement[] {
+export function placeEvents(events: InterviewEvent[], day: Date, timeZone?:string): TimePlacement[] {
   const nextDay = shiftDays(day, 1)
-  const minute = (value: Date) => value.getHours() * 60 + value.getMinutes() + value.getSeconds() / 60
-  const placements = events.filter(event => fallsOnDay(event, day)).map(event => {
+  const placements = events.filter(event => fallsOnDay(event, day,timeZone)).map(event => {
     const start = new Date(event.start_at!)
     const finish = event.end_at ? new Date(event.end_at) : null
     const knownEnd = finish && Number.isFinite(finish.getTime()) && finish > start ? finish : null
-    const from = start < day ? 0 : minute(start)
-    let until = knownEnd ? knownEnd >= nextDay ? 1440 : minute(knownEnd) : from + 20
+    const startWall=calendarParts(start,timeZone), endWall=knownEnd?calendarParts(knownEnd,timeZone):null
+    const before=startWall.key<dayKey(day)
+    const from = before ? 0 : startWall.minutes
+    let until = endWall ? endWall.key>dayKey(day) ? 1440 : endWall.minutes : from + 20
     // On a DST fold the clock can move backwards while real time advances.
     // Preserve the displayed real start/end labels and give the block its elapsed height.
-    if (knownEnd && until <= from) until = from + (knownEnd.getTime() - Math.max(start.getTime(), day.getTime())) / 60000
-    return { event, start: from, end: Math.min(1440, Math.max(from + 15, until)), lane: 0, lanes: 1, continuesBefore: start < day, continuesAfter: !!knownEnd && knownEnd > nextDay, unknownEnd: !knownEnd }
+    if (knownEnd && until <= from) until = from + (knownEnd.getTime() - start.getTime()) / 60000
+    return { event, start: from, end: Math.min(1440, Math.max(from + 15, until)), lane: 0, lanes: 1, continuesBefore: before, continuesAfter: !!endWall && (endWall.key>dayKey(nextDay)||endWall.key===dayKey(nextDay)&&endWall.minutes>0), unknownEnd: !knownEnd }
   }).sort((a, b) => a.start - b.start || b.end - a.end || a.event.id - b.event.id)
   let group: TimePlacement[] = [], laneEnds: number[] = [], groupEnd = -1
   const finishGroup = () => { for (const placement of group) placement.lanes = laneEnds.length; group = []; laneEnds = [] }

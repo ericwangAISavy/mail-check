@@ -149,3 +149,10 @@ def coerce_category(raw: str | None) -> str:
         if name in key or key in name:
             return name
     return UNCLASSIFIED
+
+
+def is_queue_category(category: str) -> bool:
+    """Info requests remain searchable mail, outside the daily action queue."""
+    return category != "info_request" and tier_of(category) in (
+        TIER_ACT, TIER_REPLY, TIER_UNKNOWN,
+    )

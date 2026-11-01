@@ -31,20 +31,18 @@ from ..taxonomy import (
     TIER_ACT,
     TIER_META,
     TIER_ORDER,
-    TIER_REPLY,
-    TIER_UNKNOWN,
     UNCLASSIFIED,
+    is_queue_category,
     label_of,
     tier_of,
 )
 from . import bodyhtml
 from .auth import AuthFileError, AuthStore, COOKIE, SESSION_SECONDS
 
-#: Tiers that make up the daily action queue. A failed classification
+#: Categories that make up the daily action queue, excluding info requests. A failed classification
 #: (``unclassified``) is exactly the kind of thing that must not go unseen, so
 #: it belongs here alongside what needs a reply — never only in All mail.
-ACTIONABLE_TIERS = (TIER_ACT, TIER_REPLY, TIER_UNKNOWN)
-ACTIONABLE_CATEGORIES = [c.name for c in CATEGORIES if c.tier in ACTIONABLE_TIERS]
+ACTIONABLE_CATEGORIES = [c.name for c in CATEGORIES if is_queue_category(c.name)]
 
 HERE = Path(__file__).parent
 FRONTEND_DIST = HERE / "frontend_dist"
@@ -174,6 +172,10 @@ class AccountBody(BaseModel):
     use_ssl: bool = True
     folder: str = "INBOX"
     password: str
+
+
+class ImapReconnectBody(BaseModel):
+    password: str = Field(min_length=1, max_length=1024, repr=False)
 
 
 class OutlookStartBody(BaseModel):
@@ -1040,9 +1042,11 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 since_iso=since,
                 handled=handled,
                 limit=500,
-            )
+            ) if view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
             counts = db.category_counts(conn, since_iso=since, account_label=account,
                                         handled=handled)
+            if view == "queue":
+                counts = {name: count for name, count in counts.items() if is_queue_category(name)}
             summary = db.queue_counts(conn, since_iso=since, account_label=account)
             accounts = db.list_accounts(conn)
         grouped: dict[str, list] = {tier: [] for tier in TIER_ORDER}
@@ -1196,7 +1200,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     account_label=account,
                     since_iso=since,
                     handled=False,
-                )
+                ) if not category or category in ACTIONABLE_CATEGORIES else []
             elif view == "completed":
                 rows = db.query_triaged(
                     conn,
@@ -1215,6 +1219,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             counts = db.category_counts(
                 conn, since_iso=since, account_label=account, handled=view_handled
             )
+            if view == "queue":
+                counts = {name: count for name, count in counts.items() if is_queue_category(name)}
             summary = db.queue_counts(conn, since_iso=since, account_label=account)
             accounts = db.list_accounts(conn)
             last = db.last_run(conn)
@@ -1557,6 +1563,35 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             with db.session() as conn:outgoing.save_settings(conn,label,body)
             return {"ok":True,"message":"Outgoing mail connected. No test email was sent."}
         except outgoing.OutgoingError as exc:return _err(str(exc),400)
+
+    @app.post("/api/accounts/{label}/reconnect")
+    def api_reconnect_imap(label: str, body: ImapReconnectBody):
+        with db.session() as conn:
+            account = db.get_account(conn, label)
+        if not account:
+            return _err("No such account.", 404)
+        if account.provider != "imap":
+            return _err("Use Microsoft sign-in to reconnect this account.")
+        password = secrets.clean_password(body.password)
+        if not password:
+            return _err("Enter a new app password.")
+        try:
+            secrets.check_ascii(password)
+            # Test the candidate directly; failed authentication must never
+            # overwrite a credential that another mail check may still use.
+            IMAPSource(
+                host=account.imap_host, port=account.imap_port,
+                username=account.email, password=password,
+                use_ssl=account.use_ssl, folder=account.folder,
+            ).test()
+            with db.session() as conn:
+                current = db.get_account(conn, label)
+                if not current or current != account:
+                    return _err("The account changed while reconnecting. Try again.", 409)
+                secrets.set_account_password(label, password)
+        except (SourceError, secrets.SecretError) as exc:
+            return _err(str(exc))
+        return {"ok": True, "message": f"Reconnected {account.email}."}
 
     @app.post("/api/accounts/{label}/test")
     def api_test_account(label: str):

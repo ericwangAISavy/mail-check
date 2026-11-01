@@ -43,10 +43,13 @@ class IMAPSource:
 
     def _open(self) -> MailBox:
         cls = MailBox if self.use_ssl else MailBoxUnencrypted
+        box = None
+        ready = False
         try:
             box = cls(self.host, port=self.port, timeout=self.timeout)
             box.login(self.username, self.password, initial_folder=None)
             box.folder.set(self.folder, readonly=True)
+            ready = True
             return box
         except UnicodeEncodeError as exc:
             bad = self.password[exc.start : exc.end]
@@ -57,6 +60,9 @@ class IMAPSource:
             ) from exc
         except (ImapToolsError, OSError, socket.timeout) as exc:
             raise SourceError(_explain(exc, self.host, self.username)) from exc
+        finally:
+            if box is not None and not ready:
+                _quiet_logout(box)
 
     def test(self) -> None:
         box = self._open()
@@ -87,7 +93,12 @@ def _quiet_logout(box: MailBox) -> None:
     try:
         box.logout()
     except Exception:  # noqa: BLE001 - teardown must never mask the real error
-        pass
+        # IMAP4.logout() only closes its socket after LOGOUT succeeds. A dead
+        # connection still needs local cleanup when that command fails.
+        try:
+            box.client.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _to_raw(msg, folder: str) -> RawMessage:

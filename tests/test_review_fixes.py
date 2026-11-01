@@ -49,6 +49,22 @@ class ReviewFixTests(unittest.TestCase):
         db.save_classification(self.conn, pk, Classification(category=category), "m", "1")
         return pk
 
+    def test_info_requests_stay_in_all_mail_but_never_in_queue(self):
+        now = datetime.now(timezone.utc)
+        info = self.add("info", date_utc=now, category="info_request")
+        self.add("reply", date_utc=now, category="recruiter_outreach")
+        counts = db.queue_counts(self.conn)
+        self.assertEqual(counts["actionable"], 1)
+        self.assertEqual(counts["informational"], 1)
+        queue = self.client.get("/api/triage?view=queue").json()
+        self.assertEqual(queue["total"], 1)
+        self.assertNotIn("info_request", queue["counts"])
+        filtered = self.client.get("/api/triage?view=queue&category=info_request").json()
+        self.assertEqual(filtered["total"], 0)
+        all_mail = self.client.get("/api/triage?view=all&category=info_request").json()
+        self.assertEqual(all_mail["total"], 1)
+        self.assertEqual(all_mail["groups"][0]["items"][0]["pk"], info)
+
     # -- Host header (DNS rebinding) -------------------------------------------
 
     def test_foreign_host_header_is_rejected(self):
