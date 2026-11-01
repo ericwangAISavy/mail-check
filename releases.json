@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.8.0",
+    "date": "2026-11-01",
+    "title": "Search and remember calendar timezones",
+    "changes": [
+      "Type to find a calendar timezone, select it with the mouse or keyboard, and confirm it is saved for future browser visits. Show a warning when browser storage is blocked."
+    ]
+  },
+  {
     "version": "2.7.1",
     "date": "2026-11-01",
     "title": "Harden calendar display and mailbox reconnects",

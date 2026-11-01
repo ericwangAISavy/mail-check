@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.8.0 — 2026-11-01
+
+Search and remember calendar timezones
+
+- Type to find a calendar timezone, select it with the mouse or keyboard, and confirm it is saved for future browser visits. Show a warning when browser storage is blocked.
+
 ## 2.7.1 — 2026-11-01
 
 Harden calendar display and mailbox reconnects

@@ -349,5 +349,14 @@
 }
 
 .outlook-zone-selector { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--text-small); color:var(--muted-foreground); }
-.outlook-zone-selector select { max-width:240px; min-height:36px; padding:5px 8px; border:1px solid var(--border); border-radius:8px; background:var(--background); color:var(--foreground); }
-@media(max-width:640px) { .outlook-zone-selector { width:100%; margin-left:0; } .outlook-zone-selector select { flex:1; max-width:none; min-width:0; } }
+ .timezone-picker { position:relative; width:260px; max-width:100%; }
+.timezone-picker-input { position:relative; }
+.timezone-picker-input input { width:100%; min-height:36px; padding:7px 30px 7px 10px; border:1px solid var(--oc-line); border-radius:8px; background:var(--oc-toolbar); color:var(--oc-text); font:inherit; }
+.timezone-picker-input input:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.timezone-picker-input > svg { position:absolute; right:10px; top:50%; transform:translateY(-50%); pointer-events:none; }
+.timezone-picker-popup { position:absolute; top:calc(100% + 6px); right:0; width:max(100%,280px); max-width:calc(100vw - 32px); z-index:30; border:1px solid var(--oc-line); border-radius:8px; background:var(--oc-toolbar); box-shadow:0 8px 24px #0005; padding:4px; }
+.timezone-picker-popup [role="listbox"] { max-height:260px; overflow-y:auto; overscroll-behavior:contain; }
+.timezone-picker-popup button { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; border:0; border-radius:4px; padding:8px 10px; background:transparent; color:var(--oc-text); text-align:left; cursor:pointer; font:inherit; }
+.timezone-picker-popup button.is-active,.timezone-picker-popup button:hover { background:var(--oc-hover); }
+.timezone-picker-popup p { padding:10px; margin:0; }
+@media(max-width:640px) { .outlook-zone-selector { width:100%; margin-left:0; } .outlook-zone-selector .timezone-picker { flex:1; min-width:0; } }
