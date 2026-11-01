@@ -64,6 +64,20 @@ describe("header status after external text replacement", () => {
     const previous = vi.mocked(api.bootstrap).mock.calls.length
     fireEvent.click(screen.getByRole("button", { name: "Check now" }))
     await waitFor(() => expect(vi.mocked(api.bootstrap).mock.calls.length).toBeGreaterThan(previous))
+    expect(api.post).toHaveBeenCalledWith("/api/check", { mode: "mail" })
+  })
+  it.each(["/interviews", "/interview-processes"])("uses calendar collection on %s without a model", async (path) => {
+    vi.spyOn(api, "status").mockResolvedValue(idle)
+    vi.spyOn(api, "post").mockResolvedValue({ ok: true })
+    vi.mocked(api.bootstrap).mockResolvedValue({ readiness: { model: false, accounts: true, privacy_ack: true, outlook: true }, counts: { actionable: 0 }, taxonomy: [], presets: [], last_run: "Never checked", account_count: 1 })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    clients.push(client)
+    const { container } = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(container.querySelector(".top-actions button:last-child")).toBeTruthy())
+    const button = container.querySelector<HTMLButtonElement>(".top-actions button:last-child")!
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/check", { mode: "calendar" }))
   })
   it.each([
     ["idle to scheduled", idle, scheduled, "Next check", "2:00"],
@@ -162,4 +176,60 @@ describe("live countdown", () => {
     const toggle = await screen.findByRole("button", { name: "Auto-check on" })
     expect(toggle.getAttribute("aria-pressed")).toBe("true")
   })
+})
+
+it("shows today's received confirmations beside Bidder management", async () => {
+  vi.mocked(api.bootstrap).mockResolvedValue({readiness:{model:true,accounts:true,privacy_ack:true,outlook:false},counts:{actionable:0,applications_today:3400},taxonomy:[],presets:[],last_run:"",account_count:2})
+  vi.spyOn(api,"status").mockResolvedValue(idle)
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/payments"]}><App /></MemoryRouter></QueryClientProvider>)
+  const badge=await screen.findByLabelText("3400 application confirmations received today")
+  expect(badge.closest("a")).toBeNull()
+  expect(badge.closest("header")?.textContent).toContain("Bidder management")
+  expect(badge.textContent).toBe("3,400today")
+  expect(screen.getByRole("button", {name:"OfferPath home"})).toBeTruthy()
+  expect(document.title).toBe("OfferPath")
+})
+
+it("allows the owner to open Settings when bootstrap fails",async()=>{
+ vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy"})
+ vi.mocked(api.bootstrap).mockRejectedValue(new Error("Workspace data is unavailable"))
+ vi.spyOn(api,"status").mockResolvedValue(idle)
+ vi.spyOn(api,"settings").mockResolvedValue({settings:{llm:{base_url:"http://localhost:11434",batch_size:5,max_body_chars:1200,timeout_seconds:60,classification_deadline_seconds:300,concurrency:1,num_ctx:8192,think:false,keep_alive:"5m"},check:{lookback_days:7,retain_days:30},watch:{interval_minutes:10,auto_check:false},outlook:{client_id:""},privacy_ack:true},rules:[],categories:[],config_path:"config.toml",db_path:"mail.db"})
+ vi.spyOn(api,"activeModel").mockResolvedValue({model:"test-model",loaded:true,message:"Ready"})
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter><App/></MemoryRouter></QueryClientProvider>)
+ fireEvent.click(await screen.findByRole("button",{name:"Try settings"}))
+ await screen.findByRole("heading",{name:"Settings"})
+ expect(screen.queryByText("Check your local settings")).toBeNull()
+ expect(api.settings).toHaveBeenCalled()
+ const input=screen.getByLabelText("Ollama server URL",{exact:false})
+ fireEvent.change(input,{target:{value:"http://unsaved-server:11434"}})
+ await act(async()=>{await client.refetchQueries({queryKey:["bootstrap"]})})
+ expect(screen.getByLabelText("Ollama server URL",{exact:false})).toBe(input)
+ expect(input).toHaveProperty("value","http://unsaved-server:11434")
+})
+
+it("keeps owner Settings available when background bootstrap fails",async()=>{
+ vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy"})
+ vi.mocked(api.bootstrap).mockRejectedValue(new Error("Overview unavailable"))
+ vi.spyOn(api,"status").mockResolvedValue(idle)
+ vi.spyOn(api,"settings").mockRejectedValue(new Error("Settings service reached"))
+ vi.spyOn(api,"activeModel").mockResolvedValue({model:null,loaded:false,message:"Not loaded"})
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/settings"]}><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByText("Settings service reached")
+ expect(api.bootstrap).toHaveBeenCalled()
+})
+
+it('does not overlap status polls when focus events arrive during a slow response',async()=>{
+ let finish!:(value:Status)=>void
+ const status=vi.spyOn(api,'status').mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByText('Your queue is clear')
+ const calls=status.mock.calls.length
+ fireEvent.focus(window);fireEvent.focus(window)
+ expect(status.mock.calls.length).toBe(calls)
+ await act(async()=>finish(idle))
 })

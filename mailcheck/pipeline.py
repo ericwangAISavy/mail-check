@@ -67,7 +67,7 @@ def fetch_account(
 ) -> list[NormalizedMessage]:
     source = build_source(account, cfg)
     out: list[NormalizedMessage] = []
-    for raw in source.fetch_unread(since):
+    for raw in source.fetch_unread(since, include_read=True):
         out.append(
             normalize.normalize(
                 raw,
@@ -114,9 +114,13 @@ def check_once(
     # user had already given it. Keeping the two windows from overlapping is
     # what makes that impossible rather than merely unlikely.
     keep_days = max(cfg.check.retain_days, lookback)
+    # Providers fetch from the start of `since`, not the current time of day.
+    # Do not delete that morning's local rows only to reinsert them without Done.
+    fetch_start = datetime.combine(since, datetime.min.time(), timezone.utc)
+    retention_start = datetime.now(timezone.utc) - timedelta(days=keep_days)
     result.pruned = db.prune_messages(
         conn,
-        before_iso=(datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat(),
+        before_iso=min(fetch_start, retention_start).isoformat(),
     )
 
     # ---- fetch (one bad mailbox must not abort the run) -------------------

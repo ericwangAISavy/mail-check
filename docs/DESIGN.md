@@ -22,7 +22,7 @@ reply today, and can ignore the rest.
 | Trigger | `check` (one-shot) + `watch` (poll loop) | Same pipeline, two entry points; cron just calls `check` |
 | LLM output | Label **+ extracted fields** | Turns the report into a to-do list, not a folder listing |
 | Storage | SQLite + OS keyring | Local-only; credentials never touch the DB |
-| Provider mail mutation | **None** — every source is read-only | Unread state is the user's own triage signal |
+| Mail access | Collection is read-only; explicit replies use Graph Mail.Send or TLS-protected SMTP | Unread state stays untouched; only the user’s Send action transmits mail |
 
 ### Non-goals (v1)
 

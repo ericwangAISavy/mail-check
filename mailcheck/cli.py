@@ -8,6 +8,8 @@ import shutil
 import sys
 import tomllib
 import uuid
+from pathlib import Path
+from .maintenance import MaintenanceError, shared_writer
 
 import typer
 from rich.panel import Panel
@@ -24,7 +26,7 @@ from .sources.presets import BY_KEY, PRESETS, guess_from_email
 from .watch import watch as run_watch
 
 app = typer.Typer(
-    help="Triage unread job-application email.",
+    help="Triage job-application email, whether read or unread.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -331,7 +333,7 @@ def check(
     no_cache: bool = typer.Option(False, "--no-cache", help="Re-classify everything."),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
-    """Fetch unread mail, classify it, and print the triage report."""
+    """Fetch read and unread mail, classify it, and print the triage report."""
     cfg = _load_cfg()
     _require_llm(cfg)
 
@@ -400,15 +402,19 @@ def watch(
 
 
 @app.command()
+@shared_writer
 def web(
     port: int = typer.Option(52400, help="Port to listen on."),
     open_browser: bool = typer.Option(True, "--open/--no-open"),
     host: str = typer.Option("127.0.0.1", help="Bind address. Use 0.0.0.0 for network access."),
     allow_host: list[str] = typer.Option([], "--allow-host", help="Allowed public hostname or IP, without scheme or port. Repeat as needed."),
     secure_cookies: bool = typer.Option(False, "--secure-cookies", help="Require HTTPS for sign-in cookies (use behind an HTTPS reverse proxy)."),
+    single_admin: bool = typer.Option(False, "--single-admin", help="Compatibility mode for rollback: use the original single-admin server."),
+    max_workspaces: int = typer.Option(4, min=1, max=64, help="Maximum enabled workspaces, including the owner."),
 ) -> None:
-    """Serve the dashboard with admin/guest sign-in."""
-    _load_cfg()
+    """Serve OfferPath with owner-managed, isolated admin workspaces."""
+    if single_admin:
+        _load_cfg()
     try:
         import uvicorn
     except ImportError:
@@ -417,7 +423,8 @@ def web(
 
     from .web.app import create_app
 
-    url = f"http://127.0.0.1:{port}"
+    from .workspace_workers import gateway_address
+    url = gateway_address(host,port)
     console.print(f"Dashboard: [bold]{url}[/bold]  (Ctrl+C to stop)")
     if open_browser:
         import webbrowser
@@ -427,8 +434,14 @@ def web(
     if any(not value or any(c in value for c in "/:@* ") for value in allow_host):
         console.print("[red]--allow-host must be a hostname or IPv4 address without a scheme, port, path, or wildcard.[/red]")
         raise typer.Exit(1)
-    uvicorn.run(create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies),
-                host=host, port=port, log_level="warning")
+    from .web.server import run
+
+    if single_admin:
+        application=create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies)
+    else:
+        from .web.gateway import create_gateway
+        application=create_gateway(allowed_hosts=allow_host,secure_cookies=secure_cookies,max_workspaces=max_workspaces,gateway_url=url)
+    run(application,host=host,port=port,log_level="warning")
 
 
 # ------------------------------------------------------------------------- config
@@ -473,9 +486,61 @@ def config_test() -> None:
     _ping(cfg)
 
 
+backup_app=typer.Typer(help="Portable installation backup and offline restore.",no_args_is_help=True)
+app.add_typer(backup_app,name="backup")
+
+def _backup_layout(config_path=None,db_path=None,control_dir=None):
+    from .backups import BackupLayout
+    current=BackupLayout.current()
+    return BackupLayout(config_path or current.config,db_path or current.database,control_dir or (config_path.parent/'offerpath-control' if config_path else current.control))
+
+@backup_app.command('create')
+def backup_create(output:Path=typer.Argument(...,help="New plain ZIP archive path.")):
+    from .backups import create_archive
+    layout=_backup_layout()
+    # Offline CLI creation excludes concurrent registry changes and writers.
+    from .maintenance import MaintenanceLock
+    with MaintenanceLock(layout.lock,exclusive=True):
+        result=create_archive(layout,output,_locked=True)
+    console.print(f"Backup created: {output} · {len(result['workspaces'])} admin workspaces. Keep this plain archive private.")
+
+@backup_app.command('inspect')
+def backup_inspect(archive:Path):
+    from .backups import inspect_archive
+    result=inspect_archive(archive)
+    console.print_json(data={key:result[key] for key in ('format','app_version','created_at','workspaces','credentials_included')})
+
+@backup_app.command('restore')
+def backup_restore(archive:Path,replace:bool=typer.Option(False,'--replace',help="Replace existing data after creating a rollback backup."),
+                   config_path:Path=typer.Option(None,'--config-path'),db_path:Path=typer.Option(None,'--db-path'),control_dir:Path=typer.Option(None,'--control-dir')):
+    from .backup_restore import restore_archive
+    result=restore_archive(archive,_backup_layout(config_path,db_path,control_dir),replace=replace)
+    console.print(result['message'])
+    if result['rollback']:console.print(f"Rollback backup: {result['rollback']}")
+    layout=_backup_layout(config_path,db_path,control_dir)
+    if config_path or db_path or control_dir:
+        console.print('Keep these path overrides for startup and recovery (PowerShell):')
+        for key,value in [('OFFERPATH_LEGACY_CONFIG_PATH',layout.config),('OFFERPATH_LEGACY_DB_PATH',layout.database),('OFFERPATH_CONTROL_ROOT',layout.control)]:
+            escaped=str(value.absolute()).replace("'","''")
+            console.print(f"$env:{key} = '{escaped}'",markup=False)
+    console.print('Start: python -m mailcheck web --no-open')
+
+@backup_app.command('recover')
+def backup_recover(config_path:Path=typer.Option(None,'--config-path'),db_path:Path=typer.Option(None,'--db-path'),control_dir:Path=typer.Option(None,'--control-dir')):
+    from .backup_restore import recover_restore
+    result=recover_restore(_backup_layout(config_path,db_path,control_dir))
+    console.print(f"Recovered: {result['recovered']}")
+
+
 def main() -> None:
     try:
-        app()
+        if len(sys.argv)>1 and sys.argv[1]=='backup':
+            app()
+        else:
+            from .maintenance import MaintenanceLock,lock_path
+            with MaintenanceLock(lock_path()):app()
+    except (MaintenanceError,ValueError,OSError) as exc:
+        console.print(f"[red]{exc}[/red]");sys.exit(1)
     except KeyboardInterrupt:
         sys.exit(130)
 

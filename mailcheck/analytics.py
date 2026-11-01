@@ -28,6 +28,7 @@ class DashboardFilters(BaseModel):
     interval: Literal["day", "week"] = "day"
     tz: str = "UTC"
     account: str | None = Field(default=None, max_length=200)
+    bidder: int | None = Field(default=None, ge=1)
     categories: list[str] = Field(default_factory=list, max_length=len(CATEGORIES))
     status: Literal["all", "pending", "done"] = "all"
     action: Literal["all", "yes", "no"] = "all"
@@ -110,6 +111,14 @@ def _scope(filters: DashboardFilters, *, focus: bool = False) -> tuple[str, list
     if filters.account:
         clauses.append("a.label = ?")
         params.append(filters.account)
+    if filters.bidder is not None:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM bidder_assignments ba WHERE ba.bidder_id = ? "
+            "AND ba.account_id = m.account_id "
+            f"AND ba.start_date <= analytics_bidder_day({_RECEIVED}) "
+            f"AND (ba.end_date IS NULL OR ba.end_date >= analytics_bidder_day({_RECEIVED})))"
+        )
+        params.append(filters.bidder)
     if filters.categories:
         clauses.append(f"c.category IN ({','.join('?' for _ in filters.categories)})")
         params.extend(filters.categories)
@@ -153,6 +162,14 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         return instant.astimezone(zone).date().isoformat() if instant else None
 
     conn.create_function("analytics_local_day", 1, local_day, deterministic=True)
+    if filters.bidder is not None:
+        bidder_zone = ZoneInfo("America/Chicago")
+
+        def bidder_day(value):
+            instant = _datetime(value)
+            return instant.astimezone(bidder_zone).date().isoformat() if instant else None
+
+        conn.create_function("analytics_bidder_day", 1, bidder_day, deterministic=True)
     scope, params = _scope(filters)
     attention_placeholders = ",".join("?" for _ in _ATTENTION)
     rows = conn.execute(

@@ -1,3 +1,4 @@
+import {Children,isValidElement} from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -7,12 +8,12 @@ import { api } from "@/lib/api"
 import type { Bootstrap } from "@/lib/types"
 import DashboardPage from "./dashboard"
 
-const chart = vi.hoisted(() => ({ date: "2026-09-14" }))
+const chart = vi.hoisted(() => ({ date: "2026-09-14",rows:[] as Record<string,any>[] }))
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: any) => <div>{children}</div>,
-  BarChart: ({ children }: any) => <div>{children}</div>,
+  ComposedChart: ({ children,data }: any) => {chart.rows=data;return <div>{Children.toArray(children).filter(child=>!isValidElement(child)||child.type!=="defs")}</div>},
   Bar: ({ name, onClick }: any) => <button aria-label={`Chart segment ${name}`} onClick={() => onClick({ date: chart.date })}>Bar</button>,
-  CartesianGrid: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null,
+  Area: () => null, Rectangle: () => null, CartesianGrid: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null,
 }))
 const bootstrap: Bootstrap = { readiness: { model: true, accounts: true, privacy_ack: true, outlook: false }, counts: {}, taxonomy: [], presets: [], last_run: "Never checked", account_count: 1 }
 const clients: QueryClient[] = []
@@ -120,7 +121,7 @@ it("uses the same series color for filtered chart legends", async () => {
   mount(); await screen.findByText("Messages collected")
   const legend = document.querySelector(".chart-legend")!
   const button = within(legend as HTMLElement).getByRole("button", { name: /Rejection/ })
-  expect((button.querySelector("span") as HTMLElement).style.backgroundColor).toBe("rgb(107, 125, 255)")
+  expect((button.querySelector("span") as HTMLElement).style.backgroundColor).toBe("var(--category-color-1)")
 })
 it("does not fetch admin account details for a guest", async () => {
   mount("/dashboard", true); await screen.findByText("Messages collected")
@@ -141,4 +142,56 @@ it("collapses the message explorer by default and expands it from its bar", asyn
   explorer.open = false
   fireEvent(explorer, new Event("toggle"))
   await waitFor(() => expect(explorer.open).toBe(false))
+})
+
+it("filters by bidder together with account and resets the selection", async () => {
+  vi.mocked(api.dashboardAccounts).mockResolvedValue({ accounts: [{ label: "personal" }], bidders: [{ id: 7, name: "Alex" }] })
+  mount("/dashboard?account=personal&page=2")
+  await screen.findByRole("option", { name: "Alex" })
+  fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "7" } })
+  await lastParam("bidder", "7")
+  await lastParam("account", "personal")
+  await lastParam("page", "1")
+  fireEvent.click(screen.getByRole("button", { name: "Reset" }))
+  await lastParam("bidder", null)
+  expect((screen.getByLabelText("Bidder") as HTMLSelectElement).value).toBe("")
+})
+
+it("hides refresh and account management for bidder viewers",async()=>{
+  mount("/dashboard",true)
+  await screen.findByRole("heading",{name:"Dashboard"})
+  expect(screen.queryByRole("button",{name:"Refresh"})).toBeNull()
+  expect(screen.queryByRole("link",{name:/Manage accounts/})).toBeNull()
+  expect(api.accounts).not.toHaveBeenCalled()
+})
+
+it("recovers from a gateway outage using Try again",async()=>{
+ vi.mocked(api.dashboard).mockRejectedValue(new Error("OfferPath is temporarily unavailable (502). Please try again shortly."))
+ mount()
+ await screen.findByText("Dashboard is unavailable")
+ expect(screen.getByText(/temporarily unavailable \(502\)/)).toBeTruthy()
+ vi.mocked(api.dashboard).mockResolvedValue(data())
+ fireEvent.click(screen.getByRole("button",{name:"Try again"}))
+ await screen.findByText("Messages collected")
+ expect(screen.queryByText("Dashboard is unavailable")).toBeNull()
+})
+
+it("can reset invalid saved filters instead of retrying the same invalid request",async()=>{
+ vi.mocked(api.dashboard).mockImplementation(async params=>{
+  if(params.get("days")!=="7")throw new Error("Choose a range of at most 90 calendar days")
+  return data()
+ })
+ mount("/dashboard?days=365&q=old-filter")
+ await screen.findByText("Dashboard is unavailable")
+ fireEvent.click(screen.getByRole("button",{name:"Clear filters"}))
+ await screen.findByText("Messages collected")
+ await lastParam("days","7");await lastParam("q",null)
+})
+
+it("uses the same real totals and category counts for weekly stacks and the trend",async()=>{
+ const result=data();result.summary.total=13;result.categories[1].count=13
+ result.daily=[{date:"2026-09-15",total:5,counts:{offer:0,rejection:5},partial:false},{date:"2026-09-16",total:8,counts:{offer:0,rejection:8},partial:false}]
+ vi.mocked(api.dashboard).mockResolvedValue(result)
+ mount("/dashboard?interval=week")
+ await waitFor(()=>expect(chart.rows).toEqual([{date:"2026-09-14",total:13,partial:false,counts:{offer:0,rejection:13}}]))
 })

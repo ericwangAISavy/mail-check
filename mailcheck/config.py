@@ -10,6 +10,8 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .maintenance import shared_writer
+
 import tomli_w
 from platformdirs import user_config_dir, user_data_dir
 from pydantic import BaseModel, Field, field_validator
@@ -18,19 +20,44 @@ APP_NAME = "mail-check"
 
 
 def config_dir() -> Path:
-    return Path(user_config_dir(APP_NAME, appauthor=False))
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "config"
+    legacy = os.environ.get("OFFERPATH_LEGACY_CONFIG_PATH")
+    return Path(legacy).parent if legacy else Path(user_config_dir(APP_NAME, appauthor=False))
 
 
 def data_dir() -> Path:
-    return Path(user_data_dir(APP_NAME, appauthor=False))
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "data"
+    legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
+    return Path(legacy).parent if legacy else Path(user_data_dir(APP_NAME, appauthor=False))
 
 
 def config_path() -> Path:
-    return config_dir() / "config.toml"
+    # Always validate the workspace before considering explicit legacy paths.
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "config" / "config.toml"
+    legacy = os.environ.get("OFFERPATH_LEGACY_CONFIG_PATH")
+    return Path(legacy) if legacy else config_dir() / "config.toml"
 
 
 def db_path() -> Path:
-    return data_dir() / "mailcheck.db"
+    from .workspaces import workspace_root
+    root = workspace_root()
+    if root:
+        return root / "data" / "mailcheck.db"
+    legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
+    return Path(legacy) if legacy else data_dir() / "mailcheck.db"
+
+
+def control_dir() -> Path:
+    return Path(os.environ.get('OFFERPATH_CONTROL_ROOT') or config_dir()/'offerpath-control')
 
 
 class LLMConfig(BaseModel):
@@ -210,7 +237,12 @@ def _read_toml(path: Path) -> dict:
 
 
 def load() -> Config:
-    return Config.model_validate(_read_toml(config_path()))
+    # Business data/credentials remain workspace-local; platform configuration
+    # is read from the owner's atomic settings file by managed workers.
+    from .workspaces import workspace_root
+    workspace_root()  # Invalid worker contexts must never fall back to owner paths.
+    shared=os.environ.get("OFFERPATH_SHARED_CONFIG_PATH")
+    return Config.model_validate(_read_toml(Path(shared) if shared else config_path()))
 
 
 #: Serializes writes within this process — the web console's request-handling
@@ -218,6 +250,7 @@ def load() -> Config:
 _save_lock = threading.Lock()
 
 
+@shared_writer
 def save(cfg: Config) -> Path:
     """Write config.toml atomically.
 
@@ -228,6 +261,8 @@ def save(cfg: Config) -> Path:
     (``os.replace`` uses ``MoveFileEx`` with ``MOVEFILE_REPLACE_EXISTING``), so
     a reader always sees either the old file or the fully-written new one.
     """
+    if os.environ.get("OFFERPATH_SHARED_CONFIG_PATH"):
+        raise ValueError("Settings are managed by the owner.")
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = cfg.model_dump(mode="json", exclude_none=True)

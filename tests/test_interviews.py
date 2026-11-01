@@ -1,5 +1,6 @@
 """Interview discovery/reconciliation uses real local SQLite and provider messages."""
 from __future__ import annotations
+from tests.web_client import sign_in_bidder
 import base64
 import json
 import tempfile
@@ -221,16 +222,16 @@ class InterviewApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"Edited"}).status_code,200)
         self.assertEqual(self.client.get("/api/interviews?company=Edited").json()["events"][0]["company"],"Edited")
         self.assertEqual(self.client.get("/api/interviews/999").status_code,404)
-        self.client.post("/api/auth/login",json={"role":"guest","password":"guest"})
+        sign_in_bidder(self.client)
         for path in ("/interviews","/api/interviews","/api/interviews/1","/api/interviews/scan"):
             self.assertEqual(self.client.get(path).status_code,403)
         self.assertEqual(self.client.post("/api/interviews/1",json={"company":"No"}).status_code,403)
 
-    def test_web_check_collects_events_without_configured_model(self):
+    def test_calendar_check_collects_events_without_configured_model(self):
         cfg=config.Config();cfg.llm.base_url="";config.save(cfg)
         result={"changes":[],"errors":[],"accounts":2}
         with patch.object(interviews,"collect_calendar_events",return_value=result) as collect:
-            self.assertEqual(self.client.post("/api/check",json={}).status_code,200)
+            self.assertEqual(self.client.post("/api/check",json={"mode":"calendar"}).status_code,200)
             self.assertTrue(web._job_lock.acquire(timeout=2));web._job_lock.release()
             self.assertEqual(collect.call_count,1)
             self.assertEqual(self.client.post("/api/interviews/sync").status_code,200)
@@ -307,7 +308,7 @@ class InterviewBackfillTests(unittest.TestCase):
         self.conn.execute('PRAGMA user_version=7');self.conn.commit()
         upgraded=db.connect(self.path)
         try:
-            self.assertEqual(upgraded.execute('PRAGMA user_version').fetchone()[0],8)
+            self.assertEqual(upgraded.execute('PRAGMA user_version').fetchone()[0],db.SCHEMA_VERSION)
             self.assertIsNotNone(db.get_message(upgraded,pk)['handled_at'])
             self.assertEqual(db.get_cached(upgraded,pk,'1').category,'interview_invite')
             self.assertEqual(upgraded.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)

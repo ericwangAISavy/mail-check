@@ -46,9 +46,9 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/auth/session").json(), {"role": "admin"})
         path = self.root / "web-auth.json"
         data = json.loads(path.read_text())
-        self.assertEqual(set(data["users"]), {"admin", "guest"})
+        self.assertEqual(set(data["users"]), {"admin"})
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        for role in ("admin", "guest"):
+        for role in ("admin",):
             self.assertNotEqual(data["users"][role]["hash"], role)
             self.assertEqual(len(data["users"][role]["hash"]), 64)
         self.assertEqual(self.client.get("/api/settings").status_code, 200)
@@ -60,32 +60,25 @@ class AuthTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 
-    def test_guest_can_only_read_dashboard_and_its_reader(self):
-        self.assertEqual(self.login("guest").status_code, 200)
-        for path in ("/dashboard", "/api/dashboard", "/api/bootstrap", "/api/dashboard/accounts"):
-            with self.subTest(path=path):
-                self.assertEqual(self.client.get(path).status_code, 200)
-        self.assertEqual(self.client.get("/", follow_redirects=False).headers["location"], "/dashboard")
-        self.assertEqual(self.client.get("/api/messages/999").status_code, 404)
-        for path in ("/settings", "/accounts", "/api/triage", "/api/accounts", "/api/settings", "/api/status", "/api/outlook/status", "/api/messages/1/body"):
-            with self.subTest(path=path):
-                self.assertEqual(self.client.get(path).status_code, 403)
-        for path in ("/api/auth/password", "/api/check", "/api/settings", "/api/accounts", "/api/messages/1/handled", "/api/reclassify"):
-            with self.subTest(path=path):
-                self.assertEqual(self.client.post(path, json={"role": "guest", "password": "new"}).status_code, 403)
+    def test_bidder_cannot_read_global_data_or_mutate_admin_resources(self):
+        from tests.web_client import sign_in_bidder
+        sign_in_bidder(self.client)
+        for path in ("/api/dashboard", "/api/accounts", "/api/settings", "/api/triage", "/api/messages/999"):
+            self.assertEqual(self.client.get(path).status_code,403,path)
+        for path in ("/api/check", "/api/settings", "/api/auth/password", "/api/payments/bidders"):
+            self.assertEqual(self.client.post(path,json={}).status_code,403,path)
+        self.assertEqual(self.client.get("/",follow_redirects=False).headers["location"],"/sourcing")
 
-    def test_admin_changes_guest_password_and_revokes_existing_guest_sessions(self):
-        with TestClient(self.app) as guest:
-            self.login("guest", client=guest)
-            self.login()
-            response = self.client.post("/api/auth/password", json={"role": "guest", "password": "a new guest password"})
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(guest.get("/api/dashboard").status_code, 401)
-            self.assertEqual(self.login("guest", client=guest).status_code, 401)
-            self.assertEqual(self.login("guest", "a new guest password", guest).status_code, 200)
-            self.assertEqual(self.client.get("/api/settings").status_code, 200)
-        with TestClient(create_app()) as restarted:
-            self.assertEqual(self.login("guest", "a new guest password", restarted).status_code, 200)
+    def test_admin_reset_revokes_named_bidder_sessions(self):
+        from tests.web_client import sign_in_bidder
+        sign_in_bidder(self.client)
+        self.login()
+        with TestClient(self.app) as bidder:
+            sign_in_bidder(bidder)
+            self.assertEqual(self.client.post('/api/auth/bidders/1/password',json={'password':'new-password','enabled':True}).status_code,200)
+            self.assertEqual(bidder.get('/api/payments').status_code,401)
+            self.assertEqual(bidder.post('/api/auth/login',json={'role':'bidder','bidder_id':1,'password':'bidder-password'}).status_code,401)
+            self.assertEqual(bidder.post('/api/auth/login',json={'role':'bidder','bidder_id':1,'password':'new-password'}).status_code,200)
 
     def test_admin_password_change_revokes_admin_session(self):
         self.login()
@@ -142,7 +135,8 @@ class AuthTests(unittest.TestCase):
         self.login()
         for payload in ({"role": "guest", "password": ""}, {"role": "root", "password": "x"}, {"role": "admin", "password": "x" * 257}):
             self.assertEqual(self.client.post("/api/auth/password", json=payload).status_code, 422)
-        self.assertEqual(self.login("guest").status_code, 200)
+        from tests.web_client import sign_in_bidder
+        sign_in_bidder(self.client)
 
 
 if __name__ == "__main__":

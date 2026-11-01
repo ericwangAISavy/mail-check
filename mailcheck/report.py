@@ -45,7 +45,7 @@ def _summary(item: TriagedMessage) -> Text:
 
 def render(result: RunResult, *, show_noise: bool = False) -> None:
     if not result.items:
-        console.print("[dim]No unread mail in the selected window.[/dim]")
+        console.print("[dim]No mail in the selected window.[/dim]")
         _render_footer(result)
         return
 
@@ -104,7 +104,7 @@ def _render_footer(result: RunResult) -> None:
         took = f" in {secs:.1f}s"
 
     bits = [
-        f"[bold]{result.fetched}[/bold] unread",
+        f"[bold]{result.fetched}[/bold] messages",
         f"[bold]{result.classified}[/bold] classified",
         f"[bold]{result.from_cache}[/bold] cached",
     ]

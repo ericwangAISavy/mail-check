@@ -1,0 +1,11 @@
+import "@testing-library/jest-dom/vitest"
+import {afterEach,expect,it,vi} from "vitest"
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
+import {MemoryRouter} from "react-router-dom"
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
+import {api,request} from "@/lib/api"
+import FollowupsPage from "./followups"
+vi.mock("@/lib/api",()=>({api:{post:vi.fn()},request:vi.fn()}))
+const clients:QueryClient[]=[]
+afterEach(()=>{cleanup();clients.forEach(c=>c.clear());vi.resetAllMocks()})
+it("links to the original email without generation and supports snooze, dismissal and restore",async()=>{const item={id:7,account_id:2,account_label:"Personal",company:"Example",role:"Engineer",last_interview_at:null,last_contact_at:"2026-10-01",elapsed_business_days:5,status:"suggested",reason:"Awaiting recruiter",target_message_pk:42,snoozed_until:null};vi.mocked(request).mockResolvedValue({items:[item],accounts:[{id:2,label:"Personal",email:"me@test"}],threshold_business_days:3});vi.mocked(api.post).mockResolvedValue({ok:true});const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client);render(<MemoryRouter><QueryClientProvider client={client}><FollowupsPage/></QueryClientProvider></MemoryRouter>);const link=await screen.findByRole("link",{name:"Open email & reply"});expect(link).toHaveAttribute("href","/?view=all&days=90&message=42&reply=1");expect(api.post).not.toHaveBeenCalled();fireEvent.click(screen.getByRole("button",{name:"Snooze 3 days"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/agent/followups/7",{action:"snooze",days:3}));await waitFor(()=>expect(screen.getByRole("button",{name:"Dismiss"})).not.toBeDisabled());fireEvent.click(screen.getByRole("button",{name:"Dismiss"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/agent/followups/7",{action:"dismiss"}));vi.mocked(request).mockResolvedValue({items:[{...item,status:"dismissed"}],accounts:[],threshold_business_days:3});await client.invalidateQueries({queryKey:["followups"]});fireEvent.change(screen.getByLabelText("Status"),{target:{value:"dismissed"}});fireEvent.click(await screen.findByRole("button",{name:"Restore"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/agent/followups/7",{action:"restore"}))})

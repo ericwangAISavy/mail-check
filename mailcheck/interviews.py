@@ -228,11 +228,63 @@ def _utc(value: str | None) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
+def _same_booking(left, right):
+    """Confirm copied meetings using exact times and independent identity evidence."""
+    if max(left.get('extraction_rank',0),right.get('extraction_rank',0))<3:return False
+    if left.get('calendar_uid') and left.get('calendar_uid')==right.get('calendar_uid') and left.get('recurrence_id','')!=right.get('recurrence_id',''):return False
+    common=set(json.loads(left.get('manual_fields') or '[]')) & set(json.loads(right.get('manual_fields') or '[]'))
+    if any(left.get(key)!=right.get(key) for key in common):return False
+    if not all(item.get('start_at') for item in (left,right)):
+        return False
+    if _utc(left['start_at']) != _utc(right['start_at']):return False
+    if left.get('end_at') and right.get('end_at') and _utc(left['end_at'])!=_utc(right['end_at']):return False
+    normalize=lambda value: ' '.join((value or '').split()).casefold()
+    organizers=[normalize(item.get('organizer_email')) for item in (left,right)]
+    if all(organizers) and organizers[0]!=organizers[1]:return False
+    links=[safe_url(item.get('meeting_url') or '') for item in (left,right)]
+    if all(links):return links[0]==links[1]
+    participants=[]
+    for item in (left,right):
+        values=item.get('participants') or []
+        if isinstance(values,str):values=json.loads(values)
+        participants.append({normalize(value) for value in values})
+    if all(participants) and not (participants[0]<=participants[1] or participants[1]<=participants[0]):return False
+    titles=[normalize(item.get('company')) for item in (left,right)]
+    if not titles[0] or titles[0]!=titles[1]:return False
+    return bool(all(organizers) or (left.get('extraction_rank',0)<3) != (right.get('extraction_rank',0)<3))
+
+
+def _visible_copies(rows):
+    """Combine confirmed copies for display without deleting stored records."""
+    result=[];groups={}
+    # Prefer manual corrections, then authoritative native bookings.
+    rows=sorted(rows,key=lambda r:(not bool(json.loads(r['manual_fields'])),-r['extraction_rank'],r['id']))
+    for row in rows:
+        key=_utc(row['start_at']) if row['start_at'] else None
+        copies=groups.setdefault(key,[]) if key else []
+        if not any(_same_booking(row,old) for old in copies):
+            copies.append(row);result.append(row)
+    return sorted(result,key=lambda r:(r['start_at'] is None,_utc(r['start_at']),r['id']))
+
+
+def _copy_ids(conn,event_id):
+    row=conn.execute('SELECT * FROM interview_events WHERE id=?',(event_id,)).fetchone()
+    if not row:return [event_id]
+    value=dict(row)
+    return [r['id'] for r in conn.execute('SELECT * FROM interview_events') if r['id']==event_id or _same_booking(value,dict(r))]
+
+
 def _matching(conn, candidate: dict, row: dict):
     uid = candidate.get("calendar_uid")
     if uid:
         found = conn.execute("SELECT * FROM interview_events WHERE calendar_uid=? AND recurrence_id=?", (uid, candidate["recurrence_id"])).fetchone()
         if found: return found
+    if uid:
+        aliases=conn.execute("SELECT DISTINCT e.* FROM interview_events e JOIN interview_sources s ON s.event_id=e.id WHERE s.candidate_key=?",(uid+'|'+candidate.get('recurrence_id',''),)).fetchall()
+        if len(aliases)==1:return aliases[0]
+    if candidate.get('start_at'):
+        copies=[old for old in conn.execute('SELECT * FROM interview_events WHERE julianday(start_at)=julianday(?)',(candidate['start_at'],)) if _same_booking(candidate,dict(old))]
+        if len(copies)==1:return copies[0]
     # Identity relations are account-scoped, unlike globally unique calendar UIDs.
     refs = json.loads(row.get("references_json") or "[]")
     sources = conn.execute("SELECT s.*, e.calendar_uid, e.recurrence_id FROM interview_sources s JOIN interview_events e ON e.id=s.event_id WHERE s.account_id=?", (row["account_id"],)).fetchall()
@@ -308,7 +360,10 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
             if candidate["status"] == "Cancelled" and existing["start_at"]:
                 value["needs_review"] = existing["needs_review"]
                 value["review_reason"] = existing["review_reason"]
-            updates = {k:v for k,v in value.items() if k in EVENT_FIELDS and k not in manual and v is not None and (k != "stage" or v != "Other" or existing[k] == "Other")}
+            updates = {k:v for k,v in value.items() if k in EVENT_FIELDS and k not in manual and (v is not None or candidate["extraction_rank"] == 3 and k in {"end_at", "meeting_url", "meeting_platform", "location", "organizer_name", "organizer_email"}) and (k != "stage" or v != "Other" or existing[k] == "Other")}
+            if candidate.get('calendar_uid') and existing['calendar_uid'] and candidate['calendar_uid']!=existing['calendar_uid']:
+                updates.pop('calendar_uid',None)
+                updates.pop('recurrence_id',None)
             if not candidate.get("calendar_uid"):
                 updates.pop("recurrence_id", None)
             if not value["needs_review"] and "review_reason" not in manual:
@@ -320,7 +375,7 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
                 updates["status"] = "Rescheduled"
                 if "end_at" not in manual and not candidate["end_at"]:
                     updates["end_at"] = None
-            elif existing["status"] in ("Rescheduled", "Cancelled") and updates.get("status") == "Scheduled":
+            elif candidate["extraction_rank"] < 3 and existing["status"] in ("Rescheduled", "Cancelled") and updates.get("status") == "Scheduled":
                 updates.pop("status", None)  # reminders do not undo cancellation/update
             merged = {**dict(existing), **updates}
             if merged["start_at"] and merged["end_at"] and _utc(merged["end_at"]) <= _utc(merged["start_at"]):
@@ -396,20 +451,25 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     from .pipeline import build_source
     from .sources import SourceError
     from . import secrets
+    from .interview_pipeline import note_calendar_sync
     accounts = db.list_accounts(conn, only_enabled=True)
     if account_label:
         accounts = [account for account in accounts if account.label == account_label]
         if not accounts:
             return {"changes": [], "errors": [f"No enabled account labelled '{account_label}'."], "accounts": 0}
-    since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else cfg.check.lookback_days)).date()
+    since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else max(365, cfg.check.lookback_days))).date()
+    until = datetime.now(timezone.utc) + timedelta(days=365)
     changes, errors, checked = [], [], 0
     for account in accounts:
+        first_error = len(errors)
         status(f"Collecting calendar events from {account.label}…")
         try:
             if account.provider != "outlook":
                 raise SourceError("IMAP cannot read calendar events. Connect your calendar through Microsoft sign-in with read-only Calendars.Read access; email fallback is disabled.")
             source = build_source(account, cfg)
-            for booking in source.fetch_calendar(since):
+            seen = set()
+            complete = True
+            for booking in source.fetch_calendar(since, until=until):
                 # Native provider events only: no inbox reads, ICS extraction, or model.
                 row = dict(id=None,account_id=account.id,message_id=booking.provider_id,
                     subject=booking.title,from_addr=booking.organizer_email,
@@ -430,6 +490,11 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 conn.execute("SAVEPOINT calendar_invitation")
                 try:
                     change = reconcile(conn,candidate,row)
+                    seen.add(booking.provider_id)
+                    conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present)
+                        SELECT id,?,?,1 FROM interview_sources WHERE account_id=? AND external_message_id=?
+                        ON CONFLICT(source_id) DO UPDATE SET start_at=excluded.start_at,end_at=excluded.end_at,present=1""",
+                        (candidate['start_at'],candidate['end_at'],account.id,booking.provider_id))
                     if change:
                         changes.append(change)
                     conn.execute("RELEASE calendar_invitation")
@@ -437,11 +502,35 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 except Exception:
                     conn.execute("ROLLBACK TO calendar_invitation")
                     conn.execute("RELEASE calendar_invitation")
+                    complete = False
                     errors.append(f"[{account.label}] Could not save a calendar event.")
                     log.exception("Calendar event persistence failed")
+            # Absence is authoritative only after every calendar/page succeeded.
+            # Keep source times separately so local time corrections cannot move
+            # a booking into or out of the provider snapshot window.
+            if complete:
+                old_sources = conn.execute("""SELECT s.id,s.event_id,s.external_message_id,
+                    COALESCE(c.start_at,e.start_at) AS start_at,COALESCE(c.end_at,e.end_at) AS end_at
+                    FROM interview_sources s JOIN interview_events e ON e.id=s.event_id
+                    LEFT JOIN interview_calendar_state c ON c.source_id=s.id
+                    WHERE s.account_id=? AND s.external_message_id LIKE 'graph-event:%'
+                    AND julianday(COALESCE(c.start_at,e.start_at)) < julianday(?)
+                    AND julianday(COALESCE(c.end_at,c.start_at,e.end_at,e.start_at)) >= julianday(?)""",
+                    (account.id,until.isoformat(),since.isoformat())).fetchall()
+                for old in old_sources:
+                    if old['external_message_id'] in seen:
+                        continue
+                    conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present)
+                        VALUES(?,?,?,0) ON CONFLICT(source_id) DO UPDATE SET present=0""",
+                        (old['id'],old['start_at'],old['end_at']))
+                conn.commit()
+            note_calendar_sync(conn,account.id,errors[first_error:] or None)
+            conn.commit()
             checked += 1
         except (SourceError, secrets.SecretError) as exc:
             errors.append(f"[{account.label}] {exc}")
+            note_calendar_sync(conn,account.id,errors[first_error:])
+            conn.commit()
     return {"changes":changes,"errors":errors,"accounts":checked}
 
 
@@ -459,19 +548,60 @@ def display_event(row: dict, *, now=None) -> dict:
     return value
 
 
+def event_sources_many(conn, event_ids) -> dict[int, list[dict]]:
+    """Resolve retained copies in bulk, comparing only equal-start bookings.
+
+    Calendar lists used to scan every event and issue a source query per event.
+    Two reads now serve the entire list, without caching private workspace data.
+    """
+    requested = set(event_ids)
+    if not requested:
+        return {}
+    events = {row['id']: dict(row) for row in conn.execute('SELECT * FROM interview_events')}
+    by_start = {}
+    for event in events.values():
+        if event['start_at']:
+            by_start.setdefault(_utc(event['start_at']), []).append(event)
+    sources = {}
+    source_order = {}
+    for row in conn.execute("""SELECT s.*,a.label AS account_label,a.email AS account_email,
+        a.enabled AS account_enabled,COALESCE(c.present,1) AS calendar_present
+        FROM interview_sources s JOIN accounts a ON a.id=s.account_id
+        LEFT JOIN interview_calendar_state c ON c.source_id=s.id
+        ORDER BY julianday(s.source_received_at) DESC,s.id DESC"""):
+        source_order[row['id']] = len(source_order)
+        sources.setdefault(row['event_id'], []).append(dict(row))
+    result = {}
+    for identity in requested:
+        event = events.get(identity)
+        copies = {identity}
+        if event and event['start_at']:
+            copies.update(other['id'] for other in by_start.get(_utc(event['start_at']), [])
+                          if _same_booking(event, other))
+        result[identity] = sorted((source for copy in copies for source in sources.get(copy, [])),
+            key=lambda source: source_order[source['id']])
+    return result
+
+
 def event_sources(conn, event_id: int) -> list[dict]:
-    return [dict(r) for r in conn.execute("SELECT s.*, a.label AS account_label,a.email AS account_email,a.enabled AS account_enabled FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=? ORDER BY julianday(s.source_received_at) DESC,s.id DESC", (event_id,))]
+    ids=_copy_ids(conn,event_id)
+    marks=','.join('?' for _ in ids)
+    return [dict(r) for r in conn.execute(f"SELECT s.*, a.label AS account_label,a.email AS account_email,a.enabled AS account_enabled FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id IN ({marks}) ORDER BY julianday(s.source_received_at) DESC,s.id DESC", ids)]
 
 
-def list_events(conn, *, account: str | None=None, status: str | None=None, company: str | None=None) -> list[dict]:
+def list_events(conn, *, account: str | None=None, status: str | None=None, company: str | None=None, now=None) -> list[dict]:
     # Date-window filtering and aggregates operate on event records only, never mail bodies.
-    rows = conn.execute("""SELECT e.* FROM interview_events e WHERE EXISTS (
+    rows = conn.execute("""SELECT e.* FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND EXISTS (
       SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id
-      WHERE s.event_id=e.id AND a.enabled=1 AND (? IS NULL OR a.label=?))
+      WHERE s.event_id=e.id AND a.enabled=1 AND (? IS NULL OR a.label=?)
+      AND NOT EXISTS (SELECT 1 FROM interview_calendar_state c WHERE c.source_id=s.id AND c.present=0)
+      AND (s.external_message_id LIKE 'graph-event:%' OR NOT EXISTS (
+        SELECT 1 FROM interview_sources native JOIN accounts na ON na.id=native.account_id
+        WHERE native.event_id=e.id AND na.enabled=1 AND native.external_message_id LIKE 'graph-event:%')))
       AND (? IS NULL OR e.company=?) ORDER BY e.start_at IS NULL,e.start_at,e.id""", (account,account,company,company))
     result = []
-    for row in rows:
-        value = display_event(dict(row))
+    for row in _visible_copies([dict(row) for row in rows]):
+        value = display_event(dict(row), now=now)
         if status and value["display_status"] != status: continue
         result.append(value)
     return result
@@ -547,3 +677,11 @@ class RunExtractionClient:
         except Exception:
             self.failed = True
             raise
+
+
+def remove_event(conn, event_id: int) -> None:
+    """Hide a saved event locally while retaining its identity across collection."""
+    if not conn.execute("SELECT 1 FROM interview_events WHERE id=?", (event_id,)).fetchone():
+        raise LookupError("Interview not found")
+    for identity in _copy_ids(conn,event_id):
+        conn.execute("INSERT INTO interview_event_removals(event_id,removed_at) VALUES(?,?) ON CONFLICT(event_id) DO NOTHING", (identity, db._now()))

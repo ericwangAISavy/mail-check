@@ -36,3 +36,25 @@ it('copies a canonical calendar link with view/date/filters and prints on demand
  const url=new URL(writeText.mock.calls[0][0]);expect(url.searchParams.get('calendar_view')).toBe('workweek');expect(url.searchParams.get('calendar_date')).toBe('2026-10-15');expect(url.searchParams.get('account')).toBe('work')
  fireEvent.click(screen.getByRole('button',{name:'Print'}));expect(print).toHaveBeenCalledTimes(1)
 })
+it('keeps a combined meeting color stable when source account order changes',()=>{
+ const value={...event(3,'work'),account_labels:['work','personal']}
+ const draw=(labels:string[])=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[{...value,account_labels:labels}]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ draw(value.account_labels)
+ const first=screen.getByRole('button',{name:/Work Company, Technical Interview/}).className.match(/account-color-\d/)![0]
+ cleanup();draw(['personal','work'])
+ expect(screen.getByRole('button',{name:/Work Company, Technical Interview/}).className).toContain(first)
+})
+it('shows intro and tech totals next to the current period and updates on navigation',async()=>{
+ const intro={...event(1,'personal'),end_at:new Date(2026,9,15,10,30).toISOString()}
+ render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[intro,event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toBe('Total 2 / Intro 1 / Tech 1')
+ fireEvent.click(screen.getByRole('button',{name:'Next calendar period'}))
+ await waitFor(()=>expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toBe('Total 0 / Intro 0 / Tech 0'))
+})
+it('keeps an account color unchanged when the account list is reordered',()=>{
+ const draw=(list:typeof accounts)=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[event(1,'work')]} accounts={list} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ draw(accounts)
+ const before=screen.getByRole('button',{name:/Work Company, Technical Interview/}).className.match(/account-color-\d/)![0]
+ cleanup();draw([...accounts].reverse())
+ expect(screen.getByRole('button',{name:/Work Company, Technical Interview/}).className).toContain(before)
+})

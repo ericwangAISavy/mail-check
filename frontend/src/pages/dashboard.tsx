@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { CartesianGrid, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import ApplicationActivityChart from "@/components/application-activity-chart"
 import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Bootstrap, Message } from "@/lib/types"
@@ -13,12 +13,9 @@ import { Reader } from "@/pages/triage"
 import { useDoneMutation } from "@/components/common"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
-const colors = ["#00cfff", "#6b7dff", "#b45cff", "#28e1ff", "#d568ff", "#5798f5", "#e6b76b", "#8ea7bd", "#827bdc", "#729ec1"]
+const colors = Array.from({length:10},(_,index)=>`var(--category-color-${index})`)
 const isoToday = () => new Intl.DateTimeFormat("en-CA").format(new Date())
-const localCalendarDate = (value: string) => {
-  const [year, month, day] = value.slice(0, 10).split("-").map(Number)
-  return new Date(year, month - 1, day)
-}
+
 
 export default function DashboardPage({ bootstrap, readOnly = false }: { bootstrap: Bootstrap; readOnly?: boolean }) {
   const [search, setSearch] = useSearchParams()
@@ -36,7 +33,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     value.set("days", search.get("days") || "7")
     value.set("interval", search.get("interval") === "week" ? "week" : "day")
     value.set("tz", search.get("tz") || zone)
-    for (const key of ["start", "end", "account", "status", "action", "sort", "focus_date", "focus_category"]) if (search.has(key)) value.set(key, search.get(key)!)
+    for (const key of ["start", "end", "account", "bidder", "status", "action", "sort", "focus_date", "focus_category"]) if (search.has(key)) value.set(key, search.get(key)!)
     if (deferredSearch.trim()) value.set("q", deferredSearch.trim())
     for (const category of search.getAll("category")) value.append("category", category)
     value.set("page", search.get("page") || "1")
@@ -99,7 +96,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     return [...weeks.values()]
   }, [series, params])
   const pageInfo = data?.messages as { items: Record<string, any>[]; total: number; page: number; page_size: number; total_pages: number } | undefined
-  const filterCount = params.getAll("category").length + ["account", "status", "action", "focus_date", "q"].filter((key) => params.has(key)).length
+  const filterCount = params.getAll("category").length + ["account", "bidder", "status", "action", "focus_date", "q"].filter((key) => params.has(key)).length
   const focusCategory = params.get("focus_category")
   const focusDate = params.get("focus_date")
   const clear = () => { setSearch(new URLSearchParams({ tz: zone, days: "7" })); setSearchInput("") }
@@ -117,29 +114,30 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     })
   }
   if (isPending && !data) return <div className="page-wrap"><Loading label="Gathering your local mail history…" /></div>
-  if (error && !data) return <div className="page-wrap"><EmptyState title="Dashboard is unavailable" description={error instanceof Error ? error.message : "Try loading this dashboard again."} action={<Button onClick={() => void refetch()}>Try again</Button>} /></div>
+  if (error && !data) return <div className="page-wrap"><EmptyState title="Dashboard is unavailable" description={error instanceof Error ? error.message : "Try loading this dashboard again."} action={<div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void refetch()}>Try again</Button>{search.toString()&&<Button variant="outline" onClick={clear}>Clear filters</Button>}</div>} /></div>
   return <div className="page-wrap analytics-page">
-    <PageHeading eyebrow="LOCAL MAIL HISTORY" title="Dashboard" description="A little perspective on the applications in motion." action={<><div className="system-metadata"><span>MAIL INTELLIGENCE</span><span>LOCAL ANALYSIS</span><span>PRIVACY FIRST</span></div><Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refresh()}>{isFetching ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}Refresh</Button></>} />
+    <PageHeading title="Dashboard" description="A little perspective on the applications in motion." action={!readOnly && <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refresh()}>{isFetching ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}Refresh</Button>} />
     {error && data && <p role="alert" className="inline-error">Could not update this view: {error.message}. Showing the last loaded results.</p>}
     <div className="dashboard-filters cyber-panel"><div className="field-compact"><label htmlFor="range">Date range</label><select id="range" value={params.has("start") ? "custom" : params.get("days") || "7"} onChange={(e) => e.target.value === "custom" ? update({ start: new Intl.DateTimeFormat("en-CA").format(new Date(new Date().setDate(new Date().getDate() - 29))), end: isoToday() }) : update({ start: null, end: null, days: e.target.value })}><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom range</option></select></div>
       {params.has("start") && <><div className="field-compact"><label htmlFor="start">From</label><input id="start" type="date" value={params.get("start") || ""} onChange={(e) => update({ start: e.target.value })} /></div><div className="field-compact"><label htmlFor="end">Through</label><input id="end" type="date" value={params.get("end") || ""} onChange={(e) => update({ end: e.target.value })} /></div></>}
       <div className="field-compact"><label htmlFor="interval">Group by</label><select id="interval" value={params.get("interval") || "day"} onChange={(e) => update({ interval: e.target.value })}><option value="day">Day</option><option value="week">Week</option></select></div>
       <div className="field-compact"><label htmlFor="account">Account</label><select id="account" value={params.get("account") || ""} onChange={(e) => update({ account: e.target.value })}><option value="">All accounts</option>{accounts?.accounts.map((account) => <option value={account.label} key={account.label}>{account.label}</option>)}</select></div>
+      <div className="field-compact"><label htmlFor="bidder">Bidder</label><select id="bidder" value={params.get("bidder") || ""} onChange={(e) => update({ bidder: e.target.value })}><option value="">All bidders</option>{accounts?.bidders?.map((bidder) => <option value={bidder.id} key={bidder.id}>{bidder.name}</option>)}</select></div>
       <div className="field-compact"><label htmlFor="status">Status</label><select id="status" value={params.get("status") || "all"} onChange={(e) => update({ status: e.target.value === "all" ? null : e.target.value })}><option value="all">All mail</option><option value="pending">Open</option><option value="done">Completed</option></select></div>
       <Button variant={advanced ? "secondary" : "outline"} size="sm" aria-expanded={advanced} onClick={() => setAdvanced((value) => !value)}><SlidersHorizontal size={14} />More</Button>
       {filterCount > 0 && <Button variant="ghost" size="sm" onClick={clear}><FilterX size={14} />Reset</Button>}</div>
     {advanced && <div className="advanced-filters"><label>Action<select value={params.get("action") || "all"} onChange={(e) => update({ action: e.target.value === "all" ? null : e.target.value })}><option value="all">All actions</option><option value="yes">Action required</option><option value="no">No action required</option></select></label><span className="filter-caption">Select categories below to narrow the timeline.</span></div>}
     <div className="dashboard-layout"><div className="dashboard-primary">
     <div className="stat-grid">{[
-      { label: "Messages collected", value: summary?.total, caption: "stored on this computer", Icon: Mail },
-      { label: "Need your attention", value: summary?.pending_attention, caption: "still in your queue", Icon: Clock3 },
-      { label: "Completed", value: summary?.completed, caption: "finished by you", Icon: CheckCircle2 },
-      { label: "Unclassified", value: summary?.unclassified, caption: `${summary?.retryable ?? 0} can be retried`, Icon: HelpCircle },
-    ].map(({ label, value, caption, Icon }, index) => <Card key={label} className={`stat-card stat-${index + 1}`}><span className="stat-label"><span>{label}</span><Icon size={20} aria-hidden="true" /></span><strong className="stat-value tabular">{value == null ? "—" : value.toLocaleString()}</strong><span className="stat-caption">{caption}</span></Card>)}</div>
+      { label: "Messages collected", value: summary?.total, Icon: Mail },
+      { label: "Need your attention", value: summary?.pending_attention, Icon: Clock3 },
+      { label: "Completed", value: summary?.completed, Icon: CheckCircle2 },
+      { label: "Unclassified", value: summary?.unclassified, Icon: HelpCircle },
+    ].map(({ label, value, Icon }, index) => <div key={label} className={`stat-card stat-${index + 1}`} title={label}><span className="sr-only">{label}</span><span className="stat-icon-wrap" aria-hidden="true"><Icon className="stat-icon" size={26} /></span><strong className="stat-value tabular">{value == null ? "—" : value.toLocaleString()}</strong></div>)}</div>
     {focusDate || focusCategory ? <div className="focus-banner"><span>Focused on {focusDate || "all dates"}{focusCategory ? ` · ${categories.find((category) => category.name === focusCategory)?.label || focusCategory}` : ""}</span><Button variant="ghost" size="sm" onClick={() => update({ focus_date: null, focus_category: null })}>Clear focus</Button></div> : null}
-    <div className="analytics-main-grid"><Card className="chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{params.get("interval") === "week" ? "Select a segment to focus its first visible day." : "Select a bar to focus on that date. Colors follow the filters below."}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
+    <div className="analytics-main-grid"><Card className="chart-card activity-chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{params.get("interval") === "week" ? "Select a segment to focus its first visible day." : "Select a bar to focus on that date. Colors follow the filters below."}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
       <div className="timeline-ranges" role="group" aria-label="Timeline range">{[["7", "1 week"], ["14", "2 weeks"], ["30", "1 month"], ["90", "3 months"]].map(([days, label]) => <Button key={days} type="button" size="sm" variant={!params.has("start") && params.get("days") === days ? "secondary" : "ghost"} aria-pressed={!params.has("start") && params.get("days") === days} onClick={() => update({ days, start: null, end: null })}>{label}</Button>)}</div>
-      <div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={intervalRows} margin={{ top: 12, right: 8, left: -18, bottom: 0 }} ><CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" /><XAxis dataKey="date" tickFormatter={(value: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(localCalendarDate(value))} tick={{ fill: "var(--muted-foreground)", fontSize: "var(--text-small)" }} tickLine={false} axisLine={false} minTickGap={32} /><YAxis tick={{ fill: "var(--muted-foreground)", fontSize: "var(--text-small)" }} allowDecimals={false} tickLine={false} axisLine={false} /><Tooltip cursor={{ fill: "var(--muted)", opacity: .48 }} labelFormatter={(value) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(localCalendarDate(String(value)))} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--foreground)" }} />{categories.map((category, index) => <Bar key={category.name} dataKey={`counts.${category.name}`} name={category.label} stackId="mail" fill={colors[index % colors.length]} radius={0} isAnimationActive={false} style={{ cursor: "pointer" }} onClick={(item: any) => { if (item?.date) focusChart(item.date, category.name) }} />)}</BarChart></ResponsiveContainer></div>
+      <ApplicationActivityChart rows={intervalRows} categories={categories} colors={colors} onFocus={focusChart}/>
       <div className="chart-legend">{categories.filter((category) => category.count).map((category) => <button key={category.name} onClick={() => toggleCategory(category.name)}><span style={{ backgroundColor: colors[categories.findIndex((item) => item.name === category.name) % colors.length] }} />{category.label}<b>{category.count}</b></button>)}</div>
       <details className="accessible-chart-data"><summary>View chart data as a table</summary><div className="table-scroll"><table><thead><tr><th>Date</th>{categories.map((c) => <th key={c.name}>{c.label}</th>)}<th>Total</th></tr></thead><tbody>{intervalRows.map((row: any) => <tr key={row.date}><th>{row.date}{row.partial ? " *" : ""}</th>{categories.map((c) => <td key={c.name}>{row.counts?.[c.name] || 0}</td>)}<td>{row.total}</td></tr>)}</tbody></table></div></details>
     </Card>
@@ -159,6 +157,6 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       {pageInfo?.items.length ? <><div className="table-scroll explorer-table"><table><thead><tr><th>Message</th><th>Category</th><th>Account</th><th>Received</th></tr></thead><tbody>{pageInfo.items.map((row) => <tr key={row.pk} tabIndex={0} onClick={() => openMessage(row)} onKeyDown={(event) => { if (event.key === "Enter") openMessage(row) }}><td><strong>{row.company || row.from_name || row.from_addr}</strong><span>{row.subject}</span></td><td><Badge variant="muted">{row.category_label}</Badge></td><td>{row.account_label}</td><td>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</td></tr>)}</tbody></table></div><div className="pagination"><span>{pageInfo.total ? `${(pageInfo.page - 1) * pageInfo.page_size + 1}–${Math.min(pageInfo.page * pageInfo.page_size, pageInfo.total)} of ${pageInfo.total}` : "0 messages"}</span><div><Button variant="outline" size="sm" aria-label="Previous page" disabled={pageInfo.page <= 1} onClick={() => update({ page: String(pageInfo.page - 1) })}><ChevronLeft size={15} />Previous</Button><Button variant="outline" size="sm" aria-label="Next page" disabled={pageInfo.page >= pageInfo.total_pages} onClick={() => update({ page: String(pageInfo.page + 1) })}>Next<ChevronRight size={15} /></Button></div></div></> : <EmptyState title="No messages match" description="Adjust your search, filters, or date range to find more stored mail." action={<Button variant="outline" onClick={clear}>Clear filters</Button>} />}
       {data?.daily?.some((row: any) => row.partial) && <p className="partial-note">* Some dates have partial collection history. Previously unread mail and deleted mail are not available.</p>}
     </div></details>
-    <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by mail-check.</DialogDescription></DialogHeader>{reader && <Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={!readOnly && bootstrap.readiness.model} readOnly={readOnly} />}</DialogContent></Dialog>
+    <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by OfferPath.</DialogDescription></DialogHeader>{reader && <Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={!readOnly && bootstrap.readiness.model} readOnly={readOnly} />}</DialogContent></Dialog>
   </div>
 }

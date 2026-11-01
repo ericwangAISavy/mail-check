@@ -40,8 +40,8 @@ export function useToast() { return useContext(ToastContext) }
 /** The platform's shortcut modifier, so hints match the keys that work. */
 export const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl"
 
-export function PageHeading({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
-  return <div className="page-heading"><div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div>{action && <div className="heading-action">{action}</div>}</div>
+export function PageHeading({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+  return <div className="page-heading"><div><h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div>{action && <div className="heading-action">{action}</div>}</div>
 }
 
 export function Loading({ label = "Loading your workspace…" }: { label?: string }) {

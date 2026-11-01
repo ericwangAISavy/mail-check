@@ -83,3 +83,8 @@ it("reconnects Outlook in place to grant read-only calendar access",async()=>{
   await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/outlook/start",{label:"personal",reconnect:true}))
   expect(await screen.findByText("TEST")).toBeTruthy()
 })
+
+it("shows bidder and account assignment management on Accounts", async () => {
+  mount()
+  expect(await screen.findByText("Manage bidders and account assignments")).toBeTruthy()
+})

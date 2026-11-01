@@ -253,7 +253,7 @@ describe("unclassified banner", () => {
     renderPage()
     expect(await screen.findByText("16 messages need a closer look")).toBeTruthy()
     const banner = document.querySelector(".attention-banner")!
-    expect(banner.compareDocumentPosition(document.querySelector(".triage-bar")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(banner.compareDocumentPosition(document.querySelector(".triage-split")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Try classification again" }))
     await waitFor(() => expect(requests.some((request) => request.includes("POST /api/reclassify {}"))).toBe(true))
   })
@@ -281,4 +281,13 @@ describe("unclassified banner", () => {
     expect(screen.getByRole("tab", { name: /Completed/ }).getAttribute("aria-selected")).toBe("true")
     expect(document.querySelector(".attention-banner")).toBeNull()
   })
+})
+
+it("opens the target message and reply composer from a follow-up link without generating", async () => {
+  window.history.replaceState({}, "", "/?view=all&days=90&message=2&reply=1")
+  renderPage()
+  await screen.findByRole("button", {name:"Close reply composer and keep draft"})
+  expect(screen.getByRole("option",{name:/Summary 2/}).getAttribute("aria-selected")).toBe("true")
+  expect(requests.some(r=>r.startsWith("GET /api/messages/2/reply"))).toBe(true)
+  expect(requests.some(r=>r.includes("/generate")||r.startsWith("POST /api/messages/2/reply"))).toBe(false)
 })

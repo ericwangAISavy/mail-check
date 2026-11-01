@@ -21,6 +21,20 @@ export function fallsOnDay(event: InterviewEvent, day: Date) {
   const start = new Date(event.start_at), end = event.end_at ? new Date(event.end_at) : start
   return Number.isFinite(start.getTime()) && start < shiftDays(day, 1) && (end > day || dayKey(start) === dayKey(day))
 }
+export function calendarCounts(events: InterviewEvent[], days: Date[]) {
+  const counts = {total:0,intro:0,tech:0,unknown:0}
+  const seen = new Set<number>()
+  for (const event of events) {
+    if (seen.has(event.id) || event.status === "Cancelled" || !days.some(day => fallsOnDay(event,day))) continue
+    seen.add(event.id); counts.total++
+    const duration = event.start_at && event.end_at ? new Date(event.end_at).getTime()-new Date(event.start_at).getTime() : NaN
+    if (!Number.isFinite(duration) || duration<=0) counts.unknown++
+    else if (duration<=30*60_000) counts.intro++
+    else counts.tech++
+  }
+  return counts
+}
+
 export type TimePlacement = { event: InterviewEvent; start: number; end: number; lane: number; lanes: number; continuesBefore: boolean; continuesAfter: boolean; unknownEnd: boolean }
 export function placeEvents(events: InterviewEvent[], day: Date): TimePlacement[] {
   const nextDay = shiftDays(day, 1)

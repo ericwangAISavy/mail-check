@@ -1,0 +1,1 @@
+function n(){if(typeof globalThis.crypto.randomUUID=="function")return globalThis.crypto.randomUUID();const o=globalThis.crypto.getRandomValues(new Uint8Array(16));o[6]=o[6]&15|64,o[8]=o[8]&63|128;const t=Array.from(o,r=>r.toString(16).padStart(2,"0"));return[t.slice(0,4),t.slice(4,6),t.slice(6,8),t.slice(8,10),t.slice(10)].map(r=>r.join("")).join("-")}export{n as o};

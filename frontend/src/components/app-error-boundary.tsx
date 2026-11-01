@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import { OfferPathMark } from "@/components/offerpath-mark"
 import { Button } from "@/components/ui/button"
 
 type Props = { children: ReactNode }
@@ -12,14 +13,14 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("mail-check failed while rendering", error, info.componentStack)
+    console.error("OfferPath failed while rendering", error, info.componentStack)
     this.setState({ componentStack: info.componentStack || "" })
   }
 
   render() {
     if (this.state.error) {
       return <main className="recovery-page" role="alert">
-        <div className="brand-mark" aria-hidden="true">m</div>
+        <div className="brand-mark"><OfferPathMark size={34} /></div>
         <p className="eyebrow">SAFE RECOVERY</p>
         <h1>Mail-check couldn’t open this page</h1>
         <p className="recovery-description">An error interrupted the page. Reload to try again. If it happens again, share the technical details below.</p>
