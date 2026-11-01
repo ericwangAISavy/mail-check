@@ -88,3 +88,38 @@ it("shows bidder and account assignment management on Accounts", async () => {
   mount()
   expect(await screen.findByText("Manage bidders and account assignments")).toBeTruthy()
 })
+
+it("reconnects an IMAP account in place with a new app password",async()=>{
+ const post=vi.spyOn(api,"post").mockResolvedValue({message:"Mailbox reconnected."})
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Reconnect"}))
+ expect(screen.getByRole("heading",{name:"Reconnect mailbox"})).toBeTruthy()
+ expect(screen.getAllByText(/me@example.test/).length).toBeGreaterThan(0)
+ fireEvent.change(screen.getByLabelText("New app password"),{target:{value:"abcd efgh ijkl mnop"}})
+ fireEvent.click(screen.getByRole("button",{name:"Test & reconnect"}))
+ await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/accounts/personal/reconnect",{password:"abcd efgh ijkl mnop"}))
+ await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull())
+})
+it("keeps the reconnect dialog open on failure and clears secrets on cancel",async()=>{
+ vi.spyOn(api,"post").mockRejectedValue(new Error("Authentication failed."))
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Reconnect"}))
+ fireEvent.change(screen.getByLabelText("New app password"),{target:{value:"wrong"}})
+ fireEvent.click(screen.getByRole("button",{name:"Test & reconnect"}))
+ expect(await screen.findByRole("alert")).toHaveProperty("textContent","Authentication failed.")
+ fireEvent.click(screen.getByRole("button",{name:"Cancel"}))
+ fireEvent.click(screen.getByRole("button",{name:"Reconnect"}))
+ expect((screen.getByLabelText("New app password") as HTMLInputElement).value).toBe("")
+})
+
+it("shows Gmail app-password guidance and prevents duplicate reconnect submissions",async()=>{
+ accounts[0].email="me@gmail.com";accounts[0].imap_host="imap.gmail.com"
+ let finish!:(value:unknown)=>void
+ const post=vi.spyOn(api,"post").mockImplementation(()=>new Promise(resolve=>{finish=resolve as typeof finish}))
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Reconnect"}))
+ expect(screen.getByRole("link",{name:"Create a Google app password"}).getAttribute("href")).toBe("https://myaccount.google.com/apppasswords")
+ fireEvent.change(screen.getByLabelText("New app password"),{target:{value:"new-password"}})
+ fireEvent.click(screen.getByRole("button",{name:"Test & reconnect"}))
+ expect((screen.getByRole("button",{name:"Reconnecting…"}) as HTMLButtonElement).disabled).toBe(true)
+ expect((screen.getByRole("button",{name:"Cancel"}) as HTMLButtonElement).disabled).toBe(true)
+ expect(post).toHaveBeenCalledTimes(1)
+ await act(async()=>finish({message:"Reconnected."}))
+})

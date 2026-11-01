@@ -848,7 +848,7 @@ def queue_counts(
     ``unclassified`` mail, which needs a manual look precisely because
     automatic classification failed on it and it must never go unseen.
     """
-    from .taxonomy import TIER_ACT, TIER_REPLY, TIER_UNKNOWN, tier_of
+    from .taxonomy import is_queue_category
 
     # One pass grouped by (category, done) rather than two full passes over the
     # same join — every page render needs all three numbers at once.
@@ -876,7 +876,7 @@ def queue_counts(
     for row in conn.execute(sql, params):
         if row["done"]:
             done += row["n"]
-        elif tier_of(row["category"]) in (TIER_ACT, TIER_REPLY, TIER_UNKNOWN):
+        elif is_queue_category(row["category"]):
             actionable += row["n"]
         else:
             informational += row["n"]

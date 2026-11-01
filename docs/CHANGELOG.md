@@ -2,6 +2,30 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.7.1 — 2026-11-01
+
+Harden calendar display and mailbox reconnects
+
+- Ignore malformed event dates in calendar weekend notices and close IMAP connections after failed sign-in or folder selection.
+
+## 2.7.0 — 2026-11-01
+
+Reconnect Gmail and IMAP mailboxes
+
+- Reconnect existing Gmail and other IMAP accounts with a new app password. The connection is tested before credentials are saved, preserving mailbox history and assignments.
+
+## 2.6.1 — 2026-11-01
+
+Keep info requests out of the action queue
+
+- Info request emails remain available in All mail but no longer appear in the Queue, its category filters, or action counts.
+
+## 2.6.0 — 2026-11-01
+
+Selectable interview calendar timezone
+
+- Choose and save a calendar display timezone, with consistent event positions, date grouping, details, and shared links.
+
 ## 2.5.1 — 2026-10-31
 
 Explain and resolve missing bidder payment amounts

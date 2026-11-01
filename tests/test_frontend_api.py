@@ -38,6 +38,47 @@ class FrontendApiTests(unittest.TestCase):
         self.client = TestClient(create_app())
         self.addCleanup(self.client.close)
 
+    def test_imap_reconnect_tests_new_secret_before_saving_and_keeps_account(self):
+        before = db.get_account(self.conn, "personal")
+        with patch.object(web_app, "IMAPSource") as source, \
+             patch.object(web_app.secrets, "set_account_password") as store:
+            source.return_value.test.side_effect = lambda: self.assertFalse(store.called)
+            response = self.client.post("/api/accounts/personal/reconnect", json={"password": "abcd efgh ijkl mnop"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(source.call_args.kwargs["password"], "abcdefghijklmnop")
+        self.assertEqual(source.call_args.kwargs["username"], before.email)
+        store.assert_called_once_with("personal", "abcdefghijklmnop")
+        self.assertEqual(db.get_account(self.conn, "personal"), before)
+
+    def test_failed_imap_reconnect_never_replaces_existing_secret(self):
+        with patch.object(web_app, "IMAPSource") as source, \
+             patch.object(web_app.secrets, "set_account_password") as store:
+            source.return_value.test.side_effect = web_app.SourceError("Authentication failed.")
+            response = self.client.post("/api/accounts/personal/reconnect", json={"password": "wrong"})
+        self.assertEqual(response.status_code, 400)
+        store.assert_not_called()
+
+    def test_imap_reconnect_rejects_missing_accounts_and_empty_passwords(self):
+        with patch.object(web_app, "IMAPSource") as source, \
+             patch.object(web_app.secrets, "set_account_password") as store:
+            self.assertEqual(self.client.post("/api/accounts/missing/reconnect", json={"password": "new"}).status_code, 404)
+            self.assertEqual(self.client.post("/api/accounts/personal/reconnect", json={"password": "   "}).status_code, 400)
+            source.assert_not_called()
+            store.assert_not_called()
+
+    def test_imap_reconnect_rejects_outlook_and_handles_keyring_failure(self):
+        db.add_account(self.conn, label="microsoft", email="me@outlook.com", provider="outlook")
+        with patch.object(web_app, "IMAPSource") as source, \
+             patch.object(web_app.secrets, "set_account_password") as store:
+            response = self.client.post("/api/accounts/microsoft/reconnect", json={"password": "new"})
+            self.assertEqual(response.status_code, 400)
+            source.assert_not_called()
+            store.assert_not_called()
+            store.side_effect = web_app.secrets.SecretError("Credential store locked.")
+            response = self.client.post("/api/accounts/personal/reconnect", json={"password": "new"})
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("Credential store locked", response.text)
+
     def test_spa_shell_revalidates_html_and_contains_a_boot_recovery_message(self):
         response = self.client.get("/?view=queue&days=30")
 

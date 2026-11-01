@@ -10,7 +10,7 @@ import { Loading, useToast } from "@/components/common"
 import "@/pages/interviews.css"
 
 const stateClass = (event: InterviewEvent) => event.display_status.toLowerCase().replaceAll(" ","-")
-const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)) : "Unknown"
+const dateTime = (value: string | null, timeZone?:string) => value ? new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short",timeZone}).format(new Date(value)) : "Unknown"
 
 function localInput(value: string | null, zone: string) {
   if (!value) return ""
@@ -20,7 +20,7 @@ function localInput(value: string | null, zone: string) {
     return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`
   } catch { return "" }
 }
-export function InterviewDetails({id,stages,statuses,onCloseAutoFocus,onRemoved}:{id:number;stages?:string[];statuses?:string[];onCloseAutoFocus?:(event:Event)=>void;onRemoved?:()=>void}) {
+export function InterviewDetails({id,stages,statuses,displayTimezone,onCloseAutoFocus,onRemoved}:{id:number;displayTimezone?:string;stages?:string[];statuses?:string[];onCloseAutoFocus?:(event:Event)=>void;onRemoved?:()=>void}) {
   const query = useQuery({queryKey:["interviews","detail",id],queryFn:()=>request<{event:InterviewEvent;sources:InterviewSource[];stages:string[];statuses:string[]}>(`/api/interviews/${id}`)})
   const client = useQueryClient()
   const [removed, setRemoved] = useState(false)
@@ -36,10 +36,10 @@ export function InterviewDetails({id,stages,statuses,onCloseAutoFocus,onRemoved}
   return <DialogContent className="interview-dialog" onCloseAutoFocus={onCloseAutoFocus}><DialogHeader><DialogTitle>{event?.company || "Meeting details"}</DialogTitle><DialogDescription>Calendar event details and local corrections.</DialogDescription></DialogHeader>
     {removed ? <p role="status">Event removed from calendar.</p> : query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && <>
     <div className="interview-detail-status"><span className={`interview-status ${stateClass(event)}`}>{event.display_status}</span><Button variant="outline" onClick={()=>setEditing(!editing)}>{editing?"Cancel editing":"Edit details"}</Button></div>
-    {editing ? <InterviewEditor event={event} stages={stages || query.data?.stages || []} statuses={statuses || query.data?.statuses || []} onSaved={()=>setEditing(false)}/> : <>
+    {editing ? <InterviewEditor displayTimezone={displayTimezone} event={event} stages={stages || query.data?.stages || []} statuses={statuses || query.data?.statuses || []} onSaved={()=>setEditing(false)}/> : <>
       {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify the event details in your calendar."}</p>}
       <Link className="interview-meeting-link" to={`/sourcing?${applicationLookup}`}>Find application <ExternalLink size={14}/></Link>
-      <dl className="interview-details">{[["Company",event.company],["Role",event.role],["Interview stage",event.stage],["Start",dateTime(event.start_at)],["End",dateTime(event.end_at)],["Original timezone",event.timezone],["Display timezone",Intl.DateTimeFormat().resolvedOptions().timeZone],["Meeting platform",event.meeting_platform],["Location",event.location],["Organizer",[event.organizer_name,event.organizer_email].filter(Boolean).join(" · ")],["Participants",event.participants.join(", ")],["Detected status",event.status],["Last updated",dateTime(event.updated_at)],["Notes",event.notes]].map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value||"Unknown"}</dd></div>)}</dl>
+      <dl className="interview-details">{[["Company",event.company],["Role",event.role],["Interview stage",event.stage],["Start",dateTime(event.start_at,displayTimezone)],["End",dateTime(event.end_at,displayTimezone)],["Original timezone",event.timezone],["Display timezone",displayTimezone||Intl.DateTimeFormat().resolvedOptions().timeZone],["Meeting platform",event.meeting_platform],["Location",event.location],["Organizer",[event.organizer_name,event.organizer_email].filter(Boolean).join(" · ")],["Participants",event.participants.join(", ")],["Detected status",event.status],["Last updated",dateTime(event.updated_at,displayTimezone)],["Notes",event.notes]].map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value||"Unknown"}</dd></div>)}</dl>
       {event.meeting_url && <a className="interview-meeting-link" href={event.meeting_url} target="_blank" rel="noopener noreferrer">Open {event.meeting_platform || "meeting"} link <ExternalLink size={14}/></a>}
       {!!event.manual_fields.length && <p className="form-hint">Manually corrected fields are protected from later automated updates.</p>}
     </>}
@@ -50,9 +50,9 @@ export function InterviewDetails({id,stages,statuses,onCloseAutoFocus,onRemoved}
     </>}
   </DialogContent>
 }
-function InterviewEditor({event,stages,statuses,onSaved}:{event:InterviewEvent;stages:string[];statuses:string[];onSaved:()=>void}) {
+function InterviewEditor({event,stages,statuses,displayTimezone,onSaved}:{displayTimezone?:string;event:InterviewEvent;stages:string[];statuses:string[];onSaved:()=>void}) {
   const client=useQueryClient(), toast=useToast()
-  const initialZone=(()=>{try{new Intl.DateTimeFormat(undefined,{timeZone:event.timezone||""});return event.timezone!}catch{return Intl.DateTimeFormat().resolvedOptions().timeZone}})()
+  const initialZone=displayTimezone||(()=>{try{new Intl.DateTimeFormat(undefined,{timeZone:event.timezone||""});return event.timezone!}catch{return Intl.DateTimeFormat().resolvedOptions().timeZone}})()
   const [draft,setDraft]=useState<Record<string,string|boolean>>({company:event.company||"",role:event.role||"",stage:event.stage,status:event.status,start_at:localInput(event.start_at,initialZone),end_at:localInput(event.end_at,initialZone),timezone:initialZone,meeting_url:event.meeting_url||"",location:event.location||"",notes:event.notes||"",needs_review:event.needs_review})
   const [dirty,setDirty]=useState<Set<string>>(new Set())
   const set=(name:string,value:string|boolean)=>{setDraft(d=>({...d,[name]:value}));setDirty(d=>new Set([...d,name]))}

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Loading, useToast } from "@/components/common"
+import { calendarTimezone } from "@/lib/calendar-timezone"
 import { InterviewDetails } from "@/components/interview-details"
 import InterviewCalendar from "@/components/interview-calendar"
 import "./interviews.css"
@@ -43,6 +44,6 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
 
     {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" onClick={()=>void refresh()}>Try again</Button></div> : <>
     <InterviewCalendar actions={actions} events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
-    <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails key={selected} id={selected} onRemoved={()=>select(null)} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
+    <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails displayTimezone={calendarTimezone(params)} key={selected} id={selected} onRemoved={()=>select(null)} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
   </div>
 }
