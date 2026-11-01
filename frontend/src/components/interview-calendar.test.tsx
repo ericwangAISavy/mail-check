@@ -63,7 +63,8 @@ it('saves the chosen timezone and updates event placement without changing insta
  const value={...event(1,'personal'),start_at:'2026-10-15T10:00:00Z',end_at:'2026-10-15T11:00:00Z'}
  const draw=()=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
  draw()
- fireEvent.change(screen.getByLabelText('Calendar timezone'),{target:{value:'Asia/Tokyo'}})
+ fireEvent.change(screen.getByLabelText('Calendar timezone'),{target:{value:'Tokyo'}})
+ fireEvent.click(screen.getByRole('option',{name:'Asia/Tokyo'}))
  expect(document.querySelector('[data-event-id="1"]')?.getAttribute('data-start-minute')).toBe('1140')
  expect(localStorage.getItem('mailcheck.calendar.timezone')).toBe('Asia/Tokyo')
  expect(value.start_at).toBe('2026-10-15T10:00:00Z')
@@ -94,4 +95,12 @@ it('uses the chosen timezone for Today near a UTC date boundary',()=>{
  fireEvent.click(screen.getByRole('button',{name:'Today'}))
  expect(screen.getByRole('button',{name:/^Sunday, November 1, 2026/})).toBeTruthy()
  expect(document.querySelector('.outlook-day-heading')?.className).toContain('is-today')
+})
+it('keeps the timezone usable and warns when the browser blocks saving',()=>{
+ vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('Blocked')})
+ mount()
+ fireEvent.change(screen.getByRole('combobox',{name:'Calendar timezone'}),{target:{value:'Tokyo'}})
+ fireEvent.click(screen.getByRole('option',{name:'Asia/Tokyo'}))
+ expect((screen.getByRole('combobox',{name:'Calendar timezone'}) as HTMLInputElement).value).toBe('Asia/Tokyo')
+ expect(screen.getByText('Timezone changed for this visit. Your browser blocked saving it for future visits.')).toBeTruthy()
 })
