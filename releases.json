@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.10.2",
+    "date": "2026-11-02",
+    "title": "Simplify collapsed bidder rows",
+    "changes": [
+      "Show only bidder names and combined work totals in collapsed rows. Email account names appear in the expanded account detail rows."
+    ]
+  },
+  {
     "version": "2.10.1",
     "date": "2026-11-02",
     "title": "Harden retry windows and speed up bidder reports",

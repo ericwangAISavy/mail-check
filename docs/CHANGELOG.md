@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.10.2 — 2026-11-02
+
+Simplify collapsed bidder rows
+
+- Show only bidder names and combined work totals in collapsed rows. Email account names appear in the expanded account detail rows.
+
 ## 2.10.1 — 2026-11-02
 
 Harden retry windows and speed up bidder reports

@@ -244,7 +244,10 @@ it("expands a bidder into separate account daily counts without adding to totals
  ]
  vi.mocked(request).mockResolvedValue(report)
  mount(true)
- fireEvent.click(await screen.findByRole("button",{name:"Show accounts for Alex"}))
+ const toggle=await screen.findByRole("button",{name:"Show accounts for Alex"})
+ expect(within(toggle.closest("tr")!).queryByText("Work inbox")).toBeNull()
+ expect(screen.queryByRole("row",{name:"Alex · Work inbox"})).toBeNull()
+ fireEvent.click(toggle)
  const work=screen.getByRole("row",{name:"Alex · Work inbox"})
  const other=screen.getByRole("row",{name:"Alex · Other inbox"})
  expect(within(work).getByText("2 / 1")).toBeTruthy()
