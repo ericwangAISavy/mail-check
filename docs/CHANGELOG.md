@@ -2,6 +2,25 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.10.1 — 2026-11-02
+
+Harden retry windows and speed up bidder reports
+
+- Honor a wider first-check lookback after a failed attempt. Load account checkpoints and bidder payment overrides in bulk, and reuse indexed assignment and account totals when building reports.
+
+## 2.10.0 — 2026-11-02
+
+Separate bidder work by email account
+
+- Expand a bidder in the daily breakdown to see each account’s daily estimated confirmations, checked applications, and weekly total. Shared-account figures use that bidder’s allocated share.
+
+## 2.9.0 — 2026-11-02
+
+Resume mail checks from saved checkpoints
+
+- Choose a fixed lookback window or resume each account from its last successful check. Manual and automatic mail checks share the saved mode.
+- Keep per-account checkpoints across restarts and backups, preserve failed checks for retry, and show the last successful mail-check timestamp on account cards.
+
 ## 2.8.0 — 2026-11-01
 
 Search and remember calendar timezones

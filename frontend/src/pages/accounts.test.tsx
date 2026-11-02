@@ -123,3 +123,10 @@ it("shows Gmail app-password guidance and prevents duplicate reconnect submissio
  expect(post).toHaveBeenCalledTimes(1)
  await act(async()=>finish({message:"Reconnected."}))
 })
+
+it("shows each account's last successful mail check",async()=>{
+ accounts[0].last_checked_at="2026-11-01T12:34:56Z"
+ mount()
+ expect(await screen.findByText(/Last mail check:/)).toBeTruthy()
+ expect(screen.getByText(/Last mail check:/).textContent).toContain(new Date(accounts[0].last_checked_at).toLocaleString())
+})

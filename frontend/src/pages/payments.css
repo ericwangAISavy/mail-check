@@ -132,3 +132,12 @@
 .bidder-access .payment-inline-form { margin-block: 14px; }
 
 .payment-rate-entry{padding:16px 20px;margin-bottom:16px}.payment-rate-entry p{color:var(--muted-foreground);font-size:13px;line-height:1.5;margin:8px 0 12px}.payment-missing-rate{margin-top:4px;color:var(--muted-foreground);font-size:12px}.payment-missing-rate .btn{height:28px;min-height:28px;padding:2px 6px}
+
+.payment-account-toggle { display:inline-flex; align-items:center; gap:6px; padding:0; border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.payment-account-toggle svg { color:var(--primary); flex-shrink:0; }
+.payment-account-toggle:focus-visible { outline:2px solid var(--primary); outline-offset:4px; border-radius:3px; }
+.payment-table .payment-account-detail th,.payment-table .payment-account-detail td { padding-top:10px; padding-bottom:10px; background:var(--surface); font-size:12px; }
+.payment-table .payment-account-detail th:first-child { padding-left:41px; }
+.payment-table .payment-account-detail th > span { margin-top:0; }
+.payment-table .payment-account-detail .payment-today { background:var(--accent); }
+.payment-account-detail td:last-child { color:var(--muted-foreground); }

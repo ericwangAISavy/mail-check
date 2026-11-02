@@ -6,7 +6,7 @@ satisfies this protocol — not a refactor of the pipeline.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Iterator, Protocol, runtime_checkable
 
 from ..models import RawMessage
@@ -26,7 +26,7 @@ class MailSource(Protocol):
     def test(self) -> None:
         """Connect and authenticate. Raises SourceError on failure."""
 
-    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
+    def fetch_unread(self, since: date | datetime, *, include_read: bool = False) -> Iterator[RawMessage]:
         """Yield messages since the date, including read mail when requested; never mutate them."""
 
     def fetch_calendar(self, since: date, *, until=None) -> Iterator[CalendarBooking]:

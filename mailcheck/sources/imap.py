@@ -8,7 +8,9 @@ selected read-only, and every fetch passes ``mark_seen=False``.
 from __future__ import annotations
 
 import socket
-from datetime import date, timezone
+import re
+from email.utils import parsedate_to_datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterator
 
 from imap_tools import AND, MailBox, MailBoxUnencrypted
@@ -77,16 +79,60 @@ class IMAPSource:
         """IMAP has no calendar event API. Never fall back to reading email."""
         raise SourceError("IMAP cannot read calendar events. Connect this Outlook account with Microsoft sign-in and grant Calendars.Read access.")
 
-    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
+    def fetch_unread(self, since: date | datetime, *, include_read: bool = False) -> Iterator[RawMessage]:
         box = self._open()
         try:
-            criteria = AND(date_gte=since) if include_read else AND(seen=False, date_gte=since)
-            for msg in box.fetch(criteria, mark_seen=False, bulk=True):
+            if isinstance(since, datetime):
+                cutoff = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
+                # IMAP SINCE has day precision and mailbox-local dates. Include
+                # the preceding day, then inspect INTERNALDATE without bodies.
+                day = (cutoff - timedelta(days=1)).date()
+                criteria = AND(date_gte=day) if include_read else AND(seen=False, date_gte=day)
+                uids = self._arrival_uids(box, criteria, cutoff)
+                if not uids:
+                    return
+                messages = box.fetch(uid_list=uids, mark_seen=False, bulk=50)
+            else:
+                criteria = AND(date_gte=since) if include_read else AND(seen=False, date_gte=since)
+                messages = box.fetch(criteria, mark_seen=False, bulk=True)
+            for msg in messages:
                 yield _to_raw(msg, self.folder)
         except (ImapToolsError, OSError) as exc:
             raise SourceError(f"Fetch failed for {self.username}: {exc}") from exc
         finally:
             _quiet_logout(box)
+
+    @staticmethod
+    def _arrival_uids(box, criteria, cutoff):
+        uids = box.uids(criteria)
+        if any(not str(uid).isdigit() for uid in uids):
+            raise SourceError("IMAP returned invalid message identifiers; collection is incomplete.")
+        selected = []
+        for offset in range(0, len(uids), 500):
+            batch = uids[offset:offset + 500]
+            status, metadata = box.client.uid('fetch', ','.join(batch), '(UID INTERNALDATE)')
+            if status not in ('OK', b'OK'):
+                raise SourceError("Could not read IMAP arrival timestamps. Retry the check.")
+            received = {}
+            for item in metadata or []:
+                if not isinstance(item, bytes):
+                    continue
+                identity = re.search(rb'\bUID (\d+)\b', item, re.I)
+                stamp = re.search(rb'\bINTERNALDATE "([^"]+)"', item, re.I)
+                if not identity or not stamp:
+                    continue
+                try:
+                    # Replace only the date's two hyphens, preserving -0800.
+                    instant = parsedate_to_datetime(stamp[1].decode('ascii').replace('-', ' ', 2))
+                    if instant.tzinfo is None:
+                        raise ValueError("Missing arrival timezone")
+                    received[identity[1].decode('ascii')] = instant.astimezone(timezone.utc)
+                except (ValueError, TypeError, UnicodeError) as exc:
+                    raise SourceError("IMAP returned an invalid arrival timestamp. Retry the check.") from exc
+            if set(batch) - received.keys():
+                raise SourceError("IMAP arrival metadata is incomplete. Retry the check.")
+            selected.extend(uid for uid in batch if received[uid] >= cutoff)
+        return selected
 
 
 def _quiet_logout(box: MailBox) -> None:

@@ -1,5 +1,30 @@
 [
   {
+    "version": "2.10.1",
+    "date": "2026-11-02",
+    "title": "Harden retry windows and speed up bidder reports",
+    "changes": [
+      "Honor a wider first-check lookback after a failed attempt. Load account checkpoints and bidder payment overrides in bulk, and reuse indexed assignment and account totals when building reports."
+    ]
+  },
+  {
+    "version": "2.10.0",
+    "date": "2026-11-02",
+    "title": "Separate bidder work by email account",
+    "changes": [
+      "Expand a bidder in the daily breakdown to see each account’s daily estimated confirmations, checked applications, and weekly total. Shared-account figures use that bidder’s allocated share."
+    ]
+  },
+  {
+    "version": "2.9.0",
+    "date": "2026-11-02",
+    "title": "Resume mail checks from saved checkpoints",
+    "changes": [
+      "Choose a fixed lookback window or resume each account from its last successful check. Manual and automatic mail checks share the saved mode.",
+      "Keep per-account checkpoints across restarts and backups, preserve failed checks for retry, and show the last successful mail-check timestamp on account cards."
+    ]
+  },
+  {
     "version": "2.8.0",
     "date": "2026-11-01",
     "title": "Search and remember calendar timezones",

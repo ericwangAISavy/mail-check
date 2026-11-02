@@ -235,3 +235,22 @@ it('displays an explicitly zero rate as zero money instead of a missing rate',as
  expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$0.00 / $0.00')
  expect(within(row).queryByText('Rate not set')).toBeNull()
 })
+
+it("expands a bidder into separate account daily counts without adding to totals",async()=>{
+ const report=data() as any
+ report.bidders[0].account_breakdown=[
+  {account_id:1,account_label:"Work inbox",daily:[2,0,0,0,0,0,0],checked_daily:[1,0,0,0,0,0,0],total:2},
+  {account_id:2,account_label:"Other inbox",daily:[1,0,0,0,0,0,0],checked_daily:[2,0,0,0,0,0,0],total:1},
+ ]
+ vi.mocked(request).mockResolvedValue(report)
+ mount(true)
+ fireEvent.click(await screen.findByRole("button",{name:"Show accounts for Alex"}))
+ const work=screen.getByRole("row",{name:"Alex · Work inbox"})
+ const other=screen.getByRole("row",{name:"Alex · Other inbox"})
+ expect(within(work).getByText("2 / 1")).toBeTruthy()
+ expect(within(other).getByText("1 / 2")).toBeTruthy()
+ expect(screen.getByRole("button",{name:"Hide accounts for Alex"}).getAttribute("aria-expanded")).toBe("true")
+ expect(within(screen.getByRole("rowheader",{name:"Total"}).closest("tr")!).getByText("3 / 3")).toBeTruthy()
+ fireEvent.click(screen.getByRole("button",{name:"Hide accounts for Alex"}))
+ expect(screen.queryByRole("row",{name:"Alex · Work inbox"})).toBeNull()
+})

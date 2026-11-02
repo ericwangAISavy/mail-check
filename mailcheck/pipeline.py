@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
-from . import db, normalize, prefilter, secrets, interviews
+from . import db, normalize, prefilter, secrets, interviews, mail_checkpoints
 from .config import Config
 from .diagnostics import PerformanceLog
 from .llm import LLMClient, PROMPT_VERSION, classify
@@ -63,7 +63,7 @@ def build_source(account: db.Account, cfg: Config | None = None):
 
 
 def fetch_account(
-    account: db.Account, since: date, cfg: Config
+    account: db.Account, since: date | datetime, cfg: Config
 ) -> list[NormalizedMessage]:
     source = build_source(account, cfg)
     out: list[NormalizedMessage] = []
@@ -100,7 +100,14 @@ def check_once(
             result.errors.append(f"No enabled account labelled '{account_label}'.")
 
     lookback = since_days if since_days is not None else cfg.check.lookback_days
-    since = (datetime.now(timezone.utc) - timedelta(days=lookback)).date()
+    since = (result.started_at - timedelta(days=lookback)).date()
+    windows = {a.id: mail_checkpoints.window(conn, a, cfg.check, since_days, result.started_at) for a in accounts}
+    advances = {a.id for a in accounts}
+    if cfg.check.mode == "since_last" and since_days is not None:
+        for account in accounts:
+            normal = mail_checkpoints.window(conn, account, cfg.check, None, result.started_at)
+            if mail_checkpoints.window_start(windows[account.id]) > mail_checkpoints.window_start(normal):
+                advances.discard(account.id)
 
     # ---- retention -------------------------------------------------------
     # The local store is a rolling window, not an archive. Runs before the
@@ -114,31 +121,43 @@ def check_once(
     # user had already given it. Keeping the two windows from overlapping is
     # what makes that impossible rather than merely unlikely.
     keep_days = max(cfg.check.retain_days, lookback)
-    # Providers fetch from the start of `since`, not the current time of day.
-    # Do not delete that morning's local rows only to reinsert them without Done.
-    fetch_start = datetime.combine(since, datetime.min.time(), timezone.utc)
+    # Fixed windows include the whole starting day; incremental catch-up may
+    # reach farther back than retention. Protect both from losing Done state.
+    fetch_start = min(
+        mail_checkpoints.window_start(value) for value in (list(windows.values()) or [since])
+    )
     retention_start = datetime.now(timezone.utc) - timedelta(days=keep_days)
     result.pruned = db.prune_messages(
         conn,
         before_iso=min(fetch_start, retention_start).isoformat(),
+        protect_fetched_since=fetch_start.isoformat() if cfg.check.mode == "since_last" else None,
     )
 
     # ---- fetch (one bad mailbox must not abort the run) -------------------
     fetched: list[NormalizedMessage] = []
     fetch_started = time.monotonic()
+    successful = []
     for account in accounts:
-        status(f"Fetching {account.label} ({account.email})...")
+        account_started = datetime.now(timezone.utc)
+        if cfg.check.mode == "since_last" and since_days is None:
+            mail_checkpoints.begin(conn, account, windows[account.id])
+            conn.commit()
+        status(f"Fetching {account.label} ({account.email}) since {windows[account.id].isoformat()}...")
         try:
-            msgs = fetch_account(account, since, cfg)
+            msgs = fetch_account(account, windows[account.id], cfg)
         except (SourceError, secrets.SecretError) as exc:
             result.errors.append(f"[{account.label}] {exc}")
             continue
         fetched.extend(msgs)
+        successful.append((account, account_started))
         result.accounts_checked += 1
     result.fetched = len(fetched)
     result.fetch_seconds = time.monotonic() - fetch_started
 
     if not fetched:
+        for account, started in successful:
+            if account.id in advances:
+                mail_checkpoints.record(conn, account, started)
         result.finished_at = datetime.now(timezone.utc)
         _finish(conn, run_id, result)
         return result
@@ -202,6 +221,11 @@ def check_once(
         conn.commit()
 
     interviews.process_run(conn, cfg, result)
+    incomplete = {item.message.account_id for item in result.items
+                  if item.classification.retryable}
+    for account, started in successful:
+        if account.id in advances and account.id not in incomplete:
+            mail_checkpoints.record(conn, account, started)
     result.items.sort(key=lambda t: (t.message.date_utc or datetime.min).replace(tzinfo=None), reverse=True)
     result.finished_at = datetime.now(timezone.utc)
     _finish(conn, run_id, result)
