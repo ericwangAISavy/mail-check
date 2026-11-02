@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -247,6 +247,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
                 from .sourcing_activity import SCHEMA as ACTIVITY_SCHEMA, initialize as initialize_activity
+                from .mail_checkpoints import SCHEMA as CHECKPOINT_SCHEMA
                 from .payments import SCHEMA as PAYMENT_SCHEMA
                 from .replies import SCHEMA as REPLY_SCHEMA
                 from .outgoing import SCHEMA as OUTGOING_SCHEMA
@@ -258,7 +259,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 from .interview_pipeline import SCHEMA as PIPELINE_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA).split(";"):
+                for statement in (SCHEMA + CHECKPOINT_SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
@@ -502,7 +503,7 @@ def get_message_body(conn: sqlite3.Connection, pk: int) -> str | None:
     return None if row is None else (row["body_text"] or "")
 
 
-def prune_messages(conn: sqlite3.Connection, *, before_iso: str) -> int:
+def prune_messages(conn: sqlite3.Connection, *, before_iso: str, protect_fetched_since: str | None = None) -> int:
     """Delete stored mail older than ``before_iso``. Returns how many went.
 
     Local only, like every other write here: this empties rows out of
@@ -520,9 +521,14 @@ def prune_messages(conn: sqlite3.Connection, *, before_iso: str) -> int:
     """
     from .payments import sync_receipts
     sync_receipts(conn)
-    cur = conn.execute(
-        "DELETE FROM messages WHERE COALESCE(date_utc, fetched_at) < ?", (before_iso,)
-    )
+    sql = "DELETE FROM messages WHERE COALESCE(date_utc, fetched_at) < ?"
+    params = [before_iso]
+    if protect_fetched_since is not None:
+        # Sender Date headers can predate arrival by months. During incremental
+        # overlap, recently downloaded rows must not lose their local Done state.
+        sql += " AND fetched_at < ?"
+        params.append(protect_fetched_since)
+    cur = conn.execute(sql, params)
     conn.commit()
     return cur.rowcount
 

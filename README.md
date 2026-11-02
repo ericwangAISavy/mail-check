@@ -364,6 +364,17 @@ come back as a new row with nothing marked on it. The one way to resurface finis
 is to deliberately reach back past the retention window — `mail-check check --since 30d`
 will re-fetch matching mail that has already been pruned, and it arrives as new.
 
+### Mail check range
+
+In **Settings → Checking → Mail check range**, choose:
+
+- **Fixed lookback window** (default): collect read and unread inbox mail from the configured number of days on each run.
+- **Since last successful check**: resume each account independently from its saved successful check start time, with a two-minute overlap. The first check uses the lookback days as a starting window.
+
+The selected range applies to **Check now**, automatic checks, and `mail-check watch`. CLI users can also set `mail-check config set check.mode since_last` (or `lookback`). An explicit `mail-check check --since 7d` still requests a fixed window. If an explicit window is narrower than an incremental backlog, it does not advance that backlog’s checkpoint.
+
+Checkpoints survive restarts and database backups. Failed mailbox checks and deferred classifications keep their previous checkpoint; failed first attempts keep their original starting window. Account cards show the last successful mail-check date and time in your browser's timezone. IMAP uses server arrival timestamps, so a sender's stale or missing Date header does not exclude newly arrived mail. Native calendars still rescan their calendar window so changes to existing events remain visible.
+
 ## Outlook
 
 Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft instead of a
@@ -431,10 +442,15 @@ OfferPath's current version is available beside the app name; select it to read
 update history. See [release history](docs/CHANGELOG.md) and
 [versioning instructions](docs/VERSIONING.md) for future updates.
 
-Inbox checks collect both read and unread messages within the configured checking lookback. Outlook pagination is followed to completion, including inboxes with more than 2,000 messages in that window. Existing local retention and view filters still apply; checking never changes Outlook read status.
+Inbox checks collect both read and unread messages within the selected fixed or last-successful-check range. Outlook pagination is followed to completion, including inboxes with more than 2,000 messages in that window. Existing local retention and view filters still apply; checking never changes Outlook read status.
 
 ## Portable backups and server migration
 
 The owner can create and download plain ZIP installation backups in **Admin management → Backup & restore**. Daily automatic backups retain seven successful copies by default. Restore is an offline operation with validation and rollback. See [Backup and restore](docs/BACKUP_RESTORE.md) for the Windows migration commands and reconnect checklist.
 
 Interview opportunity tracking and migration: [Interview pipeline](docs/INTERVIEW_PIPELINE.md).
+
+
+### Per-account bidder work breakdown
+
+In **Bidder management → Daily breakdown**, click the arrow beside a bidder’s name to show each email account separately. Account rows show daily estimated confirmations / checked applications and the account’s weekly estimated total. Shared-account rows use that bidder’s allocated share and add up to the bidder’s combined figures. Payments remain recorded for the bidder. Bidders viewing their own report only see their own account breakdown.

@@ -219,13 +219,28 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     from .sourcing_verification import completed_account_counts
     account_checks = completed_account_counts(conn, start.isoformat(), end.isoformat())
     checked = {}
-    for (who, _account_id, day), count in account_checks.items():
+    checked_accounts = {}
+    for (who, account_id, day), count in account_checks.items():
         checked[who, day] = checked.get((who, day), 0) + count
+        if count and day in dates:
+            checked_accounts.setdefault(who, set()).add(account_id)
+    assigned_by_bidder, active_accounts, assignment_labels, owners_by_day = {}, {}, {}, {}
+    for assignment in assignments:
+        who, account_id = assignment["bidder_id"], assignment["account_id"]
+        assigned_by_bidder.setdefault(who, []).append(assignment)
+        assignment_labels.setdefault(who, {})[account_id] = assignment["account_label"]
+        for day in dates:
+            if assignment["start_date"] <= day and (not assignment["end_date"] or assignment["end_date"] >= day):
+                owners_by_day.setdefault((account_id, day), set()).add(who)
+                active_accounts.setdefault(who, set()).add(account_id)
+    overrides = {row["bidder_id"]: row for row in conn.execute(
+        "SELECT bidder_id,amount_cents,application_count FROM bidder_payment_amounts WHERE week_start=?",
+        (start.isoformat(),))}
     allocations = {}
+    account_allocations = {}
     unallocated = {day: 0 for day in dates}
     for (account_id, day), total in counts.items():
-        owners = sorted({a["bidder_id"] for a in assignments if a["account_id"] == account_id
-                         and a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)})
+        owners = sorted(owners_by_day.get((account_id, day), ()))
         if len(owners) == 1:
             shares = {owners[0]: total}
         elif len(owners) > 1:
@@ -242,13 +257,25 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         else:
             continue
         for who, count in shares.items():
+            account_allocations[who, account_id, day] = count
             allocations[who, day] = allocations.get((who, day), 0) + count
+    account_labels = {a["id"]: a["label"] for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")}
     bidders = []
     for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
-        assigned = [a for a in assignments if a["bidder_id"] == row["id"]]
+        assigned = assigned_by_bidder.get(row["id"], [])
         daily = [allocations.get((row["id"], day), 0) for day in dates]
         total = sum(daily)
-        override=conn.execute('SELECT amount_cents,application_count FROM bidder_payment_amounts WHERE bidder_id=? AND week_start=?',(row['id'],start.isoformat())).fetchone()
+        account_ids = active_accounts.get(row["id"], set()) | checked_accounts.get(row["id"], set())
+        labels = assignment_labels.get(row["id"], {})
+        breakdown = []
+        for account_id in sorted(account_ids, key=lambda identity: (account_labels.get(identity, labels.get(identity, "")).casefold(), identity or 0)):
+            account_daily = [account_allocations.get((row["id"], account_id, day), 0) for day in dates]
+            breakdown.append({"account_id": account_id,
+                "account_label": account_labels.get(account_id, labels.get(account_id, "Removed account")),
+                "daily": account_daily,
+                "checked_daily": [account_checks.get((row["id"], account_id, day), 0) for day in dates],
+                "total": sum(account_daily)})
+        override=overrides.get(row['id'])
         calculated=calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
         paid=payments.get(row['id'])
         payable=paid['amount_cents'] if paid else override['amount_cents'] if override else calculated
@@ -259,25 +286,25 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             "amount_override_cents":override['amount_cents'] if override else None,
             "override_application_count":override['application_count'] if override else None,
             "assignments": assigned, "daily": daily, "total": total,
+            "account_breakdown": breakdown,
             "application_total": total,
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
     # Shared assignments expose the same receipts in multiple bidder rows.
     # Count each account/day once for the report overview and footer.
-    unique_daily = [sum(counts.get((account_id, day), 0) for account_id in {
-        a["account_id"] for a in assignments
-        if a["start_date"] <= day and (not a["end_date"] or a["end_date"] >= day)
-    }) for day in dates]
+    unique_daily = [0] * 7
+    day_indices = {day: index for index, day in enumerate(dates)}
+    for (account_id, day), count in counts.items():
+        if owners_by_day.get((account_id, day)):
+            unique_daily[day_indices[day]] += count
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
         "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
         "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
         "unassigned": sum(count for (account_id, day), count in counts.items()
-                          if not any(a["account_id"] == account_id and a["start_date"] <= day
-                                     and (not a["end_date"] or a["end_date"] >= day)
-                                     for a in assignments)) if admin else 0,
-        "accounts": [{"id": a["id"], "label": a["label"]} for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")] if admin else []}
+                          if not owners_by_day.get((account_id, day))) if admin else 0,
+        "accounts": [{"id": identity, "label": label} for identity, label in account_labels.items()] if admin else []}
 
 
 def bidder(conn, bidder_id):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import os
 import re
 import tempfile
@@ -131,10 +133,11 @@ def ollama_root(value: str) -> str:
 
 
 class CheckConfig(BaseModel):
+    mode: Literal["lookback", "since_last"] = "lookback"
     lookback_days: int = Field(default=2, ge=1, le=3650)
     """How far back each *fetch* reaches — the single biggest cost in a run.
 
-    Deliberately short. Every check re-downloads the full body of every unread
+    Deliberately short. Every check re-downloads the full body of every read and unread
     message inside this window before the cache can discard it, so a 30-day
     window costs ~15x a 2-day one on a mailbox that is checked regularly.
     Nothing is lost by shrinking it: mail fetched under an older, wider window

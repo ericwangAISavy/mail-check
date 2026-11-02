@@ -121,6 +121,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
         else if (seen.current !== current.completion_id) {
           seen.current = current.completion_id
           await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["accounts"] }),
             queryClient.invalidateQueries({ queryKey: ["triage"] }),
             queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
             queryClient.invalidateQueries({ queryKey: ["payments"] }),

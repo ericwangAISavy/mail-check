@@ -195,6 +195,7 @@ class SettingsBody(BaseModel):
     batch_size: int | None = None
     max_body_chars: int | None = None
     concurrency: int | None = None
+    check_mode: Literal["lookback", "since_last"] | None = None
     lookback_days: int | None = None
     retain_days: int | None = None
     interval_minutes: int | None = None
@@ -257,6 +258,7 @@ class TriageResponse(BaseModel):
 
 
 class PublicAccount(BaseModel):
+    last_checked_at: str | None = None
     id: int
     label: str
     email: str
@@ -1137,14 +1139,17 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.get("/api/accounts", response_model=AccountsResponse)
     def api_accounts():
+        from ..mail_checkpoints import snapshot as checkpoint_snapshot
         with db.session() as conn:
             accounts = db.list_accounts(conn)
+            last_checks = checkpoint_snapshot(conn, accounts)
         return {
             "accounts": [{
                 "id": a.id, "label": a.label, "email": a.email,
                 "provider": a.provider, "imap_host": a.imap_host,
                 "imap_port": a.imap_port, "use_ssl": a.use_ssl,
                 "folder": a.folder, "enabled": a.enabled,
+                "last_checked_at": last_checks[a.id].isoformat() if last_checks[a.id] else None,
             } for a in accounts],
             "outlook_ready": bool(cfgmod.load().outlook.client_id),
         }
@@ -1767,6 +1772,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             value = getattr(body, field)
             if value is not None:
                 data["llm"][field] = value
+        if body.check_mode is not None:
+            data["check"]["mode"] = body.check_mode
         if body.lookback_days is not None:
             data["check"]["lookback_days"] = body.lookback_days
         if body.retain_days is not None:

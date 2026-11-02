@@ -16,6 +16,7 @@ export type TriageData = {
   last_run?: string
 }
 export type Account = {
+  last_checked_at?: string | null
   id: number; label: string; email: string; provider: string; imap_host: string
   imap_port: number; use_ssl: boolean; folder: string; enabled: boolean
 }
@@ -27,7 +28,7 @@ export type Bootstrap = {
 }
 export type Settings = {
   llm: { base_url: string; batch_size: number; max_body_chars: number; timeout_seconds: number; classification_deadline_seconds: number; concurrency: number; num_ctx: number; think: boolean; keep_alive: string }
-  check: { lookback_days: number; retain_days: number }
+  check: { mode?: "lookback" | "since_last"; lookback_days: number; retain_days: number }
   watch: { interval_minutes: number; auto_check: boolean }
   outlook: { client_id: string }; privacy_ack: boolean
 }

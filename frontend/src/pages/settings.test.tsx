@@ -61,3 +61,13 @@ it("does not test the old saved endpoint while a different model URL is unsaved"
   expect(screen.getByText("Save model changes before testing this connection.")).toBeTruthy()
   expect(post).not.toHaveBeenCalled()
 })
+
+it("saves the selected check range and retains fallback days",async()=>{
+ const post=vi.spyOn(api,"post").mockResolvedValue({message:"Settings saved."})
+ mount()
+ const mode=await screen.findByLabelText("Mail check range",{exact:false})
+ fireEvent.change(mode,{target:{value:"since_last"}})
+ expect(screen.getByText(/Each account resumes/)).toBeTruthy()
+ fireEvent.click(screen.getAllByRole("button",{name:"Save changes"})[0])
+ await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/settings",expect.objectContaining({check_mode:"since_last",lookback_days:2})))
+})

@@ -265,6 +265,12 @@ class PaymentTests(unittest.TestCase):
         # A: 25/75; B: 30/10. Alex receives 25 + 30, not a pooled share.
         self.assertEqual([rows[i]['daily'][0] for i in (1, 2, 3)], [55, 75, 10])
         self.assertEqual([rows[i]['checked_daily'][0] for i in (1, 2, 3)], [4, 3, 1])
+        accounts = {a['account_id']: a for a in rows[1]['account_breakdown']}
+        self.assertEqual(accounts[self.account]['daily'], [25,0,0,0,0,0,0])
+        self.assertEqual(accounts[self.other]['daily'], [30,0,0,0,0,0,0])
+        self.assertEqual(accounts[self.account]['checked_daily'], [1,0,0,0,0,0,0])
+        self.assertEqual(accounts[self.other]['checked_daily'], [3,0,0,0,0,0,0])
+        self.assertEqual(sum(a['total'] for a in accounts.values()), 55)
         self.assertEqual(rows[1]['total'], 55)
         self.assertEqual(result['daily'][0], 140)
         self.assertEqual(result['unallocated_daily'][0], 0)
@@ -449,3 +455,44 @@ class PaymentTests(unittest.TestCase):
         zero=self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0','adjustment_percent':'20'})
         self.assertEqual(zero.status_code,200,zero.text)
         self.assertEqual(payments.report(self.conn,date(2026,10,12),bidder_id=1)['bidders'][0]['calculated_amount_cents'],0)
+
+    def test_account_breakdown_merges_assignment_periods_and_includes_zero_accounts(self):
+        self.assign(end=date(2026,10,12))
+        self.assign(start=date(2026,10,13))
+        self.assign(account=self.other)
+        self.message("one")
+        row=self.report()["bidders"][0]
+        accounts={a["account_id"]:a for a in row["account_breakdown"]}
+        self.assertEqual(len(accounts),2)
+        self.assertEqual(accounts[self.account]["daily"],[1,0,0,0,0,0,0])
+        self.assertEqual(accounts[self.other]["daily"],[0]*7)
+        self.assertEqual(accounts[self.other]["checked_daily"],[0]*7)
+        self.assertEqual(sum(a["total"] for a in accounts.values()),row["total"])
+
+    def test_bidder_account_breakdown_does_not_expose_other_bidders_accounts(self):
+        self.assign()
+        self.assign(who=2,account=self.other)
+        self.message("mine")
+        self.message("other",account=self.other)
+        sign_in_bidder(self.client,1)
+        response=self.client.get('/api/payments?week=2026-10-12')
+        self.assertEqual(response.status_code,200)
+        bidders=response.json()["bidders"]
+        self.assertEqual([b["id"] for b in bidders],[1])
+        self.assertEqual([a["account_id"] for a in bidders[0]["account_breakdown"]],[self.account])
+        self.assertEqual(bidders[0]["account_breakdown"][0]["total"],1)
+
+    def test_report_query_count_does_not_grow_with_bidder_count(self):
+        def queries():
+            statements=[]
+            self.conn.set_trace_callback(statements.append)
+            try:
+                payments.report(self.conn,date(2026,10,12),admin=True,read_only=True)
+            finally:
+                self.conn.set_trace_callback(None)
+            return len([sql for sql in statements if sql.lstrip().upper().startswith("SELECT")])
+        before=queries()
+        for i in range(15):
+            self.conn.execute("INSERT INTO bidders(name,created_at) VALUES(?,'2026-01-01')",(f"Extra {i}",))
+        self.conn.commit()
+        self.assertEqual(queries(),before)

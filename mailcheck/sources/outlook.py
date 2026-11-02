@@ -158,10 +158,12 @@ class OutlookGraphSource:
         if invalid_events:
             raise SourceError(f"Microsoft returned {invalid_events} invalid calendar events; other valid bookings were collected.")
 
-    def fetch_unread(self, since: date, *, include_read: bool = False) -> Iterator[RawMessage]:
-        since_iso = datetime(
-            since.year, since.month, since.day, tzinfo=timezone.utc
-        ).isoformat().replace("+00:00", "Z")
+    def fetch_unread(self, since: date | datetime, *, include_read: bool = False) -> Iterator[RawMessage]:
+        if isinstance(since, datetime):
+            instant = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
+        else:
+            instant = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+        since_iso = instant.isoformat().replace("+00:00", "Z")
 
         params = {
             # Graph requires the $orderby property to appear first in $filter,

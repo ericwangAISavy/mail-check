@@ -59,3 +59,46 @@ def test_inclusive_imap_fetch_does_not_filter_or_mark_seen():
     assert 'SINCE' in criteria
     assert box.fetch.call_args.kwargs['mark_seen'] is False
     box.logout.assert_called_once()
+
+
+def test_outlook_incremental_filter_keeps_the_full_received_timestamp():
+    from datetime import datetime
+    source = OutlookGraphSource(label='test', client_id='test')
+    with patch.object(source, '_client', return_value=nullcontext(None)), patch.object(source, '_get', return_value={'value': []}) as get:
+        list(source.fetch_unread(datetime.fromisoformat('2026-11-01T14:32:15+03:00'), include_read=True))
+    assert get.call_args.args[2]['$filter'] == 'receivedDateTime ge 2026-11-01T11:32:15Z'
+
+
+def test_imap_incremental_checks_internal_arrival_dates_before_downloading_bodies():
+    from datetime import datetime, timezone
+    from mailcheck.sources.imap import IMAPSource
+    source = IMAPSource(host='example.test', port=993, username='test', password='password')
+    box = Mock()
+    box.uids.return_value = ['1', '2', '3', '4']
+    box.client.uid.return_value = ('OK', [
+        b'1 (UID 1 INTERNALDATE "01-Nov-2026 10:00:00 +0000")',
+        b'2 (UID 2 INTERNALDATE "01-Nov-2026 11:00:00 +0000")',
+        b'3 (UID 3 INTERNALDATE "01-Nov-2026 13:00:00 +0200")',
+        b'4 (UID 4 INTERNALDATE "01-Nov-2026 03:30:00 -0800")',
+    ])
+    box.fetch.return_value = [Mock()]
+    raw = Mock()
+    with patch.object(source, '_open', return_value=box), patch('mailcheck.sources.imap._to_raw', return_value=raw):
+        assert list(source.fetch_unread(datetime(2026, 11, 1, 11, tzinfo=timezone.utc), include_read=True)) == [raw]
+    assert box.fetch.call_args.kwargs['uid_list'] == ['2', '3', '4']
+    assert box.fetch.call_args.kwargs['mark_seen'] is False
+    assert 'UNSEEN' not in str(box.uids.call_args.args[0]).upper()
+    box.logout.assert_called_once()
+
+
+def test_imap_incomplete_arrival_metadata_is_a_failure_not_a_silent_skip():
+    from datetime import datetime, timezone
+    from mailcheck.sources.imap import IMAPSource
+    source = IMAPSource(host='example.test', port=993, username='test', password='password')
+    box = Mock()
+    box.uids.return_value = ['1']
+    box.client.uid.return_value = ('OK', [])
+    with patch.object(source, '_open', return_value=box), pytest.raises(SourceError, match='arrival'):
+        list(source.fetch_unread(datetime(2026, 11, 1, tzinfo=timezone.utc), include_read=True))
+    box.fetch.assert_not_called()
+    box.logout.assert_called_once()
