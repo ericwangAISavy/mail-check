@@ -67,3 +67,66 @@ def test_failed_provisioning_does_not_register_or_activate_an_admin(store):
     assert len(store.list_admins())==1
     assert len(store.enabled_workspaces())==1
     assert store.login('alice','temporary-pass-123','setup') is None
+
+
+def test_remove_admin_revokes_access_preserves_data_and_allows_fresh_username(store):
+    wid=store.create_admin(store.owner_token,'alice','Alice workspace','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    path=Path(store.workspace(wid)['root']);marker=path/'data'/'keep.txt';marker.write_text('private data')
+    token=store.login('alice','temporary-pass-123','admin')
+    owner=store.switch(store.login('owner','original-owner-pass','other-browser'),wid)
+    assert store.remove_admin(store.owner_token,user['id'],'alice',expected_workspace='legacy')==wid
+    assert marker.read_text()=='private data'
+    assert store.identity(token) is None and store.identity(owner) is None
+    assert store.login('alice','temporary-pass-123','admin') is None
+    assert not any(u['id']==user['id'] for u in store.list_admins())
+    with pytest.raises(ValueError):store.workspace(wid)
+    with pytest.raises(ValueError):store.update_admin(store.owner_token,user['id'],enabled=True)
+    replacement=store.create_admin(store.owner_token,'alice','New workspace','replacement-pass-123')
+    assert replacement!=wid
+    assert not (Path(store.workspace(replacement)['root'])/'data'/'keep.txt').exists()
+
+
+def test_removal_rejects_owner_nonowner_stale_session_and_wrong_confirmation(store):
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    token=store.login('alice','temporary-pass-123','admin')
+    for actor,who,username in [(store.owner_token,1,'owner'),(token,user['id'],'alice'),(None,user['id'],'alice'),(store.owner_token,user['id'],'wrong')]:
+        with pytest.raises((ValueError,PermissionError)):store.remove_admin(actor,who,username)
+    assert store.identity(token) is not None
+    selected=store.switch(store.login('owner','original-owner-pass','other'),wid)
+    with pytest.raises(ValueError,match='Switch'):store.remove_admin(selected,user['id'],'alice')
+
+
+def test_removal_revokes_bidder_credentials_and_sessions(store):
+    from mailcheck.bidder_access import BidderAccess
+    access=BidderAccess(store)
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    temporary=store.login('alice','temporary-pass-123','admin')
+    token=store.change_password(temporary,'alice-final-pass-123')
+    access.configure(token,wid,1,'Bidder',password='bidder-password-123')
+    bidder=access.login('Bidder + alice','bidder-password-123','bidder')
+    assert access.identity(bidder)['workspace_id']==wid
+    store.remove_admin(store.owner_token,user['id'],'alice')
+    assert access.identity(bidder) is None
+    assert access.login('Bidder + alice','bidder-password-123','bidder') is None
+    assert access.directory()==[]
+    with store.connect() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bidder_sessions').fetchone()[0]==0
+        assert conn.execute('SELECT hash FROM bidder_logins WHERE workspace_id=?',(wid,)).fetchone()[0] is None
+
+
+def test_existing_control_database_migrates_without_changing_access(store):
+    with store.connect() as conn:conn.execute('ALTER TABLE users DROP COLUMN removed_at')
+    reopened=ControlStore(store.root,store.legacy_auth)
+    assert reopened.identity(store.owner_token)['is_owner']
+    assert reopened.list_admins()==store.list_admins()
+
+
+def test_suspended_admin_workspace_can_be_removed(store):
+    store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    store.update_admin(store.owner_token,user['id'],enabled=False)
+    assert store.remove_admin(store.owner_token,user['id'],'alice')==user['workspace_id']
+    assert [u['username'] for u in store.list_admins()]==['owner']

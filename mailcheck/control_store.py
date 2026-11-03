@@ -40,6 +40,8 @@ class ControlStore:
         self._presence={}  # Ephemeral browser activity; never business data.
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            if 'removed_at' not in {r[1] for r in conn.execute('PRAGMA table_info(users)')}:
+                conn.execute('ALTER TABLE users ADD COLUMN removed_at REAL')
             conn.execute("INSERT OR IGNORE INTO workspaces VALUES('legacy','Original workspace',NULL,1)")
             conn.execute("INSERT OR IGNORE INTO users(id,username,workspace_id,owner,version,must_change) VALUES(1,'owner','legacy',1,?,0)",(secrets.token_hex(16),))
         self.path.chmod(0o600)
@@ -153,7 +155,7 @@ class ControlStore:
 
     def list_admins(self):
         with self.connect() as conn:
-            return [dict(r) for r in conn.execute('SELECT u.id,u.username,u.owner,u.enabled,u.must_change,w.id AS workspace_id,w.name AS workspace_name FROM users u JOIN workspaces w ON w.id=u.workspace_id ORDER BY u.owner DESC,u.username')]
+            return [dict(r) for r in conn.execute('SELECT u.id,u.username,u.owner,u.enabled,u.must_change,w.id AS workspace_id,w.name AS workspace_name FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.removed_at IS NULL ORDER BY u.owner DESC,u.username')]
 
     def workspace(self,wid):
         with self.connect() as conn:
@@ -191,7 +193,7 @@ class ControlStore:
         with self._lock,self.connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             actor=self.require_session(conn,token,owner=True,workspace=expected_workspace)['user_id']
-            user=conn.execute('SELECT * FROM users WHERE id=?',(user_id,)).fetchone()
+            user=conn.execute('SELECT * FROM users WHERE id=? AND removed_at IS NULL',(user_id,)).fetchone()
             if not user or user['owner']:raise ValueError('The owner cannot be reset or disabled here.')
             if enabled is True and not user['enabled'] and conn.execute('SELECT COUNT(*) FROM workspaces WHERE enabled=1').fetchone()[0]>=self.max_workspaces:raise ValueError('Workspace capacity reached.')
             if enabled is not None:
@@ -203,6 +205,32 @@ class ControlStore:
             conn.execute('DELETE FROM sessions WHERE user_id=? OR workspace_id=?',(user_id,user['workspace_id']))
             self.audit(conn,actor,'update-admin',user_id)
             return user['workspace_id']
+
+    def remove_admin(self,token,user_id,username,*,expected_workspace=None):
+        """Retire an admin permanently; retain its workspace files for offline recovery.
+
+        Tombstones preserve audit identities and never recycle a workspace or user ID.
+        Reusing a released username provisions a completely separate empty workspace.
+        """
+        with self._lock,self.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            actor=self.require_session(conn,token,owner=True,workspace=expected_workspace)
+            user=conn.execute('SELECT * FROM users WHERE id=? AND removed_at IS NULL',(user_id,)).fetchone()
+            if not user:raise ValueError('Admin workspace is already removed or unavailable.')
+            if user['owner']:raise ValueError('The original owner workspace cannot be removed.')
+            if user['username']!=username:raise ValueError('Workspace confirmation does not match the admin username.')
+            wid=user['workspace_id']
+            if actor['workspace_id']==wid:raise ValueError('Switch to your own workspace before removing this workspace.')
+            conn.execute('UPDATE users SET username=?,enabled=0,salt=NULL,hash=NULL,version=?,removed_at=? WHERE id=?',
+                         (f'__removed__{user_id}_{secrets.token_hex(16)}',secrets.token_hex(16),time.time(),user_id))
+            conn.execute('UPDATE workspaces SET enabled=0 WHERE id=?',(wid,))
+            conn.execute('DELETE FROM sessions WHERE user_id=? OR workspace_id=?',(user_id,wid))
+            # Standalone ControlStore users may not have bidder tables yet.
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bidder_logins'").fetchone():
+                conn.execute('DELETE FROM bidder_sessions WHERE login_id IN (SELECT id FROM bidder_logins WHERE workspace_id=?)',(wid,))
+                conn.execute('UPDATE bidder_logins SET enabled=0,salt=NULL,hash=NULL,version=? WHERE workspace_id=?',(secrets.token_hex(16),wid))
+            self.audit(conn,actor['user_id'],'remove-admin',f"{user_id}:{username}:{wid}")
+            return wid
 
     def change_password(self,token,password,*,expected_workspace=None):
         self.validate_password(password)

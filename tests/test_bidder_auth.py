@@ -16,7 +16,7 @@ class BidderAuthTests(unittest.TestCase):
         response=self.client.post('/api/auth/bidders/1/password',json={'password':'alex-password','enabled':True})
         self.assertEqual(response.status_code,200,response.text)
         self.client.post('/api/auth/logout')
-        self.assertEqual(self.client.get('/api/auth/bidders').json(),{'bidders':[{'id':1,'name':'Alex'}]})
+        self.assertEqual(self.client.get('/api/auth/bidders').status_code,401)
         response=self.client.post('/api/auth/login',json={'role':'bidder','bidder_id':1,'password':'alex-password'})
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['bidder_id'],1)
@@ -68,13 +68,10 @@ class BidderAuthTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
         self.client.post('/api/auth/logout')
         response = self.client.get('/api/auth/bidders')
-        self.assertEqual(response.json(), {'bidders': [
-            {'id': 1, 'name': 'Alex'}, {'id': 2, 'name': 'Blair'},
-            {'id': 3, 'name': 'Casey'}, {'id': 4, 'name': 'Drew'},
-        ]})
+        self.assertEqual(response.status_code,401)
         for bidder_id in range(1, 5):
             response = self.client.post('/api/auth/login', json={
-                'role': 'bidder', 'bidder_id': bidder_id, 'password': 'bidder-password',
+                'role': 'bidder', 'username': ['Alex','Blair','Casey','Drew'][bidder_id-1], 'password': 'bidder-password',
             })
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()['bidder_id'], bidder_id)

@@ -1,3 +1,4 @@
+from contextlib import closing
 from types import SimpleNamespace
 from unittest.mock import patch
 import httpx
@@ -348,10 +349,10 @@ def test_suspend_and_reenable_keep_registry_and_runtime_consistent(system):
         assert wid not in stopped
 
 
-def test_public_admin_selector_only_exposes_enabled_usernames(system):
+def test_admin_directory_requires_authentication(system):
     app,store,pool=system
     with TestClient(app) as client:
-        assert client.get('/api/auth/admins').json()=={'admins':[{'username':'owner'}]}
+        assert client.get('/api/auth/admins').status_code==401
         login(client)
         created=client.post('/api/admin/users',json={'username':'alice','workspace_name':'Private team','password':'temporary-pass-123'})
         assert created.status_code==200
@@ -360,7 +361,7 @@ def test_public_admin_selector_only_exposes_enabled_usernames(system):
         user_id=next(u['id'] for u in store.list_admins() if u['username']=='alice')
         assert client.post(f'/api/admin/users/{user_id}',json={'enabled':False}).status_code==200
         client.post('/api/auth/logout')
-        assert client.get('/api/auth/admins').json()=={'admins':[{'username':'owner'}]}
+        assert client.get('/api/auth/admins').status_code==401
 
 
 def test_admin_presence_is_owner_only_and_tracks_valid_recent_sessions(system):
@@ -402,3 +403,47 @@ def test_admin_presence_disappears_after_access_is_suspended(system):
         owner.post(f"/api/admin/users/{entry['id']}",json={'enabled':False})
         assert next(a for a in owner.get('/api/admin/users').json()['admins'] if a['username']=='alice')['online'] is False
         assert alice.post('/api/auth/presence').status_code==401
+
+
+def test_owner_removes_workspace_and_repeated_or_stale_updates_cannot_revive_it(system):
+    app,store,pool=system
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    path=f"/api/admin/users/{user['id']}/remove"
+    with TestClient(app) as owner,closing(TestClient(app)) as admin,closing(TestClient(app)) as anonymous:
+        login(owner);login(admin,'alice','temporary-pass-123')
+        assert anonymous.post(path,json={'username':'alice'}).status_code==401
+        assert admin.post(path,json={'username':'alice'}).status_code==403
+        assert owner.post(path,json={'username':'wrong'}).status_code==400
+        assert owner.post('/api/admin/users/1/remove',json={'username':'owner'}).status_code==400
+        assert owner.post(path,json={'username':'alice'}).status_code==200
+        assert wid in pool.suspended
+        assert owner.get('/api/admin/users').json()['admins'][0]['username']=='owner'
+        assert len(owner.get('/api/admin/users').json()['admins'])==1
+        assert admin.get('/api/bootstrap').status_code==401
+        assert owner.post(f"/api/admin/users/{user['id']}",json={'enabled':True}).status_code==400
+        assert owner.post(path,json={'username':'alice'}).status_code==400
+        with store.connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM audit WHERE action='remove-admin'").fetchone()[0]==1
+
+
+def test_held_removal_cannot_outlive_owner_logout(system):
+    import asyncio
+    app,store,pool=system
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    user=next(u for u in store.list_admins() if u['username']=='alice')
+    with TestClient(app) as owner:
+        login(owner);token=owner.cookies.get('offerpath_session')
+        async def scenario():
+            entered=asyncio.Event();release=asyncio.Event()
+            async def delayed():
+                yield b'{"username":'
+                entered.set();await release.wait()
+                yield b'"alice"}'
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app),base_url='http://testserver') as remote:
+                task=asyncio.create_task(remote.post(f"/api/admin/users/{user['id']}/remove",headers={'content-type':'application/json','cookie':'offerpath_session='+token,'x-offerpath-workspace':'legacy'},content=delayed()))
+                await entered.wait();store.logout(token);release.set()
+                assert (await task).status_code in (401,403)
+                assert store.workspace(wid)['enabled']==1
+                assert wid not in pool.suspended
+        asyncio.run(scenario())

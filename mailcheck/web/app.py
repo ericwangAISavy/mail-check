@@ -108,6 +108,7 @@ def _reschedule(cfg=None) -> None:
 
 
 class LoginBody(BaseModel):
+    username: str = Field(default="owner", max_length=192)
     role: Literal["admin", "bidder"]
     bidder_id: int | None = None
     password: str = Field(min_length=1, max_length=256)
@@ -650,7 +651,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 with db.session() as conn:
                     member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
                 if not member:return _err('Bidder access is no longer available.',401)
-        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/admins", "/api/auth/bidders") or path.startswith(("/assets/", "/static/"))
+        public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
         try:
             identity = {"role":"admin", "bidder_id":None} if worker_secret else auth.identity(request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder":
@@ -711,6 +712,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.post("/api/auth/login")
     def auth_login(body: LoginBody, request: Request):
         if body.role == "bidder":
+            if body.bidder_id is None:
+                with db.session() as conn:
+                    matches=conn.execute("SELECT id FROM bidders WHERE (name=? OR name || ' + owner'=?) AND removed_at IS NULL AND login_enabled=1",(body.username.strip(),body.username.strip())).fetchall()
+                    body.bidder_id=matches[0]['id'] if len(matches)==1 else None
             with db.session() as conn:
                 enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (body.bidder_id,)).fetchone()
             if not enabled:
@@ -719,13 +724,13 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             else:
                 token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown", body.bidder_id)
         else:
-            token, limited = auth.login(body.role, body.password, request.client.host if request.client else "unknown")
+            token, limited = auth.login(body.role if body.username == "owner" else "invalid", body.password, request.client.host if request.client else "unknown")
         if limited:
             response = _err("Too many sign-in attempts. Try again in a minute.", 429)
             response.headers["Retry-After"] = "60"
             return response
         if token is None:
-            return _err("Incorrect role or password.", 401)
+            return _err("Incorrect username or password.", 401)
         response = JSONResponse({"role": body.role, **({"bidder_id": body.bidder_id} if body.role == "bidder" else {})})
         response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
                             secure=secure_cookies, samesite="strict", path="/")

@@ -1,6 +1,80 @@
-# Mailcheck cyber redesign QA
+# OfferPath sign-in redesign — November 3, 2026
 
 final result: passed
+
+## Source and evidence
+
+- Layout reference: first user-supplied sign-in screenshot in this conversation.
+- Final background truth: `frontend/src/assets/sign-in-background.png`, extracted
+  from the user's `Heroic Hiker Beneath Golden Peaks.zip` (1672×941 pixels).
+- Desktop browser capture: `/tmp/signin-desktop.png`, 1672×847 CSS/pixel viewport,
+  deviceScaleFactor 1, signed out as Admin with empty credentials.
+- Mobile browser capture: `/tmp/signin-mobile.png`, 390×844 CSS/pixel viewport,
+  deviceScaleFactor 1, Bidder with synthetic typed username and masked password.
+- Combined full-view comparison: `/tmp/signin-background-comparison.png`. Source
+  crop is normalized with centered cover to the desktop viewport; both panels
+  are displayed at the same half scale for comparison. Full-resolution captures
+  were separately inspected for input labels, focus, icons, copy and readability.
+
+## Findings and iteration history
+
+1. Earlier grid auto-placement put the panel and benefit copy in the wrong columns.
+   Explicit grid rows/columns fixed desktop placement; final capture confirms the
+   centered brand/panel, left benefits and right journey labels.
+2. The existing brand halo extended past the mobile viewport by 20px. Removing that
+   legacy pseudo-element resolved overflow. Chromium resizing and measurements pass.
+3. Exact background was previously unavailable. The uploaded ZIP resolved that
+   blocker. The source file, build output and production HTTP response are all
+   byte-for-byte identical to the PNG in the ZIP. No generated replacement is used.
+
+No remaining actionable P0/P1/P2 findings for the implemented sign-in experience.
+
+## Fidelity surfaces
+
+- Typography: bundled Geist, white headings, cyan brand accent and large italic
+  cyan/purple Job Offer heading preserve the reference hierarchy. Form labels and
+  helper text remain readable at desktop and phone sizes.
+- Layout: 510px desktop panel with rounded glass border, centered wordmark, left
+  benefits and right milestone labels. Phones use a single column without overflow.
+- Colors: dark blue glass, cyan borders/icons, cyan/purple primary button and visible
+  focus rings remain legible over the supplied artwork.
+- Image fidelity: exact latest uploaded hiker/mountain artwork, centered CSS cover,
+  no distortion, no external image dependency. Cropping at other aspect ratios is
+  expected. The final supplied artwork has no luminous trail or summit flag, so
+  those raster details from the initial mockup are not invented on top of it.
+- Copy: username input replaces the account-name selectors as explicitly requested.
+  Role selection remains Admin/Bidder. Bidder helper explains the private qualified
+  identifier. Social-login buttons are omitted because those integrations do not
+  exist; the panel is correspondingly shorter than the initial mockup.
+
+## Verification
+
+- Chromium: typed username/password, password show/hide, role selection and phone
+  resize pass; no page/console errors or horizontal overflow.
+- Backend suite: 567 tests and 76 subtests passed during this task.
+- Frontend suite: 315 tests passed, followed by 11 passing sign-in tests after the
+  final password-toggle regression was added.
+- Typed bidder tenant isolation/revocation: 10 tests passed after switching the
+  helper to typed identifiers.
+- Production build and release consistency checks pass for 2.10.3. Vite emits an
+  advisory chunk-size warning; the build succeeds.
+- Anonymous account directories require authentication; generic failed login
+  errors, rate limits, credential hashing and workspace isolation remain intact.
+
+## Implementation checklist
+
+- [x] Integrate and package exact uploaded background.
+- [x] Preserve typed username fields and private account directories.
+- [x] Inspect rendered desktop/mobile states and primary interactions.
+- [x] Rebuild bundled frontend and verify production image response.
+
+---
+
+The following is retained historical QA for earlier workspace changes.
+
+# Mailcheck cyber redesign QA
+
+historical result: passed
 
 ## Latest requested follow-up: timeline ranges and consistent typography
 

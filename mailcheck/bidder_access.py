@@ -83,6 +83,13 @@ class BidderAccess:
             if len(recent)>=10 or len(attempts)>10000:raise ValueError('Too many sign-in attempts. Try again in a minute.')
             recent.append(now)
         with self.store.connect() as conn:
+            # Resolve a typed, workspace-qualified name without exposing a public directory.
+            # Duplicate names fail closed rather than selecting an arbitrary account.
+            if isinstance(login_id,str):
+                matches=conn.execute('''SELECT b.id FROM bidder_logins b
+                  JOIN users u ON u.workspace_id=b.workspace_id
+                  WHERE b.name || ' + ' || u.username = ?''',(login_id.strip(),)).fetchall()
+                login_id=matches[0]['id'] if len(matches)==1 else None
             row=conn.execute('''SELECT b.*,u.version AS admin_version,u.owner,u.must_change,
               u.enabled AS admin_enabled,w.enabled AS workspace_enabled
               FROM bidder_logins b JOIN users u ON u.workspace_id=b.workspace_id

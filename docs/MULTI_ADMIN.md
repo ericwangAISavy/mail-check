@@ -149,3 +149,18 @@ manual checks that later acquire an automatic confirmation match. Older releases
 could overwrite that provenance with `confirmation`; the original manual origin
 of those older records cannot be reconstructed reliably. Use **Refresh this week**
 when every historical check must be retained.
+
+## Remove an admin workspace
+
+From **Admin management**, the owner can choose **Remove workspace** for an added
+admin and confirm the workspace and username shown. The original owner workspace
+cannot be removed. If you have opened the target workspace, first switch back to
+your original workspace.
+
+Removal stops its worker and jobs, revokes all admin and bidder sessions, clears
+its login credentials, and removes it from the active admin list. Already sent
+messages cannot be recalled. Unlike suspension, removal cannot be undone with
+Enable. Stored files are retained offline and remain included in installation
+backups; this action does not erase mail, application, or payment history from disk.
+The removed username may be used to create a new, empty workspace with a separate
+identity; it never reconnects to the retained data.

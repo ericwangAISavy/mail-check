@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.11.0",
+    "date": "2026-11-03",
+    "title": "Removable admin workspaces and reliable Outlook tests",
+    "changes": [
+      "Owners can remove added admin workspaces, stop their jobs and revoke access while retaining stored data offline.",
+      "Outlook connection tests now check Inbox access with the existing mail permission, avoiding false profile-permission warnings."
+    ]
+  },
+  {
+    "version": "2.10.3",
+    "date": "2026-11-03",
+    "title": "Private username sign-in and refreshed login design",
+    "changes": [
+      "Type usernames instead of selecting published account names; account directories now require authentication.",
+      "Refresh the responsive sign-in layout with a dark glass panel and password visibility control."
+    ]
+  },
+  {
     "version": "2.10.2",
     "date": "2026-11-02",
     "title": "Simplify collapsed bidder rows",
