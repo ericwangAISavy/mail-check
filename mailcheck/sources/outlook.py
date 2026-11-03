@@ -107,10 +107,13 @@ class OutlookGraphSource:
     # ---------------------------------------------------------- MailSource API
 
     def test(self) -> None:
+        # Probe mailbox access with the Mail.Read permission we request. The
+        # /me profile endpoint needs User.Read, which collection does not need.
+        # An empty inbox is healthy; request only one identifier, never bodies.
         with self._client() as client:
-            data = self._get(client, f"{GRAPH}/me", {"$select": "mail,userPrincipalName"})
-        if not (data.get("mail") or data.get("userPrincipalName")):
-            raise SourceError("Signed in, but Microsoft returned no mailbox address.")
+            data = self._get(client, MESSAGES_URL, {"$select": "id", "$top": "1"})
+        if not isinstance(data, dict) or not isinstance(data.get("value"), list):
+            raise SourceError("Microsoft returned an invalid mailbox response.")
 
     def fetch_calendar(self, since: date, *, until: datetime | None = None) -> Iterator[CalendarBooking]:
         """Read native bookings from every calendar, never inbox messages.

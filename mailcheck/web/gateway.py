@@ -37,7 +37,7 @@ class _NoWorkerCookies(DefaultCookiePolicy):
 
 
 class Login(BaseModel):
-    username: str = Field(default='owner',max_length=64)
+    username: str = Field(default='owner',max_length=192)
     password: str = Field(min_length=1,max_length=256)
     role: str = Field(default='admin',max_length=16)
     bidder_id: int | None = Field(default=None,ge=1)
@@ -57,6 +57,10 @@ class NewAdmin(BaseModel):
 class AdminUpdate(BaseModel):
     enabled: bool | None = None
     password: str | None = Field(default=None,min_length=12,max_length=256)
+
+
+class AdminRemoval(BaseModel):
+    username: str = Field(min_length=1,max_length=64)
 
 
 class Password(BaseModel):
@@ -190,7 +194,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         try:identity=None if asset_request else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
         except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
-        public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session','/api/auth/admins','/api/auth/bidders') or path.startswith(('/assets/','/static/'))
+        public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session') or path.startswith(('/assets/','/static/'))
         if not public:
             if not identity:
                 return JSONResponse({'error':'Sign in to continue.'},401) if path.startswith('/api/') else RedirectResponse('/login',303)
@@ -252,7 +256,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if body.role not in ('admin','bidder'):raise HTTPException(401,'Choose Admin or Bidder.')
         try:
             if body.role=='bidder':
-                token=await asyncio.to_thread(bidder_access.login,body.bidder_id,body.password,request.client.host if request.client else 'unknown')
+                token=await asyncio.to_thread(bidder_access.login,body.username if body.bidder_id is None else body.bidder_id,body.password,request.client.host if request.client else 'unknown')
             else:
                 token=await asyncio.to_thread(store.login,body.username,body.password,request.client.host if request.client else 'unknown')
         except ValueError:raise HTTPException(429,'Too many sign-in attempts. Try again in a minute.',headers={'Retry-After':'60'})
@@ -344,6 +348,18 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if body.enabled is None and body.password is None:raise HTTPException(400,'Choose a password reset or access change.')
         await asyncio.to_thread(apply_admin_update,request.cookies.get(COOKIE),user_id,body,request.headers.get('x-offerpath-workspace'))
         return {'ok':True}
+
+    def apply_admin_removal(token,user_id,username,workspace):
+        # Serialize against suspension/re-enable and keep slow worker shutdown off-loop.
+        with admin_change_lock:
+            wid=store.remove_admin(token,user_id,username,expected_workspace=workspace)
+            pool.stop(wid)
+
+    @app.post('/api/admin/users/{user_id}/remove')
+    async def remove_admin(user_id:int,body:AdminRemoval,request:Request):
+        owner(request)
+        await asyncio.to_thread(apply_admin_removal,request.cookies.get(COOKIE),user_id,body.username,request.headers.get('x-offerpath-workspace'))
+        return {'ok':True,'message':'Admin workspace removed. Stored data is retained offline.'}
 
     @app.post('/api/admin/switch')
     def switch(body:Switch,request:Request):

@@ -1,0 +1,46 @@
+.sign-in-page.offerpath-login{min-height:100svh;padding:24px 32px 48px;display:grid;place-items:start center;background:#03172c url("../assets/sign-in-background.png") center center/cover no-repeat;color:#f5f8ff;isolation:isolate;color-scheme:dark;font-family:'Geist Variable',sans-serif}
+.offerpath-login .login-layout{min-width:0;width:min(1430px,100%);display:grid;grid-template-columns:1fr 510px 1fr;grid-template-rows:auto 1fr;gap:20px 60px;align-items:start}
+.offerpath-login .login-brand-header{grid-column:2;text-align:center}
+.offerpath-login .sign-in-brand{display:flex;justify-content:center;align-items:center;gap:24px;margin:0}
+.offerpath-login .sign-in-brand-icon{width:80px;height:76px;display:grid;place-items:center;border:1px solid #00c8f6;border-radius:22px;background:#041c32;box-shadow:0 0 22px #00c8f638}
+.offerpath-login .sign-in-wordmark{font-size:48px;letter-spacing:-2.5px;font-weight:750;color:#fff}
+.offerpath-login .sign-in-wordmark span,.offerpath-login h1 span{color:#00d8f6}
+.offerpath-login .login-tagline{color:#c4d9f3;letter-spacing:1px;font-size:20px;font-weight:600;margin:8px 0 0}
+.offerpath-login .login-pitch{grid-column:1;grid-row:2;padding-top:8px}
+.offerpath-login .login-pitch h2{font-size:34px;line-height:1.25;letter-spacing:-.8px;font-weight:650;margin:0}
+.offerpath-login .login-pitch strong{display:block;color:#35dcff;font-size:76px;line-height:1.3;font-weight:800;font-style:italic;white-space:nowrap;background:linear-gradient(110deg,#00e5ed,#31c8ff 55%,#9365ff);background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-3px}
+.offerpath-login .login-pitch ul{list-style:none;padding:26px 0 0 32px;margin:0;display:grid;gap:14px;font-size:17px;font-weight:500}
+.offerpath-login .login-pitch li{display:flex;gap:14px;align-items:center}
+.offerpath-login .login-pitch svg{color:#00d8ff;flex-shrink:0}
+.offerpath-login .login-glass{grid-column:2;grid-row:2;max-width:none;width:100%;margin:0;padding:25px 40px 24px;border-radius:28px;border:1px solid #61d9ff;background:#041a32de;backdrop-filter:blur(15px);box-shadow:0 0 0 1px #b3d6ff5c,0 0 22px #00d1ff42,inset 0 1px 14px #8f7bff66;color:#f5f8ff}
+.offerpath-login .login-glass h1{text-align:center;font-size:27px;line-height:1.25;font-weight:750;letter-spacing:-.7px;margin:0}
+.offerpath-login .login-subtitle{color:#addcf7;font-size:16px;line-height:1.5;text-align:center;margin:10px 0 24px}
+.offerpath-login .login-glass form{display:grid;gap:17px}
+.offerpath-login .setting-field{display:grid;gap:6px;font-size:14px;color:#f4f7ff;font-weight:550;margin:0}
+.offerpath-login .setting-field select,.offerpath-login .login-input-wrap{height:42px;border:1px solid #53789d;border-radius:20px;background:#152e48c9;color:#f5f8ff;width:100%}
+.offerpath-login .setting-field select{padding:0 16px;font-size:14px}
+.offerpath-login .login-input-wrap{display:flex;align-items:center;padding:0 14px;gap:12px;color:#abc7e6}
+.offerpath-login .login-input-wrap input{min-width:0;width:100%;height:100%;border:0;border-radius:0;background:transparent;color:#fff;padding:0;box-shadow:none;outline:none;font-size:14px}
+.offerpath-login .login-input-wrap input::placeholder{color:#a8bdd5;opacity:1}
+.offerpath-login .login-input-wrap>svg{flex-shrink:0}
+.offerpath-login .login-input-wrap:focus-within{outline:2px solid #42dcff;outline-offset:3px}
+.offerpath-login .login-password-toggle{display:grid;place-items:center;background:transparent;border:0;color:#bdd2eb;cursor:pointer;padding:4px;border-radius:5px}
+.offerpath-login button:focus-visible,.offerpath-login select:focus-visible{outline:2px solid #65e3ff;outline-offset:4px}
+.offerpath-login .login-help{color:#bdd0e7;font-size:13px;line-height:1.5;margin:-8px 0 0}
+.offerpath-login .login-submit{min-height:50px;width:100%;display:flex;justify-content:center;align-items:center;gap:12px;border-radius:26px;background:linear-gradient(110deg,#00def2 0%,#00bdff 48%,#7953ff 84%,#c48bff 100%);color:#001427;border:1px solid #b8efff;font-size:19px;font-weight:750;box-shadow:0 0 18px #00cfff65,inset 0 0 8px #bceeff;margin-top:3px;transition:filter .15s}
+.offerpath-login .login-submit:hover:not(:disabled){filter:brightness(1.12)}
+.offerpath-login .login-submit:disabled{opacity:.6;cursor:not-allowed}
+.offerpath-login .login-security{display:flex;align-items:center;justify-content:center;gap:7px;color:#c0d2e8;font-size:12px;line-height:1.5;margin:27px 0 0;text-align:center}
+.offerpath-login .inline-error{color:#ffced4;background:#461b31;border-radius:8px;padding:10px;font-size:14px}
+.offerpath-login .login-milestones{grid-column:3;grid-row:2;padding-top:120px;display:grid;justify-items:end;gap:56px}
+.offerpath-login .login-milestones span{display:flex;gap:10px;align-items:center;background:#061c34df;padding:10px 15px;border:1px solid #557b9a;border-radius:16px;font-weight:550;font-size:15px;box-shadow:0 0 12px #00baf533;white-space:nowrap}
+.offerpath-login .login-milestones svg{color:#00dcff}
+.offerpath-login .login-milestones span:nth-child(2){margin-right:36px}.offerpath-login .login-milestones span:nth-child(3){margin-right:110px}.offerpath-login .login-milestones span:nth-child(4){margin-right:190px}
+@media(max-width:1250px){.offerpath-login .login-layout{grid-template-columns:1fr 480px;gap:24px 32px}.offerpath-login .login-brand-header{grid-column:2}.offerpath-login .login-milestones{display:none}.offerpath-login .login-pitch strong{font-size:62px}}
+@media(max-width:850px){.sign-in-page.offerpath-login{padding:28px 20px}.offerpath-login .login-layout{display:flex;flex-direction:column;align-items:center;gap:24px;max-width:510px}.offerpath-login .login-pitch,.offerpath-login .login-milestones{display:none}.offerpath-login .login-brand-header{width:100%}.offerpath-login .sign-in-wordmark{font-size:40px}.offerpath-login .sign-in-brand-icon{width:64px;height:64px;border-radius:18px}.offerpath-login .sign-in-brand-icon img{width:50px;height:50px}.offerpath-login .login-tagline{font-size:17px}.offerpath-login .login-glass{padding:28px 24px}.offerpath-login .login-glass h1{font-size:25px}}
+@media(prefers-reduced-motion:reduce){.offerpath-login *{transition:none!important}}
+
+:root body .offerpath-login select:not([multiple]) { border-radius:20px; background-color:#152e48c9; border-color:#53789d; color:#f5f8ff; }
+.offerpath-login .login-input-wrap input:focus-visible { outline:none; }
+/* The old brand halo extended beyond narrow viewports. */
+.offerpath-login .sign-in-brand::before { content:none; }

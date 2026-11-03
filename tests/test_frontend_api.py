@@ -79,6 +79,40 @@ class FrontendApiTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertIn("Credential store locked", response.text)
 
+    def test_outlook_account_test_accepts_empty_inbox_without_profile_access(self):
+        import httpx
+        from mailcheck.sources.outlook import OutlookGraphSource
+
+        db.add_account(self.conn, label="microsoft", email="me@outlook.com", provider="outlook")
+        before = db.get_account(self.conn, "microsoft")
+        requests = []
+
+        def graph(request):
+            requests.append(request)
+            if request.url.path == "/v1.0/me/mailFolders/inbox/messages":
+                return httpx.Response(200, json={"value": []})
+            return httpx.Response(403, json={"error": {"code": "Authorization_RequestDenied"}})
+
+        with patch.object(OutlookGraphSource, "_client", return_value=httpx.Client(transport=httpx.MockTransport(graph))):
+            response = self.client.post("/api/accounts/microsoft/test")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].method, "GET")
+        self.assertEqual(db.get_account(self.conn, "microsoft"), before)
+
+    def test_outlook_account_test_surfaces_real_mailbox_auth_failure(self):
+        import httpx
+        from mailcheck.sources.outlook import OutlookGraphSource
+
+        db.add_account(self.conn, label="microsoft", email="me@outlook.com", provider="outlook")
+        transport = httpx.MockTransport(lambda request: httpx.Response(401))
+        with patch.object(OutlookGraphSource, "_client", return_value=httpx.Client(transport=transport)):
+            response = self.client.post("/api/accounts/microsoft/test")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["ok"])
+        self.assertIn("Reconnect the account", response.json()["error"])
+
     def test_spa_shell_revalidates_html_and_contains_a_boot_recovery_message(self):
         response = self.client.get("/?view=queue&days=30")
 

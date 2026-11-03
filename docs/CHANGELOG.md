@@ -2,6 +2,20 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.11.0 — 2026-11-03
+
+Removable admin workspaces and reliable Outlook tests
+
+- Owners can remove added admin workspaces, stop their jobs and revoke access while retaining stored data offline.
+- Outlook connection tests now check Inbox access with the existing mail permission, avoiding false profile-permission warnings.
+
+## 2.10.3 — 2026-11-03
+
+Private username sign-in and refreshed login design
+
+- Type usernames instead of selecting published account names; account directories now require authentication.
+- Refresh the responsive sign-in layout with a dark glass panel and password visibility control.
+
 ## 2.10.2 — 2026-11-02
 
 Simplify collapsed bidder rows

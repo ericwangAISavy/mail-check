@@ -26,7 +26,7 @@ def enable(client,bidder=1):
     assert result.status_code==200,result.text
 
 def bidder_login(client,entry):
-    response=client.post('/api/auth/login',json={'role':'bidder','bidder_id':entry['id'],'password':'bidder-password-123'})
+    response=client.post('/api/auth/login',json={'role':'bidder','username':entry['name'],'password':'bidder-password-123'})
     assert response.status_code==200,response.text
     client.headers['x-offerpath-workspace']=response.json()['workspace_id']
     return response.json()
@@ -34,9 +34,9 @@ def bidder_login(client,entry):
 def test_directory_login_read_only_and_tenant_isolation(system,worker_mock):
     app,store,pool=system
     with TestClient(app) as admin, closing(TestClient(app)) as bidder:
-        assert bidder.get('/api/auth/bidders').json()=={'bidders':[]}
+        assert bidder.get('/api/auth/bidders').status_code==401
         login(admin);enable(admin)
-        entry=bidder.get('/api/auth/bidders').json()['bidders'][0]
+        entry=admin.get('/api/auth/bidders').json()['bidders'][0]
         assert entry['name']=='Dany + owner'
         assert set(entry)=={'id','name'}
         identity=bidder_login(bidder,entry)
@@ -62,7 +62,7 @@ def test_same_bidder_id_in_different_workspaces_and_revocation(system,worker_moc
     with TestClient(app) as owner,closing(TestClient(app)) as alice,closing(TestClient(app)) as bidder:
         login(owner);enable(owner)
         login(alice,'alice','alice-final-pass-123');enable(alice)
-        entries=bidder.get('/api/auth/bidders').json()['bidders']
+        entries=owner.get('/api/auth/bidders').json()['bidders']
         assert {e['name'] for e in entries}=={'Dany + owner','Dany + alice'}
         assert len({e['id'] for e in entries})==2
         entry=next(e for e in entries if e['name'].endswith('alice'))
@@ -77,12 +77,12 @@ def test_same_bidder_id_in_different_workspaces_and_revocation(system,worker_moc
         bidder_login(bidder,entry)
         assert alice.post('/api/auth/bidders/1/password',json={'enabled':False}).status_code==200
         assert bidder.get('/api/dashboard').status_code==401
-        assert len(bidder.get('/api/auth/bidders').json()['bidders'])==1
+        assert len(owner.get('/api/auth/bidders').json()['bidders'])==1
         enable(alice);bidder_login(bidder,entry)
         user=next(u for u in store.list_admins() if u['username']=='alice')
         store.update_admin(store.owner_token,user['id'],enabled=False,expected_workspace='legacy')
         assert bidder.get('/api/dashboard').status_code==401
-        assert len(bidder.get('/api/auth/bidders').json()['bidders'])==1
+        assert len(owner.get('/api/auth/bidders').json()['bidders'])==1
 
 def test_bidder_removed_and_bad_password_and_unknown_id(system,worker_mock):
     app,store,pool=system
@@ -90,18 +90,18 @@ def test_bidder_removed_and_bad_password_and_unknown_id(system,worker_mock):
         login(admin)
         assert admin.post('/api/auth/bidders/999/password',json={'password':'bidder-password-123'}).status_code==404
         enable(admin)
-        entry=bidder.get('/api/auth/bidders').json()['bidders'][0]
+        entry=admin.get('/api/auth/bidders').json()['bidders'][0]
         assert bidder.post('/api/auth/login',json={'role':'bidder','bidder_id':entry['id'],'password':'wrong'}).status_code==401
         bidder_login(bidder,entry)
         assert admin.post('/api/payments/bidders/1/remove',json={}).status_code==200
         assert bidder.get('/api/dashboard').status_code==401
-        assert bidder.get('/api/auth/bidders').json()=={'bidders':[]}
+        assert admin.get('/api/auth/bidders').json()=={'bidders':[]}
 
 def test_bruteforce_is_throttled_and_admin_reset_revokes_viewers(system,worker_mock):
     app,store,pool=system
     with TestClient(app) as admin,closing(TestClient(app)) as bidder:
         login(admin);enable(admin)
-        entry=bidder.get('/api/auth/bidders').json()['bidders'][0]
+        entry=admin.get('/api/auth/bidders').json()['bidders'][0]
         for _ in range(10):
             assert bidder.post('/api/auth/login',json={'role':'bidder','bidder_id':entry['id'],'password':'wrong'}).status_code==401
         assert bidder.post('/api/auth/login',json={'role':'bidder','bidder_id':entry['id'],'password':'wrong'}).status_code==429
@@ -129,14 +129,14 @@ def test_credential_changes_revalidate_after_worker_lookup(system,worker_mock):
             return original(workspace)
         with patch.object(pool,'ensure',side_effect=revoke):
             assert admin.post('/api/auth/bidders/1/password',json={'password':'bidder-password-123'}).status_code==401
-        assert admin.get('/api/auth/bidders').json()=={'bidders':[]}
+        assert admin.get('/api/auth/bidders').status_code==401
 
 
 def test_successful_bidder_signins_do_not_exhaust_the_failure_budget(system,worker_mock):
     app,store,pool=system
     with TestClient(app) as admin,closing(TestClient(app)) as bidder:
         login(admin);enable(admin)
-        entry=bidder.get('/api/auth/bidders').json()['bidders'][0]
+        entry=admin.get('/api/auth/bidders').json()['bidders'][0]
         for _ in range(12):
             bidder_login(bidder,entry)
             assert bidder.post('/api/auth/logout').status_code==200
@@ -146,10 +146,35 @@ def test_bidder_sourcing_read_allowlist(system,worker_mock):
     app,store,pool=system
     with TestClient(app) as admin,closing(TestClient(app)) as bidder:
         login(admin);enable(admin)
-        bidder_login(bidder,bidder.get('/api/auth/bidders').json()['bidders'][0])
+        bidder_login(bidder,admin.get('/api/auth/bidders').json()['bidders'][0])
         for path in ['/sourcing','/api/sourcing','/api/sourcing/search?q=Engineer','/api/sourcing/tabs/7']:
             assert bidder.get(path).status_code==200,path
         for path in ['/api/sourcing/filters','/api/sourcing/tabs/7/export','/api/sourcing/tabs/7/verify']:
             assert bidder.get(path).status_code==403,path
         for action in ['save','append','verify','structure','import','archive','delete']:
             assert bidder.post('/api/sourcing/tabs/7/'+action,json={}).status_code==403
+
+
+def test_typed_bidder_username_and_private_directories(system,worker_mock):
+    app,store,pool=system
+    with TestClient(app) as admin,closing(TestClient(app)) as bidder:
+        login(admin);enable(admin)
+        for path in ('/api/auth/admins','/api/auth/bidders'):
+            assert bidder.get(path).status_code==401
+        for username,password in [('Dany + missing','bidder-password-123'),('Dany + owner','wrong')]:
+            response=bidder.post('/api/auth/login',json={'role':'bidder','username':username,'password':password})
+            assert response.status_code==401
+            assert response.json()=={'detail':'Incorrect username or password.'}
+        response=bidder.post('/api/auth/login',json={'role':'bidder','username':'Dany + owner','password':'bidder-password-123'})
+        assert response.status_code==200,response.text
+        assert response.json()['bidder_name']=='Dany'
+        assert response.json()['workspace_id']=='legacy'
+
+
+def test_duplicate_typed_bidder_identifier_fails_closed(system,worker_mock):
+    app,store,pool=system
+    with TestClient(app) as admin,closing(TestClient(app)) as bidder:
+        login(admin);enable(admin,1);enable(admin,2)
+        response=bidder.post('/api/auth/login',json={'role':'bidder','username':'Dany + owner','password':'bidder-password-123'})
+        assert response.status_code==401
+        assert bidder.get('/api/auth/session').json()['role'] is None

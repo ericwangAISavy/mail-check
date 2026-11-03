@@ -1465,7 +1465,11 @@ def test_graph_source():
     try:
         source = outlook_mod.OutlookGraphSource(label="ol", client_id="cid")
         source.test()
-        check("test() reaches /me", any("/me?" in p for p in seen["paths"]))
+        from urllib.parse import urlparse, parse_qs
+        probes = [parse_qs(urlparse(p).query) for p in seen["paths"] if "/me/mailFolders/inbox/messages?" in p]
+        check("test() probes mailbox with minimal Mail.Read request",
+              any(q.get("$select") == ["id"] and q.get("$top") == ["1"] for q in probes))
+        check("test() does not require profile access", not any("/me?" in p for p in seen["paths"]))
 
         got = list(source.fetch_unread(date(2026, 7, 1)))
         check("429 retried, honouring Retry-After", seen["throttled"])
@@ -1481,7 +1485,7 @@ def test_graph_source():
         # Graph rejects $filter+$orderby combinations on /messages with
         # InefficientFilter unless the $orderby property is listed first in
         # $filter — receivedDateTime must precede isRead, not follow it.
-        messages_path = next(p for p in seen["paths"] if "/messages" in p)
+        messages_path = next(p for p in seen["paths"] if "/messages" in p and "$filter" in parse_qs(urlparse(p).query))
         check("  $filter leads with the $orderby property (receivedDateTime)",
               messages_path.find("receivedDateTime") < messages_path.find("isRead"),
               messages_path)

@@ -42,3 +42,15 @@ it("shows browser presence separately from workspace server health",async()=>{
   expect(screen.getByText("Online")).toBeTruthy()
   expect(screen.getByText("Offline")).toBeTruthy()
 })
+
+it("removes only a non-owner workspace after explicit confirmation",async()=>{
+  const confirm=vi.spyOn(window,"confirm").mockReturnValue(false)
+  vi.mocked(api.post).mockResolvedValue({ok:true})
+  mount();const button=await screen.findByRole("button",{name:"Remove Alice workspace"})
+  expect(screen.queryByRole("button",{name:"Remove Original workspace"})).toBeNull()
+  fireEvent.click(button)
+  expect(api.post).not.toHaveBeenCalled()
+  confirm.mockReturnValue(true);fireEvent.click(button)
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/admin/users/2/remove",{username:"alice"}))
+  expect(confirm.mock.calls.at(-1)?.[0]).toContain("retained")
+})

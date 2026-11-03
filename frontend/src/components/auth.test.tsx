@@ -21,10 +21,10 @@ function mount(path="/"){
   return client
 }
 it("offers only owner/admin username sign-in without publishing bidder names",async()=>{
-  mount("/settings");await screen.findByRole("heading",{name:"Sign in"})
-  await screen.findByRole("option",{name:"owner"})
-  expect(screen.getByLabelText("Username").tagName).toBe("SELECT")
-  expect(screen.getByLabelText("Username")).toHaveProperty("value","owner")
+  mount("/settings");await screen.findByRole("heading",{name:"Sign In to OfferPath"})
+  await screen.findByLabelText("Username")
+  expect(screen.getByLabelText("Username").tagName).toBe("INPUT")
+  expect(screen.getByLabelText("Username")).toHaveProperty("value","")
   expect(screen.getByLabelText("Sign in as")).toBeTruthy()
   expect(screen.queryByLabelText("Your name")).toBeNull()
   expect(api.bootstrap).not.toHaveBeenCalled()
@@ -32,7 +32,7 @@ it("offers only owner/admin username sign-in without publishing bidder names",as
 it("signs an additional admin into their own workspace without owner controls",async()=>{
   const identity={role:"admin" as const,user_id:2,workspace_id:"alice",workspace_name:"Alice workspace",username:"alice",is_owner:false}
   vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
-  mount();await screen.findByRole("option",{name:"alice"});fireEvent.change(screen.getByLabelText("Username"),{target:{value:"alice"}})
+  mount();await screen.findByLabelText("Username");fireEvent.change(screen.getByLabelText("Username"),{target:{value:"alice"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"alice-password-123"}})
   fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
   await screen.findByRole("link",{name:"Dashboard"})
@@ -62,12 +62,12 @@ it("requires new admins to change their temporary password before fetching works
 })
 it("does not accept an old bidder identity",async()=>{
   vi.mocked(api.session).mockResolvedValue({role:"bidder",bidder_id:1})
-  mount();await screen.findByRole("heading",{name:"Sign in"})
+  mount();await screen.findByRole("heading",{name:"Sign In to OfferPath"})
   expect(api.bootstrap).not.toHaveBeenCalled()
 })
 it("preserves a failed sign-in form and clears private caches on sign-out",async()=>{
   vi.spyOn(api,"login").mockRejectedValue(new Error("Incorrect username or password."))
-  const client=mount();await screen.findByRole("option",{name:"owner"});fireEvent.change(await screen.findByLabelText("Password"),{target:{value:"wrong"}})
+  const client=mount();await screen.findByLabelText("Username");fireEvent.change(screen.getByLabelText("Username"),{target:{value:"owner"}});fireEvent.change(await screen.findByLabelText("Password"),{target:{value:"wrong"}})
   fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
   expect((await screen.findByRole("alert")).textContent).toContain("Incorrect username")
   vi.mocked(api.login).mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue({role:"admin"});return {role:"admin"}})
@@ -76,7 +76,7 @@ it("preserves a failed sign-in form and clears private caches on sign-out",async
   vi.spyOn(api,"post").mockResolvedValue({ok:true})
   vi.mocked(api.session).mockResolvedValue({role:null})
   fireEvent.click(screen.getByRole("button",{name:"Sign out"}))
-  await screen.findByRole("heading",{name:"Sign in"})
+  await screen.findByRole("heading",{name:"Sign In to OfferPath"})
   await waitFor(()=>expect(client.getQueryData(["reader",1])).toBeUndefined())
 })
 
@@ -85,43 +85,28 @@ it("signs bidders into their admin team with only viewer navigation",async()=>{
   const identity={role:"bidder" as const,bidder_id:1,workspace_id:"alice",workspace_name:"Alice team",username:"alice",managed:true}
   vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
   mount();fireEvent.change(await screen.findByLabelText("Sign in as"),{target:{value:"bidder"}})
-  await screen.findByRole("option",{name:"Dany + alice"})
-  fireEvent.change(screen.getByLabelText("Your name"),{target:{value:"9"}})
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"Dany + alice"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"bidder-password-123"}})
   fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
   await screen.findByRole("heading",{name:"Admin Dashboard"})
-  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",9,"owner")
+  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",undefined,"Dany + alice")
   expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Dashboard","Job sourcing","Bidder management"])
   expect(screen.queryByRole("button",{name:"Check now"})).toBeNull()
   expect(screen.queryByRole("button",{name:"Change password"})).toBeNull()
 })
 
-it("keeps admin sign-in disabled when the account directory cannot load and supports retry",async()=>{
-  const fetch=vi.fn().mockRejectedValue(new Error("offline"))
-  vi.stubGlobal("fetch",fetch)
-  mount()
-  await screen.findByText("Could not load admins.")
-  expect(screen.getByLabelText("Username").tagName).toBe("SELECT")
-  expect(screen.getByRole("button",{name:"Sign in"})).toHaveProperty("disabled",true)
-  fetch.mockResolvedValue(new Response(JSON.stringify({admins:[{username:"owner"}]}),{headers:{"Content-Type":"application/json"}}))
-  fireEvent.click(screen.getByRole("button",{name:"Try again"}))
-  await screen.findByRole("option",{name:"owner"})
-  await waitFor(()=>expect(screen.getByRole("button",{name:"Sign in"})).toHaveProperty("disabled",false))
-})
-
-it("blocks bidder submission while the bidder directory is unavailable",async()=>{
-  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
-    if(String(input).includes("/api/auth/admins"))return new Response(JSON.stringify({admins:[{username:"owner"}]}),{headers:{"Content-Type":"application/json"}})
-    throw new Error("offline")
-  }))
-  mount();fireEvent.change(await screen.findByLabelText("Sign in as"),{target:{value:"bidder"}})
-  await screen.findByText("Could not load bidders.")
-  expect(screen.getByRole("button",{name:"Sign in"})).toHaveProperty("disabled",true)
+it("does not fetch account directories and allows typing an unknown username",async()=>{
+  mount();await screen.findByLabelText("Username")
+  expect(fetch).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"private-user"}})
+  expect(screen.getByLabelText("Username")).toHaveProperty("value","private-user")
+  expect(screen.queryAllByRole("option").map(option=>option.textContent)).toEqual(["Admin","Bidder"])
 })
 
 it("locks account selection and credentials while signing in",async()=>{
   vi.spyOn(api,"login").mockReturnValue(new Promise(()=>{}))
-  mount();await screen.findByRole("option",{name:"owner"})
+  mount();await screen.findByLabelText("Username")
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"owner"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"secret"}})
   fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
   await screen.findByRole("button",{name:"Please wait…"})
@@ -143,4 +128,17 @@ it("sends admin presence only while the workspace tab is visible",async()=>{
   visibility.mockReturnValue("visible")
   fireEvent(document,new Event("visibilitychange"))
   await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/auth/presence",{}))
+})
+
+it("reveals a password only on request and hides it again when switching roles",async()=>{
+  mount();await screen.findByLabelText("Password")
+  const password=screen.getByLabelText("Password")
+  fireEvent.change(password,{target:{value:"private-password"}})
+  expect(password).toHaveProperty("type","password")
+  fireEvent.click(screen.getByRole("button",{name:"Show password"}))
+  expect(password).toHaveProperty("type","text")
+  fireEvent.change(screen.getByLabelText("Sign in as"),{target:{value:"bidder"}})
+  expect(screen.getByLabelText("Password")).toHaveProperty("type","password")
+  expect(screen.getByLabelText("Password")).toHaveProperty("value","")
+  expect(fetch).not.toHaveBeenCalled()
 })
