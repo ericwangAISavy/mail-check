@@ -98,6 +98,7 @@ export const api = {
   login: (role: "admin" | "bidder", password: string, bidder_id?: number, username="owner") => request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username, ...(role==="bidder"?{bidder_id}: {}) }) }),
   dashboardAccounts: () => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts"),
   bootstrap: () => request<Bootstrap>("/api/bootstrap"),
+  applicationsToday: () => request<{applications_today:number}>("/api/applications/today"),
   triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
   reader: (pk: number) => request<{ message: import("./types").Message; body_html: string; original_html?: string | null; replies?: import("./types").SentReply[] }>(`/api/messages/${pk}`),
   accounts: () => request<{ accounts: Account[]; outlook_ready: boolean }>("/api/accounts"),

@@ -199,6 +199,13 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
   </div>
 }
 
+function DailyApplicationCount({count}:{count?:number}) {
+  const daily=useQuery({queryKey:["applications-today"],queryFn:api.applicationsToday,enabled:count===undefined,retry:false,staleTime:30000,refetchInterval:60000,refetchOnWindowFocus:true})
+  const value=count ?? daily.data?.applications_today
+  const label=value===undefined ? daily.isError ? "Today's application count unavailable" : "Loading today's application count" : `${value} application confirmations received today`
+  return <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={label}><strong>{value===undefined?"—":value.toLocaleString()}</strong><span>today</span></span>
+}
+
 function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const { role, signOut, session } = useAuth()
   const admin = role === "admin"
@@ -223,7 +230,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
 
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
       <header className="topbar">
-        <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong>{location.pathname === "/payments" && bootstrap.counts.applications_today !== undefined && <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={`${bootstrap.counts.applications_today} application confirmations received today`}><strong>{bootstrap.counts.applications_today.toLocaleString()}</strong><span>today</span></span>}</div></div>
+        <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div><DailyApplicationCount count={bootstrap.counts.applications_today}/></div>
         <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? `${session?.bidder_name || "Bidder"} · Read only` : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}

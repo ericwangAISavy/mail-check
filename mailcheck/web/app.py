@@ -1002,6 +1002,13 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             return dashboard_data(conn, filters, retention_days=cfg.check.retain_days)
 
+    @app.get("/api/applications/today")
+    def api_applications_today():
+        # Header count must work even when Settings or Admin management is used
+        # to recover invalid configuration. This path never loads model settings.
+        with db.session() as conn:
+            return {"applications_today": payments.received_today(conn)}
+
     @app.get("/api/bootstrap", response_model=BootstrapResponse)
     def api_bootstrap(request: Request):
         """Small, non-sensitive shell data shared by every React page."""

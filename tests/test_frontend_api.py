@@ -281,6 +281,16 @@ class FrontendApiTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 200)
                     self.assertIn("React app", response.text)
 
+    def test_today_count_is_available_without_loading_workspace_settings(self):
+        from mailcheck import payments
+        self.conn.execute("INSERT INTO application_receipts(account_id,message_id,received_at,category) VALUES(?,?,?,?)",(self.account_id,'counter-test','2026-11-03T18:00:00+00:00','application_ack'))
+        self.conn.commit()
+        from datetime import date
+        with patch.object(payments,'today',return_value=date(2026,11,3)),patch('mailcheck.web.app.cfgmod.load',side_effect=ValueError('invalid settings')),patch.object(db,'queue_counts',side_effect=AssertionError('full queue must not load')):
+            response=self.client.get('/api/applications/today')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json(),{'applications_today':1})
+
     def test_bootstrap_reads_queue_counts_once_without_changing_response(self):
         with patch.object(db, "queue_counts", wraps=db.queue_counts) as counts:
             response = self.client.get("/api/bootstrap")

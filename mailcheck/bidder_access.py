@@ -13,7 +13,7 @@ from .control_store import RevokedSession
 from .web.auth import _password, _record
 
 # Explicit endpoints, never prefix-based access to future admin routes.
-VIEWER_APIS = frozenset(('/api/bootstrap', '/api/dashboard', '/api/dashboard/accounts',
+VIEWER_APIS = frozenset(('/api/applications/today', '/api/bootstrap', '/api/dashboard', '/api/dashboard/accounts',
                          '/api/payments', '/api/payments/activity', '/api/sourcing', '/api/sourcing/search'))
 VIEWER_PAGES = frozenset(('/', '/dashboard', '/payments', '/login', '/sourcing'))
 

@@ -118,3 +118,10 @@ button { color: inherit; }
 .owner-admin-card p,.owner-audit { color:var(--muted-foreground); font-size:12px; }
 .owner-admin-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
 .owner-audit li { margin:8px 0; overflow-wrap:anywhere; }
+
+/* Keep the daily count in the shared header when breadcrumbs are hidden on phones. */
+@media(max-width:1100px) {
+  .topbar { flex-wrap:wrap; }
+  .topbar .top-left { flex-wrap:wrap; flex:1 1 160px; }
+  .topbar .top-right { flex-wrap:wrap; max-width:100%; justify-content:flex-end; }
+}

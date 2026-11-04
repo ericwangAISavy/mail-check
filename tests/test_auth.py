@@ -34,7 +34,7 @@ class AuthTests(unittest.TestCase):
 
     def test_anonymous_cannot_read_data_or_write(self):
         self.assertEqual(self.client.get("/api/auth/session").json(), {"role": None})
-        for path in ("/api/bootstrap", "/api/dashboard", "/api/accounts", "/api/settings", "/api/messages/1"):
+        for path in ("/api/applications/today", "/api/bootstrap", "/api/dashboard", "/api/accounts", "/api/settings", "/api/messages/1"):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 401)
         self.assertEqual(self.client.post("/api/check", json={}).status_code, 401)

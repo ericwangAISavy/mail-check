@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.2 — 2026-11-03
+
+Daily application badge across workspace pages
+
+- Keep the daily application-confirmation badge visible on all workspace pages and mobile headers, including Admin management and Settings recovery.
+
 ## 2.13.1 — 2026-11-03
 
 Clipboard, privacy and sourcing save fixes

@@ -14,6 +14,7 @@ const running: Status = { ...scheduled, running: true, message: "Reading mail…
 const clients: QueryClient[] = []
 
 beforeEach(() => {
+  vi.spyOn(api, "applicationsToday").mockResolvedValue({applications_today:0})
   vi.spyOn(api, "session").mockResolvedValue({ role: "admin" })
   vi.spyOn(console, "error").mockImplementation(() => undefined)
   vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() })
@@ -178,14 +179,15 @@ describe("live countdown", () => {
   })
 })
 
-it("shows today's received confirmations beside Bidder management", async () => {
+it.each(["/", "/dashboard", "/accounts", "/sourcing", "/payments", "/interviews"])("shows today's received confirmations on %s", async (path) => {
   vi.mocked(api.bootstrap).mockResolvedValue({readiness:{model:true,accounts:true,privacy_ack:true,outlook:false},counts:{actionable:0,applications_today:3400},taxonomy:[],presets:[],last_run:"",account_count:2})
   vi.spyOn(api,"status").mockResolvedValue(idle)
   const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/payments"]}><App /></MemoryRouter></QueryClientProvider>)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
   const badge=await screen.findByLabelText("3400 application confirmations received today")
   expect(badge.closest("a")).toBeNull()
-  expect(badge.closest("header")?.textContent).toContain("Bidder management")
+  expect(badge.closest("header")).toBeTruthy()
+  expect(badge.closest(".crumb")).toBeNull()
   expect(badge.textContent).toBe("3,400today")
   expect(screen.getByRole("button", {name:"OfferPath home"})).toBeTruthy()
   expect(document.title).toBe("OfferPath")
@@ -232,4 +234,15 @@ it('does not overlap status polls when focus events arrive during a slow respons
  fireEvent.focus(window);fireEvent.focus(window)
  expect(status.mock.calls.length).toBe(calls)
  await act(async()=>finish(idle))
+})
+
+it.each(["/admin-management","/settings"])("keeps the daily badge available on %s when workspace setup is unavailable",async(path)=>{
+ vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy"})
+ vi.mocked(api.bootstrap).mockRejectedValue(new Error("Invalid settings"))
+ vi.mocked(api.applicationsToday).mockResolvedValue({applications_today:446})
+ vi.spyOn(api,"status").mockResolvedValue(idle)
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App/></MemoryRouter></QueryClientProvider>)
+ expect((await screen.findByLabelText("446 application confirmations received today")).closest("header")).toBeTruthy()
+ expect(api.applicationsToday).toHaveBeenCalled()
 })
