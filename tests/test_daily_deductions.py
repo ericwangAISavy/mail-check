@@ -108,3 +108,50 @@ def test_existing_database_gets_disabled_deduction_policy_on_upgrade(tmp_path):
         assert payments.deduction_rule(conn)=={'minimum_daily':0,'amount_cents':0}
         assert conn.execute('PRAGMA user_version').fetchone()[0]==db.SCHEMA_VERSION
     finally:conn.close()
+
+
+def test_stale_rule_save_cannot_overwrite_a_newer_admin_edit(workspace):
+    conn,_=workspace
+    with TestClient(create_app()) as client:
+        initial={'minimum_daily':0,'amount_cents':0}
+        first=client.post('/api/payments/deduction-rule',json={'minimum_daily':50,'deduction_amount':'1.25','expected_rule':initial})
+        assert first.status_code==200,first.text
+        stale=client.post('/api/payments/deduction-rule',json={'minimum_daily':100,'deduction_amount':'2','expected_rule':initial})
+        assert stale.status_code==400
+        assert 'changed' in stale.json()['error'].lower()
+        assert payments.deduction_rule(conn)=={'minimum_daily':50,'amount_cents':125}
+        current={'minimum_daily':50,'amount_cents':125}
+        updated=client.post('/api/payments/deduction-rule',json={'minimum_daily':60,'deduction_amount':'1.50','expected_rule':current})
+        assert updated.status_code==200,updated.text
+        assert payments.deduction_rule(conn)=={'minimum_daily':60,'amount_cents':150}
+
+
+def test_payment_writes_reject_a_changed_rule_even_when_counts_match(workspace):
+    conn,_=workspace
+    payments.save_deduction_rule(conn,payments.DeductionRuleBody(minimum_daily=50,deduction_amount='1.25'))
+    conn.commit()
+    with TestClient(create_app()) as client,patch.object(payments,'today',return_value=date(2026,11,9)):
+        for suffix in ('amount','paid','paid/edit'):
+            body={'week':'2026-11-02','expected_count':0,'amount':'10','expected_rule':{'minimum_daily':0,'amount_cents':0}}
+            if suffix=='paid/edit':body['expected_revision']=0
+            response=client.post(f'/api/payments/bidders/1/{suffix}',json=body)
+            assert response.status_code==400,response.text
+            assert 'deduction rule changed' in response.json()['error'].lower()
+        assert conn.execute('SELECT COUNT(*) FROM bidder_payments').fetchone()[0]==0
+        assert conn.execute('SELECT COUNT(*) FROM bidder_payment_amounts').fetchone()[0]==0
+
+
+def test_payment_writes_reject_changed_deductions_with_same_rule_and_weekly_total(workspace):
+    conn,account=workspace
+    payments.save_deduction_rule(conn,payments.DeductionRuleBody(minimum_daily=50,deduction_amount='1.25'))
+    conn.execute("UPDATE bidder_assignments SET end_date='2026-11-03'")
+    conn.commit()
+    counts={(1,account,'2026-11-02'):49,(1,account,'2026-11-03'):51}
+    with TestClient(create_app()) as client,patch.object(payments,'today',return_value=date(2026,11,9)),patch.object(sourcing_verification,'completed_account_counts',return_value=counts):
+        body={'week':'2026-11-02','expected_count':100,'amount':'6','expected_rule':{'minimum_daily':50,'amount_cents':125},'expected_calculated_amount_cents':600}
+        for suffix in ('amount','paid','paid/edit'):
+            response=client.post(f'/api/payments/bidders/1/{suffix}',json={**body,**({'expected_revision':0} if suffix=='paid/edit' else {})})
+            assert response.status_code==400,response.text
+            assert 'calculated amount changed' in response.json()['error'].lower()
+        response=client.post('/api/payments/bidders/1/amount',json={**body,'expected_calculated_amount_cents':475,'amount':'4.75'})
+        assert response.status_code==200,response.text

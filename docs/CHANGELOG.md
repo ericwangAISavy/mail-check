@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.18.1 — 2026-11-04
+
+Protect deduction edits and payment review from stale data
+
+- Preserve unsaved deduction drafts during refresh and reject conflicting rule edits.
+- Require payment review again when deduction rules or calculated net amounts change, including daily-count changes with the same weekly total.
+
 ## 2.18.0 — 2026-11-04
 
 Add workspace daily minimum and payment deductions

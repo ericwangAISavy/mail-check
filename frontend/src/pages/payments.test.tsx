@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { api, request } from "@/lib/api"
 import PaymentsPage from "./payments"
@@ -16,7 +16,7 @@ it("records an admin-entered amount with the reviewed week and count", async () 
   fireEvent.change(screen.getByLabelText("Amount (USD)"), { target: { value: "123.45" } })
   fireEvent.change(screen.getByLabelText("Reference or note (optional)"), { target: { value: "Bank reference" } })
   fireEvent.click(screen.getByRole("button", { name: "Record as paid" }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/bidders/1/paid", { week: "2026-10-12", expected_count: 3, amount: "123.45", note: "Bank reference" }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/bidders/1/paid", { week: "2026-10-12", expected_count: 3, expected_rule:{minimum_daily:0,amount_cents:0}, expected_calculated_amount_cents:null, amount: "123.45", note: "Bank reference" }))
 })
 it("supports previous week navigation", async () => {
   mount(true)
@@ -162,7 +162,7 @@ it('prefills calculated weekly pay and can save a manual amount without marking 
  expect(input.value).toBe('18.54')
  fireEvent.change(input,{target:{value:'22.00'}})
  fireEvent.click(screen.getByRole('button',{name:'Save amount'}))
- await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:309,amount:'22.00'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:309,expected_rule:{minimum_daily:0,amount_cents:0},expected_calculated_amount_cents:1854,amount:'22.00'}))
  expect(vi.mocked(api.post).mock.calls.some(([url])=>url.endsWith('/paid'))).toBe(false)
 })
 it('edits an already-paid amount and can apply the current calculated amount',async()=>{
@@ -179,7 +179,7 @@ it('edits an already-paid amount and can apply the current calculated amount',as
  expect(amount.value).toBe('18.54')
  fireEvent.change(amount,{target:{value:'22.50'}})
  fireEvent.click(screen.getByRole('button',{name:'Save changes'}))
- await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid/edit',{week:'2026-10-12',expected_count:309,expected_revision:0,amount:'22.50',note:'Original note'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid/edit',{week:'2026-10-12',expected_count:309,expected_rule:{minimum_daily:0,amount_cents:0},expected_calculated_amount_cents:1854,expected_revision:0,amount:'22.50',note:'Original note'}))
 })
 it('defaults the blue confirmed amount to the estimate until manually changed',async()=>{
  const report=data() as any
@@ -319,7 +319,7 @@ it('saves the daily rule explicitly and refreshes net pay while preserving recor
  fireEvent.change(screen.getByLabelText('Daily deduction (USD)'),{target:{value:'2.00'}})
  expect(api.post).not.toHaveBeenCalled()
  fireEvent.click(screen.getByRole('button',{name:'Save deduction rule'}))
- await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/deduction-rule',{minimum_daily:60,deduction_amount:'2.00'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/deduction-rule',{minimum_daily:60,deduction_amount:'2.00',expected_rule:{minimum_daily:50,amount_cents:100}}))
  await waitFor(()=>expect(screen.getByLabelText('Estimated / confirmed payment').textContent).toBe('$1.60 / $9.00'))
  expect(screen.getByText('$3.60 − $2.00 deductions = $1.60')).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
@@ -345,4 +345,99 @@ it('uses backend eligibility for danger counts including zero-dollar deductions,
  expect(screen.getByRole('row',{name:'Alex · Work inbox'}).querySelector('.payment-below-minimum')).toBeNull()
  expect(screen.queryByRole('button',{name:'Save deduction rule'})).toBeNull()
  expect(screen.queryByLabelText('Minimum daily checked applications')).toBeNull()
+})
+
+it('preserves a dirty rule across report refetches and requires loading a changed saved rule', async () => {
+ let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
+ vi.mocked(request).mockImplementation(async()=>report)
+ mount()
+ const minimum=await screen.findByLabelText('Minimum daily checked applications') as HTMLInputElement
+ const amount=screen.getByLabelText('Daily deduction (USD)') as HTMLInputElement
+ fireEvent.change(minimum,{target:{value:'80'}})
+ fireEvent.change(amount,{target:{value:'3.00'}})
+ await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
+ expect(minimum.value).toBe('80')
+ report={...report,deduction_rule:{minimum_daily:60,amount_cents:200}}
+ await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
+ expect(minimum.value).toBe('80')
+ expect(amount.value).toBe('3.00')
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('changed elsewhere'))
+ const save=screen.getByRole('button',{name:'Save deduction rule'}) as HTMLButtonElement
+ expect(save.disabled).toBe(true)
+ fireEvent.submit(save.closest('form')!)
+ expect(api.post).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'Load saved rule'}))
+ expect(minimum.value).toBe('60')
+ expect(amount.value).toBe('2.00')
+ expect(save.disabled).toBe(false)
+ fireEvent.change(minimum,{target:{value:'90'}})
+ fireEvent.click(save)
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/deduction-rule',{minimum_daily:90,deduction_amount:'2.00',expected_rule:{minimum_daily:60,amount_cents:200}}))
+})
+it('syncs a clean rule on report refetch and protects an unseen concurrent update with the base rule',async()=>{
+ let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
+ vi.mocked(request).mockImplementation(async()=>report)
+ mount()
+ const minimum=await screen.findByLabelText('Minimum daily checked applications') as HTMLInputElement
+ report={...report,deduction_rule:{minimum_daily:60,amount_cents:200}}
+ await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
+ expect(minimum.value).toBe('60')
+ expect((screen.getByLabelText('Daily deduction (USD)') as HTMLInputElement).value).toBe('2.00')
+ vi.mocked(api.post).mockRejectedValue(new Error('Daily deduction rule changed elsewhere. Load the saved rule and try again.'))
+ fireEvent.change(minimum,{target:{value:'80'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save deduction rule'}))
+ await screen.findByText('Daily deduction rule changed elsewhere. Load the saved rule and try again.')
+ expect(minimum.value).toBe('80')
+ expect(api.post).toHaveBeenCalledWith('/api/payments/deduction-rule',{minimum_daily:80,deduction_amount:'2.00',expected_rule:{minimum_daily:60,amount_cents:200}})
+})
+it('requires reopening a payment draft when the rule changes with unchanged application counts',async()=>{
+ let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
+ Object.assign(report.bidders[0],{calculated_amount_cents:200,payable_amount_cents:200})
+ vi.mocked(request).mockImplementation(async()=>report)
+ mount()
+ fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
+ const amount=screen.getByLabelText('Amount (USD)') as HTMLInputElement
+ expect(amount.value).toBe('2.00')
+ report={...report,deduction_rule:{minimum_daily:60,amount_cents:200},bidders:[{...report.bidders[0],calculated_amount_cents:100,payable_amount_cents:100}]}
+ await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
+ expect(screen.getByRole('alert').textContent).toBe('Deduction rule changed while editing. Close and reopen to review the updated amount.')
+ expect((screen.getByRole('button',{name:'Save amount'}) as HTMLButtonElement).disabled).toBe(true)
+ expect((screen.getByRole('button',{name:'Record as paid'}) as HTMLButtonElement).disabled).toBe(true)
+ fireEvent.submit(amount.closest('form')!)
+ expect(api.post).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'Cancel'}))
+ fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
+ expect((screen.getByLabelText('Amount (USD)') as HTMLInputElement).value).toBe('1.00')
+ fireEvent.click(screen.getByRole('button',{name:'Save amount'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:3,expected_rule:{minimum_daily:60,amount_cents:200},expected_calculated_amount_cents:100,amount:'1.00'}))
+})
+it('requires reopening a payment draft when net pay changes with the same rule and weekly count',async()=>{
+ let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
+ Object.assign(report.bidders[0],{checked_daily:[50,50,0,0,0,0,0],calculated_amount_cents:1000,payable_amount_cents:1000})
+ vi.mocked(request).mockImplementation(async()=>report)
+ mount()
+ fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
+ report={...report,bidders:[{...report.bidders[0],checked_daily:[49,51,0,0,0,0,0],calculated_amount_cents:900,payable_amount_cents:900}]}
+ await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toBe('Calculated amount changed while editing. Close and reopen to review the updated amount.'))
+ expect((screen.getByRole('button',{name:'Save amount'}) as HTMLButtonElement).disabled).toBe(true)
+ expect((screen.getByRole('button',{name:'Record as paid'}) as HTMLButtonElement).disabled).toBe(true)
+ fireEvent.submit(screen.getByLabelText('Amount (USD)').closest('form')!)
+ expect(api.post).not.toHaveBeenCalled()
+})
+it('starts a fresh payment draft when reopening the same bidder from the row',async()=>{
+ let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
+ Object.assign(report.bidders[0],{calculated_amount_cents:3000,payable_amount_cents:3000})
+ vi.mocked(request).mockImplementation(async()=>report)
+ mount()
+ fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
+ expect((screen.getByLabelText('Amount (USD)') as HTMLInputElement).value).toBe('30.00')
+ report={...report,bidders:[{...report.bidders[0],calculated_amount_cents:2500,payable_amount_cents:2500}]}
+ await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Save amount'}) as HTMLButtonElement).disabled).toBe(true))
+ fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
+ expect((screen.getByLabelText('Amount (USD)') as HTMLInputElement).value).toBe('25.00')
+ expect(screen.queryByRole('alert')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'Save amount'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:3,expected_rule:{minimum_daily:50,amount_cents:100},expected_calculated_amount_cents:2500,amount:'25.00'}))
 })

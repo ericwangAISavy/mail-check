@@ -196,3 +196,13 @@ report shows gross, deductions and net. A zero-dollar deduction can still displa
 the below-minimum warning without reducing pay. Saved manual amounts and recorded
 payments retain their precedence and do not change automatically; administrators
 can explicitly review and edit them. Bidder viewers cannot change the rule.
+
+Rule drafts survive background refreshes. If another tab saves a different rule,
+review it using **Load saved rule** before saving your edits. The console submits
+the saved rule it reviewed; the server rejects a conflicting edit.
+
+Open payment forms also capture the rule and calculated amount reviewed on opening.
+If either changes, close and reopen the form before saving. This includes daily
+count changes that alter deductions while leaving the weekly total unchanged.
+The current console's payment writes are checked inside the server transaction,
+so an unnoticed refresh cannot record a stale calculated amount.

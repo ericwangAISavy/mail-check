@@ -82,9 +82,15 @@ def calculate_amount(pay_per_bid,count,adjustment_percent):
     return int(amount.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)*100)
 
 
+class DeductionRuleSnapshot(BaseModel):
+    minimum_daily: int = Field(ge=0, le=100000)
+    amount_cents: int = Field(ge=0, le=100000000)
+
+
 class DeductionRuleBody(BaseModel):
     minimum_daily: int = Field(ge=0, le=100000)
     deduction_amount: Decimal = Field(ge=0, le=1000000, decimal_places=2)
+    expected_rule: DeductionRuleSnapshot | None = None
 
 
 def deduction_rule(conn):
@@ -92,23 +98,39 @@ def deduction_rule(conn):
     return dict(row) if row else {"minimum_daily": 0, "amount_cents": 0}
 
 
+def ensure_deduction_rule_unchanged(conn, expected):
+    if expected is not None and expected.model_dump() != deduction_rule(conn):
+        raise ValueError("Daily deduction rule changed elsewhere. Refresh and review before saving.")
+
+
 def save_deduction_rule(conn, body):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     conn.execute("INSERT INTO payment_deduction_rule(id,minimum_daily,amount_cents) VALUES(1,?,?) "
                  "ON CONFLICT(id) DO UPDATE SET minimum_daily=excluded.minimum_daily,amount_cents=excluded.amount_cents",
                  (body.minimum_daily, int(body.deduction_amount * 100)))
 
 
+def ensure_calculated_amount_unchanged(body, row):
+    if ('expected_calculated_amount_cents' in body.model_fields_set
+            and body.expected_calculated_amount_cents != row['calculated_amount_cents']):
+        raise ValueError("Calculated amount changed. Close and reopen to review before saving.")
+
+
 class AmountBody(BaseModel):
     week: date = Field(ge=date(1971,1,1),le=date(2100,12,31))
     expected_count: int = Field(ge=0)
+    expected_calculated_amount_cents: int | None = Field(default=None, ge=0)
+    expected_rule: DeductionRuleSnapshot | None = None
     amount: Decimal | None = Field(default=None,ge=0,le=1000000,decimal_places=2)
 
 
 def save_amount(conn,bidder_id,body):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     bidder(conn,bidder_id)
     start=monday(body.week)
     if start+timedelta(days=6)>=today():raise ValueError('Edit the final payment amount after the week has ended')
     row=next(b for b in report(conn,start,bidder_id=bidder_id)['bidders'] if b['id']==bidder_id)
+    ensure_calculated_amount_unchanged(body, row)
     if row['payment']:raise ValueError('This payment is already recorded; its paid amount remains saved')
     if row['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before saving the amount.')
     if body.amount is None:
@@ -155,6 +177,8 @@ class EndAssignmentBody(BaseModel):
 class PayBody(BaseModel):
     week: date = Field(ge=date(1971, 1, 1), le=date(2100, 12, 31))
     expected_count: int = Field(ge=0)
+    expected_calculated_amount_cents: int | None = Field(default=None, ge=0)
+    expected_rule: DeductionRuleSnapshot | None = None
     amount: Decimal = Field(ge=0, le=1000000, decimal_places=2)
     note: str = Field(default="", max_length=500)
 
@@ -164,10 +188,12 @@ class EditPayBody(PayBody):
 
 
 def edit_payment(conn,bidder_id,body):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     bidder(conn,bidder_id)
     start=monday(body.week)
     if start+timedelta(days=6)>=today():raise ValueError('Edit recorded payments after the week has ended')
     current=next(b for b in report(conn,start,bidder_id=bidder_id)['bidders'] if b['id']==bidder_id)
+    ensure_calculated_amount_unchanged(body, current)
     if current['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before editing payment.')
     previous=current['payment']
     if not previous:raise ValueError('No recorded payment exists for this bidder and week')
@@ -457,11 +483,13 @@ def remove_assignment(conn, assignment_id: int):
 
 
 def record_payment(conn, bidder_id: int, body: PayBody):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     bidder(conn, bidder_id)
     start = monday(body.week)
     if start + timedelta(days=6) >= today():
         raise ValueError("Record payment after the week has ended")
     row = next(b for b in report(conn, start, bidder_id=bidder_id)["bidders"] if b["id"] == bidder_id)
+    ensure_calculated_amount_unchanged(body, row)
     if row["application_total"] != body.expected_count:
         raise ValueError("Counts changed. Refresh and review before recording payment.")
     if row["payment"]:
