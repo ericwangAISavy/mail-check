@@ -23,7 +23,7 @@ describe("triageParams", () => {
 })
 
 
-afterEach(() => {vi.unstubAllGlobals();setWorkspaceIdentity()})
+afterEach(() => {vi.restoreAllMocks();vi.clearAllMocks();vi.unstubAllGlobals();setWorkspaceIdentity()})
 it("shows FastAPI validation fields and messages for invalid form values", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
     { loc: ["body", "amount"], msg: "Decimal input should have no more than 2 decimal places" },

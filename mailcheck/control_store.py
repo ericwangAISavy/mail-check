@@ -127,7 +127,11 @@ class ControlStore:
             if not known or not correct or not workspace or not workspace['enabled']:return None
             token=self._session(conn,user)
             self.audit(conn,user['id'],'login',user['workspace_id'])
-        with self._lock:self._attempts.pop(address,None)
+        # A successful low-privilege login must not replenish the shared
+        # address budget for guesses against other accounts.
+        with self._lock:
+            attempts = self._attempts.get(address, [])
+            if now in attempts:attempts.remove(now)
         return token
 
     def logout(self,token):

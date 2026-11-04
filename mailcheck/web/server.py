@@ -63,6 +63,13 @@ def windows_exception_handler(server, failures):
 
 
 def run(app, **options):
+    # Ignore environment-wide wildcard proxy trust. Only a same-machine proxy
+    # may supply visitor addresses and the HTTPS scheme.
+    options.setdefault('proxy_headers', True)
+    options.setdefault('forwarded_allow_ips', '127.0.0.1,::1')
+    options.setdefault('server_header', False)
+    options.setdefault('limit_concurrency', 64)
+    options.setdefault('timeout_keep_alive', 5)
     if sys.platform != 'win32':
         return uvicorn.run(app, **options)
     # The previous forced Selector loop can repeatedly call accept() on a

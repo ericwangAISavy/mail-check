@@ -570,7 +570,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @asynccontextmanager
     async def lifespan(app):
         with MaintenanceLock(lock_path()):yield
-    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
     from .sourcing_routes import install as install_sourcing
@@ -1847,6 +1847,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return FileResponse(index, headers={"Cache-Control": "no-cache, must-revalidate"})
         return JSONResponse({"ok": False, "error": "Not found."}, status_code=404)
 
+    from .security import install_http_boundary
+    install_http_boundary(app, secure_cookies=secure_cookies, legacy_scripts=True)
     return app
 
 

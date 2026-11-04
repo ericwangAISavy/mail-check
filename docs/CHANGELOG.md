@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.4 — 2026-11-04
+
+Harden on-premises authentication and Cloudflare Tunnel deployment
+
+- Remove implicit default owner credentials, prevent failed-login budget resets, and enforce bounded HTTP requests with browser security policies.
+- Add loopback-only tunnel startup with HTTPS cookies and a documented origin firewall and Cloudflare Access deployment path.
+
 ## 2.13.3 — 2026-11-04
 
 Improve interview and application receipt classification

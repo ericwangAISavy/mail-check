@@ -1,0 +1,12 @@
+# Replace placeholders locally. Do not commit tunnel credentials or tokens.
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: /etc/cloudflared/YOUR_TUNNEL_UUID.json
+
+ingress:
+  - hostname: app.example.com
+    service: http://127.0.0.1:52400
+    originRequest:
+      httpHostHeader: app.example.com
+      connectTimeout: 10s
+  # Never forward arbitrary hostnames or additional local ports.
+  - service: http_status:404

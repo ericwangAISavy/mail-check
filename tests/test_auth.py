@@ -26,6 +26,7 @@ class AuthTests(unittest.TestCase):
         active.start()
         self.addCleanup(active.stop)
         self.app = create_app(allowed_hosts=["mail.example.test"])
+        self.app.state.auth_store.change_password('admin', 'admin')
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
 
@@ -41,7 +42,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/settings", follow_redirects=False).headers["location"], "/login")
         self.assertEqual(self.client.get("/login").status_code, 200)
 
-    def test_default_login_and_private_hashed_file(self):
+    def test_explicit_bootstrap_login_and_private_hashed_file(self):
         self.assertEqual(self.login().status_code, 200)
         self.assertEqual(self.client.get("/api/auth/session").json(), {"role": "admin"})
         path = self.root / "web-auth.json"

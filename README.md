@@ -36,6 +36,7 @@ Everything can be done from the web console — connecting a model, adding mailb
 running checks, and reading results:
 
 ```bash
+python -m mailcheck web-password  # first installation: choose a strong owner password locally
 python -m mailcheck web
 ```
 
@@ -67,10 +68,19 @@ configuration while connecting their own email accounts. A separate control data
 12-hour HttpOnly sessions. See [Multi-admin setup and rollback](docs/MULTI_ADMIN.md)
 for capacity limits, backups and returning to the previous single-admin version.
 
-For a new installation without `web-auth.json`, first start locally with
-`python -m mailcheck web --single-admin`, sign in with username `owner` and the
-legacy initial password `admin`, change it in Settings, then stop and restart
-without `--single-admin`. Existing installations do not need this bootstrap step.
+For a new installation without `web-auth.json`, run `python -m mailcheck web-password`
+locally before starting. Existing strong owner passwords are preserved. Missing
+credentials never create a default account, and the CLI refuses the legacy `admin`
+password. For Cloudflare Tunnel hosting, use:
+
+```bash
+python -m mailcheck web --no-open --tunnel --allow-host YOUR_DOMAIN
+```
+
+Users continue to use `https://YOUR_DOMAIN`. The app stays on localhost and uses
+HTTPS-only sign-in cookies. Follow [On-premises security](docs/ON_PREM_SECURITY.md)
+for the tunnel configuration, IPv4/IPv6 firewall and router requirements, Cloudflare
+Access/MFA, deployment verification and rollback. No inbound app port is needed.
 
 ### Share from your own server or computer
 
@@ -106,7 +116,7 @@ publicly reachable server or an HTTPS tunnel instead. Binding to `0.0.0.0` alone
 does not create a public URL. A tunnel must forward the visitor's Host header and
 HTTPS scheme correctly and its public hostname must be included in `--allow-host`.
 
-**Before opening public access, change the default admin password locally.** Use HTTPS
+**Before opening public access, provision a unique owner password locally.** Use HTTPS
 for internet access and `--secure-cookies` so browser sign-in cookies are sent only
 over HTTPS. Leave that flag off for local HTTP development. The app trusts forwarded
 scheme/client information from a loopback reverse proxy; keep the proxy on the same

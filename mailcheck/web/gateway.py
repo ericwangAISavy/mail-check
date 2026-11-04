@@ -72,7 +72,7 @@ class Switch(BaseModel):
     workspace_id: str = Field(min_length=1,max_length=32)
 
 
-def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True):
+def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True,tunnel_mode=False):
     if not 1<=max_workspaces<=64:raise ValueError('Choose 1–64 maximum workspaces.')
     original_config=config.config_path(); original_db=config.db_path(); original_auth=config.config_dir()/'web-auth.json'
     store=store or ControlStore(config.control_dir(),AuthStore(lambda:original_auth),max_workspaces)
@@ -147,7 +147,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 finally:
                     await asyncio.to_thread(pool.close)
 
-    app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,lifespan=lifespan)
+    app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
     @app.exception_handler(ClientDisconnect)
     async def client_disconnected(request: Request, exc: ClientDisconnect):
         # A closed tab or cancelled fetch is not an application failure.
@@ -463,4 +463,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 except RuntimeError as exc:raise HTTPException(503,str(exc))
             return await proxy_impl(canonical,request)
 
+    from .security import install_http_boundary
+    if tunnel_mode and (not allowed_hosts or not secure_cookies):
+        raise ValueError('Tunnel mode requires public hostnames and secure cookies.')
+    install_http_boundary(app, secure_cookies=secure_cookies,
+        public_hosts={h.lower() for h in allowed_hosts or []} if tunnel_mode else None,
+        internal_hosts={'127.0.0.1','localhost','::1','testserver',internal_host})
     return app

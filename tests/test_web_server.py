@@ -11,7 +11,7 @@ def test_windows_uses_native_loop_for_serving():
         run(app,host='0.0.0.0',port=52400,log_level='warning')
         import asyncio
         runner.assert_called_once_with(loop_factory=native)
-        config.assert_called_once_with(app,host='0.0.0.0',port=52400,log_level='warning',loop='asyncio')
+        config.assert_called_once_with(app,host='0.0.0.0',port=52400,log_level='warning',loop='asyncio',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=64,timeout_keep_alive=5)
         runner.return_value.__enter__.return_value.run.assert_called_once_with('serve-coroutine')
 
 
@@ -19,7 +19,7 @@ def test_other_platforms_keep_uvicorn_startup():
     app=object()
     with patch('mailcheck.web.server.sys.platform','linux'), patch('mailcheck.web.server.uvicorn.run') as start:
         run(app,host='127.0.0.1',port=52400,log_level='warning')
-        start.assert_called_once_with(app,host='127.0.0.1',port=52400,log_level='warning')
+        start.assert_called_once_with(app,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=64,timeout_keep_alive=5)
 
 
 def test_windows_does_not_hide_server_errors():

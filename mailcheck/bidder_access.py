@@ -166,8 +166,11 @@ class BidderAccess:
             conn.execute('DELETE FROM bidder_sessions WHERE expires<=?',(now,))
             conn.execute('INSERT INTO bidder_sessions VALUES(?,?,?,?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),login_id,row['version'],row['admin_version'],self.store._owner_version() if row['owner'] else None,now+43200))
             self.store.audit(conn,None,'bidder-login',f"{row['workspace_id']}:{row['bidder_id']}")
+        # Keep the shared address budget: bidder credentials must not reset
+        # the limit on guesses against workspace administrators.
         with self.store._lock:
-            self.store._attempts.pop(address,None)
+            attempts = self.store._attempts.get(address, [])
+            if now in attempts:attempts.remove(now)
         return token
 
     def identity(self, token):

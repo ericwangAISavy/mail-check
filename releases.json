@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.13.4",
+    "date": "2026-11-04",
+    "title": "Harden on-premises authentication and Cloudflare Tunnel deployment",
+    "changes": [
+      "Remove implicit default owner credentials, prevent failed-login budget resets, and enforce bounded HTTP requests with browser security policies.",
+      "Add loopback-only tunnel startup with HTTPS cookies and a documented origin firewall and Cloudflare Access deployment path."
+    ]
+  },
+  {
     "version": "2.13.3",
     "date": "2026-11-04",
     "title": "Improve interview and application receipt classification",

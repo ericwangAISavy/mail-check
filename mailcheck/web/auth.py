@@ -69,8 +69,7 @@ class AuthStore:
         path = self.path()
         try:
             if not path.exists():
-                self._save({"secret": secrets.token_hex(32),
-                            "users": {"admin": _record("admin")}, "bidders": {}})
+                raise AuthFileError("Owner authentication is not initialized. Set an owner password locally before starting the web server.")
             data = json.loads(path.read_text())
             if len(bytes.fromhex(data["secret"])) != 32:
                 raise ValueError("Invalid signing key")
@@ -103,8 +102,11 @@ class AuthStore:
             matches = hmac.compare_digest(_password(password, row["salt"]), row["hash"])
             if role not in ROLES or not matches or not known:
                 return None, False
+            # Retain the address budget across successful bidder sign-ins so
+            # they cannot replenish guesses against the administrator.
             with self._attempt_lock:
-                self._attempts.pop(address, None)
+                attempts = self._attempts.get(address, [])
+                if now in attempts:attempts.remove(now)
             return self._session(data, row, role, bidder_id), False
 
     @staticmethod
@@ -139,7 +141,8 @@ class AuthStore:
         if role != "admin" or not 1 <= len(password) <= 256:
             raise ValueError("Choose admin and a password of 1–256 characters.")
         with _file_lock:
-            data = self._load()
+            data = (self._load() if self.path().exists() else
+                    {"secret": secrets.token_hex(32), "users": {}, "bidders": {}})
             data["users"][role] = _record(password)
             self._save(data)
 
