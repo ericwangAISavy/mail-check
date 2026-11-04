@@ -105,6 +105,10 @@ def verify(conn, tab, operation, revision, work_date):
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
                     ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true'""",
                     (row["id"], columns["check"], str(checked).lower()))
+            from .receipt_counting import materialize
+            proof_days = {selected} | {value[0].astimezone(ZONE).date() for value in proposals.values()}
+            for proof_day in sorted(proof_days):
+                materialize(conn, proof_day, proof_day, account_id=tab['account_id'])
             from .sourcing_activity import record
             record(conn, "tab-check", sample=True)
             sheets.record_operation(conn, tab["id"], operation, payload)
@@ -212,6 +216,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                     add_receipt(matches.setdefault((receipt['account_id'],future_day),{}),receipt)
         changed_tabs = set()
         checked_count = changed_count = 0
+        proof_days = set()
         proposals = {row['id']: receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{}))
                      for row in rows if (row['link'] or '').strip()}
         from .receipt_assignment import unique_matches
@@ -238,7 +243,8 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             if match:
                 from .sourcing_activity import confirm
                 confirm(conn,row['id'],*match)
-                if row['confirmed_at'] != match[0].isoformat():
+                if row['confirmed_at'] != match[0].isoformat() or row['checked'] != 'true':
+                    proof_days.add(match[0].astimezone(ZONE).date())
                     changed_tabs.add(row['tab_id'])
             checked_count += int(checked)
             value = str(checked).lower()
@@ -251,6 +257,12 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             changed_count += 1
         conn.executemany("UPDATE native_tabs SET revision=revision+1,updated_at=? WHERE id=?",
             [(time.time(), tab_id) for tab_id in changed_tabs])
+        from .receipt_counting import materialize
+        proof_start = refresh_since or (payments.today() - timedelta(days=6))
+        proof_end = refresh_until or payments.today()
+        materialize(conn, proof_start, proof_end)
+        for proof_day in sorted(day for day in proof_days if day < proof_start or day > proof_end):
+            materialize(conn, proof_day, proof_day)
         from .sourcing_activity import record
         if sample:
             record(conn, "global-check", sample=True)

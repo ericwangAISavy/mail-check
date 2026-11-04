@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -203,6 +203,9 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
+    ("application_receipts", "sender", "TEXT NOT NULL DEFAULT ''"),
+    ("application_receipts", "duplicate_of", "TEXT"),
+    ("application_receipts", "counting_evidence", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -211,6 +214,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    # Origin metadata repairs the classifier-release counting boundary without
+    # reclassifying mail. Keep durable receipts with no surviving message unknown.
+    conn.execute("""UPDATE application_receipts SET sender=COALESCE((
+        SELECT m.from_addr FROM messages m WHERE m.account_id=application_receipts.account_id
+        AND m.message_id=application_receipts.message_id),'') WHERE sender=''""")
     # imap_tools reports an unparseable Date header as 1900-01-01 rather than
     # None. Such rows were being pruned as ancient and hidden from every date
     # window; an unknown date is NULL, which falls back to fetched_at.

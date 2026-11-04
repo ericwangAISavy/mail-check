@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.7 — 2026-11-04
+
+Fix platform and employer receipt double counting
+
+- Count a confirmed platform/employer receipt pair once while preserving both application-received emails, interview detection and raw evidence.
+- Correct daily badges and estimated payment counts consistently; keep existing recorded payments unchanged and retain reversible copy evidence.
+
 ## 2.13.6 — 2026-11-04
 
 Reconcile confirmation emails with verified applications

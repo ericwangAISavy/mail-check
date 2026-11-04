@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.13.7",
+    "date": "2026-11-04",
+    "title": "Fix platform and employer receipt double counting",
+    "changes": [
+      "Count a confirmed platform/employer receipt pair once while preserving both application-received emails, interview detection and raw evidence.",
+      "Correct daily badges and estimated payment counts consistently; keep existing recorded payments unchanged and retain reversible copy evidence."
+    ]
+  },
+  {
     "version": "2.13.6",
     "date": "2026-11-04",
     "title": "Reconcile confirmation emails with verified applications",

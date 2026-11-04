@@ -11,7 +11,7 @@ from .sourcing_filters import company_key, role_key
 
 ZONE = ZoneInfo('America/Chicago')
 COUNTS = ('raw_receipts', 'verified_applications', 'possible_extra_confirmations',
-          'unmatched_receipts', 'ambiguous_rows')
+          'unmatched_receipts', 'ambiguous_rows', 'counted_receipts', 'confirmed_platform_copies')
 
 
 def link_key(value):
@@ -75,10 +75,12 @@ def reconcile(conn, start, end, *, bidder_id=None):
     visible = set(account_info) if bidder_id is None else {
         account for (who, account), periods in assignments.items() if who == bidder_id
         and any(first <= end.isoformat() and (last is None or last >= start.isoformat()) for first, last in periods)}
-    receipts = {}
-    for r in conn.execute("""SELECT * FROM application_receipts WHERE category='application_ack'
-        AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)""", (lower, upper)):
-        receipts[r['account_id'], r['message_id']] = dict(r)
+    from .receipt_counting import effective_receipts
+    receipts = {(row['account_id'], row['message_id']): row
+                for row in effective_receipts(conn, start, end)}
+    def canonical(account, message):
+        receipt = receipts.get((account, message))
+        return (account, receipt['duplicate_of'] if receipt and receipt['duplicate_of'] else message)
     for account, _message in receipts:
         if bidder_id is None:
             visible.add(account)
@@ -123,7 +125,7 @@ def reconcile(conn, start, end, *, bidder_id=None):
     claims, links = defaultdict(list), defaultdict(set)
     for row in rows:
         if row['message_id']:
-            claims[row['account_id'], row['message_id']].append(row['id'])
+            claims[canonical(row['account_id'], row['message_id'])].append(row['id'])
         if (row['link'] or '').strip():
             links[row['account_id'], link_key(row['link'])].add(row['id'])
     # Historical checks can repeat this week's URL even when their receipt and
@@ -162,7 +164,7 @@ def reconcile(conn, start, end, *, bidder_id=None):
         account, who = row['account_id'], row['bidder_id']
         if account not in accounts or who not in bidders:
             continue
-        claim = (account, row['message_id'])
+        claim = canonical(account, row['message_id'])
         receipt = receipts.get(claim)
         receipt_day = _day(receipt['received_at']) if receipt else None
         event_day = _day(row['confirmed_at'])
@@ -202,6 +204,10 @@ def reconcile(conn, start, end, *, bidder_id=None):
             continue
         item = accounts[account]
         item['raw_receipts'] += 1
+        if receipt['duplicate_of']:
+            item['confirmed_platform_copies'] += 1
+            continue
+        item['counted_receipts'] += 1
         metadata = _metadata(receipt['company'], receipt['role'])
         if not metadata:
             item['missing_metadata_receipts'] += 1
