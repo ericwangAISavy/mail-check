@@ -174,11 +174,13 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("cleaned", "Cube Software", "2026-10-20T12:00:00+00:00", role="Staff Backend Engineer")
         self.conn.commit()
         for mode, book in (("manual", self.book), ("auto", self.native.create_book(self.conn, 2))):
+            if mode == "auto":
+                self.receipt("cleaned-auto", "Sphere Software", "2026-10-20T12:00:00+00:00", role="Staff Backend Engineer")
             tab_id = self.tab_id if mode == "manual" else self.native.create_tab(self.conn, book, self.account_id, "Applications")
             tab = self.native.owned(self.conn, tab_id, self.principal)
             base = self.native.snapshot(self.conn, tab)
             appended = self.native.append(self.conn, tab, "append-" + mode, base["revision"],
-                [["Cube", "Staff Backend Engineer | Remote, US & Canada", f"https://jobs.test/cleanup/{mode}"]], work_date="2026-10-20")
+                [["Cube" if mode == "manual" else "Sphere", "Staff Backend Engineer | Remote, US & Canada", f"https://jobs.test/cleanup/{mode}"]], work_date="2026-10-20")
             if mode == "manual":
                 verification.verify(self.conn, tab, "cleaned-manual", appended["revision"], "2026-10-20")
             else:
@@ -207,7 +209,7 @@ class SourcingVerificationTests(unittest.TestCase):
     def test_automatic_verification_covers_all_books_tabs_and_dated_rows(self):
         from mailcheck import sourcing_verification as verification
         base = self.jobs()
-        self.native.append(self.conn, self.tab(), "next-day", base["revision"], [["Beta", "Engineer", "https://jobs.test/later"]], work_date="2026-10-21")
+        self.native.append(self.conn, self.tab(), "next-day", base["revision"], [["Delta", "Engineer", "https://jobs.test/later"]], work_date="2026-10-21")
         other = db.add_account(self.conn, label="other", email="other@example.test")
         self.conn.commit()
         second_tab = self.native.create_tab(self.conn, self.book, other, "Other")
@@ -216,9 +218,11 @@ class SourcingVerificationTests(unittest.TestCase):
         for tab_id in (second_tab, third_tab):
             tab = self.native.owned(self.conn, tab_id, self.principal)
             current = self.native.snapshot(self.conn, tab)
-            self.native.append(self.conn, tab, f"append-{tab_id}", current["revision"], [["Acme", "Engineer", "https://jobs.test/acme"]], work_date="2026-10-20")
+            self.native.append(self.conn, tab, f"append-{tab_id}", current["revision"], [["Gamma" if tab_id == third_tab else "Acme", "Engineer", "https://jobs.test/acme"]], work_date="2026-10-20")
         self.receipt("first", "Acme", "2026-10-20T12:00:00+00:00")
-        self.receipt("later", "Beta", "2026-10-21T12:00:00+00:00")
+        self.receipt("beta", "Beta", "2026-10-21T12:00:00+00:00")
+        self.receipt("later", "Delta", "2026-10-21T12:00:00+00:00")
+        self.receipt("gamma", "Gamma", "2026-10-20T12:00:00+00:00")
         self.conn.commit()
         summary = verification.verify_all(self.conn)
         self.assertEqual(summary["tabs"], 3)

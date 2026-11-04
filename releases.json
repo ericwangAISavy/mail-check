@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.13.6",
+    "date": "2026-11-04",
+    "title": "Reconcile confirmation emails with verified applications",
+    "changes": [
+      "Separate raw receipt emails, verified applications, possible extra confirmations and unmatched receipts while keeping receipt-based payments unchanged.",
+      "Prevent one receipt from checking multiple jobs, review repeated links across dates and improve safe seniority title matching."
+    ]
+  },
+  {
     "version": "2.13.5",
     "date": "2026-11-04",
     "title": "Keep activity chart tooltips fully readable",

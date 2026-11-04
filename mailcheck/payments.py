@@ -290,6 +290,13 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             "application_total": total,
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
+    # Reconciliation is read-only: raw receipt-based payment calculations above
+    # and immutable recorded settlements retain their existing basis.
+    from .application_reconciliation import reconcile
+    reconciliation = reconcile(conn, start, end, bidder_id=bidder_id)
+    verified = reconciliation.pop('bidders')
+    for entry in bidders:
+        entry.update(verified.get(entry['id'], {'verified_daily': [0] * 7, 'verified_total': 0}))
     # Shared assignments expose the same receipts in multiple bidder rows.
     # Count each account/day once for the report overview and footer.
     unique_daily = [0] * 7
@@ -299,6 +306,7 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             unique_daily[day_indices[day]] += count
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
+        "reconciliation": reconciliation,
         "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
         "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],

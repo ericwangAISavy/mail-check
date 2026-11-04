@@ -18,6 +18,7 @@ def company_key(value):
 
 def role_key(value):
     name = " ".join(unicodedata.normalize("NFKC", value or "").casefold().split())
+    name = re.sub(r"^(sr|jr)\.?\s+", lambda match: 'senior ' if match[1] == 'sr' else 'junior ', name)
     name = re.split(r"[^a-z ]", name, maxsplit=1)[0]
     return re.sub(r"[^a-z]", "", name)
 
@@ -73,11 +74,13 @@ def verify(conn, tab, operation, revision, work_date):
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
-            for row in conn.execute("""SELECT r.id,r.work_date,company.value AS company,role.value AS role,link.value AS link
+            rows = conn.execute("""SELECT r.id,r.work_date,company.value AS company,role.value AS role,link.value AS link
                 FROM native_rows r LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=?
                 LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=?
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=?
-                WHERE r.tab_id=? AND (r.work_date=? OR r.work_date>?)""", (columns["company"], columns["link"], columns["role"], tab["id"], day, current.isoformat())).fetchall():
+                WHERE r.tab_id=? AND (r.work_date=? OR r.work_date>?)""", (columns["company"], columns["link"], columns["role"], tab["id"], day, current.isoformat())).fetchall()
+            proposals = {}
+            for row in rows:
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
                     continue
                 candidates = []
@@ -87,6 +90,14 @@ def verify(conn, tab, operation, revision, work_date):
                     if row['work_date'] > current.isoformat():
                         candidates.append(receipt_match(row['company'],row['role'],early_matches))
                 match = min((match for match in candidates if match),default=None)
+                if match:
+                    proposals[row['id']] = match
+            from .receipt_assignment import unique_matches
+            proposals = unique_matches(conn, proposals, early_since=current - timedelta(days=6))
+            for row in rows:
+                if not (row["company"] or "").strip() and not (row["link"] or "").strip():
+                    continue
+                match = proposals.get(row['id'])
                 checked = bool(match)
                 if match:
                     from .sourcing_activity import confirm
@@ -201,8 +212,12 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                     add_receipt(matches.setdefault((receipt['account_id'],future_day),{}),receipt)
         changed_tabs = set()
         checked_count = changed_count = 0
+        proposals = {row['id']: receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{}))
+                     for row in rows if (row['link'] or '').strip()}
+        from .receipt_assignment import unique_matches
+        proposals = unique_matches(conn, {key:value for key,value in proposals.items() if value}, early_since=early_since)
         for row in rows:
-            match = receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{})) if (row['link'] or '').strip() else None
+            match = proposals.get(row['id'])
             if week_only:
                 # Source dates can precede the receipt week. Never rewrite a
                 # completion already attributed to another accounting week.

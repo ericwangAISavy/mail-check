@@ -49,7 +49,7 @@ it("shows received confirmations alongside checked sourcing links", async () => 
   mount(true)
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
   expect(within(row).getByText("112 / 60")).toBeTruthy()
-  expect(screen.getByText(/Estimated confirmations \/ checked applications/)).toBeTruthy()
+  expect(screen.getByText(/Receipt emails \/ checked job links/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
@@ -269,4 +269,33 @@ it('masks account emails in visible labels and accessible row names without chan
  expect(screen.getByText('Primary (d****y@outlook.com)')).toBeTruthy()
  expect(document.body.innerHTML).not.toContain('danny@outlook.com')
  expect(report.bidders[0].account_breakdown[0].account_label).toBe(label)
+})
+
+it('shows masked reconciliation, filters accounts, and preserves raw payment counts',async()=>{
+ const report:any=data()
+ report.bidders[0].verified_total=1;report.bidders[0].verified_daily=[1,0,0,0,0,0,0]
+ const account={account_id:1,account_label:'Primary (danny@outlook.com)',bidder_ids:[1,2],raw_receipts:3,verified_applications:1,possible_extra_confirmations:1,unmatched_receipts:1,ambiguous_rows:2,missing_metadata_receipts:1,duplicate_link_rows:1,conflicting_receipt_rows:1,review_reason_counts:{manual_checks:2,missing_receipt_claims:1,missing_job_links:1,receipt_date_mismatch_rows:1,metadata_mismatch_rows:1,unassigned_claim_rows:1}}
+ report.reconciliation={raw_receipts:5,verified_applications:1,possible_extra_confirmations:1,unmatched_receipts:3,ambiguous_rows:2,duplicate_connection_groups:0,accounts:[account,{...account,account_id:2,account_label:'Unrelated inbox',bidder_ids:[2]}]}
+ vi.mocked(request).mockResolvedValue(report);mount()
+ const panel=await screen.findByRole('region',{name:'Application reconciliation'})
+ for(const label of ['Raw receipt emails','Verified applications','Possible extra confirmations','Unmatched receipts'])expect(within(panel.querySelector("dl")!).getByText(label)).toBeTruthy()
+ expect(Array.from(panel.querySelectorAll('dd')).map(node=>node.textContent)).toEqual(['5','1','1','3'])
+ expect(within(panel).getByText(/Possible extras require review/)).toBeTruthy()
+ expect(within(panel).getAllByText(/Possible extra confirmations: 1/).length).toBeGreaterThan(0)
+ expect(within(panel).getByText('Primary (d****y@outlook.com)')).toBeTruthy()
+ const bidderRow=screen.getByRole('rowheader',{name:/Alex/}).closest('tr')!
+ const firstDay=within(bidderRow).getAllByRole('cell')[0]
+ expect(within(firstDay).getByText('3 / 3')).toBeTruthy()
+ expect(within(firstDay).getByText('1 verified')).toBeTruthy()
+ expect(document.body.innerHTML).not.toContain('danny@outlook.com')
+ expect(screen.getByText(/Payment estimates use raw receipt emails/)).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('Bidder'),{target:{value:'1'}})
+ expect(within(panel).queryByText('Unrelated inbox')).toBeNull()
+ expect(within(panel).getByText('Alex: 1 verified application')).toBeTruthy()
+ for(const reason of ['Manual checks: 2','Missing receipt claims: 1','Missing job links: 1','Receipt date mismatches: 1','Receipt metadata mismatches: 1','Claims without bidder assignment: 1'])expect(within(panel).getByText(reason)).toBeTruthy()
+ expect(within(panel).getByText(/Account-wide receipts · shared account/)).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
+ fireEvent.change(screen.getByLabelText('Amount (USD)'),{target:{value:'1'}})
+ fireEvent.click(screen.getByRole('button',{name:'Record as paid'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid',{week:'2026-10-12',expected_count:3,amount:'1',note:''}))
 })

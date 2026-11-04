@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.6 — 2026-11-04
+
+Reconcile confirmation emails with verified applications
+
+- Separate raw receipt emails, verified applications, possible extra confirmations and unmatched receipts while keeping receipt-based payments unchanged.
+- Prevent one receipt from checking multiple jobs, review repeated links across dates and improve safe seniority title matching.
+
 ## 2.13.5 — 2026-11-04
 
 Keep activity chart tooltips fully readable
