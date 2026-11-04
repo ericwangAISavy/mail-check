@@ -155,3 +155,21 @@ it("deletes a row selected using its row number",()=>{
  fireEvent.keyDown(screen.getByRole("grid"),{key:"Delete"})
  expect(remove).toHaveBeenCalledWith([1])
 })
+
+it("keeps copying selected editor text from copying the entire job row", () => {
+  const setData = vi.fn();
+  render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()}/>);
+  fireEvent.doubleClick(screen.getByRole("gridcell", {name:"Acme"}));
+  const input = screen.getByRole("textbox", {name:"Edit cell"});
+  expect(fireEvent.copy(input, {clipboardData:{setData}})).toBe(true);
+  expect(setData).not.toHaveBeenCalled();
+});
+
+it("keeps pasting text inside the editor from changing whole spreadsheet cells", () => {
+  const change = vi.fn();
+  render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change}/>);
+  fireEvent.doubleClick(screen.getByRole("gridcell", {name:"Acme"}));
+  const input = screen.getByRole("textbox", {name:"Edit cell"});
+  expect(fireEvent.paste(input, {clipboardData:{getData:()=>"replacement"}})).toBe(true);
+  expect(change).not.toHaveBeenCalled();
+});

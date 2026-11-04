@@ -13,6 +13,7 @@ from datetime import date
 MAX_ROWS = 100_000
 MAX_COLUMNS = 101
 MAX_CELLS = 10_000
+PROTECTION_BATCH_SIZE = 500
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sourcing_blocked_roles (
  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -318,9 +319,17 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
         if not check_operation(conn, tab["id"], operation, payload):
             from . import sourcing_filters
             candidates=set()
-            protected={r[0] for r in conn.execute("""SELECT v.row_id FROM native_cells v
-                JOIN native_columns c ON c.id=v.column_id
-                WHERE c.tab_id=? AND c.kind='check' AND v.value='true'""",(tab['id'],))}
+            # Read the pre-save check state only for touched rows. Batching keeps
+            # large pastes below SQLite's parameter limit without scanning history.
+            row_ids = list(dict.fromkeys(change["row_id"] for change in changes))
+            protected = set()
+            for start in range(0, len(row_ids), PROTECTION_BATCH_SIZE):
+                batch = row_ids[start:start + PROTECTION_BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                protected.update(r[0] for r in conn.execute(f"""SELECT v.row_id FROM native_cells v
+                    JOIN native_columns c ON c.id=v.column_id
+                    WHERE c.tab_id=? AND c.kind='check' AND v.value='true'
+                    AND v.row_id IN ({placeholders})""", (tab["id"], *batch)))
             seen = set()
             for change in changes:
                 row_id, column_id = change["row_id"], change["column_id"]

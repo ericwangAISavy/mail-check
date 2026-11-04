@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import sqlite3
 import unittest
 from tests import test_frontend_api as fixtures
 
@@ -79,6 +80,85 @@ class NativeSheetTests(unittest.TestCase):
         self.assertEqual([c["kind"] for c in base["columns"][:4]], ["company", "role", "link", "check"])
         self.assertEqual(base["columns"][3]["title"], "Check")
         self.assertLessEqual(base["columns"][3]["width"], 80)
+
+    def test_large_save_checks_later_batches_and_rolls_back_atomically(self):
+        base = self.snapshot()
+        company, check = base["columns"][0]["id"], base["columns"][3]["id"]
+        rows = [f"batch-row-{i}" for i in range(502)]
+        self.conn.executemany(
+            "INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?)",
+            [(row, self.tab_id, i + 10) for i, row in enumerate(rows)],
+        )
+        self.conn.execute(
+            "INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,'true')",
+            (rows[-1], check),
+        )
+        self.conn.commit()
+        # Permit 500 row parameters plus the tab, as on SQLite builds with
+        # conservative variable limits. The checked row lies in the next batch.
+        previous_limit = self.conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 501)
+        self.addCleanup(self.conn.setlimit, sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        changes = [{"row_id": row, "column_id": company,
+                    "expected_version": 0, "value": "Acme"} for row in rows]
+        with self.assertRaisesRegex(ValueError, "Checked rows cannot be edited"):
+            self.native.save(self.conn, self.tab(), "large-locked-save", changes)
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM native_cells WHERE column_id=?", (company,)
+        ).fetchone()[0], 0)
+        self.assertIsNone(self.conn.execute(
+            "SELECT 1 FROM native_operations WHERE id='large-locked-save'"
+        ).fetchone())
+        for change in changes:
+            change["value"] = ""
+        self.native.save(self.conn, self.tab(), "large-noop-save", changes)
+        self.assertEqual(self.conn.execute(
+            "SELECT value FROM native_cells WHERE row_id=? AND column_id=?",
+            (rows[-1], check),
+        ).fetchone()[0], "true")
+
+    def test_small_save_protection_cost_does_not_grow_with_checked_history(self):
+        base = self.snapshot()
+        check = base["columns"][3]["id"]
+        change = self.change("", base=base)
+
+        def protection_steps(operation):
+            steps = 0
+            counting = False
+
+            def trace(statement):
+                nonlocal counting
+                counting = statement.lstrip().startswith("SELECT v.row_id FROM native_cells v")
+
+            def progress():
+                nonlocal steps
+                if counting:
+                    steps += 1
+                return 0
+
+            self.conn.set_trace_callback(trace)
+            self.conn.set_progress_handler(progress, 1)
+            try:
+                self.native.save(self.conn, self.tab(), operation, [change])
+            finally:
+                self.conn.set_trace_callback(None)
+                self.conn.set_progress_handler(None, 0)
+            self.assertGreater(steps, 0)
+            return steps
+
+        before = protection_steps("small-before-history")
+        self.conn.executemany(
+            "INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?)",
+            [(f"history-{i}", self.tab_id, i + 10) for i in range(2000)],
+        )
+        self.conn.executemany(
+            "INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,'true')",
+            [(f"history-{i}", check) for i in range(2000)],
+        )
+        self.conn.commit()
+        change["expected_version"] = 1
+        after = protection_steps("small-after-history")
+        self.assertLess(after, before * 2 + 100,
+                        "A one-row protection lookup must not scan checked history")
 
     def test_blank_pasted_rows_are_not_stored_between_jobs(self):
         base = self.snapshot()

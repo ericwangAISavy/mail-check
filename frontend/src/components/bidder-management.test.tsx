@@ -104,3 +104,19 @@ it('opens one bidder editor at a time and preserves drafts when switching', asyn
   fireEvent.click(alex)
   expect(screen.queryByRole('button', { name: 'Save name' })).toBeNull()
 })
+
+
+it('defers unvisited bidder forms while retaining drafts in previously opened editors', async () => {
+  const report = data()
+  report.bidders.push({ ...report.bidders[0], id: 2, name: 'Blair', assignments: [] })
+  vi.mocked(request).mockResolvedValue(report)
+  const { container } = mount()
+  fireEvent.click(await screen.findByText('Manage bidders and account assignments'))
+  await screen.findByRole('button', { name: 'Alex' })
+  expect(container.querySelectorAll('input[name="wallet_address"]')).toHaveLength(1)
+  fireEvent.change(screen.getByLabelText('Wallet address', { selector: '#bidder-editor-1 input' }), { target: { value: 'wallet draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Blair' }))
+  expect(container.querySelectorAll('input[name="wallet_address"]')).toHaveLength(2)
+  fireEvent.click(screen.getByRole('button', { name: 'Alex' }))
+  expect((screen.getByLabelText('Wallet address', { selector: '#bidder-editor-1 input' }) as HTMLInputElement).value).toBe('wallet draft')
+})

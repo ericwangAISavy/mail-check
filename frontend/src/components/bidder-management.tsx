@@ -1,5 +1,5 @@
 import { BidderAccess } from "@/components/bidder-access"
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react"
 import { api, request } from "@/lib/api"
@@ -38,9 +38,11 @@ export default function BidderManagement() {
 }
 
 function BidderManager({ expanded, onToggle, bidder, accounts, today, busy, write,accessEnabled,accessReady }: { expanded: boolean; onToggle: () => void; accessEnabled:boolean;accessReady:boolean;bidder: Bidder; accounts: Report["accounts"]; today: string; busy: boolean; write: (url: string, body: unknown) => Promise<unknown> }) {
+  const [visited, setVisited] = useState(expanded)
+  useEffect(() => { if (expanded) setVisited(true) }, [expanded])
   const [removing, setRemoving] = useState(false)
   const submit = (url: string, body: (form: FormData) => unknown) => async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); try { await write(url, body(new FormData(e.currentTarget))) } catch { /* page shows server error */ } }
-  return <Card className="payment-admin-card"><h2><button className="payment-bidder-editor-toggle" type="button" aria-expanded={expanded} aria-controls={`bidder-editor-${bidder.id}`} onClick={onToggle}>{expanded ? <ChevronDown size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}{bidder.name}</button></h2><div id={`bidder-editor-${bidder.id}`} hidden={!expanded}><div className="payment-section-heading"><Button variant="destructive" size="sm" disabled={busy} onClick={() => setRemoving(true)}><Trash2 size={14} />Remove bidder</Button></div>
+  return <Card className="payment-admin-card"><h2><button className="payment-bidder-editor-toggle" type="button" aria-expanded={expanded} aria-controls={`bidder-editor-${bidder.id}`} onClick={onToggle}>{expanded ? <ChevronDown size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}{bidder.name}</button></h2><div id={`bidder-editor-${bidder.id}`} hidden={!expanded}>{(expanded || visited) && <><div className="payment-section-heading"><Button variant="destructive" size="sm" disabled={busy} onClick={() => setRemoving(true)}><Trash2 size={14} />Remove bidder</Button></div>
     {removing && <div className="payment-rule-remove"><p>Remove {bidder.name}? Their documents will be archived. Existing documents and payment records will stay saved.</p><div className="payment-assignment-actions"><Button variant="destructive" disabled={busy} onClick={async () => { try { await write(`/api/payments/bidders/${bidder.id}/remove`, {}) } catch { /* shown above */ } }}>Confirm removal</Button><Button variant="ghost" disabled={busy} onClick={() => setRemoving(false)}>Cancel</Button></div></div>}
     <form className="payment-inline-form" onSubmit={submit(`/api/payments/bidders/${bidder.id}`, form => ({ name: form.get("name") }))}><label>Name<input name="name" key={bidder.name} defaultValue={bidder.name} required maxLength={100} /></label><Button variant="outline" disabled={busy}>Save name</Button></form>
     <form className="payment-inline-form" aria-label={`Payment rate for ${bidder.name}`} onSubmit={submit(`/api/payments/bidders/${bidder.id}/rate`,form=>({pay_per_bid:form.get("pay_per_bid"),adjustment_percent:form.get("adjustment_percent")}))}>
@@ -56,7 +58,7 @@ function BidderManager({ expanded, onToggle, bidder, accounts, today, busy, writ
     {accessReady&&<BidderAccess bidderId={bidder.id} name={bidder.name} enabled={accessEnabled} busy={busy} write={write}/>}
     <h3>Assigned accounts</h3>{!bidder.assignments.length && <p className="payment-muted">No accounts assigned.</p>}{bidder.assignments.map(a => <AssignmentRule key={a.id} assignment={a} accounts={accounts} busy={busy} write={write} />)}
     <form className="payment-inline-form payment-assign-form" onSubmit={submit(`/api/payments/bidders/${bidder.id}/assignments`, form => ({ account_id: Number(form.get("account")), start_date: form.get("start"), end_date: form.get("end") || null }))}><label>Account<select name="account" required defaultValue=""><option value="" disabled>Select account</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select></label><label>First assigned day<input name="start" type="date" defaultValue={today} required /></label><label>Last day (optional)<input name="end" type="date" /></label><Button disabled={busy || !accounts.length}>Assign account</Button></form><p className="payment-muted">An account can be assigned to several bidders on the same day. Receipt estimates for shared accounts are split between assigned bidders in proportion to their checked sourcing links for that account and day. Checked links stay with the bidder who owns the document.</p>
-  </div></Card>
+  </>}</div></Card>
 }
 
 

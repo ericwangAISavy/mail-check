@@ -404,6 +404,8 @@ function NativeCellEditor({
       aria-label="Edit cell"
       maxLength={row.id === 0 ? 100 : 50000}
       value={String(row[column.key])}
+      onCopy={(event) => event.stopPropagation()}
+      onPaste={(event) => event.stopPropagation()}
       onChange={(e) => onRowChange({ ...row, [column.key]: e.target.value })}
       onBlur={() => onClose(true, false)}
     />

@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.13.1",
+    "date": "2026-11-03",
+    "title": "Clipboard, privacy and sourcing save fixes",
+    "changes": [
+      "Preserve normal text copy and paste while editing a sourcing cell, while keeping whole-row copying outside editors.",
+      "Load bidder editor forms only when first expanded and retain drafts afterward.",
+      "Mask international and quoted email addresses in bidder-management display labels.",
+      "Limit checked-row protection queries to the rows being saved, avoiding scans of unrelated sourcing history."
+    ]
+  },
+  {
     "version": "2.13.0",
     "date": "2026-11-03",
     "title": "Streamlined bidder management and sourcing rows",
