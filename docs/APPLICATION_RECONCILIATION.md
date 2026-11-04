@@ -25,4 +25,7 @@ retention, but those records do not contain the original body. Fetch missing old
 emails again from the provider using an explicit lookback and no-cache check before
 relogging them. The history action never deletes or guesses classifications for
 these unavailable emails. Very large histories take time and use the configured
-model; failed/unclassified items remain visible for retry.
+model. If a historical model attempt fails, existing valid classifications and
+receipt counts are preserved. The run is marked unsuccessful with details; rerun
+the history action after the model recovers. Emails that never had a valid
+classification remain available through the usual failed-email retry action.

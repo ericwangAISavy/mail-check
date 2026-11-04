@@ -359,14 +359,20 @@ def reclassify(
         result.errors.extend(errors)
 
         for msg, pk, cls in zip(pending, pending_pks, results):
+            if cls.retryable:
+                result.retryable += 1
+            if categories is not None and categories != [UNCLASSIFIED] and cls.category == UNCLASSIFIED:
+                previous = db.get_cached(conn, pk, None)
+                if previous is not None and previous.category != UNCLASSIFIED:
+                    result.errors.append(f"Historical message {pk}: model classification failed; previous classification preserved.")
+                    continue
+                result.errors.append(f"Historical message {pk}: model classification failed; retry required.")
             db.save_classification(
                 conn, pk, cls, model, PROMPT_VERSION, commit=False
             )
             result.items.append(TriagedMessage(msg, cls))
             if cls.category != UNCLASSIFIED:
                 result.classified += 1
-            if cls.retryable:
-                result.retryable += 1
         conn.commit()
 
     interviews.process_run(conn, cfg, result)

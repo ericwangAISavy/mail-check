@@ -883,7 +883,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         upper = datetime.combine(last + timedelta(days=1), datetime.min.time(), payments.ZONE).astimezone(timezone.utc).isoformat() if last else None
         categories = [category.name for category in CATEGORIES]
         with db.session() as conn:
-            rows = db.messages_in_categories(conn, categories, since_iso=lower, until_iso=upper, limit=None)
+            rows = db.messages_in_categories(conn, categories, since_iso=lower, until_iso=upper, limit=None, include_body=False)
             count = len(rows)
             if not count:
                 return _err("No stored emails in this period. Fetch older emails from your provider first.", 404)

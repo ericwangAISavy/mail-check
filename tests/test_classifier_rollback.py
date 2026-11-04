@@ -116,3 +116,31 @@ def test_historical_relog_batches_successfully_classified_mail(tmp_path,monkeypa
         result=pipeline.reclassify(conn,cfg,categories=[category.name for category in CATEGORIES],limit=None)
         assert result.classified==6
         assert sorted(calls)==[1,5]
+
+
+def test_failed_history_model_preserves_known_receipts_and_logs_failure(tmp_path,monkeypatch):
+    from contextlib import nullcontext
+    monkeypatch.setattr(pipeline.LLMClient,'from_config',lambda *args,**kwargs:nullcontext(type('Model',(),{'model':'test'})()))
+    monkeypatch.setattr(pipeline,'classify',lambda *args,**kwargs:([Classification(category='unclassified',retryable=True,summary='Model busy')],[]))
+    with db.session(tmp_path/'failure.db') as conn:
+        account=db.add_account(conn,label='inbox',email='user@example.test')
+        pk=db.upsert_message(conn,message(account,'receipt',sender='hr@employer.test'))
+        db.save_classification(conn,pk,Classification(category='application_ack',company='Acme'),'test','2')
+        result=pipeline.reclassify(conn,Config(),categories=[category.name for category in CATEGORIES],limit=None)
+        assert db.get_cached(conn,pk,None).category=='application_ack'
+        assert conn.execute('SELECT category FROM application_receipts').fetchone()[0]=='application_ack'
+        assert result.classified==0
+        assert result.retryable==1
+        assert any('previous classification preserved' in error for error in result.errors)
+        assert conn.execute('SELECT finished_at FROM runs').fetchone()[0]
+
+
+def test_history_preflight_can_omit_email_bodies(tmp_path):
+    with db.session(tmp_path/'preflight.db') as conn:
+        account=db.add_account(conn,label='inbox',email='user@example.test')
+        pk=db.upsert_message(conn,message(account,'receipt'))
+        db.save_classification(conn,pk,Classification(category='application_ack'),'test','2')
+        preview=db.messages_in_categories(conn,['application_ack'],include_body=False)
+        assert preview[0]['body_text']==''
+        assert preview[0]['received_at']
+        assert db.messages_in_categories(conn,['application_ack'])[0]['body_text']

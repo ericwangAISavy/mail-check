@@ -909,6 +909,7 @@ def messages_in_categories(
     since_iso: str | None = None,
     limit: int | None = 200,
     until_iso: str | None = None,
+    include_body: bool = True,
 ) -> list[sqlite3.Row]:
     """Full message rows (bodies included) whose *latest* classification is one
     of ``categories`` — what a re-classification run needs as its input.
@@ -919,10 +920,11 @@ def messages_in_categories(
     """
     if not categories:
         return []
+    body_column = "m.body_text" if include_body else "'' AS body_text"
     sql = (
-        """
+        f"""
         SELECT m.id AS pk, m.account_id, m.message_id, m.uid, m.folder,
-               m.from_addr, m.from_name, m.subject, m.date_utc, m.body_text,
+               m.from_addr, m.from_name, m.subject, m.date_utc, {body_column},
                COALESCE(m.date_utc,m.fetched_at) AS received_at,
                m.provider_url, a.label AS account_label,
                c.retryable AS retryable

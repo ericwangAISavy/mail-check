@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.14.1 — 2026-11-04
+
+Preserve historical receipt counts when reclassification fails
+
+- Keep previous valid email labels and receipt estimates when historical model attempts fail; report the failures in run logs.
+- Avoid loading message bodies during historical reclassification preflight.
+
 ## 2.14.0 — 2026-11-04
 
 Restore original classification and rebuild historical estimates

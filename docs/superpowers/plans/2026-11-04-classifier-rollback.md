@@ -33,3 +33,18 @@ history now uses configured batching instead of single-message failure retries.
 Retained tests cover original parsing/normalization behavior and cache semantics.
 Module removal was narrowed and dependency-checked after safety review rejected a
 broad rollback; later security and one-to-one sourcing fixes remain intact.
+
+## Follow-up review
+
+Model failures during an explicit history run could replace valid receipt labels
+with unclassified placeholders and lower estimates. Fail-first tests reproduced
+this; the pipeline now keeps the prior valid classification and ledger entry,
+records the failed attempt as a run error, and avoids interview processing for
+that failed item. Ordinary unclassified-email retry behavior is unchanged.
+Preflight now omits email bodies, avoiding a redundant full-body read before the
+worker loads classification inputs. A regression test checks both projections.
+Read-only independent review found no regression in the changed paths.
+Verification for follow-up2.14.1: 687 backend tests/84 subtests, 343 frontend
+tests, release consistency, whitespace and production build passed. No production
+mailbox or database was accessed. Existing dependency and bundle-size warnings
+remain nonblocking.
