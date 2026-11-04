@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.13.3",
+    "date": "2026-11-04",
+    "title": "Improve interview and application receipt classification",
+    "changes": [
+      "Protect important mail from sender-only noise filtering and improve bounded interview context and classification validation.",
+      "Preserve stored mail labels during ordinary checks and provide a rollback reference and synthetic evaluation corpus."
+    ]
+  },
+  {
     "version": "2.13.2",
     "date": "2026-11-03",
     "title": "Daily application badge across workspace pages",

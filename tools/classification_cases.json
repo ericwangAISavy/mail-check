@@ -1,0 +1,190 @@
+[
+  {
+    "id": "invite",
+    "subject": "Interview invitation",
+    "body": "Please pick a slot for your Acme engineering interview.",
+    "category": "interview_invite",
+    "action_required": true
+  },
+  {
+    "id": "availability",
+    "subject": "Availability",
+    "body": "Please send your availability for an interview with Acme.",
+    "category": "interview_invite",
+    "action_required": true
+  },
+  {
+    "id": "confirm",
+    "subject": "Interview confirmed",
+    "body": "Your interview is confirmed for November 5. No reply needed.",
+    "category": "interview_invite",
+    "action_required": false
+  },
+  {
+    "id": "reminder",
+    "subject": "Interview reminder",
+    "body": "Reminder: your phone interview is tomorrow. No response required.",
+    "category": "interview_invite",
+    "action_required": false
+  },
+  {
+    "id": "reschedule",
+    "subject": "New interview time",
+    "body": "Your interview has moved to Friday. Please confirm this works.",
+    "category": "interview_invite",
+    "action_required": true
+  },
+  {
+    "id": "cancel",
+    "subject": "Interview cancelled",
+    "body": "Your interview is cancelled. We will contact you later; no reply needed.",
+    "category": "interview_invite",
+    "action_required": false
+  },
+  {
+    "id": "receipt",
+    "subject": "Application received",
+    "body": "We received your submitted application for Engineer at Acme. We will review it.",
+    "category": "application_ack",
+    "action_required": false
+  },
+  {
+    "id": "thanks",
+    "subject": "Thank you for applying",
+    "body": "Your application was successfully submitted to Acme. No action needed.",
+    "category": "application_ack",
+    "action_required": false
+  },
+  {
+    "id": "receipt-next",
+    "subject": "Application received: next steps",
+    "body": "We received your application. We review submissions next week and will email an update.",
+    "category": "application_ack",
+    "action_required": false
+  },
+  {
+    "id": "shared-receipt",
+    "subject": "Application received",
+    "body": "We received your application to Acme for Engineer. No action needed.",
+    "category": "application_ack",
+    "action_required": false,
+    "sender": "noreply@indeed.com"
+  },
+  {
+    "id": "shared-invite",
+    "subject": "Interview scheduling",
+    "body": "Please schedule your interview at Acme using the link provided.",
+    "category": "interview_invite",
+    "action_required": true,
+    "sender": "noreply@indeed.com"
+  },
+  {
+    "id": "test",
+    "subject": "Application received: assessment",
+    "body": "We received your application. Complete the coding assessment by 2026-11-08.",
+    "category": "assessment",
+    "action_required": true
+  },
+  {
+    "id": "receipt-interview",
+    "subject": "Application received: interview",
+    "body": "We received your application. Please choose a time for an interview.",
+    "category": "interview_invite",
+    "action_required": true
+  },
+  {
+    "id": "reject",
+    "subject": "Application decision",
+    "body": "After your interview, we decided to proceed with other candidates.",
+    "category": "rejection",
+    "action_required": false
+  },
+  {
+    "id": "old-invite",
+    "subject": "Re: interview",
+    "body": "We regret to decline your application.\nOn Monday Sam wrote:\n> Please schedule your interview.",
+    "category": "rejection",
+    "action_required": false
+  },
+  {
+    "id": "advice",
+    "subject": "Interview preparation newsletter",
+    "body": "Five interview tips for your next job search. Read our latest career advice.",
+    "category": "job_alert",
+    "action_required": false
+  },
+  {
+    "id": "digest",
+    "subject": "Your daily job digest",
+    "body": "New jobs matching your search: Engineer at Acme, Analyst at Globex.",
+    "category": "job_alert",
+    "action_required": false,
+    "sender": "noreply@indeed.com"
+  },
+  {
+    "id": "invited-apply",
+    "subject": "Recommended jobs",
+    "body": "You are invited to apply to these recommended jobs. You have not submitted an application.",
+    "category": "job_alert",
+    "action_required": false
+  },
+  {
+    "id": "draft",
+    "subject": "Finish your draft",
+    "body": "Your application is incomplete and has NOT been submitted. Please complete the missing documents.",
+    "category": "info_request",
+    "action_required": true
+  },
+  {
+    "id": "unrelated",
+    "subject": "Lunch invitation",
+    "body": "Calendar invitation for lunch with friends. No reply required.",
+    "category": "other",
+    "action_required": false
+  },
+  {
+    "id": "documents",
+    "subject": "Documents required",
+    "body": "Please provide your work permit and references before we proceed with your application.",
+    "category": "info_request",
+    "action_required": true
+  },
+  {
+    "id": "offer",
+    "subject": "Offer from Acme",
+    "body": "We are pleased to offer you the Engineer position. Please reply to accept.",
+    "category": "offer",
+    "action_required": true
+  },
+  {
+    "id": "html",
+    "subject": "Application received",
+    "body": "<html><body><p>We received your application for Engineer at Acme.</p><p>No action needed.</p></body></html>",
+    "category": "application_ack",
+    "action_required": false
+  },
+  {
+    "id": "calendar",
+    "subject": "Calendar invitation",
+    "body": "Please confirm your attendance using the attached calendar invitation.",
+    "category": "interview_invite",
+    "action_required": true,
+    "calendar_data": [
+      "BEGIN:VEVENT\nSUMMARY:Acme engineering interview\nDTSTART:20261105T120000Z\nEND:VEVENT"
+    ]
+  },
+  {
+    "id": "sparse",
+    "subject": "Re: next step",
+    "body": "Tuesday works.\nOn Monday Sam wrote:\n> Can you confirm Tuesday for your Acme interview?",
+    "category": "interview_invite",
+    "action_required": false
+  },
+  {
+    "id": "long",
+    "subject": "Acme update",
+    "body": "Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. Welcome to our recruiting portal. \nPlease schedule your interview using our booking link.",
+    "category": "interview_invite",
+    "action_required": true
+  }
+]

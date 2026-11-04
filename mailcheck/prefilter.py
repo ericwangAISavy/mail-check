@@ -1,17 +1,19 @@
 """Rule-based labelling before the LLM, for traffic that is unambiguous.
 
 Deliberately conservative: a false negative costs a few tokens, a false
-positive hides an interview invite. Rules fire only on exact sender or domain
-matches — never on heuristics like a List-Unsubscribe header, because ATS
-platforms set that too.
+positive hides an interview invite. Default rules require a known sender/domain plus digest evidence and no
+important application/interview signal. Explicit user rules retain their intent.
+List-Unsubscribe headers alone never identify noise: ATS platforms set them too.
 """
 
 from __future__ import annotations
 
+import re
+
 from .config import PrefilterRule
 from .models import Classification, NormalizedMessage
 
-#: Senders that only ever emit job-board digests and saved-search alerts.
+#: Known job-board senders; shared senders still require digest evidence.
 DEFAULT_ALERT_SENDERS = {
     "jobalerts-noreply@linkedin.com",
     "jobs-listings@linkedin.com",
@@ -34,6 +36,18 @@ DEFAULT_ALERT_DOMAINS = {
     "jobalerts.linkedin.com",
     "e.linkedin.com",
 }
+
+
+# Evidence permits skipping the model, never forces an interview/receipt label.
+_DIGEST = re.compile(r"\b(?:job (?:digest|alert)|jobs matching your search|new jobs for|saved.search alert|recommended jobs)\b", re.I)
+_IMPORTANT = re.compile(
+    r"\b(?:interview|phone screen|assessment|offer|rejected|rejection|other candidates|"
+    r"application (?:received|submitted|confirmation|update)|"
+    r"(?:received|reviewing|thank you for|thanks for) (?:your )?(?:application|applying))\b", re.I)
+
+
+def important_evidence(msg: NormalizedMessage) -> bool:
+    return bool(_IMPORTANT.search(msg.subject + "\n" + msg.body))
 
 
 def _match(rule: PrefilterRule, msg: NormalizedMessage) -> bool:
@@ -64,7 +78,9 @@ def apply(
 
     addr = msg.from_addr.lower()
     domain = addr.rsplit("@", 1)[-1] if "@" in addr else ""
-    if addr in DEFAULT_ALERT_SENDERS or domain in DEFAULT_ALERT_DOMAINS:
+    if ((addr in DEFAULT_ALERT_SENDERS or domain in DEFAULT_ALERT_DOMAINS)
+            and _DIGEST.search(msg.subject + "\n" + msg.body)
+            and not important_evidence(msg)):
         return Classification(
             category="job_alert",
             confidence=1.0,

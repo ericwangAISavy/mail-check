@@ -537,7 +537,7 @@ def prune_messages(conn: sqlite3.Connection, *, before_iso: str, protect_fetched
 
 
 def get_cached(
-    conn: sqlite3.Connection, message_pk: int, prompt_version: str
+    conn: sqlite3.Connection, message_pk: int, prompt_version: str | None
 ) -> Classification | None:
     """The latest result under this prompt version, whichever model produced it.
 
@@ -545,10 +545,13 @@ def get_cached(
     the user doing anything; a per-model cache would re-classify every stored
     message each time it did.
     """
+    # None preserves the latest stored label across prompt upgrades. Explicit
+    # reclassification remains a separate user action.
+    version_filter = " AND prompt_version = ?" if prompt_version is not None else ""
+    params = (message_pk, prompt_version) if prompt_version is not None else (message_pk,)
     row = conn.execute(
-        "SELECT * FROM classifications WHERE message_pk = ? AND prompt_version = ?"
-        " ORDER BY created_at DESC, id DESC LIMIT 1",
-        (message_pk, prompt_version),
+        "SELECT * FROM classifications WHERE message_pk = ?" + version_filter
+        + " ORDER BY created_at DESC, id DESC LIMIT 1", params,
     ).fetchone()
     if not row:
         return None

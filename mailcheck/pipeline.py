@@ -172,7 +172,7 @@ def check_once(
         pk = db.upsert_message(conn, msg)
 
         if use_cache:
-            cached = db.get_cached(conn, pk, PROMPT_VERSION)
+            cached = db.get_cached(conn, pk, None)
             if cached:
                 result.items.append(TriagedMessage(msg, cached, from_cache=True))
                 result.from_cache += 1

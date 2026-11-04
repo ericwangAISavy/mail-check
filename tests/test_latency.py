@@ -170,7 +170,7 @@ class ClassificationCircuitTests(unittest.TestCase):
             nonlocal calls
             calls += 1
             time.sleep(0.04)
-            results = [{"id": str(i), "category": "rejection"} for i in range(5)]
+            results = [{"id": str(i), "category": "rejection", "confidence": 0.95, "action_required": False, "summary": "Application declined."} for i in range(5)]
             return httpx.Response(
                 200,
                 json={"message": {"content": json.dumps({"results": results})}, "done": True},
@@ -555,7 +555,7 @@ class _EchoClient:
     def complete(self, _system, user, **_kwargs):
         items = json.loads(user.split("\n", 1)[1])
         self.sizes.append(len(items))
-        results = [{"id": item["id"], "category": "rejection"} for item in items]
+        results = [{"id": item["id"], "category": "rejection", "confidence": 0.95, "action_required": False, "summary": "Application declined."} for item in items]
         return Completion(json.dumps({"results": results}), "stop")
 
 

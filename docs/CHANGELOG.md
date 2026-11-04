@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.3 — 2026-11-04
+
+Improve interview and application receipt classification
+
+- Protect important mail from sender-only noise filtering and improve bounded interview context and classification validation.
+- Preserve stored mail labels during ordinary checks and provide a rollback reference and synthetic evaluation corpus.
+
 ## 2.13.2 — 2026-11-03
 
 Daily application badge across workspace pages
