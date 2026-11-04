@@ -175,3 +175,24 @@ No rate is inferred from another bidder or from the input placeholder.
 Recorded payments and manual overrides keep their saved amounts when the current checked count differs. The payment table shows the saved review count and current checked total so admins can explicitly review a correction. Zero-dollar settlements are accepted, including an agreed zero rate. Removing a bidder excludes their checks from current report totals and shared-account reply weights without deleting payment history.
 
 Ordinary refresh preserves existing checks. **Fully rebuild this week** explicitly re-evaluates automatic bindings in that week under the conservative matching rules; manual checks and recorded payments remain saved. No automatic bulk rebuild runs during an upgrade. Repeated unchanged report/refresh requests avoid rewriting receipt and matching records.
+
+## Daily minimum and deductions
+
+Admins can save one **Daily deduction rule** above the daily breakdown. Enter the
+minimum checked applications per day and the flat deduction in USD. Saving or
+editing the rule immediately recalculates the displayed calculated payments for
+all bidders in this workspace. A zero minimum disables it.
+
+A day qualifies only when it is a completed Monday–Friday in America/Chicago and
+the bidder had at least one active account assignment. Today, future days,
+weekends and days without an assignment are excluded. Checked counts strictly
+below the minimum appear in the danger color with a tooltip. An exact minimum
+passes; zero checked applications on an eligible day still incurs one deduction.
+Multiple assigned accounts never multiply the daily fee.
+
+The calculated payment is `max(0, rounded weekly gross − total daily deductions)`.
+The existing adjustment applies to gross pay before the flat deductions. The
+report shows gross, deductions and net. A zero-dollar deduction can still display
+the below-minimum warning without reducing pay. Saved manual amounts and recorded
+payments retain their precedence and do not change automatically; administrators
+can explicitly review and edit them. Bidder viewers cannot change the rule.

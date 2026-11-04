@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 ZONE = ZoneInfo("America/Chicago")
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS payment_deduction_rule (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ minimum_daily INTEGER NOT NULL CHECK(minimum_daily>=0),
+ amount_cents INTEGER NOT NULL CHECK(amount_cents>=0)
+);
+
 CREATE TABLE IF NOT EXISTS bidder_payment_edits (
  id INTEGER PRIMARY KEY AUTOINCREMENT,payment_id INTEGER NOT NULL REFERENCES bidder_payments(id),
  edited_at TEXT NOT NULL,before_json TEXT NOT NULL,after_json TEXT NOT NULL
@@ -74,6 +80,22 @@ def calculate_amount(pay_per_bid,count,adjustment_percent):
     if pay_per_bid is None:return None
     amount=Decimal(str(pay_per_bid))*count*(1+Decimal(str(adjustment_percent))/100)
     return int(amount.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)*100)
+
+
+class DeductionRuleBody(BaseModel):
+    minimum_daily: int = Field(ge=0, le=100000)
+    deduction_amount: Decimal = Field(ge=0, le=1000000, decimal_places=2)
+
+
+def deduction_rule(conn):
+    row = conn.execute("SELECT minimum_daily,amount_cents FROM payment_deduction_rule WHERE id=1").fetchone()
+    return dict(row) if row else {"minimum_daily": 0, "amount_cents": 0}
+
+
+def save_deduction_rule(conn, body):
+    conn.execute("INSERT INTO payment_deduction_rule(id,minimum_daily,amount_cents) VALUES(1,?,?) "
+                 "ON CONFLICT(id) DO UPDATE SET minimum_daily=excluded.minimum_daily,amount_cents=excluded.amount_cents",
+                 (body.minimum_daily, int(body.deduction_amount * 100)))
 
 
 class AmountBody(BaseModel):
@@ -230,7 +252,9 @@ def accounting_day_case(column, start, end):
 
 
 def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None, read_only: bool = False) -> dict:
-    start = monday(week or today())
+    current_day = today()
+    rule = deduction_rule(conn)
+    start = monday(week or current_day)
     end = start + timedelta(days=6)
     if not read_only:
         sync_receipts(conn, since=start, until=end)
@@ -308,12 +332,23 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
                 "total": sum(account_checks.get((row["id"], account_id, day), 0) for day in dates),
                 "received_reply_total": sum(account_daily)})
         override=overrides.get(row['id'])
-        calculated=calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
+        gross = calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
+        below_minimum = [bool(rule['minimum_daily'] > 0
+            and date.fromisoformat(day) < current_day
+            and date.fromisoformat(day).weekday() < 5
+            and checked_daily[i] < rule['minimum_daily']
+            and any(a['start_date'] <= day and (not a['end_date'] or a['end_date'] >= day) for a in assigned))
+            for i, day in enumerate(dates)]
+        deduction_daily = [rule['amount_cents'] if missed else 0 for missed in below_minimum]
+        deduction_total = sum(deduction_daily)
+        calculated = max(0, gross - deduction_total) if gross is not None else None
         paid=payments.get(row['id'])
         payable=paid['amount_cents'] if paid else override['amount_cents'] if override else calculated
         bidders.append({"id": row["id"], "name": row["name"],
             **({"wallet_network":row["wallet_network"],"wallet_address":row["wallet_address"]} if admin else {}),
             "pay_per_bid":row['pay_per_bid'],"adjustment_percent":row['adjustment_percent'],
+            "gross_amount_cents":gross,"below_minimum_daily":below_minimum,
+            "deduction_daily":deduction_daily,"deduction_total_cents":deduction_total,
             "calculated_amount_cents":calculated,"payable_amount_cents":payable,
             "amount_override_cents":override['amount_cents'] if override else None,
             "override_application_count":override['application_count'] if override else None,
@@ -331,7 +366,7 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         if owners_by_day.get((account_id, day)):
             unique_daily[day_indices[day]] += count
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
-        "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
+        "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders, "deduction_rule": rule,
         "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
         "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],

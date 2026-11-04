@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.18.0 — 2026-11-04
+
+Add workspace daily minimum and payment deductions
+
+- Admins can save a daily checked-application minimum and flat dollar deduction for all bidders.
+- Highlight completed assigned weekdays below the minimum and deduct their fees from calculated pay, preserving recorded payments and manual confirmed amounts.
+
 ## 2.17.3 — 2026-11-04
 
 Collect interview-related calendar events only

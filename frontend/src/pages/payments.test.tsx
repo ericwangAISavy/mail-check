@@ -304,3 +304,45 @@ it("shows bidders checked counts only even if a cached payload contains replies"
  expect(screen.queryByText(/Recorded count:/)).toBeNull()
  expect(document.querySelector("tfoot td")!.textContent).toBe("76")
 })
+
+it('saves the daily rule explicitly and refreshes net pay while preserving recorded pay', async () => {
+ let report:any=data()
+ report.deduction_rule={minimum_daily:50,amount_cents:100}
+ Object.assign(report.bidders[0],{pay_per_bid:'1',gross_amount_cents:360,calculated_amount_cents:260,deduction_total_cents:100,payment:{amount_cents:900,application_count:3,paid_at:'2026-10-19',note:''}})
+ vi.mocked(request).mockImplementation(async()=>report)
+ vi.mocked(api.post).mockImplementation(async()=>{report={...report,deduction_rule:{minimum_daily:60,amount_cents:200},bidders:[{...report.bidders[0],calculated_amount_cents:160,deduction_total_cents:200}]};return {ok:true}})
+ mount()
+ const minimum=await screen.findByLabelText('Minimum daily checked applications') as HTMLInputElement
+ expect(minimum.value).toBe('50')
+ expect((screen.getByLabelText('Daily deduction (USD)') as HTMLInputElement).value).toBe('1.00')
+ fireEvent.change(minimum,{target:{value:'60'}})
+ fireEvent.change(screen.getByLabelText('Daily deduction (USD)'),{target:{value:'2.00'}})
+ expect(api.post).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'Save deduction rule'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/deduction-rule',{minimum_daily:60,deduction_amount:'2.00'}))
+ await waitFor(()=>expect(screen.getByLabelText('Estimated / confirmed payment').textContent).toBe('$1.60 / $9.00'))
+ expect(screen.getByText('$3.60 − $2.00 deductions = $1.60')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
+ expect(screen.getByText(/Calculated:.*\$3.60.*− \$2.00 deductions = \$1.60/)).toBeTruthy()
+})
+it('retains entered rule values on a save failure',async()=>{
+ vi.mocked(api.post).mockRejectedValue(new Error('Could not save daily rule'))
+ mount()
+ fireEvent.change(await screen.findByLabelText('Minimum daily checked applications'),{target:{value:'80'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save deduction rule'}))
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent','Could not save daily rule')
+ expect((screen.getByLabelText('Minimum daily checked applications') as HTMLInputElement).value).toBe('80')
+})
+it('uses backend eligibility for danger counts including zero-dollar deductions, without marking account details',async()=>{
+ const report:any=data();report.deduction_rule={minimum_daily:10,amount_cents:0}
+ report.bidders[0].below_minimum_daily=[true,false,false,false,false,false,false]
+ report.bidders[0].deduction_daily=[0,0,0,0,0,0,0]
+ report.bidders[0].account_breakdown=[{account_id:1,account_label:'Work inbox',daily:[3,0,0,0,0,0,0],checked_daily:[3,0,0,0,0,0,0],total:3}]
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ fireEvent.click(await screen.findByRole('button',{name:'Show accounts for Alex'}))
+ expect(document.querySelectorAll('.payment-below-minimum')).toHaveLength(1)
+ expect(screen.getByTitle('Below daily minimum of 10: $0.00 deduction').textContent).toBe('3')
+ expect(screen.getByRole('row',{name:'Alex · Work inbox'}).querySelector('.payment-below-minimum')).toBeNull()
+ expect(screen.queryByRole('button',{name:'Save deduction rule'})).toBeNull()
+ expect(screen.queryByLabelText('Minimum daily checked applications')).toBeNull()
+})

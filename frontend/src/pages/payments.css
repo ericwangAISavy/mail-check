@@ -158,3 +158,11 @@
 .payment-count-pair { white-space: nowrap; }
 
 .payment-count-warning { margin:6px 0 0; color:var(--warning); font-size:12px; line-height:1.5; }
+
+.payment-deduction-rule { padding:20px; margin-bottom:16px; }
+.payment-deduction-rule p { color:var(--muted-foreground); font-size:13px; line-height:1.6; }
+.payment-deduction-rule form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; }
+.payment-deduction-rule label { flex:1 1 210px; min-width:0; }
+.payment-deduction-rule input { width:100%; }
+.payment-checked-count.payment-below-minimum { color:var(--destructive); }
+.payment-deduction-explanation { display:block; margin-top:6px; color:var(--muted-foreground); font-size:12px; line-height:1.5; white-space:normal; }

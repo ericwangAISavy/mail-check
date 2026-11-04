@@ -921,6 +921,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         except (ValueError, sqlite3.IntegrityError) as exc:
             return _err("A bidder with that name or payment already exists." if isinstance(exc, sqlite3.IntegrityError) else str(exc), 400)
 
+    @app.post("/api/payments/deduction-rule")
+    def update_deduction_rule(body: payments.DeductionRuleBody):
+        return payment_write(lambda conn: payments.save_deduction_rule(conn, body))
+
     @app.post("/api/payments/bidders")
     def create_bidder(body: payments.BidderBody):
         def create(conn):

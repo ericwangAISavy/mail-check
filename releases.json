@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.18.0",
+    "date": "2026-11-04",
+    "title": "Add workspace daily minimum and payment deductions",
+    "changes": [
+      "Admins can save a daily checked-application minimum and flat dollar deduction for all bidders.",
+      "Highlight completed assigned weekdays below the minimum and deduct their fees from calculated pay, preserving recorded payments and manual confirmed amounts."
+    ]
+  },
+  {
     "version": "2.17.3",
     "date": "2026-11-04",
     "title": "Collect interview-related calendar events only",
