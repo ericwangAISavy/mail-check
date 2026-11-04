@@ -522,3 +522,42 @@ class PaymentTests(unittest.TestCase):
             self.conn.execute("INSERT INTO bidders(name,created_at) VALUES(?,'2026-01-01')",(f"Extra {i}",))
         self.conn.commit()
         self.assertEqual(queries(),before)
+
+    def test_removed_bidders_manual_checks_cannot_steal_reply_shares(self):
+        self.assign(); self.assign(who=2)
+        self.add_checks(1, self.account, 1)
+        self.add_checks(2, self.account, 9)
+        for i in range(10): self.message(f'shared-{i}')
+        payments.remove_bidder(self.conn, 2)
+        self.conn.commit()
+        result = self.report()
+        self.assertEqual(result['bidders'][0]['daily'][0], 10)
+        self.assertEqual(result['bidders'][0]['total'], 1)
+        self.assertEqual(sum(result['checked_daily']), 1)
+
+    def test_zero_dollar_payment_can_be_recorded_and_edited(self):
+        self.assign(); self.add_checks(1, self.account, 1)
+        response = self.client.post('/api/payments/bidders/1/paid', json={'week':'2026-10-12','expected_count':1,'amount':'0'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.report()['bidders'][0]['payment']['amount_cents'], 0)
+        edited = self.client.post('/api/payments/bidders/1/paid/edit', json={'week':'2026-10-12','expected_count':1,'expected_revision':0,'amount':'0','note':'No payment due'})
+        self.assertEqual(edited.status_code, 200, edited.text)
+
+    def test_unchanged_report_does_not_rewrite_receipt_ledger(self):
+        self.assign(); self.message('unchanged')
+        self.report()
+        before = self.conn.total_changes
+        self.report()
+        self.assertEqual(self.conn.total_changes, before)
+
+    def test_single_day_counts_use_chicago_midnight_not_source_day(self):
+        from mailcheck.sourcing_verification import completed_account_counts
+        self.assign(); self.add_checks(1, self.account, 1)
+        row = self.conn.execute('SELECT id FROM native_rows WHERE work_date IS NOT NULL LIMIT 1').fetchone()[0]
+        self.conn.execute("INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,source,confirmed_at,message_id) VALUES(?,1,?,'2026-10-12','confirmation','2026-10-13T04:59:59Z','boundary')", (row,self.account))
+        counts = completed_account_counts(self.conn, '2026-10-12', '2026-10-12')
+        self.assertEqual(counts, {(1,self.account,'2026-10-12'):1})
+        self.conn.execute("UPDATE sourcing_check_activity SET confirmed_at='2026-10-13T05:00:00Z'")
+        self.assertEqual(completed_account_counts(self.conn, '2026-10-12', '2026-10-12'), {})
+        self.conn.execute("UPDATE sourcing_check_activity SET confirmed_at='invalid-legacy-time'")
+        self.assertEqual(completed_account_counts(self.conn, '2026-10-12', '2026-10-12'), {(1,self.account,'2026-10-12'):1})

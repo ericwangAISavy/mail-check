@@ -874,7 +874,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             result = sourcing_verification.verify_all(conn, refresh_since=first, refresh_until=last,
                 week_only=True, rebuild=body.mode == "rebuild", sample=False)
-            report = payments.report(conn, first, admin=True)
+            report = payments.report(conn, first, admin=True, read_only=True)
         return {"ok":True,"mode":body.mode,"from":first.isoformat(),"through":last.isoformat(),
             "estimated":sum(report["daily"]),"completed":sum(report["checked_daily"]),**result}
 
@@ -893,7 +893,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             if not read_only:
                 sourcing_verification.verify_all(conn, refresh_since=start,
                     refresh_until=start + timedelta(days=6), sample=False, week_only=True)
-            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=read_only)
+            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=True)
 
     def payment_write(action):
         try:

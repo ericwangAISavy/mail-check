@@ -13,7 +13,8 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 38
+# Version 39 was used by a later-reverted release; do not reuse it.
+SCHEMA_VERSION = 40
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -269,6 +270,9 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 migrate_native(conn)
                 initialize_activity(conn)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed ON sourcing_check_activity(confirmed_at,bidder_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed_day ON sourcing_check_activity(julianday(confirmed_at),bidder_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_message ON sourcing_check_activity(message_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_native_rows_date ON native_rows(work_date,tab_id)")
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
@@ -754,7 +758,7 @@ def category_counts(
     sql += search_sql
     params.extend(search_params)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     if account_label:
         sql += " AND a.label = ?"
@@ -810,7 +814,7 @@ def query_triaged(
         sql += " AND a.label = ?"
         params.append(account_label)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     if handled is True:
         sql += " AND m.handled_at IS NOT NULL"
@@ -898,7 +902,7 @@ def queue_counts(
     sql += search_sql
     params.extend(search_params)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     if account_label:
         sql += " AND a.label = ?"
@@ -954,7 +958,7 @@ def messages_in_categories(
         sql += " AND a.label = ?"
         params.append(account_label)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     sql += f" ORDER BY {RECEIVED} DESC LIMIT ?"
     params.append(limit)

@@ -80,16 +80,21 @@ been removed are skipped. The completion message includes the matched-link and t
 counts. An open, saved sheet refreshes immediately; active edits remain protected.
 Automatic verification adds new matches and never clears existing checks.
 
-Before comparison, company names use only the first ASCII letter/digit word,
-stopping at the first space or punctuation mark. For example, `Cube` and
-`Cube Software` both become `cube`; `4A Consulting, LLC` becomes `4a`, while
-`4AConsulting` remains `4aconsulting`. Roles stop at the first character
-other than an ASCII letter or space, then lose all spaces. For example,
-`Software Engineer - Backend` matches `Software Engineer | Remote`. Both fields
-are compared without case sensitivity. No fuzzy similarity is used.
-Once checked, a job link stays checked, even after reclassification,
-company or link edits, or date changes. Unchecked links may also be marked manually;
-checked boxes cannot be cleared.
+Before comparison, company names preserve their full identity, ignoring case,
+separator punctuation, dotted initialisms and trailing legal suffixes such as Inc.
+or LLC. `First National` does not match `First Horizon`; `Cube Software` does not
+become `Cube`. Roles preserve seniority, level numbers and C++/C# distinctions;
+Sr./Senior and explicit Remote/Hybrid annotations are normalized. No fuzzy
+similarity is used.
+
+Both manual **Check applications** and automatic checks consider competing jobs
+across the same account's active bidder tabs. A reply is bound only when its
+company, role when present, and date evidence identify one eligible row. A
+company-only reply with several eligible roles stays unmatched for review. The
+same reply cannot newly check several jobs or be borrowed from an existing bound
+job, including an archived checked job. Existing checks stay saved on normal
+refresh. A selected-week rebuild may clear stale automatic bindings and repair
+unambiguous replacements; manual checks and payment history remain saved.
 
 On **Bidder payments**, daily cells show **checked applications / received replies**.
 For example, **60 / 112** means 60 checked job-link rows and an allocated share of
@@ -221,7 +226,7 @@ Job sourcing → **Job link filters** lets admins save a workspace-wide company
 blocklist, one company name or name fragment per line. A new row is blocked when
 its Company name contains any listed name, ignoring case, whitespace and
 punctuation. For example, `Acme` blocks `ACME Inc.` and `The Acme Group`.
-It does not use the first-word email-matching rule.
+Blocking rules are separate from the full-identity confirmation matching rules.
 Saving the list does not remove historical jobs.
 
 Grid URL entry/paste, appended job rows and CSV imports filter incoming rows

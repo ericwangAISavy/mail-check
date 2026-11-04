@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.17.1 — 2026-11-04
+
+Harden checked-application matching and optimize accounting
+
+- Require unambiguous account-wide job matches, preserve meaningful company and role distinctions, and prevent new automatic receipt reuse across jobs.
+- Fix removed-bidder reply weights, zero-dollar settlements, mixed-offset time filters and stale payment-count warnings while preserving saved records.
+- Group accounting queries, add date and message indexes, and avoid unchanged report and refresh writes; add a reproducible synthetic performance benchmark.
+
 ## 2.17.0 — 2026-11-04
 
 Base bidder payments on checked applications

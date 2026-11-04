@@ -1,5 +1,6 @@
 """Regression coverage for concurrent request-time schema upgrades."""
 
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -38,3 +39,19 @@ def test_concurrent_upgrade_preserves_data(tmp_path):
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(open_database, range(8)))
+
+
+def test_accounting_expression_indexes_upgrade_a_previous_release(tmp_path):
+    path = tmp_path/'previous-release.db'
+    with closing(db.connect(path)) as conn:
+        conn.execute('DROP INDEX idx_check_activity_confirmed_day')
+        conn.execute('DROP INDEX idx_native_rows_date')
+        conn.execute('DROP INDEX idx_check_activity_message')
+        conn.execute('PRAGMA user_version=38')
+        conn.commit()
+    with closing(db.connect(path)) as conn:
+        assert conn.execute('PRAGMA user_version').fetchone()[0] == db.SCHEMA_VERSION
+        plans = [row['detail'] for row in conn.execute("EXPLAIN QUERY PLAN SELECT row_id FROM sourcing_check_activity WHERE julianday(confirmed_at)>=julianday(?) AND julianday(confirmed_at)<julianday(?)",('2026-11-02','2026-11-09'))]
+        assert any('idx_check_activity_confirmed_day' in plan for plan in plans)
+        assert any(row['name']=='idx_native_rows_date' for row in conn.execute('PRAGMA index_list(native_rows)'))
+        assert any(row['name']=='idx_check_activity_message' for row in conn.execute('PRAGMA index_list(sourcing_check_activity)'))

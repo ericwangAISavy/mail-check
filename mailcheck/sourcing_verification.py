@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 import re
 import unicodedata
 import time
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from . import payments
 from . import native_sourcing as sheets
 from .payments import ZONE, sync_receipts
@@ -12,36 +12,96 @@ from .sourcing_structure import check_revision
 
 def company_key(value):
     name = unicodedata.normalize("NFKC", value or "").casefold().strip()
-    first_word = re.match(r"[a-z0-9]+", name)
-    return first_word.group() if first_word else ""
+    # Dotted initialisms are harmless aliases; meaningful company words are not.
+    name = re.sub(r"\b(?:[^\W\d_]\.){2,}", lambda m: m[0].replace(".", ""), name)
+    words = re.findall(r"[^\W_]+", name)
+    while words and words[-1] in {"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "plc"}:
+        words.pop()
+    return " ".join(words)
 
 
 def role_key(value):
-    name = " ".join(unicodedata.normalize("NFKC", value or "").casefold().split())
-    name = re.split(r"[^a-z ]", name, maxsplit=1)[0]
-    return re.sub(r"[^a-z]", "", name)
+    name = unicodedata.normalize("NFKC", value or "").casefold()
+    name = re.sub(r"\s*[|,]\s*(?:remote|hybrid|onsite|on-site)(?:\s*[,(/].*)?\s*$", "", name)
+    name = re.sub(r"[^\w+#]+", " ", name).replace("_", " ")
+    words = name.split()
+    return " ".join({"sr": "senior", "jr": "junior"}.get(word, word) for word in words)
 
 
-def match_key(company, role):
-    role_present = bool((role or "").strip())
-    company, role = company_key(company), role_key(role)
-    return (company, role) if company and (role or not role_present) else None
+def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
+    """Only bind a receipt to an unambiguous job; never reuse a reserved receipt.
 
-
-def receipt_match(company, role, matches):
-    options = [matches[key] for key in (match_key(company, role), (company_key(company), "")) if key in matches]
-    return min(options) if options else None
-
-
-def add_receipt(matches, receipt):
-    key = match_key(receipt['company'],receipt['role'])
-    if not key: return
-    try:
-        received = datetime.fromisoformat(receipt['received_at'].replace('Z','+00:00'))
-        received = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(timezone.utc)
-    except (ValueError,TypeError): return
-    value = (received,receipt['message_id'])
-    if key not in matches or value < matches[key]: matches[key] = value
+    Index candidates by account/company/role/date instead of comparing each
+    receipt with every job. The plan is shared by manual and automatic checks.
+    """
+    groups = {}
+    releasable = set(releasable)
+    for row in rows:
+        if not row['work_date'] or not (row['link'] or '').strip():
+            continue
+        company, role = company_key(row['company']), role_key(row['role'])
+        if not company:
+            continue
+        for key in ((row['account_id'], company, role), (row['account_id'], company, None)):
+            groups.setdefault(key, {}).setdefault(row['work_date'], []).append(row['id'])
+    indexed = {key: (sorted(days), days) for key, days in groups.items()}
+    reservations = {}
+    receipt_keys = {(r['account_id'],r['message_id']) for r in receipts}
+    message_ids = sorted({key[1] for key in receipt_keys})
+    # Only inspect reservations for this batch of receipts, not all history.
+    for offset in range(0,len(message_ids),800):
+        batch = message_ids[offset:offset+800]
+        placeholders = ','.join('?' for _ in batch)
+        for row in conn.execute("""SELECT e.message_id,r.id,t.account_id FROM sourcing_check_activity e
+            JOIN native_rows r ON r.id=e.row_id JOIN native_tabs t ON t.id=r.tab_id
+            JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
+            JOIN native_columns cc ON cc.tab_id=t.id AND cc.kind='check'
+            JOIN native_cells c ON c.row_id=r.id AND c.column_id=cc.id AND c.value='true'
+            JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+            JOIN native_cells l ON l.row_id=r.id AND l.column_id=lc.id AND trim(l.value)!=''
+            WHERE e.message_id IN (""" + placeholders + ")", batch):
+            key = (row['account_id'],row['message_id'])
+            if key in receipt_keys:
+                reservations.setdefault(key, set()).add(row['id'])
+    today = payments.today().isoformat()
+    plan = {}
+    for receipt in receipts:
+        company = company_key(receipt['company'])
+        role = role_key(receipt['role']) if (receipt['role'] or '').strip() else None
+        if role == '':
+            continue
+        indexed_group = indexed.get((receipt['account_id'], company, role))
+        if not indexed_group:
+            continue
+        try:
+            stamp = datetime.fromisoformat(receipt['received_at'].replace('Z', '+00:00'))
+            stamp = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        day = stamp.astimezone(ZONE).date()
+        dates, by_date = indexed_group
+        candidates = set()
+        for source_day in dates[bisect_left(dates, (day-timedelta(days=6)).isoformat()):bisect_right(dates, day.isoformat())]:
+            candidates.update(by_date[source_day])
+        if day >= early_since:
+            for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
+                candidates.update(by_date[source_day])
+        reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
+        # A requested rebuild may move a proven stale automatic binding within
+        # its week. Ordinary refreshes and manual bindings are never released.
+        reserved = reserved - (releasable - candidates)
+        if reserved:
+            # Existing bindings win over new candidates, including archived rows.
+            if len(reserved) != 1:
+                continue
+            candidates &= reserved
+        if len(candidates) != 1:
+            continue
+        row_id = next(iter(candidates))
+        match = (stamp, receipt['message_id'])
+        if row_id not in plan or match < plan[row_id]:
+            plan[row_id] = match
+    return plan
 
 
 def verify(conn, tab, operation, revision, work_date):
@@ -61,15 +121,23 @@ def verify(conn, tab, operation, revision, work_date):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
             sync_receipts(conn)
-            matches = {}
-            for receipt in conn.execute("""SELECT company,role,received_at,message_id FROM application_receipts WHERE account_id=? AND category='application_ack'
-                AND julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)""",(tab['account_id'],lower,upper)):
-                add_receipt(matches,receipt)
-            early_matches = {}
-            for receipt in conn.execute("""SELECT company,role,received_at,message_id FROM application_receipts
-                WHERE account_id=? AND category='application_ack' AND julianday(received_at)>=julianday(?)
-                AND julianday(received_at)<julianday(?)""", (tab['account_id'],early_lower,early_upper)):
-                add_receipt(early_matches,receipt)
+            receipts = list(conn.execute("""SELECT account_id,company,role,received_at,message_id
+                FROM application_receipts WHERE account_id=? AND category='application_ack'
+                AND ((julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?))
+                  OR (julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)))""",
+                (tab['account_id'], lower, upper, early_lower, early_upper)))
+            candidates = conn.execute("""SELECT r.id,r.tab_id,r.work_date,t.account_id,
+                company.value AS company,role.value AS role,link.value AS link
+                FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id
+                JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
+                JOIN native_columns cc ON cc.tab_id=t.id AND cc.kind='company'
+                JOIN native_columns rc ON rc.tab_id=t.id AND rc.kind='role'
+                JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+                LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=cc.id
+                LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=rc.id
+                JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''
+                WHERE t.account_id=? AND (t.archived=0 OR t.id=?) AND r.work_date IS NOT NULL""", (tab['account_id'],tab['id'])).fetchall()
+            plan = _matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=6))
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
@@ -80,19 +148,13 @@ def verify(conn, tab, operation, revision, work_date):
                 WHERE r.tab_id=? AND (r.work_date=? OR r.work_date>?)""", (columns["company"], columns["link"], columns["role"], tab["id"], day, current.isoformat())).fetchall():
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
                     continue
-                candidates = []
-                if (row['link'] or '').strip():
-                    if row['work_date'] == day:
-                        candidates.append(receipt_match(row['company'],row['role'],matches))
-                    if row['work_date'] > current.isoformat():
-                        candidates.append(receipt_match(row['company'],row['role'],early_matches))
-                match = min((match for match in candidates if match),default=None)
+                match = plan.get(row['id'])
                 checked = bool(match)
                 if match:
                     from .sourcing_activity import confirm
                     confirm(conn,row['id'],*match)
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
-                    ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true'""",
+                    ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true' AND native_cells.value IS NOT excluded.value""",
                     (row["id"], columns["check"], str(checked).lower()))
             from .sourcing_activity import record
             record(conn, "tab-check", sample=True)
@@ -121,14 +183,18 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
     def in_week(stamp):
         if not stamp:
             return False
-        received = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+        try:
+            received = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            return False
         day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
         return refresh_since <= day <= refresh_until
     source_since = refresh_since - timedelta(days=6) if refresh_since else None
     with sheets.atomic(conn):
         sync_receipts(conn, since=refresh_since if week_only else None, until=refresh_until if week_only else None)
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
-            JOIN accounts a ON a.id=t.account_id WHERE t.archived=0 OR ?""", (week_only,))}
+            JOIN accounts a ON a.id=t.account_id JOIN native_books b ON b.id=t.book_id
+            JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL WHERE t.archived=0 OR ?""", (week_only,))}
         row_prefix = ""
         row_source = "native_rows"
         row_parameters = []
@@ -160,6 +226,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             e.confirmed_at,e.source AS check_source
             FROM """ + row_source + """ r JOIN native_tabs t ON t.id=r.tab_id
             JOIN accounts a ON a.id=t.account_id
+            JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
             JOIN native_columns company_col ON company_col.tab_id=t.id AND company_col.kind='company'
             JOIN native_columns role_col ON role_col.tab_id=t.id AND role_col.kind='role'
             JOIN native_columns link_col ON link_col.tab_id=t.id AND link_col.kind='link'
@@ -174,35 +241,13 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         if refresh_since:
             rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"])
                     or (week_only and in_week(r["confirmed_at"]))]
-        relevant = {(row["account_id"], row["work_date"]) for row in rows}
-        matches = {}
-        future_dates = {}
-        for account, work_date in relevant:
-            if work_date:future_dates.setdefault(account,[]).append(work_date)
-        for dates in future_dates.values():dates.sort()
-        early_since = refresh_since or (payments.today() - timedelta(days=6))
-        for receipt in conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters):
-            try:
-                received = datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                continue
-            received_day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
-            if refresh_since and (received_day < source_since or received_day > refresh_until): continue
-            match = match_key(receipt["company"], receipt["role"])
-            for offset in range(7):
-                key = (receipt["account_id"], (received_day - timedelta(days=offset)).isoformat())
-                if key in relevant and match:
-                    add_receipt(matches.setdefault(key, {}),receipt)
-            # A scheduled sourcing date is not a lower bound on actual completion.
-            # Recent receipts may belong to any pre-registered future date.
-            if received_day >= early_since and match:
-                dates = future_dates.get(receipt['account_id'],[])
-                for future_day in dates[bisect_right(dates,received_day.isoformat()):]:
-                    add_receipt(matches.setdefault((receipt['account_id'],future_day),{}),receipt)
+        receipts = list(conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters))
+        releasable = {row['id'] for row in rows if rebuild and row['check_source']=='confirmation' and in_week(row['confirmed_at'])}
+        plan = _matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=6)), releasable=releasable)
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
-            match = receipt_match(row['company'],row['role'],matches.get((row['account_id'],row['work_date']),{})) if (row['link'] or '').strip() else None
+            match = plan.get(row['id'])
             if week_only:
                 # Source dates can precede the receipt week. Never rewrite a
                 # completion already attributed to another accounting week.
@@ -272,27 +317,40 @@ def completed_account_counts(conn, start, end):
     """
     lower = datetime.combine(date.fromisoformat(start),datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(date.fromisoformat(end)+timedelta(days=1),datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
-    assignments = {}
-    for assignment in conn.execute('SELECT bidder_id,account_id,start_date,end_date FROM bidder_assignments'):
-        assignments.setdefault((assignment['bidder_id'],assignment['account_id']),[]).append((assignment['start_date'],assignment['end_date']))
+    day_sql, day_params = payments.accounting_day_case('confirmed_at', date.fromisoformat(start), date.fromisoformat(end))
+    # Aggregate inside SQLite rather than allocating one Python event object per
+    # checked row, then scanning assignments for each object a second time.
     counts = {}
-    for event in confirmation_events(conn,lower,upper):
-        key = (event['bidder_id'],event['account_id'],event['completion_day'])
-        counts[key] = counts.get(key,0)+1
-    for row in conn.execute("""SELECT b.bidder_id,t.account_id,r.work_date,e.confirmed_at
+    matched_sql = """WITH completions AS MATERIALIZED (
+        SELECT row_id,""" + day_sql + """ AS day FROM sourcing_check_activity
+        WHERE julianday(confirmed_at)>=julianday(?) AND julianday(confirmed_at)<julianday(?))
+        SELECT b.bidder_id,t.account_id,e.day,COUNT(*) AS n FROM completions e
+        JOIN native_rows r ON r.id=e.row_id JOIN native_tabs t ON t.id=r.tab_id
+        JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
+        JOIN native_columns cc ON cc.tab_id=t.id AND cc.kind='check'
+        JOIN native_cells c ON c.row_id=r.id AND c.column_id=cc.id AND c.value='true'
+        JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+        JOIN native_cells l ON l.row_id=r.id AND l.column_id=lc.id AND trim(l.value)!=''
+        WHERE EXISTS (SELECT 1 FROM bidder_assignments a WHERE a.bidder_id=b.bidder_id AND a.account_id=t.account_id
+          AND a.start_date<=e.day AND (a.end_date IS NULL OR a.end_date>=e.day))
+        GROUP BY b.bidder_id,t.account_id,e.day"""
+    for row in conn.execute(matched_sql, (*day_params, lower, upper)):
+        counts[row['bidder_id'],row['account_id'],row['day']] = row['n']
+    manual_sql = """SELECT b.bidder_id,t.account_id,r.work_date AS day,COUNT(*) AS n
         FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id
-        JOIN native_columns col ON col.tab_id=t.id AND col.kind='check'
-        JOIN native_cells c ON c.row_id=r.id AND c.column_id=col.id AND c.value='true'
-        JOIN native_columns link ON link.tab_id=t.id AND link.kind='link'
-        JOIN native_cells l ON l.row_id=r.id AND l.column_id=link.id AND trim(l.value)!=''
+        JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
+        JOIN native_columns cc ON cc.tab_id=t.id AND cc.kind='check'
+        JOIN native_cells c ON c.row_id=r.id AND c.column_id=cc.id AND c.value='true'
+        JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+        JOIN native_cells l ON l.row_id=r.id AND l.column_id=lc.id AND trim(l.value)!=''
         LEFT JOIN sourcing_check_activity e ON e.row_id=r.id
-        WHERE e.confirmed_at IS NULL AND r.work_date>=? AND r.work_date<=?""",(start,end)):
-        day = row['work_date']
-        if not day or not any(first<=day and (last is None or last>=day)
-                              for first,last in assignments.get((row['bidder_id'],row['account_id']),[])):
-            continue
-        key = (row['bidder_id'],row['account_id'],day)
-        counts[key] = counts.get(key,0)+1
+        WHERE (e.confirmed_at IS NULL OR julianday(e.confirmed_at) IS NULL) AND r.work_date>=? AND r.work_date<=?
+        AND EXISTS (SELECT 1 FROM bidder_assignments a WHERE a.bidder_id=b.bidder_id AND a.account_id=t.account_id
+          AND a.start_date<=r.work_date AND (a.end_date IS NULL OR a.end_date>=r.work_date))
+        GROUP BY b.bidder_id,t.account_id,r.work_date"""
+    for row in conn.execute(manual_sql, (start, end)):
+        key = (row['bidder_id'],row['account_id'],row['day'])
+        counts[key] = counts.get(key,0)+row['n']
     return counts
 
 

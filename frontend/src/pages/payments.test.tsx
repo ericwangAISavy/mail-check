@@ -274,3 +274,18 @@ it('masks account emails in visible labels and accessible row names without chan
  expect(document.body.innerHTML).not.toContain('danny@outlook.com')
  expect(report.bidders[0].account_breakdown[0].account_label).toBe(label)
 })
+
+it("explains when saved payment counts differ from the checked payment basis", async () => {
+ const report=data() as any
+ report.bidders[0].payment={amount_cents:1000,application_count:171,paid_at:"2026-10-19T12:00:00Z",note:"",revision:0}
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ expect(await screen.findByText("Recorded count: 171; current checked total: 3. Saved payment unchanged.")).toBeTruthy()
+ expect(screen.getByLabelText("Estimated / confirmed payment").textContent).toContain("$10.00")
+})
+it("explains stale manual amount reviews without changing the saved amount", async () => {
+ const report=data() as any
+ Object.assign(report.bidders[0],{amount_override_cents:1200,override_application_count:171,calculated_amount_cents:18,payable_amount_cents:1200})
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ expect(await screen.findByText("Saved amount reviewed at 171 count; current checked total: 3.")).toBeTruthy()
+ expect(screen.getByLabelText("Estimated / confirmed payment").textContent).toContain("$12.00")
+})

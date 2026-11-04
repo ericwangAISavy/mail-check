@@ -154,19 +154,23 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         verification.verify_all(self.conn)
         self.assertEqual(self.snapshot()["rows"][1][3]["value"], "false")
-        self.assertEqual(verification.role_key("Senior—Software Engineer"), "senior")
-        self.assertEqual(verification.role_key("C++ Engineer"), verification.role_key("C# Engineer"))
+        self.assertEqual(verification.role_key("Senior—Software Engineer"), "senior software engineer")
+        self.assertNotEqual(verification.role_key("C++ Engineer"), verification.role_key("C# Engineer"))
         self.assertNotEqual(verification.role_key("Senior Engineer"), verification.role_key("Engineer"))
 
-    def test_requested_company_and_role_cleanup(self):
+    def test_company_and_role_cleanup_preserves_identity(self):
         from mailcheck import sourcing_verification as verification
-        for company, expected in (("4A Consulting, LLC", "4a"), ("4AConsulting.LLC", "4aconsulting"), (" 4A Consulting ", "4a"), ("Cube Software", "cube"), ("Cube", "cube"), ("Cube.Software", "cube"), ("CUBE-Software", "cube")):
+        for company, expected in (("4A Consulting, LLC", "4a consulting"), ("4AConsulting.LLC", "4aconsulting"), ("Cube Software", "cube software"), ("Cube.Software", "cube software"), ("CUBE-Software", "cube software"), ("A.C.M.E.", "acme")):
             with self.subTest(company=company):
                 self.assertEqual(verification.company_key(company), expected)
-        for suffix in (", Remote", ". II", "| Backend", "/ Platform", "\\ Contract", "- AI", "— AI", "2"):
-            with self.subTest(suffix=suffix):
-                self.assertEqual(verification.role_key(" Software Engineer " + suffix), "softwareengineer")
-        self.assertEqual(verification.company_key("Foo & Bar, Inc."), "foo")
+        self.assertNotEqual(verification.company_key("First National"), verification.company_key("First Horizon"))
+        self.assertNotEqual(verification.role_key("Engineer 2"), verification.role_key("Engineer 3"))
+        self.assertNotEqual(verification.role_key("Engineer II"), verification.role_key("Engineer III"))
+        self.assertEqual(verification.role_key("Sr. Engineer"), verification.role_key("Senior Engineer"))
+        self.assertEqual(verification.role_key("Engineer | Remote, US"), "engineer")
+        self.assertNotEqual(verification.role_key("Engineer, Remote Sensing"), "engineer")
+        self.assertNotEqual(verification.role_key("Engineer | Hybrid Cloud"), "engineer")
+        self.assertEqual(verification.company_key("Foo & Bar, Inc."), "foo bar")
         self.assertEqual(verification.company_key("., Inc."), "")
 
     def test_cleaned_company_and_role_are_used_by_manual_and_automatic_checks(self):
@@ -178,13 +182,13 @@ class SourcingVerificationTests(unittest.TestCase):
             tab = self.native.owned(self.conn, tab_id, self.principal)
             base = self.native.snapshot(self.conn, tab)
             appended = self.native.append(self.conn, tab, "append-" + mode, base["revision"],
-                [["Cube", "Staff Backend Engineer | Remote, US & Canada", f"https://jobs.test/cleanup/{mode}"]], work_date="2026-10-20")
+                [["Cube Software", "Staff Backend Engineer | Remote, US & Canada", f"https://jobs.test/cleanup/{mode}"]], work_date="2026-10-20")
             if mode == "manual":
                 verification.verify(self.conn, tab, "cleaned-manual", appended["revision"], "2026-10-20")
             else:
                 verification.verify_all(self.conn)
             result = self.native.snapshot(self.conn, tab)
-            self.assertEqual(result["rows"][1][3]["value"], "true", mode)
+            self.assertEqual(result["rows"][1][3]["value"], "true" if mode == "manual" else "false", mode)
 
     def test_receipt_company_survives_message_cleanup(self):
         from mailcheck import sourcing_verification as verification
@@ -204,7 +208,7 @@ class SourcingVerificationTests(unittest.TestCase):
         result = verification.verify(self.conn, self.tab(), "dst", base["revision"], "2026-11-01")
         self.assertEqual([row[3]["value"] for row in result["rows"][1:3]], ["true", "false"])
 
-    def test_automatic_verification_covers_all_books_tabs_and_dated_rows(self):
+    def test_automatic_verification_does_not_reuse_receipts_across_books_and_dates(self):
         from mailcheck import sourcing_verification as verification
         base = self.jobs()
         self.native.append(self.conn, self.tab(), "next-day", base["revision"], [["Beta", "Engineer", "https://jobs.test/later"]], work_date="2026-10-21")
@@ -219,13 +223,14 @@ class SourcingVerificationTests(unittest.TestCase):
             self.native.append(self.conn, tab, f"append-{tab_id}", current["revision"], [["Acme", "Engineer", "https://jobs.test/acme"]], work_date="2026-10-20")
         self.receipt("first", "Acme", "2026-10-20T12:00:00+00:00")
         self.receipt("later", "Beta", "2026-10-21T12:00:00+00:00")
+        self.receipt("other-account", "Acme", "2026-10-20T12:00:00+00:00", account=other)
         self.conn.commit()
         summary = verification.verify_all(self.conn)
         self.assertEqual(summary["tabs"], 3)
-        self.assertEqual(summary["checked"], 4)
-        self.assertEqual(self.snapshot()["rows"][1][3]["value"], "true")
+        self.assertEqual(summary["checked"], 1)
+        self.assertEqual(self.snapshot()["rows"][1][3]["value"], "false")
         other_tab = self.native.owned(self.conn, second_tab, self.principal)
-        self.assertEqual(self.native.snapshot(self.conn, other_tab)["rows"][1][3]["value"], "false")
+        self.assertEqual(self.native.snapshot(self.conn, other_tab)["rows"][1][3]["value"], "true")
         revisions = {row["id"]: row["revision"] for row in self.conn.execute("SELECT id,revision FROM native_tabs")}
         summary = verification.verify_all(self.conn)
         self.assertEqual(summary["changed"], 0)
@@ -525,3 +530,62 @@ class SourcingVerificationTests(unittest.TestCase):
         with patch.object(payments,'today',return_value=date(2026,10,20)):
             verification.verify_all(self.conn)
         self.assertEqual([r[3]['value'] for r in self.snapshot()['rows'][1:4]],['false','false','false'])
+
+    def test_company_only_reply_does_not_check_multiple_roles(self):
+        from mailcheck import sourcing_verification as verification
+        base = self.snapshot()
+        jobs = self.native.append(self.conn, self.tab(), 'ambiguous-nscale', base['revision'], [
+            ['Nscale', 'Developer Experience Engineer', 'https://jobs.test/nscale/1'],
+            ['Nscale', 'Senior Developer Experience Engineer', 'https://jobs.test/nscale/2'],
+        ], work_date='2026-10-20')
+        self.receipt('company-only', 'Nscale', '2026-10-20T12:00:00Z', role=None)
+        self.conn.commit()
+        checked = verification.verify(self.conn, self.tab(), 'manual-ambiguous', jobs['revision'], '2026-10-20')
+        self.assertEqual([row[3]['value'] for row in checked['rows'][1:3]], ['false', 'false'])
+        verification.verify_all(self.conn, sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]], ['false', 'false'])
+        self.receipt('specific-role', 'Nscale', '2026-10-20T12:01:00Z', role='Developer Experience Engineer')
+        self.conn.commit()
+        verification.verify_all(self.conn, sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]], ['true', 'false'])
+
+    def test_manual_check_sees_competing_jobs_in_another_bidder_tab(self):
+        from mailcheck import sourcing_verification as verification
+        base = self.jobs()
+        other_book = self.native.create_book(self.conn, 2)
+        other_tab = self.native.create_tab(self.conn, other_book, self.account_id, 'Shared')
+        tab = self.native.owned(self.conn, other_tab, self.principal)
+        snap = self.native.snapshot(self.conn, tab)
+        self.native.append(self.conn, tab, 'competing-job', snap['revision'], [['Acme', 'Engineer', 'https://jobs.test/competitor']], work_date='2026-10-20')
+        self.receipt('one-receipt', 'Acme', '2026-10-20T12:00:00Z')
+        self.conn.commit()
+        checked = verification.verify(self.conn, self.tab(), 'cross-tab-check', base['revision'], '2026-10-20')
+        self.assertEqual(checked['rows'][1][3]['value'], 'false')
+
+    def test_reserved_receipt_is_not_reused_and_unchanged_refresh_has_no_writes(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs()
+        self.receipt('reserved', 'Acme', '2026-10-20T12:00:00Z')
+        self.conn.commit()
+        verification.verify_all(self.conn, sample=False)
+        snap = self.snapshot()
+        self.native.append(self.conn, self.tab(), 'another-acme', snap['revision'], [['Acme', 'Engineer', 'https://jobs.test/another']], work_date='2026-10-20')
+        verification.verify_all(self.conn, sample=False)
+        rows = self.snapshot()['rows']
+        self.assertEqual(rows[1][3]['value'], 'true')
+        self.assertEqual(rows[4][3]['value'], 'false')
+        self.conn.commit()
+        before = self.conn.total_changes
+        verification.verify_all(self.conn, sample=False)
+        self.assertEqual(self.conn.total_changes, before)
+
+    def test_scoped_rebuild_moves_stale_automatic_binding_in_one_pass(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs()
+        pk = self.receipt('corrected-company', 'Acme', '2026-10-20T12:00:00Z')
+        self.conn.commit()
+        verification.verify_all(self.conn, sample=False)
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        db.save_classification(self.conn,pk,Classification(category='application_ack',company='Beta',role='Engineer'),'test','1')
+        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:4]], ['false','true','false'])

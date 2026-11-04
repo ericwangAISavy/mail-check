@@ -255,6 +255,21 @@ class FrontendApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"unique", "category":"rejection"}).json()["total"], 0)
         self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"   "}).json()["total"], 2)
 
+    def test_today_filter_compares_timezone_offsets_as_instants(self):
+        before = self.add_message("offset-before")
+        inside = self.add_message("offset-inside")
+        self.conn.execute("UPDATE messages SET date_utc='2026-11-04T06:30:00+01:00' WHERE id=?", (before,))
+        self.conn.execute("UPDATE messages SET date_utc='2026-11-04T00:30:00-06:00' WHERE id=?", (inside,))
+        self.conn.commit()
+        with patch.object(web_app, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime.fromisoformat("2026-11-04T18:00:00+00:00")
+            response = self.client.get("/api/triage?view=all&days=0")
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual([row['pk'] for group in payload['groups'] for row in group['items']], [inside])
+        self.assertEqual(sum(payload['counts'].values()), 1)
+        self.assertEqual(payload['summary']['actionable'], 1)
+
     def test_triage_filters_views_and_keeps_message_bodies_out_of_rows(self):
         active = self.add_message("active")
         self.add_message("finished", done=True)

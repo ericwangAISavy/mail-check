@@ -48,7 +48,12 @@ def confirm(conn, row_id, received, message_id):
         confirmed_at=excluded.confirmed_at,message_id=excluded.message_id,account_id=excluded.account_id,
         bidder_id=excluded.bidder_id,work_date=excluded.work_date,
         source=CASE WHEN sourcing_check_activity.source IN ('confirmation','rebuild-cleared')
-          THEN 'confirmation' ELSE 'manual-confirmation' END""",
+          THEN 'confirmation' ELSE 'manual-confirmation' END
+        WHERE sourcing_check_activity.confirmed_at IS NOT excluded.confirmed_at
+           OR sourcing_check_activity.message_id IS NOT excluded.message_id
+           OR sourcing_check_activity.account_id IS NOT excluded.account_id
+           OR sourcing_check_activity.bidder_id IS NOT excluded.bidder_id
+           OR sourcing_check_activity.work_date IS NOT excluded.work_date""",
         (row_id,row['bidder_id'],row['account_id'],row['work_date'],now().isoformat(),received.isoformat(),message_id))
 
 

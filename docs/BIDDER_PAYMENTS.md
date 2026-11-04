@@ -56,7 +56,7 @@ Received replies do not increase pay unless a sourcing row is checked.
 After mail collection and classification finish, scheduled auto-checks and the
 top-level **Check now** job compare confirmation emails against every active account
 tab. A confirmation received on day D can check rows dated D through D−6, using
-Chicago calendar dates. Company, role when present, and account must match. Pre-registered future dates are also eligible for early work: recent confirmations from the last seven Chicago dates can check future rows, with no limit on how far ahead the row is scheduled. A selected-week refresh compares that week’s receipts with future rows too. Manual
+Chicago calendar dates. Account and full normalized company must match. A role in the reply must match the job role, retaining seniority, level numbers, and C++/C# distinctions. A company-only reply can automatically check a job only when it identifies one eligible row across the account’s active bidder tabs. One reply cannot automatically check several rows, even on different dates or bidder tabs. Ambiguous jobs remain unchecked for manual review. Pre-registered future dates are also eligible for early work: recent confirmations from the last seven Chicago dates can check future rows, with no limit on how far ahead the row is scheduled. A selected-week refresh compares that week’s receipts with future rows too. Manual
 **Check applications** checks the selected date plus future rows on that account tab.
 
 Checked rows stay checked through later checks, reclassification, and edits. A
@@ -81,7 +81,7 @@ These allocations affect only the grey received-replies count. Weekly applicatio
 Only the latest `application_ack` classification contributes to received replies.
 Receipt dates use America/Chicago, falling back to collection time when absent.
 Rechecking a message does not duplicate its account/message identity. Estimates
-are not proof of submissions, and one confirmation can match several sourcing rows.
+are not proof of submissions. New automatic matches never reuse one reply across several sourcing rows.
 
 ## History and payment integrity
 
@@ -169,3 +169,9 @@ current week as well as completed weeks. Saving refreshes calculated/payable
 amounts immediately. Recorded payments and saved manual overrides are preserved.
 Bidder viewers see an explanation to contact their admin and cannot edit rates.
 No rate is inferred from another bidder or from the input placeholder.
+
+## Reviewed counts and performance
+
+Recorded payments and manual overrides keep their saved amounts when the current checked count differs. The payment table shows the saved review count and current checked total so admins can explicitly review a correction. Zero-dollar settlements are accepted, including an agreed zero rate. Removing a bidder excludes their checks from current report totals and shared-account reply weights without deleting payment history.
+
+Ordinary refresh preserves existing checks. **Fully rebuild this week** explicitly re-evaluates automatic bindings in that week under the conservative matching rules; manual checks and recorded payments remain saved. No automatic bulk rebuild runs during an upgrade. Repeated unchanged report/refresh requests avoid rewriting receipt and matching records.

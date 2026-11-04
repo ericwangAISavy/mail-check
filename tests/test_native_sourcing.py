@@ -541,6 +541,8 @@ class NativeSheetTests(unittest.TestCase):
         self.native.save(
             self.conn, self.tab(), "before-dates", [self.change("Existing job")]
         )
+        # An installation predating job dates cannot have the new date index.
+        self.conn.execute("DROP INDEX IF EXISTS idx_native_rows_date")
         self.conn.execute("ALTER TABLE native_rows DROP COLUMN work_date")
         self.conn.execute("PRAGMA user_version=15")
         self.conn.commit()

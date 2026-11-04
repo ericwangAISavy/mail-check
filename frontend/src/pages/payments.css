@@ -156,3 +156,5 @@
 .payment-checked-count { color: var(--foreground); font-weight: 700; }
 .payment-reply-count { color: var(--muted-foreground); font-weight: 400; }
 .payment-count-pair { white-space: nowrap; }
+
+.payment-count-warning { margin:6px 0 0; color:var(--warning); font-size:12px; line-height:1.5; }

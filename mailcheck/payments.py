@@ -86,7 +86,7 @@ def save_amount(conn,bidder_id,body):
     bidder(conn,bidder_id)
     start=monday(body.week)
     if start+timedelta(days=6)>=today():raise ValueError('Edit the final payment amount after the week has ended')
-    row=next(b for b in report(conn,start)['bidders'] if b['id']==bidder_id)
+    row=next(b for b in report(conn,start,bidder_id=bidder_id)['bidders'] if b['id']==bidder_id)
     if row['payment']:raise ValueError('This payment is already recorded; its paid amount remains saved')
     if row['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before saving the amount.')
     if body.amount is None:
@@ -133,7 +133,7 @@ class EndAssignmentBody(BaseModel):
 class PayBody(BaseModel):
     week: date = Field(ge=date(1971, 1, 1), le=date(2100, 12, 31))
     expected_count: int = Field(ge=0)
-    amount: Decimal = Field(gt=0, le=1000000, decimal_places=2)
+    amount: Decimal = Field(ge=0, le=1000000, decimal_places=2)
     note: str = Field(default="", max_length=500)
 
 
@@ -145,7 +145,7 @@ def edit_payment(conn,bidder_id,body):
     bidder(conn,bidder_id)
     start=monday(body.week)
     if start+timedelta(days=6)>=today():raise ValueError('Edit recorded payments after the week has ended')
-    current=next(b for b in report(conn,start)['bidders'] if b['id']==bidder_id)
+    current=next(b for b in report(conn,start,bidder_id=bidder_id)['bidders'] if b['id']==bidder_id)
     if current['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before editing payment.')
     previous=current['payment']
     if not previous:raise ValueError('No recorded payment exists for this bidder and week')
@@ -160,23 +160,41 @@ def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, si
     """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
     scope = ""
+    prefix = ""
     parameters = [message_pk] if message_pk is not None else []
     if since is not None and until is not None:
         lower = datetime.combine(since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
         upper = datetime.combine(until + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-        scope = """ AND ((julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?)
-            AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?)) OR EXISTS (
-            SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
-            AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?))) """
-        parameters.extend((lower, upper, lower, upper))
-    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
+        if message_pk is None:
+            # Bound candidates before joining classifications. Both source and
+            # previous receipt timestamps matter when correcting a moved date.
+            prefix = """WITH receipt_candidates AS MATERIALIZED (
+                SELECT m.id FROM messages m
+                WHERE julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?)
+                  AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?)
+                UNION SELECT m.id FROM application_receipts old
+                JOIN messages m ON m.account_id=old.account_id AND m.message_id=old.message_id
+                WHERE old.category IN (SELECT DISTINCT category FROM application_receipts)
+                  AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?)) """
+            scope = " AND m.id IN (SELECT id FROM receipt_candidates)"
+            parameters = [lower, upper, lower, upper]
+        else:
+            scope = """ AND ((julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?) AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?))
+                OR EXISTS (SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
+                  AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?)))"""
+            parameters.extend((lower, upper, lower, upper))
+    conn.execute(prefix + """INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
         SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,'')
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category = 'application_ack' OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
         """ + (" AND m.id=? " if message_pk is not None else "") + scope + """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role""", parameters)
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role
+        WHERE application_receipts.received_at IS NOT excluded.received_at
+           OR application_receipts.category IS NOT excluded.category
+           OR application_receipts.company IS NOT excluded.company
+           OR application_receipts.role IS NOT excluded.role""", parameters)
 
 
 def monday(value: date) -> date:
@@ -197,6 +215,20 @@ def received_today(conn: sqlite3.Connection) -> int:
         AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
 
 
+def accounting_day_case(column, start, end):
+    """SQL calendar buckets with explicit UTC boundaries, including DST weeks."""
+    parts, params = [], []
+    day = start
+    while day < end:
+        following = datetime.combine(day+timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+        parts.append(f"WHEN julianday({column})<julianday(?) THEN ?")
+        params.extend((following, day.isoformat()))
+        day += timedelta(days=1)
+    if not parts:
+        return "?", [end.isoformat()]
+    return "CASE " + " ".join(parts) + " ELSE ? END", params+[end.isoformat()]
+
+
 def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None, read_only: bool = False) -> dict:
     start = monday(week or today())
     end = start + timedelta(days=6)
@@ -206,14 +238,11 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     # Bound in UTC, then bucket in the accounting timezone, including DST days.
     lower = datetime.combine(start, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(end + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-    counts = {}
-    for row in conn.execute("""SELECT account_id, received_at FROM application_receipts
-        WHERE category='application_ack' AND julianday(received_at)>=julianday(?)
-        AND julianday(received_at)<julianday(?)""", (lower, upper)):
-        stamp = datetime.fromisoformat(row["received_at"])
-        day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
-        key = (row["account_id"], day)
-        counts[key] = counts.get(key, 0) + 1
+    day_sql, day_params = accounting_day_case('received_at', start, end)
+    counts = {(row['account_id'], row['day']): row['n'] for row in conn.execute(
+        "SELECT account_id," + day_sql + " AS day,COUNT(*) AS n FROM application_receipts "
+        "WHERE category='application_ack' AND julianday(received_at)>=julianday(?) "
+        "AND julianday(received_at)<julianday(?) GROUP BY account_id,day", (*day_params, lower, upper))}
     assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
     from .sourcing_verification import completed_account_counts
@@ -397,7 +426,7 @@ def record_payment(conn, bidder_id: int, body: PayBody):
     start = monday(body.week)
     if start + timedelta(days=6) >= today():
         raise ValueError("Record payment after the week has ended")
-    row = next(b for b in report(conn, start)["bidders"] if b["id"] == bidder_id)
+    row = next(b for b in report(conn, start, bidder_id=bidder_id)["bidders"] if b["id"] == bidder_id)
     if row["application_total"] != body.expected_count:
         raise ValueError("Counts changed. Refresh and review before recording payment.")
     if row["payment"]:
