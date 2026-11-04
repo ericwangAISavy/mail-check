@@ -108,53 +108,9 @@ def normalize(
     raw: RawMessage, *, account_id: int, account_label: str, max_body_chars: int = 1200
 ) -> NormalizedMessage:
     body = clean_text(raw.text)
-    # Recover a small quote only for context-free replies. A substantive latest
-    # message must not inherit an old invitation or decision from its thread.
-    context_reply = re.search(
-        r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|"
-        r"available|availability|works|confirmed|sounds good|see attached|see below)\b", body, re.I
-    )
-    if len(body) < 80 and context_reply and not re.search(
-        r"interview|application|candidates|declin|reject|offer|assessment|not (?:to )?(?:proceed|move forward)|unsuccessful|position.{0,20}(?:closed|filled)", body, re.I
-    ):
-        original = _html_to_text(raw.text) if _HTML_HINT.search(raw.text or "") else (raw.text or "")
-        quoted = "\n".join(line.lstrip().lstrip(">").strip()
-                           for line in original.splitlines() if line.lstrip().startswith(">"))
-        if quoted:
-            body += "\n[Quoted context — earlier message, not the current request]\n" + quoted[:400]
-    # Calendar evidence shares the configured body budget rather than expanding
-    # the privacy/token allowance. Limit individual attachments and their count.
-    calendar = "\n".join(data[:1200] for data in raw.calendar_data[:2])
-    calendar = "\n".join(line for line in calendar.splitlines() if line.startswith(
-        ("SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "METHOD", "STATUS")))[:400]
-    limit = max(0, max_body_chars)
-    context = ("\n[Calendar context]\n" + calendar) if calendar else ""
-    context = context[:min(len(context), limit // 2)]
-    budget = limit - len(context)
-    if len(body) > budget:
-        marker = "\n[...truncated middle...]\n"
-        if budget > len(marker) + 40:
-            # Select at most two relevant windows before spending the rest on
-            # the head/tail. This catches a request buried after HTML boilerplate.
-            windows = []
-            for match in re.finditer(
-                r"interview|phone screen|received your application|application received|assessment|other candidates",
-                body, re.I,
-            ):
-                start = max(0, match.start() - 80)
-                if not windows or start > windows[-1][1]:
-                    windows.append((start, min(len(body), match.end() + 160)))
-                if len(windows) == 2:
-                    break
-            evidence = "\n".join(body[a:b] for a, b in windows)[:budget // 2]
-            remaining = budget - len(marker) - len(evidence)
-            head = remaining * 2 // 3
-            tail = remaining - head
-            body = body[:head] + marker + evidence + body[-tail:]
-        else:
-            marker = "[...truncated]"[:budget]
-            body = body[:budget - len(marker)] + marker
-    body += context
+    if len(body) > max_body_chars:
+        # Keep the head: job mail states its intent in the first paragraph.
+        body = body[:max_body_chars].rstrip() + "\n[...truncated]"
     return NormalizedMessage(
         account_id=account_id,
         account_label=account_label,

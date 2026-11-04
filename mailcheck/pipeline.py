@@ -266,11 +266,18 @@ def reclassify(
     account_label: str | None = None,
     since_days: int | None = None,
     categories: list[str] | None = None,
+    since_iso: str | None = None,
+    until_iso: str | None = None,
+    limit: int | None = 200,
     status: StatusFn = _noop,
     progress: Callable[[int, int], None] | None = None,
     event: EventFn | None = None,
 ) -> RunResult:
-    """Re-run classification over mail that came back ``unclassified``.
+    """Re-run stored mail; default scope retries only ``unclassified`` results.
+
+    Explicit history categories bypass cache, accept date bounds and may remove
+    the retry limit. Historical successes use normal batches rather than the
+    single-message recovery path reserved for failed results.
 
     A failed classification is sticky: the placeholder is written under the same
     (message, model, prompt version) key the cache is looked up by, so an
@@ -290,7 +297,6 @@ def reclassify(
     result = RunResult(started_at=datetime.now(timezone.utc))
     run_id = db.start_run(conn)
 
-    since_iso = None
     if since_days is not None:
         since_iso = (
             datetime.now(timezone.utc) - timedelta(days=since_days)
@@ -302,6 +308,8 @@ def reclassify(
         pks=pks,
         account_label=account_label,
         since_iso=since_iso,
+        until_iso=until_iso,
+        limit=limit,
     )
     if not rows:
         result.finished_at = datetime.now(timezone.utc)
@@ -325,7 +333,7 @@ def reclassify(
             result.items.append(TriagedMessage(msg, rule_hit))
             result.prefiltered += 1
             continue
-        if not row["retryable"]:
+        if (categories is None or categories == [UNCLASSIFIED]) and not row["retryable"]:
             solo.append(len(pending))
         pending.append(msg)
         pending_pks.append(row["pk"])

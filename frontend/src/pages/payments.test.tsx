@@ -3,11 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { api, request } from "@/lib/api"
 import PaymentsPage from "./payments"
-vi.mock("@/lib/api", () => ({ api: { post: vi.fn() }, request: vi.fn() }))
+vi.mock("@/lib/api", () => ({ api: { post: vi.fn(), status: vi.fn() }, request: vi.fn() }))
 vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title, action }: { title: string; action?: any }) => <><h1>{title}</h1>{action}</>, useToast: () => vi.fn() }))
 const clients: QueryClient[] = []
 const data = () => ({ week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
-beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
+beforeEach(() => { vi.mocked(api.status).mockResolvedValue({ running: false } as Awaited<ReturnType<typeof api.status>>); vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
 function mount(readOnly = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>) }
 it("records an admin-entered amount with the reviewed week and count", async () => {
@@ -49,7 +49,7 @@ it("shows received confirmations alongside checked sourcing links", async () => 
   mount(true)
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
   expect(within(row).getByText("112 / 60")).toBeTruthy()
-  expect(screen.getByText(/Counted receipts \/ checked job links/)).toBeTruthy()
+  expect(screen.getByText(/Estimated confirmations \/ checked applications/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
@@ -271,55 +271,52 @@ it('masks account emails in visible labels and accessible row names without chan
  expect(report.bidders[0].account_breakdown[0].account_label).toBe(label)
 })
 
-it('shows masked reconciliation, filters accounts, and supports legacy receipt counts',async()=>{
- const report:any=data()
- report.bidders[0].verified_total=1;report.bidders[0].verified_daily=[1,0,0,0,0,0,0]
- const account={account_id:1,account_label:'Primary (danny@outlook.com)',bidder_ids:[1,2],raw_receipts:3,verified_applications:1,possible_extra_confirmations:1,unmatched_receipts:1,ambiguous_rows:2,missing_metadata_receipts:1,duplicate_link_rows:1,conflicting_receipt_rows:1,review_reason_counts:{manual_checks:2,missing_receipt_claims:1,missing_job_links:1,receipt_date_mismatch_rows:1,metadata_mismatch_rows:1,unassigned_claim_rows:1}}
- report.reconciliation={raw_receipts:5,verified_applications:1,possible_extra_confirmations:1,unmatched_receipts:3,ambiguous_rows:2,duplicate_connection_groups:0,accounts:[account,{...account,account_id:2,account_label:'Unrelated inbox',bidder_ids:[2]}]}
- vi.mocked(request).mockResolvedValue(report);mount()
- const panel=await screen.findByRole('region',{name:'Application reconciliation'})
- for(const label of ['Raw receipt emails','Verified applications','Possible extra confirmations','Unmatched receipts'])expect(within(panel.querySelector("dl")!).getByText(label)).toBeTruthy()
- expect(Array.from(panel.querySelectorAll('dd')).map(node=>node.textContent)).toEqual(['5','5','0','1','1','3'])
- expect(within(panel).getByText(/Possible extras require review/)).toBeTruthy()
- expect(within(panel).getAllByText(/Possible extra confirmations: 1/).length).toBeGreaterThan(0)
- expect(within(panel).getByText('Primary (d****y@outlook.com)')).toBeTruthy()
- const bidderRow=screen.getByRole('rowheader',{name:/Alex/}).closest('tr')!
- const firstDay=within(bidderRow).getAllByRole('cell')[0]
- expect(within(firstDay).getByText('3 / 3')).toBeTruthy()
- expect(within(firstDay).getByText('1 verified')).toBeTruthy()
- expect(document.body.innerHTML).not.toContain('danny@outlook.com')
- expect(screen.getByText(/Payment estimates count receipt emails excluding confirmed platform copies/)).toBeTruthy()
- fireEvent.change(screen.getByLabelText('Bidder'),{target:{value:'1'}})
- expect(within(panel).queryByText('Unrelated inbox')).toBeNull()
- expect(within(panel).getByText('Alex: 1 verified application')).toBeTruthy()
- for(const reason of ['Manual checks: 2','Missing receipt claims: 1','Missing job links: 1','Receipt date mismatches: 1','Receipt metadata mismatches: 1','Claims without bidder assignment: 1'])expect(within(panel).getByText(reason)).toBeTruthy()
- expect(within(panel).getByText(/Account-wide receipts · shared account/)).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
- fireEvent.change(screen.getByLabelText('Amount (USD)'),{target:{value:'1'}})
- fireEvent.click(screen.getByRole('button',{name:'Record as paid'}))
- await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid',{week:'2026-10-12',expected_count:3,amount:'1',note:''}))
+
+it("reclassifies the selected historical week and refreshes status", async () => {
+  const previous = { ...data(), week_start: "2026-10-05", week_end: "2026-10-11" }
+  vi.mocked(request).mockImplementation(async url => String(url).includes("week=2026-10-05") ? previous : data())
+  mount()
+  fireEvent.click(await screen.findByRole("button", { name: "Previous week" }))
+  await waitFor(() => expect((screen.getByLabelText("Week of") as HTMLInputElement).value).toBe("2026-10-05"))
+  fireEvent.click(screen.getByRole("button", { name: "Reclassify this week" }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/reclassify", { week: "2026-10-05" }))
+  await waitFor(() => expect(vi.mocked(api.status).mock.calls.length).toBeGreaterThan(1))
 })
 
+it("reclassifies all stored emails without a week restriction", async () => {
+  mount()
+  fireEvent.click(await screen.findByRole("button", { name: "Reclassify all stored emails" }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/reclassify", {}))
+  expect(screen.getByText(/Older emails that were removed must be fetched again/)).toBeTruthy()
+})
 
-it('shows two raw acknowledgements as one counted receipt and preserves saved payment amounts', async()=>{
- const report:any=data()
- report.daily=[1,0,0,0,0,0,0];report.raw_daily=[2,0,0,0,0,0,0]
- Object.assign(report.bidders[0],{daily:[1,0,0,0,0,0,0],checked_daily:[1,0,0,0,0,0,0],verified_daily:[1,0,0,0,0,0,0],verified_total:1,payment:{amount_cents:1970,application_count:2,paid_at:'2026-10-19T12:00:00Z',note:''}})
- const account={account_id:1,account_label:'Work inbox',bidder_ids:[1],raw_receipts:2,counted_receipts:1,confirmed_platform_copies:1,verified_applications:1,possible_extra_confirmations:1,unmatched_receipts:0,ambiguous_rows:0,missing_metadata_receipts:0,duplicate_link_rows:0,conflicting_receipt_rows:0}
- report.reconciliation={...account,duplicate_connection_groups:0,accounts:[account]}
- vi.mocked(request).mockResolvedValue(report);mount()
- const panel=await screen.findByRole('region',{name:'Application reconciliation'})
- expect(Array.from(panel.querySelectorAll('dd')).map(node=>node.textContent)).toEqual(['2','1','1','1','1','0'])
- const accountRow=within(panel).getByRole('rowheader',{name:/Work inbox/}).closest('tr')!
- expect(within(accountRow).getAllByRole('cell').slice(0,3).map(cell=>cell.textContent)).toEqual(['2','1','1'])
- const bidderRow=screen.getByRole('rowheader',{name:/Alex/}).closest('tr')!
- expect(within(bidderRow).getByText('1 / 1')).toBeTruthy()
- expect(within(bidderRow).getByText('1 verified')).toBeTruthy()
- expect(within(bidderRow).getByLabelText('Estimated / confirmed payment').textContent).toBe('Rate not set / $19.70')
- expect(screen.getByText('Estimated confirmations this week').parentElement!.querySelector('strong')!.textContent).toBe('1')
- expect(api.post).not.toHaveBeenCalled()
- fireEvent.click(within(bidderRow).getByRole('button',{name:/Edit confirmed payment for Alex/}))
- fireEvent.change(screen.getByLabelText('Amount (USD)'),{target:{value:'19.70'}})
- fireEvent.click(screen.getByRole('button',{name:'Save changes'}))
- await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/paid/edit',{week:'2026-10-12',expected_count:1,expected_revision:0,amount:'19.70',note:''}))
+it("hides reclassification from read-only viewers and omits reconciliation", async () => {
+  const report = { ...data(), reconciliation: { raw_receipts: 3 }, verified_daily: [1,0,0,0,0,0,0] }
+  vi.mocked(request).mockResolvedValue(report)
+  mount(true)
+  await screen.findByRole("rowheader", { name: /Alex/ })
+  expect(screen.queryByRole("button", { name: /Reclassify/ })).toBeNull()
+  expect(screen.queryByRole("region", { name: "Application reconciliation" })).toBeNull()
+  expect(screen.queryByText(/verified/i)).toBeNull()
+})
+
+it("disables reclassification while a background job is running", async () => {
+  vi.mocked(api.status).mockResolvedValue({ running: true } as Awaited<ReturnType<typeof api.status>>)
+  mount()
+  const button = await screen.findByRole("button", { name: "Reclassify this week" })
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true))
+  expect((screen.getByRole("button", { name: "Reclassify all stored emails" }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(button)
+  expect(api.post).not.toHaveBeenCalled()
+})
+
+it("disables both reclassification scopes until the start request resolves", async () => {
+  let finish!: (value: unknown) => void
+  vi.mocked(api.post).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  mount()
+  fireEvent.click(await screen.findByRole("button", { name: "Reclassify this week" }))
+  await waitFor(() => expect((screen.getByRole("button", { name: "Reclassify this week" }) as HTMLButtonElement).disabled).toBe(true))
+  expect((screen.getByRole("button", { name: "Reclassify all stored emails" }) as HTMLButtonElement).disabled).toBe(true)
+  finish({ ok: true, count: 3 })
+  await waitFor(() => expect((screen.getByRole("button", { name: "Reclassify this week" }) as HTMLButtonElement).disabled).toBe(false))
 })

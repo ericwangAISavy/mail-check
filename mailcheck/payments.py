@@ -191,10 +191,13 @@ def today() -> date:
 
 
 def received_today(conn: sqlite3.Connection) -> int:
-    """Count eligible receipt confirmations on their Chicago date, read-only."""
-    from .receipt_counting import effective_receipts
-    day = today()
-    return sum(not row['duplicate_of'] for row in effective_receipts(conn, day, day))
+    """Count each confirmation once on its Chicago receipt date, across accounts."""
+    day=today()
+    lower=datetime.combine(day,datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
+    upper=datetime.combine(day+timedelta(days=1),datetime.min.time(),ZONE).astimezone(timezone.utc).isoformat()
+    return conn.execute("""SELECT COUNT(*) FROM application_receipts
+        WHERE category='application_ack' AND julianday(received_at)>=julianday(?)
+        AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
 
 
 def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None, read_only: bool = False) -> dict:
@@ -202,22 +205,18 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     end = start + timedelta(days=6)
     if not read_only:
         sync_receipts(conn, since=start, until=end)
-        from .receipt_counting import materialize
-        materialize(conn, start, end)
     dates = [(start + timedelta(days=i)).isoformat() for i in range(7)]
     # Bound in UTC, then bucket in the accounting timezone, including DST days.
     lower = datetime.combine(start, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(end + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-    from .receipt_counting import effective_receipts
-    receipts = effective_receipts(conn, start, end)
-    counts, raw_counts = {}, {}
-    for row in receipts:
-        stamp = datetime.fromisoformat(row["received_at"].replace('Z', '+00:00'))
+    counts = {}
+    for row in conn.execute("""SELECT account_id, received_at FROM application_receipts
+        WHERE category='application_ack' AND julianday(received_at)>=julianday(?)
+        AND julianday(received_at)<julianday(?)""", (lower, upper)):
+        stamp = datetime.fromisoformat(row["received_at"])
         day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
         key = (row["account_id"], day)
-        raw_counts[key] = raw_counts.get(key, 0) + 1
-        if not row['duplicate_of']:
-            counts[key] = counts.get(key, 0) + 1
+        counts[key] = counts.get(key, 0) + 1
     assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
     from .sourcing_verification import completed_account_counts
@@ -240,32 +239,29 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     overrides = {row["bidder_id"]: row for row in conn.execute(
         "SELECT bidder_id,amount_cents,application_count FROM bidder_payment_amounts WHERE week_start=?",
         (start.isoformat(),))}
-    allocations, account_allocations, raw_allocations, raw_account_allocations = {}, {}, {}, {}
+    allocations = {}
+    account_allocations = {}
     unallocated = {day: 0 for day in dates}
-    for source_counts, target_bidders, target_accounts, target_unallocated in (
-        (counts, allocations, account_allocations, unallocated),
-        (raw_counts, raw_allocations, raw_account_allocations, {day: 0 for day in dates}),
-    ):
-        for (account_id, day), total in source_counts.items():
-            owners = sorted(owners_by_day.get((account_id, day), ()))
-            if len(owners) == 1:
-                shares = {owners[0]: total}
-            elif len(owners) > 1:
-                weights = {who: account_checks.get((who, account_id, day), 0) for who in owners}
-                weight_sum = sum(weights.values())
-                if not weight_sum:
-                    target_unallocated[day] += total
-                    continue
-                # Largest remainders preserve the account total with integer shares.
-                shares = {who: total * weights[who] // weight_sum for who in owners}
-                remainder_order = sorted(owners, key=lambda who: (-(total * weights[who] % weight_sum), who))
-                for who in remainder_order[:total - sum(shares.values())]:
-                    shares[who] += 1
-            else:
+    for (account_id, day), total in counts.items():
+        owners = sorted(owners_by_day.get((account_id, day), ()))
+        if len(owners) == 1:
+            shares = {owners[0]: total}
+        elif len(owners) > 1:
+            weights = {who: account_checks.get((who, account_id, day), 0) for who in owners}
+            weight_sum = sum(weights.values())
+            if not weight_sum:
+                unallocated[day] += total
                 continue
-            for who, count in shares.items():
-                target_accounts[who, account_id, day] = count
-                target_bidders[who, day] = target_bidders.get((who, day), 0) + count
+            # Largest remainders preserve the account total with integer shares.
+            shares = {who: total * weights[who] // weight_sum for who in owners}
+            remainder_order = sorted(owners, key=lambda who: (-(total * weights[who] % weight_sum), who))
+            for who in remainder_order[:total - sum(shares.values())]:
+                shares[who] += 1
+        else:
+            continue
+        for who, count in shares.items():
+            account_allocations[who, account_id, day] = count
+            allocations[who, day] = allocations.get((who, day), 0) + count
     account_labels = {a["id"]: a["label"] for a in conn.execute("SELECT id,label FROM accounts ORDER BY label")}
     bidders = []
     for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
@@ -280,7 +276,6 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             breakdown.append({"account_id": account_id,
                 "account_label": account_labels.get(account_id, labels.get(account_id, "Removed account")),
                 "daily": account_daily,
-                "raw_daily": [raw_account_allocations.get((row['id'], account_id, day), 0) for day in dates],
                 "checked_daily": [account_checks.get((row["id"], account_id, day), 0) for day in dates],
                 "total": sum(account_daily)})
         override=overrides.get(row['id'])
@@ -294,18 +289,10 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             "amount_override_cents":override['amount_cents'] if override else None,
             "override_application_count":override['application_count'] if override else None,
             "assignments": assigned, "daily": daily, "total": total,
-            "raw_daily": [raw_allocations.get((row['id'], day), 0) for day in dates],
             "account_breakdown": breakdown,
             "application_total": total,
             "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
             "payment": payments.get(row["id"])})
-    # Reconciliation is read-only: raw receipt-based payment calculations above
-    # and immutable recorded settlements retain their existing basis.
-    from .application_reconciliation import reconcile
-    reconciliation = reconcile(conn, start, end, bidder_id=bidder_id)
-    verified = reconciliation.pop('bidders')
-    for entry in bidders:
-        entry.update(verified.get(entry['id'], {'verified_daily': [0] * 7, 'verified_total': 0}))
     # Shared assignments expose the same receipts in multiple bidder rows.
     # Count each account/day once for the report overview and footer.
     unique_daily = [0] * 7
@@ -315,10 +302,6 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             unique_daily[day_indices[day]] += count
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
         "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
-        "reconciliation": reconciliation,
-        "raw_daily": [sum(count for (account, receipt_day), count in raw_counts.items()
-                          if receipt_day == day and owners_by_day.get((account, day))) for day in dates]
-                     if bidder_id is None else [sum(b['raw_daily'][i] for b in bidders) for i in range(7)],
         "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
         "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],

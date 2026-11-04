@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.14.0 — 2026-11-04
+
+Restore original classification and rebuild historical estimates
+
+- Remove application reconciliation and platform-copy deductions; restore original email classification behavior.
+- Add admin actions to reclassify a week or all stored emails, log the run and rebuild estimates while preserving saved payments and manual checks.
+
 ## 2.13.7 — 2026-11-04
 
 Fix platform and employer receipt double counting

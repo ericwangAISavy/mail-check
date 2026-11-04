@@ -91,11 +91,11 @@ def test_report_separates_extra_emails_and_preserves_receipt_payment_basis(sheet
     bidder = next(row for row in report['bidders'] if row['id']==1)
     assert bidder['daily'][1] == 2
     assert bidder['checked_daily'][1] == 1
-    assert bidder['verified_daily'][1] == 1
-    assert bidder['verified_total'] == 1
-    assert report['reconciliation']['raw_receipts'] == 2
-    assert report['reconciliation']['possible_extra_confirmations'] == 1
-    assert 'bidders' not in report['reconciliation']
+    assert 'verified_daily' not in bidder
+    assert 'verified_total' not in bidder
+    assert 'raw_daily' not in bidder
+    assert 'reconciliation' not in report
+    assert 'raw_daily' not in report
 
 
 def test_weekly_refresh_cannot_broadcast_into_archived_rows(sheet):
@@ -109,7 +109,7 @@ def test_weekly_refresh_cannot_broadcast_into_archived_rows(sheet):
     assert [row[3]['value'] for row in sheet.snapshot()['rows'][1:3]] == ['false','false']
 
 
-def test_read_only_reconciliation_does_not_rewrite_recorded_payment(sheet):
+def test_read_only_report_does_not_rewrite_recorded_payment(sheet):
     from mailcheck import payments
     add_rows(sheet, [['Acme','Engineer','https://jobs.test/1']])
     sheet.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(sheet.account_id,))
@@ -123,7 +123,8 @@ def test_read_only_reconciliation_does_not_rewrite_recorded_payment(sheet):
     sheet.conn.execute('PRAGMA query_only=ON')
     report = payments.report(sheet.conn,date(2026,10,19),read_only=True)
     bidder = next(row for row in report['bidders'] if row['id']==1)
-    assert bidder['verified_total'] == 1
+    assert 'verified_total' not in bidder
+    assert 'reconciliation' not in report
     assert bidder['total'] == 2
     assert bidder['payment']['application_count'] == 99
     assert bidder['payment']['amount_cents'] == 1234

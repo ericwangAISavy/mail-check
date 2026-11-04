@@ -12,11 +12,10 @@ answer we needed is sitting complete in the part that did arrive; and they key
 from __future__ import annotations
 
 import json
-import math
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from ..taxonomy import coerce_category
 
@@ -32,28 +31,6 @@ _NULLISH = {"", "null", "none", "n/a", "na", "unknown", "not specified", "unspec
 
 
 class ItemResult(BaseModel):
-    response_complete: bool = Field(default=False, exclude=True)
-    needs_review: bool = False
-
-    @model_validator(mode="before")
-    @classmethod
-    def _response_quality(cls, value: Any) -> Any:
-        if not isinstance(value, dict):
-            return value
-        data = dict(value)
-        try:
-            confidence = float(data.get("confidence"))
-            valid_confidence = (not isinstance(data.get("confidence"), bool)
-                                and math.isfinite(confidence) and 0 <= confidence <= 100)
-        except (TypeError, ValueError):
-            valid_confidence = False
-        data["response_complete"] = (
-            valid_confidence and isinstance(data.get("summary"), str)
-            and bool(data["summary"].strip())
-            and str(data.get("action_required", "")).lower() in {"true", "false", "yes", "no", "1", "0", "y", "n"}
-        )
-        return data
-
     id: str
     category: str
     confidence: float = 0.5
@@ -327,19 +304,6 @@ def parse_results(text: str) -> dict[str, ItemResult]:
     if not isinstance(data, list):
         raise ValueError(f"expected a list of results, got {type(data).__name__}")
 
-    # Preserve fully closed items from a cut-off batch, but never call a
-    # synthetically closed string complete. Parse original object slices before
-    # repair, including keyed-by-id responses whose value lacks an id field.
-    complete_objects = []
-    decoder = json.JSONDecoder()
-    original = _THINK.sub("", text)
-    for match in re.finditer(r"\{", original):
-        try:
-            candidate, _ = decoder.raw_decode(original, match.start())
-        except (ValueError, RecursionError):
-            continue
-        if isinstance(candidate, dict) and "category" in candidate:
-            complete_objects.append(candidate)
     out: dict[str, ItemResult] = {}
     for entry in data:
         if not isinstance(entry, dict):
@@ -348,11 +312,5 @@ def parse_results(text: str) -> dict[str, ItemResult]:
             item = ItemResult.model_validate(entry)
         except Exception:  # noqa: BLE001 - one bad item must not fail the batch
             continue
-        if not any(
-            all(candidate.get(key) == value for key, value in entry.items() if key != "id")
-            and ("id" not in candidate or str(candidate["id"]) == item.id)
-            for candidate in complete_objects
-        ):
-            item.response_complete = False
         out[item.id] = item
     return out

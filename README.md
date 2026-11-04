@@ -61,10 +61,10 @@ open **Admin management** to create admins. Added admins must change their tempo
 password before accessing their own email accounts, bidders and application data.
 Bidders are managed records and no longer sign in.
 
-Bidder management separates raw receipt emails, counted confirmations, verified job
-applications and unmatched receipts. Receipt-based estimates exclude confirmed
-platform copies; raw emails and recorded payments are preserved. See
-[Application reconciliation](docs/APPLICATION_RECONCILIATION.md).
+Bidder management shows estimated confirmation receipts and checked job links.
+Admins can reclassify a selected week or all stored emails to rebuild estimates
+using the original classification behavior. Saved payments remain unchanged.
+See [Historical classification](docs/APPLICATION_RECONCILIATION.md).
 
 The owner's existing database/configuration/OS-keyring entries stay in place.
 New workspaces have separate databases, credential namespaces and worker
