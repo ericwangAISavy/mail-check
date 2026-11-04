@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.17.0 — 2026-11-04
+
+Base bidder payments on checked applications
+
+- Calculate weekly application totals and pay from checked job-link rows using the editable payment rate and adjustment, preserving recorded payments and manual amount overrides.
+- Show checked applications first in bright text and received replies second in grey throughout bidder and account breakdowns; update totals, payment review counts and documentation.
+
 ## 2.16.0 — 2026-11-04
 
 Search Triage mail by text

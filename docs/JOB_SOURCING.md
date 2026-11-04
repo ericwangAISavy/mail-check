@@ -91,12 +91,15 @@ Once checked, a job link stays checked, even after reclassification,
 company or link edits, or date changes. Unchecked links may also be marked manually;
 checked boxes cannot be cleared.
 
-On **Bidder payments**, daily cells show **estimated confirmations / checked applications**. For example, **112 / 60**
-means 60 checked job-link rows across the bidder’s assigned account tabs for that
-confirmation’s Chicago received date and an estimated share of 112 confirmation emails, even when the links were given earlier. Untimed manual or legacy checks keep their sourcing date. Weekly totals and new payment records sum the daily estimated confirmations (the first number). Shared
-account confirmations are divided in proportion to checked links per account and day.
-The two counts can differ. Saved company metadata survives future mail cleanup;
-companies from messages already deleted before this upgrade cannot be recovered.
+On **Bidder payments**, daily cells show **checked applications / received replies**.
+For example, **60 / 112** means 60 checked job-link rows and an allocated share of
+112 application-received emails. Checked applications are bright; received replies
+are grey. Weekly totals and new payment records sum checked applications. Calculated
+pay is `pay per bid × checked applications × (1 + editable adjustment / 100)`.
+Shared-account replies are divided in proportion to checked links per account/day
+for reference only; that allocation does not change the payment basis. Matched rows
+use their reply's Chicago received date. Untimed manual/legacy checks retain their
+sourcing date. Saved payments and manual amount overrides remain unchanged.
 
 ## Everyday spreadsheet editing
 

@@ -202,8 +202,8 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 function DailyApplicationCount({count}:{count?:number}) {
   const daily=useQuery({queryKey:["applications-today"],queryFn:api.applicationsToday,enabled:count===undefined,retry:false,staleTime:30000,refetchInterval:60000,refetchOnWindowFocus:true})
   const value=count ?? daily.data?.applications_today
-  const label=value===undefined ? daily.isError ? "Today's application count unavailable" : "Loading today's application count" : `${value} application confirmations received today`
-  return <span className="header-application-count" title="Application confirmations received today · Chicago" aria-label={label}><strong>{value===undefined?"—":value.toLocaleString()}</strong><span>today</span></span>
+  const label=value===undefined ? daily.isError ? "Today's application count unavailable" : "Loading today's application count" : `${value} received replies today`
+  return <span className="header-application-count" title="Received replies today · Chicago" aria-label={label}><strong>{value===undefined?"—":value.toLocaleString()}</strong><span>today</span></span>
 }
 
 function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {

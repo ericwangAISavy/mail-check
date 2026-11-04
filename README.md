@@ -463,7 +463,7 @@ Interview opportunity tracking and migration: [Interview pipeline](docs/INTERVIE
 
 ### Per-account bidder work breakdown
 
-In **Bidder management → Daily breakdown**, click the arrow beside a bidder’s name to show each email account separately. Account rows show daily estimated confirmations / checked applications and the account’s weekly estimated total. Shared-account rows use that bidder’s allocated share and add up to the bidder’s combined figures. Payments remain recorded for the bidder. Bidders viewing their own report only see their own account breakdown.
+In **Bidder management → Daily breakdown**, click the arrow beside a bidder’s name to show each email account separately. Account rows show daily checked applications / received replies and the account’s weekly checked total. Shared-account received replies use that bidder’s allocated share; checked counts belong to each bidder’s own job-link rows. Calculated pay uses checked applications × pay per bid × (1 + editable adjustment / 100), not received replies. Payments remain recorded for the bidder. Bidders viewing their own report only see their own account breakdown.
 
 
 ### Account-specific blocked roles

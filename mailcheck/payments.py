@@ -1,4 +1,4 @@
-"""Bidder accounting: durable receipt counts and immutable weekly payment records."""
+"""Bidder accounting: checked-application payments and durable received replies."""
 from __future__ import annotations
 
 import json
@@ -263,8 +263,10 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     bidders = []
     for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = assigned_by_bidder.get(row["id"], [])
+        # Retain daily reply allocations for reference; only checked rows drive pay.
         daily = [allocations.get((row["id"], day), 0) for day in dates]
-        total = sum(daily)
+        checked_daily = [checked.get((row["id"], day), 0) for day in dates]
+        total = sum(checked_daily)
         account_ids = active_accounts.get(row["id"], set()) | checked_accounts.get(row["id"], set())
         labels = assignment_labels.get(row["id"], {})
         breakdown = []
@@ -274,7 +276,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
                 "account_label": account_labels.get(account_id, labels.get(account_id, "Removed account")),
                 "daily": account_daily,
                 "checked_daily": [account_checks.get((row["id"], account_id, day), 0) for day in dates],
-                "total": sum(account_daily)})
+                "total": sum(account_checks.get((row["id"], account_id, day), 0) for day in dates),
+                "received_reply_total": sum(account_daily)})
         override=overrides.get(row['id'])
         calculated=calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
         paid=payments.get(row['id'])
@@ -288,7 +291,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
             "assignments": assigned, "daily": daily, "total": total,
             "account_breakdown": breakdown,
             "application_total": total,
-            "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
+            "checked_daily": checked_daily,
+            "received_reply_total": sum(daily),
             "payment": payments.get(row["id"])})
     # Shared assignments expose the same receipts in multiple bidder rows.
     # Count each account/day once for the report overview and footer.

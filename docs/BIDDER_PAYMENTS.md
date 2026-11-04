@@ -25,21 +25,31 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
    Removal requires confirmation and changes attribution, without deleting emails.
    Changes affecting a paid week are blocked; changes outside it remain editable.
    One account may be assigned to several bidders on the same day. Shared-account
-   confirmation counts are estimated per bidder using their checked links on the same
+   received replies are allocated per bidder using their checked links on the same
    account and day. Checked links stay with the bidder who owns the document. Overlapping
    rules for the same bidder and account are blocked.
 3. Open **Bidder payments** and use the week selector or arrows to view Monday–Sunday totals in America/Chicago.
    The bidder selector narrows the table and summary to one bidder.
-4. Set each bidder’s **Pay per bid (USD)** and **Adjustment (%)** on Accounts. The default adjustment is 20%, meaning a multiplier of 1.2. Weekly pay is `rate × estimated weekly total × (1 + adjustment / 100)`, rounded once to cents with decimal half-up rounding. For example, `0.05 × 309 × 1.2 = $18.54`.
+4. Set each bidder’s **Pay per bid (USD)** and **Adjustment (%)** on Accounts. The default adjustment is 20%, meaning a multiplier of 1.2. Weekly pay is `rate × weekly checked applications × (1 + adjustment / 100)`, rounded once to cents with decimal half-up rounding. For example, `0.05 × 309 × 1.2 = $18.54`.
 5. On a completed week, **Edit / record payment** opens a prefilled amount. Edit it and choose **Save amount** to override that week without marking it paid. **Use calculated amount** removes the override. Manual amounts remain saved if counts change, with a warning to review them.
 6. After making the actual payment elsewhere, choose **Record as paid** with an optional reference. Saved paid amounts do not change when rates, estimates, or adjustment percentages change. No action here transfers money.
 
 ## Daily application counts
 
-Daily cells show **estimated confirmations / checked applications**. For example,
-**92 / 75** means an estimated share of 92 confirmation emails and 75 checked job-link rows. Overview cards, weekly totals, and new payment records sum the first number: daily estimated confirmations. The second number counts checked rows across the bidder’s
-account tabs, grouped by the matching confirmation’s received date in Chicago and requiring an account assignment on that completion date. The date links were given does not determine the payment day. Manual or legacy checks without a matched confirmation timestamp keep their sourcing date. Each row
-counts once; archived sheets retain historical checked counts.
+Daily cells show **checked applications / received replies**. For example,
+**75 / 92** means 75 checked job-link rows and an allocated share of 92
+application-received emails. Checked applications appear in bright text; received
+replies appear in grey for reference. Received replies are application acknowledgements,
+not every email reply, and are not a count of unique submitted jobs.
+
+Overview cards, weekly totals, calculated payments, and new payment records use
+checked applications. Weekly pay is `pay per bid × checked applications ×
+(1 + adjustment / 100)`; the adjustment remains editable and defaults to 20% (×1.2).
+Existing manually checked and legacy job-link rows remain included. Checked counts
+are grouped by the matching reply's Chicago receipt date and require an account
+assignment on that completion date. Untimed manual or legacy checks keep their
+sourcing date. Each row counts once; archived sheets retain historical counts.
+Received replies do not increase pay unless a sourcing row is checked.
 
 ## Verification rules
 
@@ -55,20 +65,20 @@ row deletion can affect totals. Changing a sourcing date only moves an untimed m
 
 ## Receipt allocation
 
-The first number remains a proportional estimate: per shared account and receipt
+The second number, received replies, remains a proportional allocation: per shared account and receipt
 day, divide confirmations by the assigned bidders’ checked-link weights for that
-account and confirmation date, including links sourced on earlier days. For 105 confirmations and weights 11 and 75, estimates are 13 and
+account and confirmation date, including links sourced on earlier days. For 105 confirmations and weights 11 and 75, reply allocations are 13 and
 92. Largest-remainder rounding preserves the total, with ties broken by bidder ID.
 A sole assigned bidder receives the full receipt count; shared accounts with no
-checks show unallocated confirmations.
+checks show unallocated received replies.
 
-Calculate each account separately before summing a bidder's daily estimates. For
+Calculate each account separately before summing a bidder's daily received replies. For
 example, if Joseph checks 1 of account A's 4 links and 3 of account B's 4 links,
-with 100 and 40 confirmations respectively, his estimate is 25 + 30 = 55.
+with 100 and 40 confirmations respectively, his received-replies allocation is 25 + 30 = 55.
 Never combine his checked counts across accounts before calculating the shares.
-Weekly application totals and new payment counts sum these daily estimates.
+These allocations affect only the grey received-replies count. Weekly application totals and new payment counts sum checked applications, without applying receipt weights.
 
-Only the latest `application_ack` classification contributes to receipt estimates.
+Only the latest `application_ack` classification contributes to received replies.
 Receipt dates use America/Chicago, falling back to collection time when absent.
 Rechecking a message does not duplicate its account/message identity. Estimates
 are not proof of submissions, and one confirmation can match several sourcing rows.
@@ -81,10 +91,10 @@ email retention cleanup and account removal. New accounts cannot reuse an accoun
 account identity. Existing retained classifications populate the ledger automatically.
 Emails already removed before this feature was installed cannot be recovered by it.
 
-Payment records snapshot the reviewed estimated-confirmation count, final amount, date, and reference.
+Payment records snapshot the reviewed checked-application count, final amount, date, and reference.
 The server rejects stale counts, repeat payments for the same bidder/week, and payment
 recording before a week ends. Assignment changes that would affect that bidder’s paid
-week are rejected. Later classifications and checked-link changes can update estimates but do not rewrite recorded payments;
+week are rejected. Later classifications and checked-link changes can update current totals but do not rewrite recorded payments;
 the table flags any difference between the current count and paid count.
 
 Payment cells show only **estimated / confirmed**, with the confirmed amount in blue. Without a saved manual amount or paid record, confirmation defaults to the estimate. Click the blue confirmed amount to edit it; paid rows open the recorded-payment correction form. The form starts with the recorded amount and note; **Use calculated amount** fills the current formula result. **Save changes** updates the amount, note, and application-count snapshot to the reviewed weekly total, while retaining the original payment date. Previous and new values are stored in an edit history. Concurrent edits and changed counts are rejected until the admin refreshes and reviews them. Rate changes never amend paid records automatically. There is no payment gateway or bank integration; these records describe payments made elsewhere.
@@ -155,7 +165,7 @@ A bidder with application counts but no saved pay-per-bid rate has an unavailabl
 calculated payment, rather than a zero-dollar payment. The Payment column now
 shows **Rate not set** and an admin **Set rate** action directly on Bidder
 management. Enter the agreed rate and adjustment; this is available during the
-current week as well as completed weeks. Saving refreshes estimated/payable
+current week as well as completed weeks. Saving refreshes calculated/payable
 amounts immediately. Recorded payments and saved manual overrides are preserved.
 Bidder viewers see an explanation to contact their admin and cannot edit rates.
 No rate is inferred from another bidder or from the input placeholder.

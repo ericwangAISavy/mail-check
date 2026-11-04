@@ -41,15 +41,19 @@ it("shows loading failures with a retry action", async () => {
   expect(screen.getByText("Could not load totals")).toBeTruthy()
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy()
 })
-it("shows received confirmations alongside checked sourcing links", async () => {
+it("shows checked applications before muted received replies", async () => {
   const report = data() as any
   report.bidders[0].daily[0] = 112
   report.bidders[0].checked_daily = [60,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
-  expect(within(row).getByText("112 / 60")).toBeTruthy()
-  expect(screen.getByText(/Estimated confirmations \/ checked applications/)).toBeTruthy()
+  expect(within(row).getAllByRole("cell")[0].textContent).toBe("60 / 112")
+  expect(within(row).getAllByTitle("Checked applications")[0].className).toBe("payment-checked-count")
+  expect(within(row).getAllByTitle("Received replies")[0].className).toBe("payment-reply-count")
+  expect(within(row).getAllByRole("cell")[7].textContent).toBe("60")
+  expect(screen.getByText("Checked applications this week").parentElement!.querySelector("strong")!.textContent).toBe("60")
+  expect(screen.getByText(/Checked applications \/ received replies/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
@@ -66,14 +70,14 @@ it("keeps management on Accounts for admins", async () => {
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
 })
 
-it("uses estimated confirmations for overall totals and preserves bidder filtering", async () => {
+it("uses checked applications for overall totals and preserves bidder filtering", async () => {
   const report = data()
   report.today = "2026-10-12"
   report.bidders.push({ ...report.bidders[0], id: 2, name: "Blair" })
   report.daily=[6,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
   mount()
-  const heading = await screen.findByText("Estimated confirmations this week")
+  const heading = await screen.findByText("Checked applications this week")
   expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const today = screen.getByText("Today")
   expect(today.parentElement!.querySelector("strong")!.textContent).toBe("6")
@@ -105,12 +109,12 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   report.bidders[0].checked_daily = [0,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
   mount()
-  const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmations/})).closest("tr")!
-  expect(within(row).getAllByRole("cell")[0].textContent).toBe("3 / 0")
-  expect(screen.getByText("Estimated confirmations this week").parentElement!.querySelector("strong")!.textContent).toBe("3")
+  const row = (await screen.findByRole("rowheader", {name: /Unallocated received replies/})).closest("tr")!
+  expect(within(row).getAllByRole("cell")[0].textContent).toBe("0 / 3")
+  expect(screen.getByText("Checked applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
   fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
-  expect(screen.queryByRole("rowheader", {name: /Unallocated confirmations/})).toBeNull()
-  expect(screen.getByText("Estimated confirmations this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
+  expect(screen.queryByRole("rowheader", {name: /Unallocated received replies/})).toBeNull()
+  expect(screen.getByText("Checked applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })
 
 it("Refresh uses the displayed week and refreshes sourcing views", async () => {
@@ -120,7 +124,7 @@ it("Refresh uses the displayed week and refreshes sourcing views", async () => {
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"refresh"}))
   await waitFor(() => expect(dispatch.mock.calls.some(([event]) => event.type === "mailcheck:check-completed")).toBe(true))
 })
-it("sums daily estimated confirmations for the weekly total even when checked counts differ",async()=>{
+it("sums daily checked applications for the weekly total even when checked counts differ",async()=>{
  const report=data() as any
  report.bidders[0].name='Dany'
  report.bidders[0].daily=[0,7,60,91,82,1,0]
@@ -131,9 +135,9 @@ it("sums daily estimated confirmations for the weekly total even when checked co
  vi.mocked(request).mockResolvedValue(report)
  mount()
  const row=(await screen.findByRole('rowheader',{name:/Dany/})).closest('tr')!
- expect(within(row).getByText('241')).toBeTruthy()
+ expect(within(row).getAllByRole('cell')[7].textContent).toBe('172')
  fireEvent.click(within(row).getByRole('button',{name:/Edit confirmed payment for Dany/}))
- expect(screen.getByText(/241 estimated confirmations/)).toBeTruthy()
+ expect(screen.getByText(/172 checked applications/)).toBeTruthy()
 })
 it('copies every bidder recorded payment in the selected week with its wallet',async()=>{
  const report=data() as any,writeText=vi.fn().mockResolvedValue(undefined)
@@ -151,7 +155,7 @@ it('does not copy an incomplete report and identifies missing bidder details',as
 })
 it('prefills calculated weekly pay and can save a manual amount without marking paid',async()=>{
  const report=data() as any
- Object.assign(report.bidders[0],{daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1854,amount_override_cents:null})
+ Object.assign(report.bidders[0],{daily:[400,0,0,0,0,0,0],checked_daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1854,amount_override_cents:null})
  vi.mocked(request).mockResolvedValue(report);mount()
  fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
  const input=screen.getByLabelText('Amount (USD)') as HTMLInputElement
@@ -163,7 +167,7 @@ it('prefills calculated weekly pay and can save a manual amount without marking 
 })
 it('edits an already-paid amount and can apply the current calculated amount',async()=>{
  const report=data() as any
- Object.assign(report.bidders[0],{daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1970,payment:{amount_cents:1970,application_count:328,paid_at:'2026-10-19T12:00:00Z',note:'Original note',revision:0}})
+ Object.assign(report.bidders[0],{daily:[400,0,0,0,0,0,0],checked_daily:[309,0,0,0,0,0,0],pay_per_bid:'0.05',adjustment_percent:'20',calculated_amount_cents:1854,payable_amount_cents:1970,payment:{amount_cents:1970,application_count:328,paid_at:'2026-10-19T12:00:00Z',note:'Original note',revision:0}})
  vi.mocked(request).mockResolvedValue(report);mount()
  fireEvent.click(await screen.findByRole('button',{name:/Edit confirmed payment for Alex/}))
  expect(screen.getByRole('heading',{name:'Edit payment for Alex'})).toBeTruthy()
@@ -239,8 +243,8 @@ it('displays an explicitly zero rate as zero money instead of a missing rate',as
 it("expands a bidder into separate account daily counts without adding to totals",async()=>{
  const report=data() as any
  report.bidders[0].account_breakdown=[
-  {account_id:1,account_label:"Work inbox",daily:[2,0,0,0,0,0,0],checked_daily:[1,0,0,0,0,0,0],total:2},
-  {account_id:2,account_label:"Other inbox",daily:[1,0,0,0,0,0,0],checked_daily:[2,0,0,0,0,0,0],total:1},
+  {account_id:1,account_label:"Work inbox",daily:[2,0,0,0,0,0,0],checked_daily:[1,0,0,0,0,0,0],total:1},
+  {account_id:2,account_label:"Other inbox",daily:[1,0,0,0,0,0,0],checked_daily:[2,0,0,0,0,0,0],total:2},
  ]
  vi.mocked(request).mockResolvedValue(report)
  mount(true)
@@ -250,10 +254,10 @@ it("expands a bidder into separate account daily counts without adding to totals
  fireEvent.click(toggle)
  const work=screen.getByRole("row",{name:"Alex · Work inbox"})
  const other=screen.getByRole("row",{name:"Alex · Other inbox"})
- expect(within(work).getByText("2 / 1")).toBeTruthy()
- expect(within(other).getByText("1 / 2")).toBeTruthy()
+ expect(within(work).getAllByRole("cell")[0].textContent).toBe("1 / 2")
+ expect(within(other).getAllByRole("cell")[0].textContent).toBe("2 / 1")
  expect(screen.getByRole("button",{name:"Hide accounts for Alex"}).getAttribute("aria-expanded")).toBe("true")
- expect(within(screen.getByRole("rowheader",{name:"Total"}).closest("tr")!).getByText("3 / 3")).toBeTruthy()
+ expect(within(screen.getByRole("rowheader",{name:"Total"}).closest("tr")!).getAllByRole("cell")[0].textContent).toBe("3 / 3")
  fireEvent.click(screen.getByRole("button",{name:"Hide accounts for Alex"}))
  expect(screen.queryByRole("row",{name:"Alex · Work inbox"})).toBeNull()
 })
