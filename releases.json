@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.17.2",
+    "date": "2026-11-04",
+    "title": "Show checked counts only to bidders",
+    "changes": [
+      "Limit bidder payment views and API responses to checked-application counts; admins retain checked applications and received replies.",
+      "Hide received-reply header badges and historical review-count notices from bidders on Bidder management, including expanded account rows and totals."
+    ]
+  },
+  {
     "version": "2.17.1",
     "date": "2026-11-04",
     "title": "Harden checked-application matching and optimize accounting",

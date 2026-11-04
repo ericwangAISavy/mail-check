@@ -246,3 +246,13 @@ it.each(["/admin-management","/settings"])("keeps the daily badge available on %
  expect((await screen.findByLabelText("446 received replies today")).closest("header")).toBeTruthy()
  expect(api.applicationsToday).toHaveBeenCalled()
 })
+
+it.each(["/payments", "/payments/"])("hides received-reply header counts from bidders on %s", async (path) => {
+ vi.mocked(api.session).mockResolvedValue({role:"bidder",managed:true,workspace_id:"legacy",bidder_id:1})
+ vi.mocked(api.bootstrap).mockResolvedValue({readiness:{model:true,accounts:true,privacy_ack:true,outlook:false},counts:{actionable:0,applications_today:171},taxonomy:[],presets:[],last_run:"",account_count:1})
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
+ await screen.findByRole("button",{name:"Sign out"})
+ expect(document.querySelector(".header-application-count")).toBeNull()
+ expect(screen.queryByLabelText("171 received replies today")).toBeNull()
+})

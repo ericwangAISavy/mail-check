@@ -36,7 +36,7 @@ the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOUR
 
 ## Daily application counts
 
-Daily cells show **checked applications / received replies**. For example,
+Admins see **checked applications / received replies** in daily cells. Bidders see only their checked-application count in bidder rows, expanded account rows and totals; received-reply counts and historical review counts are omitted from their payment API response. For example,
 **75 / 92** means 75 checked job-link rows and an allocated share of 92
 application-received emails. Checked applications appear in bright text; received
 replies appear in grey for reference. Received replies are application acknowledgements,

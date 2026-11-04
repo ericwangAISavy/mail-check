@@ -506,7 +506,7 @@ class PaymentTests(unittest.TestCase):
         bidders=response.json()["bidders"]
         self.assertEqual([b["id"] for b in bidders],[1])
         self.assertEqual([a["account_id"] for a in bidders[0]["account_breakdown"]],[self.account])
-        self.assertEqual(bidders[0]["account_breakdown"][0]["received_reply_total"],1)
+        self.assertNotIn("received_reply_total", bidders[0]["account_breakdown"][0])
 
     def test_report_query_count_does_not_grow_with_bidder_count(self):
         def queries():
@@ -561,3 +561,30 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(completed_account_counts(self.conn, '2026-10-12', '2026-10-12'), {})
         self.conn.execute("UPDATE sourcing_check_activity SET confirmed_at='invalid-legacy-time'")
         self.assertEqual(completed_account_counts(self.conn, '2026-10-12', '2026-10-12'), {(1,self.account,'2026-10-12'):1})
+
+    def test_bidder_payment_payload_has_checked_counts_only_but_admin_keeps_replies(self):
+        self.assign(); self.add_checks(1, self.account, 1)
+        for i in range(3): self.message(f'private-reply-{i}')
+        self.conn.commit()
+        admin = self.client.get('/api/payments?week=2026-10-12').json()
+        self.assertEqual(admin['bidders'][0]['daily'][0], 3)
+        self.assertEqual(admin['bidders'][0]['received_reply_total'], 3)
+        self.assertEqual(admin['bidders'][0]['checked_daily'][0], 1)
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(1,'2026-10-12',3,100,'2026-10-19','Saved')")
+        self.conn.execute("INSERT INTO bidder_payment_amounts VALUES(1,'2026-10-12',100,3)")
+        self.conn.commit()
+        sign_in_bidder(self.client,1)
+        response = self.client.get('/api/payments?week=2026-10-12')
+        self.assertEqual(response.status_code,200,response.text)
+        payload=response.json(); row=payload['bidders'][0]
+        self.assertEqual(payload['daily'],payload['checked_daily'])
+        self.assertEqual(row['daily'],row['checked_daily'])
+        self.assertEqual(row['daily'][0],1)
+        self.assertNotIn('received_reply_total',row)
+        self.assertNotIn('override_application_count',row)
+        self.assertNotIn('application_count',row['payment'])
+        self.assertEqual(row['payment']['amount_cents'],100)
+        self.assertNotIn('unallocated_daily',payload)
+        for account in row['account_breakdown']:
+            self.assertEqual(account['daily'],account['checked_daily'])
+            self.assertNotIn('received_reply_total',account)

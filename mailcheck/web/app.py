@@ -893,7 +893,22 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             if not read_only:
                 sourcing_verification.verify_all(conn, refresh_since=start,
                     refresh_until=start + timedelta(days=6), sample=False, week_only=True)
-            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=True)
+            report = payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=True)
+            if request.state.role == 'bidder':
+                # Bidder payloads contain checked counts only, including legacy
+                # fields that admins use for reply allocations and saved reviews.
+                report['daily'] = list(report['checked_daily'])
+                report.pop('unallocated_daily', None)
+                for row in report['bidders']:
+                    row['daily'] = list(row['checked_daily'])
+                    row.pop('received_reply_total', None)
+                    row.pop('override_application_count', None)
+                    if row['payment']:
+                        row['payment'].pop('application_count', None)
+                    for account in row['account_breakdown']:
+                        account['daily'] = list(account['checked_daily'])
+                        account.pop('received_reply_total', None)
+            return report
 
     def payment_write(action):
         try:

@@ -46,7 +46,7 @@ it("shows checked applications before muted received replies", async () => {
   report.bidders[0].daily[0] = 112
   report.bidders[0].checked_daily = [60,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
-  mount(true)
+  mount()
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
   expect(within(row).getAllByRole("cell")[0].textContent).toBe("60 / 112")
   expect(within(row).getAllByTitle("Checked applications")[0].className).toBe("payment-checked-count")
@@ -60,7 +60,7 @@ it("shows daily and weekly totals to guests without management or payment contro
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3 / 3","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","0 / 0","3","Rate not set / UnavailableAsk your admin to set your payment rate."])
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Rate not set / UnavailableAsk your admin to set your payment rate."])
   expect(screen.queryByRole("button", { name: /Edit confirmed payment for Alex/ })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
@@ -240,24 +240,24 @@ it('displays an explicitly zero rate as zero money instead of a missing rate',as
  expect(within(row).queryByText('Rate not set')).toBeNull()
 })
 
-it("expands a bidder into separate account daily counts without adding to totals",async()=>{
+it.each([false,true])("expands account counts with bidder visibility readOnly=%s",async(readOnly)=>{
  const report=data() as any
  report.bidders[0].account_breakdown=[
   {account_id:1,account_label:"Work inbox",daily:[2,0,0,0,0,0,0],checked_daily:[1,0,0,0,0,0,0],total:1},
   {account_id:2,account_label:"Other inbox",daily:[1,0,0,0,0,0,0],checked_daily:[2,0,0,0,0,0,0],total:2},
  ]
  vi.mocked(request).mockResolvedValue(report)
- mount(true)
+ mount(readOnly)
  const toggle=await screen.findByRole("button",{name:"Show accounts for Alex"})
  expect(within(toggle.closest("tr")!).queryByText("Work inbox")).toBeNull()
  expect(screen.queryByRole("row",{name:"Alex · Work inbox"})).toBeNull()
  fireEvent.click(toggle)
  const work=screen.getByRole("row",{name:"Alex · Work inbox"})
  const other=screen.getByRole("row",{name:"Alex · Other inbox"})
- expect(within(work).getAllByRole("cell")[0].textContent).toBe("1 / 2")
- expect(within(other).getAllByRole("cell")[0].textContent).toBe("2 / 1")
+ expect(within(work).getAllByRole("cell")[0].textContent).toBe(readOnly ? "1" : "1 / 2")
+ expect(within(other).getAllByRole("cell")[0].textContent).toBe(readOnly ? "2" : "2 / 1")
  expect(screen.getByRole("button",{name:"Hide accounts for Alex"}).getAttribute("aria-expanded")).toBe("true")
- expect(within(screen.getByRole("rowheader",{name:"Total"}).closest("tr")!).getAllByRole("cell")[0].textContent).toBe("3 / 3")
+ expect(within(screen.getByRole("rowheader",{name:"Total"}).closest("tr")!).getAllByRole("cell")[0].textContent).toBe(readOnly ? "3" : "3 / 3")
  fireEvent.click(screen.getByRole("button",{name:"Hide accounts for Alex"}))
  expect(screen.queryByRole("row",{name:"Alex · Work inbox"})).toBeNull()
 })
@@ -278,14 +278,29 @@ it('masks account emails in visible labels and accessible row names without chan
 it("explains when saved payment counts differ from the checked payment basis", async () => {
  const report=data() as any
  report.bidders[0].payment={amount_cents:1000,application_count:171,paid_at:"2026-10-19T12:00:00Z",note:"",revision:0}
- vi.mocked(request).mockResolvedValue(report);mount(true)
+ vi.mocked(request).mockResolvedValue(report);mount()
  expect(await screen.findByText("Recorded count: 171; current checked total: 3. Saved payment unchanged.")).toBeTruthy()
  expect(screen.getByLabelText("Estimated / confirmed payment").textContent).toContain("$10.00")
 })
 it("explains stale manual amount reviews without changing the saved amount", async () => {
  const report=data() as any
  Object.assign(report.bidders[0],{amount_override_cents:1200,override_application_count:171,calculated_amount_cents:18,payable_amount_cents:1200})
- vi.mocked(request).mockResolvedValue(report);mount(true)
+ vi.mocked(request).mockResolvedValue(report);mount()
  expect(await screen.findByText("Saved amount reviewed at 171 count; current checked total: 3.")).toBeTruthy()
  expect(screen.getByLabelText("Estimated / confirmed payment").textContent).toContain("$12.00")
+})
+
+it("shows bidders checked counts only even if a cached payload contains replies", async () => {
+ const report=data() as any
+ report.daily=[171,0,0,0,0,0,0]
+ Object.assign(report.bidders[0],{daily:[171,0,0,0,0,0,0],checked_daily:[76,0,0,0,0,0,0],received_reply_total:171,payment:{amount_cents:456,application_count:171,paid_at:"2026-10-19T12:00:00Z",note:""}})
+ report.unallocated_daily=[93,0,0,0,0,0,0]
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ const row=(await screen.findByRole("rowheader",{name:/Alex/})).closest("tr")!
+ expect(within(row).getAllByRole("cell")[0].textContent).toBe("76")
+ expect(screen.queryAllByTitle("Received replies")).toHaveLength(0)
+ expect(document.querySelector(".payment-reply-count")).toBeNull()
+ expect(screen.queryByText(/received replies/i)).toBeNull()
+ expect(screen.queryByText(/Recorded count:/)).toBeNull()
+ expect(document.querySelector("tfoot td")!.textContent).toBe("76")
 })
