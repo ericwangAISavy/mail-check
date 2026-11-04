@@ -216,6 +216,26 @@ class FrontendApiTests(unittest.TestCase):
         self.assertTrue(payload["taxonomy"])
         self.assertTrue(payload["presets"])
 
+    def test_today_filter_uses_chicago_midnight_including_dst(self):
+        from datetime import timezone
+        before = self.add_message("before-midnight")
+        inside = self.add_message("after-midnight")
+        for instant, lower in (("2026-11-04T18:00:00+00:00", "2026-11-04T06:00:00+00:00"),
+                               ("2026-11-02T04:30:00+00:00", "2026-11-01T05:00:00+00:00")):
+            with self.subTest(instant=instant):
+                boundary = datetime.fromisoformat(lower)
+                self.conn.execute("UPDATE messages SET date_utc=? WHERE id=?", ((boundary-timedelta(seconds=1)).isoformat(), before))
+                self.conn.execute("UPDATE messages SET date_utc=? WHERE id=?", (boundary.isoformat(), inside))
+                self.conn.commit()
+                with patch.object(web_app, "datetime", wraps=datetime) as clock:
+                    clock.now.return_value = datetime.fromisoformat(instant)
+                    response = self.client.get("/api/triage?view=all&days=0&account=personal")
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                self.assertEqual([row["pk"] for group in payload["groups"] for row in group["items"]], [inside])
+                self.assertEqual(sum(payload["counts"].values()), 1)
+                self.assertEqual(payload["days"], 0)
+
     def test_triage_filters_views_and_keeps_message_bodies_out_of_rows(self):
         active = self.add_message("active")
         self.add_message("finished", done=True)

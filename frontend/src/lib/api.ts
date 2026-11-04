@@ -115,7 +115,7 @@ export function triageParams(search: string) {
   const view = source.get("view")
   params.set("view", view === "all" || view === "completed" ? view : "queue")
   const days = source.get("days")
-  params.set("days", ["2", "3", "7", "14", "30", "90"].includes(days || "") ? days! : "30")
+  params.set("days", ["0", "1", "2", "3", "7", "14", "30", "90"].includes(days || "") ? days! : "30")
   for (const key of ["account", "category"]) if (source.get(key)) params.set(key, source.get(key)!)
   return params
 }

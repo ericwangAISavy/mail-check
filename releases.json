@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.15.0",
+    "date": "2026-11-04",
+    "title": "Add Today to Triage time ranges",
+    "changes": [
+      "Filter Triage mail to today using America/Chicago midnight, matching bidder accounting, or choose the last 24 hours."
+    ]
+  },
+  {
     "version": "2.14.2",
     "date": "2026-11-04",
     "title": "Restore v2.13.5 classification behavior",

@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.15.0 — 2026-11-04
+
+Add Today to Triage time ranges
+
+- Filter Triage mail to today using America/Chicago midnight, matching bidder accounting, or choose the last 24 hours.
+
 ## 2.14.2 — 2026-11-04
 
 Restore v2.13.5 classification behavior

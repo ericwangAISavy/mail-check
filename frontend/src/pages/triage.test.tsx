@@ -291,3 +291,16 @@ it("opens the target message and reply composer from a follow-up link without ge
   expect(requests.some(r=>r.startsWith("GET /api/messages/2/reply"))).toBe(true)
   expect(requests.some(r=>r.includes("/generate")||r.startsWith("POST /api/messages/2/reply"))).toBe(false)
 })
+
+it("offers Today and Last 24 hours and sends the selected range", async () => {
+  renderPage()
+  await screen.findByText("Interview 1")
+  fireEvent.click(screen.getByRole("button", { name: /Filters/ }))
+  const range = screen.getByLabelText("Time range")
+  expect(screen.getByRole("option", { name: "Today" })).toBeTruthy()
+  expect(screen.getByRole("option", { name: "Last 24 hours" })).toBeTruthy()
+  fireEvent.change(range, { target: { value: "0" } })
+  await waitFor(() => expect(requests.some(url => url.includes("days=0"))).toBe(true))
+  fireEvent.change(range, { target: { value: "1" } })
+  await waitFor(() => expect(requests.some(url => url.includes("days=1"))).toBe(true))
+})

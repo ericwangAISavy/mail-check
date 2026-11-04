@@ -1043,9 +1043,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         """Read the same bounded, body-free rows as the original console."""
         if view not in ("queue", "all", "completed"):
             return _err("Unknown mail view.")
-        if days not in (2, 3, 7, 14, 30, 90):
+        if days not in (0, 1, 2, 3, 7, 14, 30, 90):
             return _err("Choose a supported time range.")
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        now = datetime.now(timezone.utc)
+        # Match the Chicago accounting day used by Bidder management.
+        since = (datetime.combine(now.astimezone(payments.ZONE).date(), datetime.min.time(), payments.ZONE).astimezone(timezone.utc)
+                 if days == 0 else now - timedelta(days=days)).isoformat()
         handled = {"queue": False, "completed": True, "all": None}[view]
         with db.session() as conn:
             rows = db.query_triaged(
