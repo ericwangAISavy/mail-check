@@ -383,6 +383,13 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     **(json.loads(cell["style"]) if cell else {}),
                     **(change.get("style") or {}),
                 }
+                # Lock rows that were checked before this save, so an initial
+                # paste can still set the job details and check together.
+                if row_id in protected and (
+                    value != (cell["value"] if cell else "")
+                    or style != (json.loads(cell["style"]) if cell else {})
+                ):
+                    raise ValueError("Checked rows cannot be edited.")
                 conn.execute(
                     "INSERT INTO native_cells(row_id,column_id,value,style,version) VALUES(?,?,?,?,1) ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,style=excluded.style,version=native_cells.version+1",
                     (row_id, column_id, value, json.dumps(style)),

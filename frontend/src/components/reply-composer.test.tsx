@@ -74,3 +74,12 @@ it("never restores a reply draft from another workspace with the same account an
  expect(screen.getByLabelText("Your reply")).toHaveProperty("value","")
  expect(screen.queryByDisplayValue("Alice private draft")).toBeNull()
 })
+
+it("offers manual replies without assistant controls or assistant API requests",async()=>{
+ vi.mocked(request).mockResolvedValue(context)
+ mount();await screen.findByDisplayValue("recruiter@example.test")
+ expect(screen.queryByRole("region",{name:"Reply assistant"})).toBeNull()
+ expect(screen.queryByText("Draft with assistant")).toBeNull()
+ expect(vi.mocked(request).mock.calls.every(([url])=>!String(url).includes("/api/agent/"))).toBe(true)
+ expect(screen.getByRole("textbox",{name:"Your reply"})).toBeTruthy()
+})

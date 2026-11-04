@@ -93,6 +93,15 @@ export function sourcingColumnTitle(column: Pick<SheetColumn,"kind"|"title">,ind
   const titles:Record<string,string>={company:"Company",role:"Role",link:"Job link",check:"Check"}
   return (column.kind&&titles[column.kind])||column.title||columnName(index)
 }
+/** Saved checked rows stay locked even if a stale draft tries to clear the check. */
+export function checkedSourcingRows(snapshot: Snapshot, changes: Change[] = []) {
+  const columns=new Set(snapshot.columns.flatMap((column,index)=>column.kind==="check"?[index]:[]));
+  const rows=new Set<number>();
+  snapshot.rows.forEach((cells,row)=>{if(row>0&&[...columns].some(col=>String(cells[col]?.value)==="true"))rows.add(row)});
+  for(const change of changes)if(columns.has(change.col)&&change.value==="true")rows.add(change.row);
+  return rows;
+}
+
 export function columnName(index: number) {
   let result = "";
   for (index++; index; index = Math.floor((index - 1) / 26))

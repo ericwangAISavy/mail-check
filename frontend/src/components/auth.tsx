@@ -35,7 +35,7 @@ function SignInViewport({children}:{children:ReactNode}) {
       const style=getComputedStyle(page)
       const width=page.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)
       const height=page.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom)
-      const scale=Math.min(1,width/Math.max(layout.scrollWidth,1),height/Math.max(layout.offsetHeight,1))
+      const scale=Math.min(0.85,width/Math.max(layout.scrollWidth,1),height/Math.max(layout.offsetHeight,1))
       layout.style.transform=`scale(${Math.max(0,scale)})`
     }
     const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(fit)}

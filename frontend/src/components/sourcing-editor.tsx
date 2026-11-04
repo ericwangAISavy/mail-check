@@ -24,6 +24,7 @@ import {
 import { api, request, downloadFile } from "@/lib/api";
 import {
   defaultView,
+  checkedSourcingRows,
   chicagoDay,
   visibleRows,
   hasUnexpectedEdits,
@@ -355,7 +356,8 @@ export default function SourcingEditor({
     if (!snapshot || selection.rows.length * selection.columns.length > 10000)
       return;
     const values: Change[] = [];
-    for (const row of selection.rows)
+    const checked=checkedSourcingRows(snapshot,changes);
+    for (const row of selection.rows.filter(row=>!checked.has(row)))
       for (const col of selection.columns) {
         const previous = changes.find((c) => c.row === row && c.col === col);
         values.push({

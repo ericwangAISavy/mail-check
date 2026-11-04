@@ -654,3 +654,11 @@
 .sourcing-viewer-message { padding: 12px 16px; color: var(--muted-foreground); }
 .sourcing-viewer-pagination { display:flex; align-items:center; gap:12px; padding:12px; flex-wrap:wrap; }
 .sourcing-viewer-highlight { background: var(--muted); }
+
+/* Row selection owns copying; ordinary rendered cell text is never browser-selected. */
+.sourcing-grid .native-cell-content,.sourcing-grid .native-cell-content a,.sourcing-grid .sheet-row-number,.sheet-formula-bar { user-select:none; -webkit-user-select:none; }
+.sourcing-grid .native-cell-input { user-select:text; -webkit-user-select:text; }
+.sourcing-grid .sheet-checked-row > .rdg-cell { background-color:color-mix(in srgb,#12b886 12%,var(--background)); }
+.sourcing-grid .sheet-row-selected.sheet-checked-row > .rdg-cell { background-color:color-mix(in srgb,#12b886 24%,var(--background)); }
+.sourcing-grid .sheet-checked-row .native-cell-content a { color:#087f5b; font-weight:600; }
+.dark .sourcing-grid .sheet-checked-row .native-cell-content a { color:#6ee7b7; }

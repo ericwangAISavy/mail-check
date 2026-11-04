@@ -232,3 +232,16 @@ positions are compacted so no removed-row holes remain. Existing checked rows
 are protected during grid edits. Formatting edits do not trigger filtering.
 The save response reports duplicate and blocked-company counts. Operation retries
 reuse the recorded filtering result and do not insert the same batch twice.
+
+### Select and protect rows
+
+Click any cell or row number to select the whole job row. Drag or Shift-select to
+include several rows. **Ctrl/Cmd+C** copies every column of the selected rows as
+tab-separated text; **Delete** or **Backspace** uses the existing row-removal flow.
+Rendered cell text does not use browser text selection. Double-click an unchecked
+cell to edit it. Use Ctrl/Cmd-click to open a job link without changing it.
+
+Checked rows have a green tint and green job links. Their cell values and formatting
+are read-only, enforced by both the grid and save API. They can still be selected,
+copied, moved to another date, or explicitly deleted as rows. A newly pasted row
+may include its job details and initial checked state in the same save.

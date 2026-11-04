@@ -2,6 +2,15 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.0 — 2026-11-03
+
+Streamlined bidder management and sourcing rows
+
+- Open one bidder editor at a time and mask account emails in Bidder management.
+- Keep replies manual by removing the assisted drafting interface and generation APIs.
+- Reduce the sign-in layout size while preserving viewport fitting.
+- Select, copy and delete whole sourcing rows; checked rows have distinct styling and locked cell contents.
+
 ## 2.12.0 — 2026-11-03
 
 Per-account role filters and Junk/Spam collection

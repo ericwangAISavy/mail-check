@@ -67,22 +67,46 @@ class SourcingVerificationTests(unittest.TestCase):
         verification.verify_all(self.conn)
         self.assertEqual(self.snapshot()["rows"][1][3]["value"], "true")
 
-    def test_editing_a_verified_company_or_moving_day_keeps_its_check(self):
+    def test_verified_row_rejects_value_and_format_edits_but_can_move_day(self):
         from mailcheck import sourcing_verification as verification
         base = self.jobs()
         self.receipt("match", "Acme", "2026-10-20T12:00:00+00:00")
         self.conn.commit()
         first = verification.verify(self.conn, self.tab(), "first", base["revision"], "2026-10-20")
-        changed = self.native.save(self.conn, self.tab(), "edit-company", [{
-            "row_id": first["row_ids"][1], "column_id": first["columns"][0]["id"],
-            "expected_version": first["rows"][1][0]["version"], "value": "Different company"}], work_date="2026-10-20")
-        self.assertEqual(changed["rows"][1][3]["value"], "true")
-        checked = self.native.save(self.conn, self.tab(), "manual-check", [{
-            "row_id": changed["row_ids"][1], "column_id": changed["columns"][3]["id"],
-            "expected_version": changed["rows"][1][3]["version"], "value": "true"}])
-        moved = self.native.structure(self.conn, self.tab(), "move", checked["revision"], {
-            "action": "move_date", "ids": [checked["row_ids"][1]], "work_date": "2026-10-21"})
+        for index, column in enumerate(first["columns"]):
+            for field in ({"value": "Different company"} if column["kind"] != "check" else {"value": "true"}, {"style": {"bold": True}}):
+                # Resaving the existing check value is harmless; all changed cells are locked.
+                if field == {"value": "true"}:
+                    continue
+                with self.subTest(column=column["kind"], field=field):
+                    with self.assertRaisesRegex(ValueError, "Checked rows cannot be edited"):
+                        self.native.save(self.conn, self.tab(), "edit-" + str(index) + str(field), [{
+                            "row_id": first["row_ids"][1], "column_id": column["id"],
+                            "expected_version": first["rows"][1][index]["version"], **field}])
+        after = self.snapshot()
+        self.assertEqual(after["rows"], first["rows"])
+        self.assertEqual(after["revision"], first["revision"])
+        moved = self.native.structure(self.conn, self.tab(), "move", first["revision"], {
+            "action": "move_date", "ids": [first["row_ids"][1]], "work_date": "2026-10-21"})
         self.assertEqual(moved["rows"][1][3]["value"], "true")
+
+    def test_initial_save_can_check_row_before_its_job_details(self):
+        base = self.snapshot()
+        row_id = base["row_ids"][1]
+        changes = [{"row_id": row_id, "column_id": base["columns"][index]["id"],
+                    "expected_version": 0, "value": value}
+                   for index, value in [(3, "true"), (0, "Acme"), (1, "Engineer"),
+                                        (2, "https://jobs.test/initial")]]
+        saved = self.native.save(self.conn, self.tab(), "initial-checked-paste", changes)
+        self.assertEqual([cell["value"] for cell in saved["rows"][1]],
+                         ["Acme", "Engineer", "https://jobs.test/initial", "true"])
+        with self.assertRaisesRegex(ValueError, "Checked rows cannot be edited"):
+            self.native.save(self.conn, self.tab(), "mixed-checked-edit", [
+                {"row_id": saved["row_ids"][2], "column_id": saved["columns"][0]["id"],
+                 "expected_version": 0, "value": "Must roll back"},
+                {"row_id": row_id, "column_id": saved["columns"][0]["id"],
+                 "expected_version": saved["rows"][1][0]["version"], "value": "Changed"}])
+        self.assertEqual(self.snapshot()["rows"], saved["rows"])
 
     def test_checked_cells_cannot_be_cleared_by_manual_edits(self):
         base = self.jobs()

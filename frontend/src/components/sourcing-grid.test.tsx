@@ -122,3 +122,36 @@ it("preserves the saved row identity when the first visible job is filtered",()=
  fireEvent.change(editor,{target:{value:"Beta updated"}});fireEvent.blur(editor)
  expect(change).toHaveBeenCalledWith([{row:2,col:0,value:"Beta updated",style:undefined}])
 })
+
+it("selects and copies the whole row from any clicked cell",()=>{
+ const selection=vi.fn(),setData=vi.fn()
+ render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()} onSelection={selection}/>)
+ fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Engineer"}),{button:0,buttons:1});fireEvent.mouseUp(document)
+ expect(selection).toHaveBeenLastCalledWith({rows:[1],columns:[0,1,2,3]})
+ fireEvent.copy(screen.getByRole("grid"),{clipboardData:{setData}})
+ expect(setData).toHaveBeenCalledWith("text/plain","Acme\tEngineer\thttps://jobs.test/1\tfalse")
+})
+
+it("locks every cell in a checked row and gives it a checked style",()=>{
+ const data=snapshot();data.rows[1][3]=cell("true")
+ render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()}/>)
+ const company=screen.getByRole("gridcell",{name:"Acme"})
+ fireEvent.doubleClick(company)
+ expect(screen.queryByRole("textbox",{name:"Edit cell"})).toBeNull()
+ expect(company.closest('[role="row"]')?.className).toContain("sheet-checked-row")
+})
+
+it("rejects pasting over checked row cells",()=>{
+ const data=snapshot();data.rows[1][3]=cell("true");const change=vi.fn()
+ render(<SheetGrid snapshot={data} changes={[]} onChange={change}/>)
+ fireEvent.paste(screen.getByRole("grid"),{clipboardData:{getData:()=>"Changed"}})
+ expect(change).not.toHaveBeenCalled()
+})
+
+it("deletes a row selected using its row number",()=>{
+ const remove=vi.fn()
+ render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()} onDeleteRows={remove}/>)
+ fireEvent.mouseDown(screen.getByRole("gridcell",{name:"1"}),{button:0,buttons:1});fireEvent.mouseUp(document)
+ fireEvent.keyDown(screen.getByRole("grid"),{key:"Delete"})
+ expect(remove).toHaveBeenCalledWith([1])
+})

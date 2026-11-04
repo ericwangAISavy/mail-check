@@ -141,3 +141,6 @@
 .payment-table .payment-account-detail th > span { margin-top:0; }
 .payment-table .payment-account-detail .payment-today { background:var(--accent); }
 .payment-account-detail td:last-child { color:var(--muted-foreground); }
+
+.payment-bidder-editor-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.payment-bidder-editor-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 6px; border-radius: 3px; }

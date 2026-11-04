@@ -89,9 +89,10 @@ class IncomingFilterTests(unittest.TestCase):
         filters.set_companies(self.conn,['Acme'])
         self.conn.commit()
         base=self.snapshot()
-        result=self.native.save(self.conn,self.tab(),'format',[{'row_id':base['row_ids'][1],'column_id':base['columns'][0]['id'],'expected_version':base['rows'][1][0]['version'],'style':{'bold':True}}])
+        with self.assertRaisesRegex(ValueError, 'Checked rows cannot be edited'):
+            self.native.save(self.conn,self.tab(),'format',[{'row_id':base['row_ids'][1],'column_id':base['columns'][0]['id'],'expected_version':base['rows'][1][0]['version'],'style':{'bold':True}}])
         self.assertEqual(len(self.jobs()),1)
-        self.assertEqual(result['rows'][1][3]['value'],'true')
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
 
     def test_checking_an_incoming_duplicate_does_not_bypass_filter(self):
         self.add([['Acme','Engineer','https://jobs.test/old']])
@@ -138,7 +139,8 @@ class IncomingFilterTests(unittest.TestCase):
         self.assertEqual(result['filtered']['blocked_roles'],1)
         self.add([['Historical','Engineer','https://jobs.test/checked','true']],'checked-role')
         base=self.snapshot();cell=base['rows'][1][1]
-        self.native.save(self.conn,self.tab(),'checked-role-edit',[{'row_id':base['row_ids'][1],'column_id':base['columns'][1]['id'],'expected_version':cell['version'],'value':'MLOps'}])
+        with self.assertRaisesRegex(ValueError, 'Checked rows cannot be edited'):
+            self.native.save(self.conn,self.tab(),'checked-role-edit',[{'row_id':base['row_ids'][1],'column_id':base['columns'][1]['id'],'expected_version':cell['version'],'value':'MLOps'}])
         self.assertEqual(len(self.jobs()),1)
 
     def test_role_filter_api_is_account_scoped_and_admin_only(self):

@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.13.0",
+    "date": "2026-11-03",
+    "title": "Streamlined bidder management and sourcing rows",
+    "changes": [
+      "Open one bidder editor at a time and mask account emails in Bidder management.",
+      "Keep replies manual by removing the assisted drafting interface and generation APIs.",
+      "Reduce the sign-in layout size while preserving viewport fitting.",
+      "Select, copy and delete whole sourcing rows; checked rows have distinct styling and locked cell contents."
+    ]
+  },
+  {
     "version": "2.12.0",
     "date": "2026-11-03",
     "title": "Per-account role filters and Junk/Spam collection",

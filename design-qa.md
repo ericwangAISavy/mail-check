@@ -13,6 +13,13 @@ password-change states. Captures include `/tmp/signin-fit-1115x565.png` and
 `/tmp/signin-fit-390x280.png`; all controls remain within the viewport. This fit
 requirement intentionally supersedes 1:1 sizing at smaller screen dimensions.
 
+## Follow-up: smaller sign-in layout
+
+The later request to zoom the sign-in content out is implemented with a maximum
+layout scale of 0.85. The browser zoom setting remains unchanged. The 28 viewport
+and form-state checks pass again; `/tmp/signin-fit-1672x847.png` shows the reduced
+layout. This intentionally changes component sizes relative to the first mockup.
+
 ## Source and evidence
 
 - Layout reference: first user-supplied sign-in screenshot in this conversation.

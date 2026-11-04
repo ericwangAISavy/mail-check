@@ -257,3 +257,16 @@ it("expands a bidder into separate account daily counts without adding to totals
  fireEvent.click(screen.getByRole("button",{name:"Hide accounts for Alex"}))
  expect(screen.queryByRole("row",{name:"Alex · Work inbox"})).toBeNull()
 })
+
+it('masks account emails in visible labels and accessible row names without changing report data', async () => {
+ const report=data() as any
+ const label='Primary (danny@outlook.com)'
+ report.bidders[0].account_breakdown=[{account_id:1,account_label:label,daily:[3,0,0,0,0,0,0],checked_daily:[3,0,0,0,0,0,0],total:3}]
+ vi.mocked(request).mockResolvedValue(report)
+ mount(true)
+ fireEvent.click(await screen.findByRole('button',{name:'Show accounts for Alex'}))
+ expect(screen.getByRole('row',{name:'Alex · Primary (d****y@outlook.com)'})).toBeTruthy()
+ expect(screen.getByText('Primary (d****y@outlook.com)')).toBeTruthy()
+ expect(document.body.innerHTML).not.toContain('danny@outlook.com')
+ expect(report.bidders[0].account_breakdown[0].account_label).toBe(label)
+})

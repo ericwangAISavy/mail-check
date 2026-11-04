@@ -8,6 +8,7 @@ import {
 import "react-data-grid/lib/styles.css";
 import {
   columnName,
+  checkedSourcingRows,
   sourcingColumnTitle,
   defaultView,
   mergeChanges,
@@ -55,6 +56,7 @@ export function SheetGrid({
     stopDrag = useRef<() => void>(() => {});
   const [position, setPosition] = useState(anchor.current);
   const count = snapshot.columns.length;
+  const checkedRows = useMemo(()=>checkedSourcingRows(snapshot,changes),[snapshot,changes]);
   const visible = useMemo(
     () => visibleRows(snapshot, changes, view).filter(row=>row>0),
     [snapshot, changes, view],
@@ -85,8 +87,7 @@ export function SheetGrid({
     b: { row: number; col: number },
   ) => {
     const columns = [];
-    for (let c = Math.min(a.col, b.col); c <= Math.max(a.col, b.col); c++)
-      columns.push(c);
+    for (let c = 0; c < count; c++) columns.push(c);
     onSelection?.({
       rows: visible
         .slice(Math.min(a.row, b.row), Math.max(a.row, b.row) + 1)
@@ -118,8 +119,9 @@ export function SheetGrid({
   const apply = (values: Change[]) => {
     if (disabled) return;
     const valid = values.filter(
-      (c) => c.row > 0 && c.col >= 0 && c.col < count,
+      (c) => c.row > 0 && c.col >= 0 && c.col < count && !checkedRows.has(c.row),
     );
+    if(!valid.length)return;
     const next = mergeChanges(snapshot, changes, valid);
     if (next.length > 10000) {
       window.alert(
@@ -133,12 +135,12 @@ export function SheetGrid({
     const result: Change[] = [];
     const a = anchor.current,
       b = selected.current;
-    if ((Math.abs(a.row - b.row) + 1) * (Math.abs(a.col - b.col) + 1) > 10000) {
+    if ((Math.abs(a.row - b.row) + 1) * count > 10000) {
       window.alert("Select up to 10,000 cells at a time.");
       return result;
     }
     for (let r = Math.min(a.row, b.row); r <= Math.max(a.row, b.row); r++)
-      for (let c = Math.min(a.col, b.col); c <= Math.max(a.col, b.col); c++)
+      for (let c = 0; c < count; c++)
         if (visible[r] !== undefined)
           result.push({ row: visible[r], col: c, value: "" });
     return result;
@@ -161,7 +163,7 @@ export function SheetGrid({
       width: definition.width || 220,
       resizable: !disabled,
       editable: (row) =>
-        !disabled && definition.kind !== "check" && row.id > 0,
+        !disabled && !checkedRows.has(row.id) && definition.kind !== "check" && row.id > 0,
       renderEditCell: (props) => (
         <NativeCellEditor {...props} onEditingChange={onEditingChange} />
       ),
@@ -169,8 +171,7 @@ export function SheetGrid({
         const index = indices.get(row.id) ?? 0;
         return index >= Math.min(anchor.current.row, position.row) &&
           index <= Math.max(anchor.current.row, position.row) &&
-          c >= Math.min(anchor.current.col, position.col) &&
-          c <= Math.max(anchor.current.col, position.col)
+          c >= 0 && c < count
           ? "sheet-range-cell"
           : row.id === 0
             ? "sheet-heading-cell"
@@ -191,6 +192,7 @@ export function SheetGrid({
         return (
           <span
             className={`native-cell-content ${style.wrap ? "is-wrapped" : ""}`}
+            onDragStart={event=>event.preventDefault()}
             style={{
               fontWeight: style.bold ? 700 : undefined,
               fontStyle: style.italic ? "italic" : undefined,
@@ -203,7 +205,8 @@ export function SheetGrid({
                 href={text}
                 target="_blank"
                 rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); if(!e.ctrlKey&&!e.metaKey)e.preventDefault(); }}
+                title={checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"Click to select row. Ctrl/Cmd+click to open."}
               >
                 {text}
               </a>
@@ -246,17 +249,16 @@ export function SheetGrid({
         headerRowHeight={28}
         rowClass={(row) => {
           const index = indices.get(row.id) ?? -1;
-          return [row.id === highlightRow ? "sheet-highlight-row" : "",
+          return [row.id === highlightRow ? "sheet-highlight-row" : "", checkedRows.has(row.id)?"sheet-checked-row":"",
             row.id > 0 && index >= Math.min(anchor.current.row, position.row) && index <= Math.max(anchor.current.row, position.row) ? "sheet-row-selected" : ""].filter(Boolean).join(" ") || undefined;
         }}
         onActivePositionChange={({ rowIdx, column }) => {
-          if (rowIdx >= 0 && column && column.key !== "id")
-            select({ row: rowIdx, col: Number(column.key) }, extending.current);
+          if (rowIdx >= 0 && column)
+            select({ row: rowIdx, col: column.key==="id"?0:Number(column.key) }, extending.current);
         }}
         onCellMouseDown={({ rowIdx, column }, event) => {
-          if (column.key === "id") return;
           extending.current = event.shiftKey;
-          select({ row: rowIdx, col: Number(column.key) }, event.shiftKey);
+          select({ row: rowIdx, col: column.key==="id"?0:Number(column.key) }, event.shiftKey);
           if (event.button !== 0 || (event.target as Element).closest("input"))
             return;
           stopDrag.current();
@@ -266,7 +268,7 @@ export function SheetGrid({
             const row = cell?.closest('[role="row"]');
             if (!cell || !row || !grid.current?.element?.contains(cell)) return;
             const r = Number(row.getAttribute("aria-rowindex")) - 2,
-              c = Number(cell.getAttribute("aria-colindex")) - 2;
+              c = Math.max(0,Number(cell.getAttribute("aria-colindex")) - 2);
             if (r < 0 || r >= visible.length || c < 0 || c >= count) return;
             extending.current = true;
             select({ row: r, col: c }, true);
@@ -290,7 +292,7 @@ export function SheetGrid({
           const a = anchor.current,
             b = selected.current;
           if (
-            (Math.abs(a.row - b.row) + 1) * (Math.abs(a.col - b.col) + 1) >
+            (Math.abs(a.row - b.row) + 1) * count >
             10000
           ) {
             event.preventDefault();
@@ -305,8 +307,8 @@ export function SheetGrid({
           ) {
             const row = [];
             for (
-              let c = Math.min(a.col, b.col);
-              c <= Math.max(a.col, b.col);
+              let c = 0;
+              c < count;
               c++
             )
               row.push(String(rows[r]?.[String(c)] ?? ""));
@@ -317,7 +319,7 @@ export function SheetGrid({
         }}
         onCellPaste={({ row, column }, event) => {
           event.preventDefault();
-          if (disabled) return row;
+          if (disabled || checkedRows.has(row.id)) return row;
           const matrix = parseTSV(event.clipboardData.getData("text/plain")).filter(values => values.some(value => value.trim())),
             start = indices.get(row.id) ?? 0;
           if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {
@@ -340,6 +342,9 @@ export function SheetGrid({
             );
             return row;
           }
+          if(visible.slice(start,start+matrix.length).some(id=>checkedRows.has(id))){
+            window.alert("Checked rows are read-only. Paste into unchecked rows instead.");return row;
+          }
           const values: Change[] = [];
           matrix.forEach((r, ri) =>
             r.forEach((value, ci) =>
@@ -358,11 +363,10 @@ export function SheetGrid({
           extending.current = event.shiftKey;
           if (
             disabled || args.mode !== "ACTIVE" ||
-            !args.column ||
-            args.column.key === "id"
+            !args.column
           )
             return;
-          if (event.key === "Delete" && onDeleteRows) {
+          if ((event.key === "Delete" || event.key === "Backspace") && onDeleteRows) {
             event.preventDefault();
             event.preventGridDefault();
             if (event.repeat) return;

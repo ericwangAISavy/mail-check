@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Activity, ChevronLeft, ChevronRight } from "lucide-react"
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { maskAccountLabel } from "@/lib/account-label"
 import { cumulativeActivity } from "@/lib/cumulative-activity"
 import { request } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -41,7 +42,7 @@ export default function BidderActivity({ week, selected, onSelect,readOnly=false
   const query = useQuery({ queryKey: ["payments", "activity", week, scope, day], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: readOnly ? false : 30_000 })
   const data = query.data
   const valid = data && Array.isArray(data.timeline)
-  const entities = valid ? group === "accounts" ? data.accounts || [] : data.bidders : []
+  const entities = valid ? group === "accounts" ? (data.accounts || []).map(account => ({ ...account, name: maskAccountLabel(account.name) })) : data.bidders : []
   const selection = group === "accounts" ? account : selected
   const choose = (id: string) => group === "accounts" ? setAccount(id) : onSelect(id)
   const bidders = entities.filter(b => !selection || b.id === Number(selection))
