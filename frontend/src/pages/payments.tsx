@@ -66,15 +66,6 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     window.dispatchEvent(new Event("mailcheck:check-completed"))
     toast("Selected week refreshed. Confirmation estimates and checked applications recalculated.", "success")
   }, onError: (error: Error) => toast(error.message, "error")})
-  const status = useQuery({ queryKey: ["status"], queryFn: api.status, enabled: !readOnly, refetchInterval: 5_000 })
-  const reclassify = useMutation({
-    mutationFn: (all: boolean) => api.post("/api/payments/reclassify", all ? {} : { week: query.data!.week_start }),
-    onSuccess: async () => {
-      await Promise.all(["payments", "status"].map(key => client.invalidateQueries({ queryKey: [key] })))
-      toast("Reclassification started. Follow progress in the status indicator.", "success")
-    },
-    onError: (error: Error) => toast(error.message, "error"),
-  })
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
   if (query.isPending) return <Loading label="Loading application totals…" />
   if (query.error) return <div className="page-wrap"><PageHeading title="Bidder management" /><p role="alert" className="inline-error">{query.error.message}</p><Button onClick={() => void query.refetch()}>Try again</Button></div>
@@ -97,8 +88,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     try{await copyPaymentReport(result.text);toast("Weekly payment report copied.","success")}catch(error){setCopyError(error instanceof Error?error.message:"Could not copy the report.")}finally{setCopying(false)}
   }
   return <div className="page-wrap payments-page">
-    <PageHeading title="Bidder management" description="Weekly totals sum daily estimated confirmations across assigned accounts." action={!readOnly && <div className="payment-report-actions"><Button variant="outline" disabled={reclassify.isPending || status.data?.running} onClick={() => reclassify.mutate(false)}>Reclassify this week</Button><Button variant="outline" disabled={reclassify.isPending || status.data?.running} onClick={() => reclassify.mutate(true)}>Reclassify all stored emails</Button><Button variant="outline" disabled={refresh.isPending} title="Update matches and totals for this week while preserving existing checks" onClick={() => refresh.mutate("refresh")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Refresh this week</Button><Button variant="outline" disabled={refresh.isPending} title="Rebuild automatic matches for this week, removing stale automatic checks. Manual checks and saved payments are preserved." onClick={() => refresh.mutate("rebuild")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Fully rebuild this week</Button></div>} />
-    {!readOnly && <p>Reclassification updates only stored emails. Older emails that were removed must be fetched again from your email provider.</p>}
+    <PageHeading title="Bidder management" description="Weekly totals sum daily estimated confirmations across assigned accounts." action={!readOnly && <div className="payment-report-actions"><Button variant="outline" disabled={refresh.isPending} title="Update matches and totals for this week while preserving existing checks" onClick={() => refresh.mutate("refresh")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Refresh this week</Button><Button variant="outline" disabled={refresh.isPending} title="Rebuild automatic matches for this week, removing stale automatic checks. Manual checks and saved payments are preserved." onClick={() => refresh.mutate("rebuild")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Fully rebuild this week</Button></div>} />
     <div className="payment-summary-bar">
     <div className="payment-overview">
       <Card><CalendarDays aria-hidden="true" /><div><span>{todayIndex >= 0 ? "Today" : "Selected week"}</span><strong>{(todayIndex >= 0 ? estimatedDaily[todayIndex] : total).toLocaleString()}</strong><small>{todayIndex >= 0 ? shortDate(data.today) : `${shortDate(data.week_start)} – ${shortDate(data.week_end)}`}</small></div></Card>

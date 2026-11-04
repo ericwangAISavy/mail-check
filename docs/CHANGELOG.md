@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.14.2 — 2026-11-04
+
+Restore v2.13.5 classification behavior
+
+- Restore the v2.13.5 implementation, including improved email classification, before later reconciliation and classifier rollback changes.
+- Require automatic version updates for future runtime changes and preserve published history when restoring older behavior.
+
 ## 2.14.1 — 2026-11-04
 
 Preserve historical receipt counts when reclassification fails

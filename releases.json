@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.14.2",
+    "date": "2026-11-04",
+    "title": "Restore v2.13.5 classification behavior",
+    "changes": [
+      "Restore the v2.13.5 implementation, including improved email classification, before later reconciliation and classifier rollback changes.",
+      "Require automatic version updates for future runtime changes and preserve published history when restoring older behavior."
+    ]
+  },
+  {
     "version": "2.14.1",
     "date": "2026-11-04",
     "title": "Preserve historical receipt counts when reclassification fails",

@@ -133,10 +133,6 @@ class MetricsRefreshBody(BaseModel):
     mode: Literal["refresh", "rebuild"] = "refresh"
 
 
-class HistoryReclassifyBody(BaseModel):
-    week: date | None = Field(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))
-
-
 class CheckBody(BaseModel):
     mode: Literal["mail", "calendar"] = "mail"
     account: str | None = None
@@ -365,7 +361,7 @@ def _default_since() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=DEFAULT_DAYS)).isoformat()
 
 
-def _start_job(work, *, failed: str, on_finish=None, verify_sourcing: bool = True) -> None:
+def _start_job(work, *, failed: str, on_finish=None) -> None:
     """Run ``work`` on a thread against the shared ``_job`` status block.
 
     The caller must already hold ``_job_lock``; this releases it. Both the
@@ -379,12 +375,11 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing: bool = Tru
                     stage_started=time.time())
         try:
             work()
-            if verify_sourcing:
-                previous_message = _job["message"]
-                _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
-                with db.session() as conn:
-                    sourcing = sourcing_verification.verify_all(conn)
-                _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
+            previous_message = _job["message"]
+            _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
+            with db.session() as conn:
+                sourcing = sourcing_verification.verify_all(conn)
+            _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
         except Exception as exc:  # noqa: BLE001 - surface it in the UI, never 500
             _job.update(message=failed, detail=str(exc), ok=False)
         finally:
@@ -871,58 +866,6 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/payments")
     def payments_page():
         return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
-
-    @app.post("/api/payments/reclassify")
-    def reclassify_application_history(body: HistoryReclassifyBody):
-        """Re-run stored mail with current rules, then rebuild automatic estimates."""
-        if not _state()["llm_ready"]:
-            return _err("The model endpoint is not configured yet.")
-        first = payments.monday(body.week) if body.week else None
-        last = first + timedelta(days=6) if first else None
-        lower = datetime.combine(first, datetime.min.time(), payments.ZONE).astimezone(timezone.utc).isoformat() if first else None
-        upper = datetime.combine(last + timedelta(days=1), datetime.min.time(), payments.ZONE).astimezone(timezone.utc).isoformat() if last else None
-        categories = [category.name for category in CATEGORIES]
-        with db.session() as conn:
-            rows = db.messages_in_categories(conn, categories, since_iso=lower, until_iso=upper, limit=None, include_body=False)
-            count = len(rows)
-            if not count:
-                return _err("No stored emails in this period. Fetch older emails from your provider first.", 404)
-            # Rebuild every historical day in all-history mode, including stale
-            # automatic checks whose former receipt no longer qualifies.
-            def receipt_day(value):
-                try:
-                    stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                    return stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(payments.ZONE).date()
-                except (ValueError, TypeError, AttributeError):
-                    return None
-            receipt_days = [day for row in rows if (day := receipt_day(row["received_at"]))]
-            if not first:
-                receipt_days.extend(day for row in conn.execute("SELECT received_at FROM application_receipts")
-                                    if (day := receipt_day(row[0])))
-        del rows
-        if not _job_lock.acquire(blocking=False):
-            return _err("A check is already running.", 409)
-
-        def work():
-            with db.session() as conn:
-                result = reclassify(conn, cfgmod.load(), categories=categories,
-                    since_iso=lower, until_iso=upper, limit=None,
-                    status=lambda message: _job.update(message=message),
-                    progress=lambda done, total: _job.update(message=f"Reclassifying history… {done} of {total}"))
-                payments.sync_receipts(conn, since=first, until=last)
-                conn.commit()
-                begin = first or min(receipt_days, default=payments.today())
-                end = last or max(receipt_days, default=payments.today())
-                sourcing_verification.verify_all(conn, refresh_since=begin, refresh_until=end,
-                    week_only=True, rebuild=True, sample=False)
-                conn.commit()
-            resolved = result.prefiltered + result.classified
-            _job.update(message=f"Reclassified {resolved} of {result.fetched} stored emails; estimates recalculated. Saved payments unchanged.",
-                detail="\n".join(result.errors[:5]), ok=not result.errors,
-                interview_changes=list({item["id"]: item for item in result.interview_changes}.values()))
-
-        _start_job(work, failed="Historical reclassification failed", verify_sourcing=False)
-        return {"ok": True, "count": count}
 
     @app.post("/api/payments/refresh")
     def refresh_application_metrics(body: MetricsRefreshBody):

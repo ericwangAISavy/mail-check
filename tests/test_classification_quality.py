@@ -20,37 +20,35 @@ def message(subject='', text='', sender='noreply@indeed.com', **kwargs):
     ('Your job alert and application update', 'We received your application.'),
     ('Hello', 'A personal message without digest evidence.'),
 ])
-def test_original_board_senders_always_skip_model(subject, text):
-    assert prefilter.apply(message(subject, text)).category == 'job_alert'
+def test_shared_senders_require_digest_evidence(subject, text):
+    assert prefilter.apply(message(subject, text)) is None
 
 
 def test_clear_digest_still_skips_model():
     assert prefilter.apply(message('Your daily job digest', 'New jobs matching your search')).category == 'job_alert'
 
 
-@pytest.mark.parametrize('raw,expected', [('not_interview_invite','interview_invite'), ('application','application_ack'), ('interview','interview_invite'), ('other than rejection','rejection')])
-def test_original_category_substring_coercion(raw, expected):
-    assert coerce_category(raw) == expected
+@pytest.mark.parametrize('raw', ['not_interview_invite', 'application', 'interview', 'other than rejection'])
+def test_category_names_cannot_be_guessed(raw):
+    assert coerce_category(raw) == 'unclassified'
 
 
-def test_original_long_message_keeps_head_and_truncation_marker():
+def test_long_message_keeps_tail_within_budget():
     msg = message('Update', 'Welcome ' * 230 + '\nPlease schedule your interview with Acme.')
-    assert 'schedule your interview' not in msg.body
-    assert msg.body.endswith('\n[...truncated]')
-    assert msg.body.startswith('Welcome ')
-
-
-def test_calendar_metadata_is_preserved_without_inserting_into_body():
-    msg = message('Invitation', 'Please see the attached invitation.', calendar_data=[
-        'BEGIN:VEVENT\nSUMMARY:Acme interview\nDTSTART:20261105T120000Z\nEND:VEVENT'])
-    assert 'Acme interview' not in msg.body
-    assert 'Acme interview' in msg.calendar_data[0]
+    assert 'schedule your interview' in msg.body
     assert len(msg.body) <= 1200
 
 
-def test_sparse_reply_strips_quoted_context():
+def test_calendar_evidence_has_bounded_context():
+    msg = message('Invitation', 'Please see the attached invitation.', calendar_data=[
+        'BEGIN:VEVENT\nSUMMARY:Acme interview\nDTSTART:20261105T120000Z\nEND:VEVENT'])
+    assert 'Acme interview' in msg.body
+    assert len(msg.body) <= 1200
+
+
+def test_sparse_reply_retains_labelled_quote():
     msg = message('Re: next step', 'Tuesday works.\nOn Monday Sam wrote:\n> Pick an interview time for Acme.')
-    assert msg.body == 'Tuesday works.'
+    assert 'Quoted context' in msg.body and 'interview time' in msg.body
 
 
 def test_current_rejection_does_not_recover_old_invite():
@@ -68,32 +66,29 @@ class Replies:
         return json.dumps({'results': [next(self.replies)]})
 
 
-def test_original_model_accepts_result_with_schema_defaults():
+def test_incomplete_model_result_is_retried_not_accepted():
     client = Replies([{'id': '0', 'category': 'application_ack'},
                       {'id': '1', 'category': 'application_ack', 'confidence': .95,
                        'action_required': False, 'summary': 'Application received.'}])
     results, _ = classify(client, [message('Receipt', 'We received your application.')])
-    assert client.calls == 1
+    assert client.calls == 2
     assert results[0].category == 'application_ack'
 
 
-def test_original_incomplete_noise_result_uses_defaults():
+def test_repeated_incomplete_result_surfaces_for_review():
     client = Replies([{'id': str(i), 'category': 'job_alert'} for i in (0, 1, 1)])
     results, _ = classify(client, [message('Interview', 'Please schedule your interview.')])
-    assert results[0].category == 'job_alert'
-    assert results[0].action_required is False
-    assert results[0].confidence == .5
-    assert client.calls == 1
+    assert results[0].category == 'unclassified'
+    assert results[0].action_required is True
+    assert client.calls == 2
 
 
-def test_original_classifier_accepts_low_confidence_noise():
+def test_uncertain_noise_about_interview_requires_review():
     client = Replies([{'id': str(i), 'category': 'other', 'confidence': .3,
                        'needs_review': True, 'action_required': False, 'summary': 'Unclear interview email.'}
                       for i in (0, 1, 1)])
     results, _ = classify(client, [message('Interview rescheduled', 'Your interview has moved.')])
-    assert results[0].category == 'other'
-    assert results[0].confidence == .3
-    assert client.calls == 1
+    assert results[0].category == 'unclassified'
 
 
 def test_normal_checks_preserve_labels_from_previous_prompt(tmp_path):
@@ -108,18 +103,18 @@ def test_normal_checks_preserve_labels_from_previous_prompt(tmp_path):
         assert cached is not None and cached.category == 'application_ack'
 
 
-@pytest.mark.parametrize('confidence,expected', [('high', .5), (float('nan'), 1), (True, 1), (-1, 0), (95, .95)])
-def test_original_confidence_is_coerced_and_clamped(confidence, expected):
+@pytest.mark.parametrize('confidence', ['high', float('nan'), True, -1])
+def test_invalid_confidence_is_not_accepted(confidence):
     from mailcheck.llm.schema import ItemResult
     item = ItemResult.model_validate({'id': '1', 'category': 'application_ack',
         'confidence': confidence, 'action_required': False, 'summary': 'Receipt.'})
-    assert item.confidence == expected
+    assert item.response_complete is False
 
 
-def test_original_head_truncation_omits_middle_evidence():
+def test_middle_interview_evidence_survives_long_boilerplate():
     msg = message('Update', 'Welcome to our portal. ' * 70 + '\nPlease schedule your interview at Acme.\n' + 'Portal information. ' * 70)
-    assert 'schedule your interview' not in msg.body
-    assert msg.body.endswith('\n[...truncated]')
+    assert 'schedule your interview' in msg.body
+    assert len(msg.body) <= 1200
 
 
 def test_ordinary_pipeline_uses_latest_label_across_prompt_versions(tmp_path, monkeypatch):
@@ -139,19 +134,17 @@ def test_ordinary_pipeline_uses_latest_label_across_prompt_versions(tmp_path, mo
         assert result.from_cache == 1
 
 
-def test_original_json_repair_accepts_partial_summary():
+def test_repaired_partial_summary_does_not_count_as_complete():
     from mailcheck.llm.schema import parse_results
     results = parse_results('{"results":[{"id":"0","category":"application_ack","confidence":0.95,"action_required":false,"summary":"We rece')
-    assert results['0'].category == 'application_ack'
-    assert results['0'].summary == 'We rece'
+    assert results['0'].response_complete is False
 
 
 def test_completed_item_survives_later_partial_summary():
     from mailcheck.llm.schema import parse_results
     results = parse_results('{"results":[{"id":"0","category":"application_ack","confidence":0.95,"action_required":false,"summary":"Application received."},{"id":"1","category":"interview_invite","confidence":0.95,"action_required":true,"summary":"Please sch')
-    assert results['0'].summary == 'Application received.'
-    assert results['1'].summary == 'Please sch'
-    assert results['1'].category == 'interview_invite'
+    assert results['0'].response_complete is True
+    assert results['1'].response_complete is False
 
 
 def test_short_decision_does_not_inherit_old_invitation():
@@ -159,14 +152,12 @@ def test_short_decision_does_not_inherit_old_invitation():
     assert 'schedule your interview' not in msg.body
 
 
-def test_original_classifier_ignores_extra_review_flag():
+def test_explicit_uncertainty_is_retried_then_reviewed():
     client = Replies([{'id': str(i), 'category': 'other', 'confidence': .9,
                       'needs_review': True, 'action_required': False, 'summary': 'Ambiguous scheduling update.'}
                       for i in (0, 1, 1)])
     result, _ = classify(client, [message('Update', 'Can we talk tomorrow?')])
-    assert result[0].category == 'other'
-    assert result[0].action_required is False
-    assert client.calls == 1
+    assert result[0].category == 'unclassified'
 
 
 def test_evaluation_reports_receipt_precision_and_missed_interviews():

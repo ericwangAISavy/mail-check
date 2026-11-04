@@ -13,7 +13,7 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 38
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -203,9 +203,6 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
-    ("application_receipts", "sender", "TEXT NOT NULL DEFAULT ''"),
-    ("application_receipts", "duplicate_of", "TEXT"),
-    ("application_receipts", "counting_evidence", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -214,11 +211,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-    # Origin metadata repairs the classifier-release counting boundary without
-    # reclassifying mail. Keep durable receipts with no surviving message unknown.
-    conn.execute("""UPDATE application_receipts SET sender=COALESCE((
-        SELECT m.from_addr FROM messages m WHERE m.account_id=application_receipts.account_id
-        AND m.message_id=application_receipts.message_id),'') WHERE sender=''""")
     # imap_tools reports an unparseable Date header as 1900-01-01 rather than
     # None. Such rows were being pruned as ancient and hidden from every date
     # window; an unknown date is NULL, which falls back to fetched_at.
@@ -746,7 +738,7 @@ def category_counts(
     )
     params: list = []
     if since_iso:
-        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
+        sql += f" AND {RECEIVED} >= ?"
         params.append(since_iso)
     if account_label:
         sql += " AND a.label = ?"
@@ -798,7 +790,7 @@ def query_triaged(
         sql += " AND a.label = ?"
         params.append(account_label)
     if since_iso:
-        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
+        sql += f" AND {RECEIVED} >= ?"
         params.append(since_iso)
     if handled is True:
         sql += " AND m.handled_at IS NOT NULL"
@@ -882,7 +874,7 @@ def queue_counts(
     )
     params: list = []
     if since_iso:
-        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
+        sql += f" AND {RECEIVED} >= ?"
         params.append(since_iso)
     if account_label:
         sql += " AND a.label = ?"
@@ -907,9 +899,7 @@ def messages_in_categories(
     pks: list[int] | None = None,
     account_label: str | None = None,
     since_iso: str | None = None,
-    limit: int | None = 200,
-    until_iso: str | None = None,
-    include_body: bool = True,
+    limit: int = 200,
 ) -> list[sqlite3.Row]:
     """Full message rows (bodies included) whose *latest* classification is one
     of ``categories`` — what a re-classification run needs as its input.
@@ -920,12 +910,10 @@ def messages_in_categories(
     """
     if not categories:
         return []
-    body_column = "m.body_text" if include_body else "'' AS body_text"
     sql = (
-        f"""
+        """
         SELECT m.id AS pk, m.account_id, m.message_id, m.uid, m.folder,
-               m.from_addr, m.from_name, m.subject, m.date_utc, {body_column},
-               COALESCE(m.date_utc,m.fetched_at) AS received_at,
+               m.from_addr, m.from_name, m.subject, m.date_utc, m.body_text,
                m.provider_url, a.label AS account_label,
                c.retryable AS retryable
         FROM messages m
@@ -942,13 +930,8 @@ def messages_in_categories(
         sql += " AND a.label = ?"
         params.append(account_label)
     if since_iso:
-        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
+        sql += f" AND {RECEIVED} >= ?"
         params.append(since_iso)
-    if until_iso:
-        sql += f" AND julianday({RECEIVED}) < julianday(?)"
-        params.append(until_iso)
-    sql += f" ORDER BY {RECEIVED} DESC"
-    if limit is not None:
-        sql += " LIMIT ?"
-        params.append(limit)
+    sql += f" ORDER BY {RECEIVED} DESC LIMIT ?"
+    params.append(limit)
     return list(conn.execute(sql, params))
