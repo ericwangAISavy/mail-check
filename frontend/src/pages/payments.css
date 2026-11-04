@@ -144,3 +144,11 @@
 
 .payment-bidder-editor-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .payment-bidder-editor-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 6px; border-radius: 3px; }
+
+
+.bidder-chart-tooltip { position: fixed; z-index: 80; display: flex; flex-direction: column; width: min(340px, calc(100vw - 24px)); max-height: min(360px, calc(100vh - 24px)); box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); box-shadow: 0 8px 24px #0006; font-size: 13px; pointer-events: auto; }
+.bidder-chart-tooltip-title { flex: none; padding: 12px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; line-height: 1.5; }
+.bidder-chart-tooltip-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 12px; }
+.bidder-chart-tooltip-item { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 5px 0; line-height: 1.5; }
+.bidder-chart-tooltip-item > span { min-width: 0; overflow-wrap: anywhere; }
+.bidder-chart-tooltip-item > strong { flex: none; font-variant-numeric: tabular-nums; }

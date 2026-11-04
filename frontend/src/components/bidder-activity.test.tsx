@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import BidderActivity from "./bidder-activity"
 vi.mock("@/lib/api", () => ({request: vi.fn()}))
-const probe = vi.hoisted(() => ({tooltip: null as any, lines: [] as string[], dots: {} as Record<string, (props:any)=>any>}))
-vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
+const probe = vi.hoisted(() => ({tooltip: null as any, content: null as any, lines: [] as string[], dots: {} as Record<string, (props:any)=>any>}))
+vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; probe.content = props.content; return null}, XAxis: () => null, YAxis: () => null}))
 const clients: QueryClient[] = []
 afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers()})
 function payload() {
@@ -19,7 +19,7 @@ function payload() {
 function mount() {
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}}); clients.push(client)
   function Harness() {const [selected,setSelected] = useState(""); return <BidderActivity week="2026-10-12" selected={selected} onSelect={setSelected}/>}
-  render(<QueryClientProvider client={client}><Harness/></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><Harness/></QueryClientProvider>)
 }
 it("filters graph and heatmap by bidder without redundant cards or summary table", async () => {
   vi.mocked(request).mockResolvedValue(payload()); mount()
@@ -167,4 +167,19 @@ it("offers original interval counts and cumulative totals and marks only value c
   expect(values()).toEqual([5])
   fireEvent.click(screen.getByRole("button",{name:"Cumulative"}))
   expect(values()).toEqual([0,5])
+})
+
+
+it("renders long tooltip lists outside the clipped chart container", async () => {
+  vi.mocked(request).mockResolvedValue(payload())
+  const {container} = mount()
+  await screen.findByRole("button", {name:"Alex"})
+  expect(typeof probe.content).toBe("function")
+  const entries = Array.from({length:30}, (_,i)=>({dataKey:String(i),name:`Bidder ${i}`,value:i,color:"cyan"}))
+  render(probe.content({active:true,label:"2026-10-12T15:00:00Z",coordinate:{x:200,y:200},payload:entries}))
+  const tooltip = screen.getByRole("tooltip")
+  expect(tooltip.parentElement).toBe(document.body)
+  expect(container.contains(tooltip)).toBe(false)
+  expect(tooltip.textContent).toContain("Bidder 29")
+  expect(tooltip.querySelector(".bidder-chart-tooltip-list")).toHaveProperty("tabIndex",0)
 })

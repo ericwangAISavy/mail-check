@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.13.5 — 2026-11-04
+
+Keep activity chart tooltips fully readable
+
+- Prevent bidder activity tooltips from being clipped by charts; keep them inside the viewport with scrollable lists.
+
 ## 2.13.4 — 2026-11-04
 
 Harden on-premises authentication and Cloudflare Tunnel deployment

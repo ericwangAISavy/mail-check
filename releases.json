@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.13.5",
+    "date": "2026-11-04",
+    "title": "Keep activity chart tooltips fully readable",
+    "changes": [
+      "Prevent bidder activity tooltips from being clipped by charts; keep them inside the viewport with scrollable lists."
+    ]
+  },
+  {
     "version": "2.13.4",
     "date": "2026-11-04",
     "title": "Harden on-premises authentication and Cloudflare Tunnel deployment",
