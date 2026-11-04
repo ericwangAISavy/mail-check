@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.11.1 — 2026-11-03
+
+Fitted sign-in and unique bidder usernames
+
+- Sign-in scales to fit the available viewport without page scrolling, including smaller and zoomed screens.
+- Bidders sign in with their username alone; duplicate names are rejected across admin workspaces when registering, renaming or enabling access.
+
 ## 2.11.0 — 2026-11-03
 
 Removable admin workspaces and reliable Outlook tests

@@ -106,11 +106,11 @@ def test_removal_revokes_bidder_credentials_and_sessions(store):
     temporary=store.login('alice','temporary-pass-123','admin')
     token=store.change_password(temporary,'alice-final-pass-123')
     access.configure(token,wid,1,'Bidder',password='bidder-password-123')
-    bidder=access.login('Bidder + alice','bidder-password-123','bidder')
+    bidder=access.login('Bidder','bidder-password-123','bidder')
     assert access.identity(bidder)['workspace_id']==wid
     store.remove_admin(store.owner_token,user['id'],'alice')
     assert access.identity(bidder) is None
-    assert access.login('Bidder + alice','bidder-password-123','bidder') is None
+    assert access.login('Bidder','bidder-password-123','bidder') is None
     assert access.directory()==[]
     with store.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM bidder_sessions').fetchone()[0]==0

@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.11.1",
+    "date": "2026-11-03",
+    "title": "Fitted sign-in and unique bidder usernames",
+    "changes": [
+      "Sign-in scales to fit the available viewport without page scrolling, including smaller and zoomed screens.",
+      "Bidders sign in with their username alone; duplicate names are rejected across admin workspaces when registering, renaming or enabling access."
+    ]
+  },
+  {
     "version": "2.11.0",
     "date": "2026-11-03",
     "title": "Removable admin workspaces and reliable Outlook tests",

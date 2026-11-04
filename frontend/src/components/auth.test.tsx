@@ -81,15 +81,15 @@ it("preserves a failed sign-in form and clears private caches on sign-out",async
 })
 
 it("signs bidders into their admin team with only viewer navigation",async()=>{
-  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({bidders:[{id:9,name:"Dany + alice"}]}),{headers:{"Content-Type":"application/json"}})))
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({bidders:[{id:9,name:"Dany"}]}),{headers:{"Content-Type":"application/json"}})))
   const identity={role:"bidder" as const,bidder_id:1,workspace_id:"alice",workspace_name:"Alice team",username:"alice",managed:true}
   vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
   mount();fireEvent.change(await screen.findByLabelText("Sign in as"),{target:{value:"bidder"}})
-  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"Dany + alice"}})
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"Dany"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"bidder-password-123"}})
   fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
   await screen.findByRole("heading",{name:"Admin Dashboard"})
-  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",undefined,"Dany + alice")
+  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",undefined,"Dany")
   expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Dashboard","Job sourcing","Bidder management"])
   expect(screen.queryByRole("button",{name:"Check now"})).toBeNull()
   expect(screen.queryByRole("button",{name:"Change password"})).toBeNull()
@@ -141,4 +141,29 @@ it("reveals a password only on request and hides it again when switching roles",
   expect(screen.getByLabelText("Password")).toHaveProperty("type","password")
   expect(screen.getByLabelText("Password")).toHaveProperty("value","")
   expect(fetch).not.toHaveBeenCalled()
+})
+
+it("locks scrolling only while sign-in is mounted and restores prior overflow",async()=>{
+  const rootOverflow=document.documentElement.style.overflow,bodyOverflow=document.body.style.overflow
+  document.documentElement.style.overflow="auto";document.body.style.overflow="visible"
+  try {
+    mount();await screen.findByLabelText("Username")
+    expect(document.documentElement.style.overflow).toBe("hidden")
+    expect(document.body.style.overflow).toBe("hidden")
+    cleanup()
+    expect(document.documentElement.style.overflow).toBe("auto")
+    expect(document.body.style.overflow).toBe("visible")
+  } finally {document.documentElement.style.overflow=rootOverflow;document.body.style.overflow=bodyOverflow}
+})
+
+it("fits sign-in to changes in the visible viewport",async()=>{
+  const viewport=Object.assign(new EventTarget(),{width:390,height:300,offsetTop:120,offsetLeft:0})
+  vi.stubGlobal("visualViewport",viewport)
+  mount();await screen.findByLabelText("Username")
+  const page=document.querySelector<HTMLElement>(".sign-in-page")!
+  await waitFor(()=>expect(page.style.height).toBe("300px"))
+  expect(page.style.top).toBe("120px")
+  viewport.height=240
+  viewport.dispatchEvent(new Event("resize"))
+  await waitFor(()=>expect(page.style.height).toBe("240px"))
 })

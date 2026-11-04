@@ -714,7 +714,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if body.role == "bidder":
             if body.bidder_id is None:
                 with db.session() as conn:
-                    matches=conn.execute("SELECT id FROM bidders WHERE (name=? OR name || ' + owner'=?) AND removed_at IS NULL AND login_enabled=1",(body.username.strip(),body.username.strip())).fetchall()
+                    matches=conn.execute("SELECT id FROM bidders WHERE name=? AND removed_at IS NULL AND login_enabled=1",(body.username.strip(),)).fetchall()
                     body.bidder_id=matches[0]['id'] if len(matches)==1 else None
             with db.session() as conn:
                 enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (body.bidder_id,)).fetchone()

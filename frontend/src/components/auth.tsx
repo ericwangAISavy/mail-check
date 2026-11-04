@@ -1,5 +1,5 @@
 import { OfferPathMark } from "@/components/offerpath-mark"
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { LogIn, UserRound, LockKeyhole, Eye, EyeOff, ShieldCheck, CircleCheck, CalendarDays, FileText, Crosshair } from "lucide-react"
@@ -14,6 +14,47 @@ export function useAuth() {
   const value=useContext(AuthContext)
   if (!value) throw new Error("Sign-in context is missing.")
   return value
+}
+
+// Keep the complete form visible without changing the user's browser zoom.
+function SignInViewport({children}:{children:ReactNode}) {
+  const pageRef=useRef<HTMLElement>(null),layoutRef=useRef<HTMLDivElement>(null)
+  useLayoutEffect(()=>{
+    const page=pageRef.current!,layout=layoutRef.current!
+    const roots=[document.documentElement,document.body]
+    const properties={overflow:"hidden","min-width":"0"}
+    const previous=roots.map(root=>Object.keys(properties).map(property=>({property,value:root.style.getPropertyValue(property),priority:root.style.getPropertyPriority(property)})))
+    roots.forEach(root=>Object.entries(properties).forEach(([property,value])=>root.style.setProperty(property,value)))
+    let frame=0,disposed=false
+    const fit=()=>{
+      const viewport=window.visualViewport
+      page.style.width=`${viewport?.width ?? window.innerWidth}px`
+      page.style.height=`${viewport?.height ?? window.innerHeight}px`
+      page.style.left=`${viewport?.offsetLeft ?? 0}px`
+      page.style.top=`${viewport?.offsetTop ?? 0}px`
+      const style=getComputedStyle(page)
+      const width=page.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)
+      const height=page.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom)
+      const scale=Math.min(1,width/Math.max(layout.scrollWidth,1),height/Math.max(layout.offsetHeight,1))
+      layout.style.transform=`scale(${Math.max(0,scale)})`
+    }
+    const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(fit)}
+    fit()
+    const observer=typeof ResizeObserver!=="undefined"?new ResizeObserver(schedule):undefined
+    observer?.observe(layout)
+    window.addEventListener("resize",schedule)
+    window.visualViewport?.addEventListener("resize",schedule)
+    window.visualViewport?.addEventListener("scroll",schedule)
+    void document.fonts?.ready.then(()=>{if(!disposed)schedule()})
+    return ()=>{
+      disposed=true;cancelAnimationFrame(frame);observer?.disconnect()
+      window.removeEventListener("resize",schedule)
+      window.visualViewport?.removeEventListener("resize",schedule)
+      window.visualViewport?.removeEventListener("scroll",schedule)
+      roots.forEach((root,index)=>previous[index].forEach(({property,value,priority})=>{if(value)root.style.setProperty(property,value,priority);else root.style.removeProperty(property)}))
+    }
+  },[])
+  return <main ref={pageRef} className="sign-in-page offerpath-login"><div ref={layoutRef} className="login-layout">{children}</div></main>
 }
 
 export function AuthGate({children}:{children:ReactNode}) {
@@ -73,10 +114,9 @@ export function AuthGate({children}:{children:ReactNode}) {
     } catch(reason){setError(reason instanceof Error?reason.message:"Could not sign in.")}
     finally{setBusy(false)}
   }
-  if(session.isPending || activeIdentity!==identity)return <Loading label="Checking sign-in…"/>
+  if(session.isPending || activeIdentity!==identity)return <SignInViewport><div className="login-pending"><Loading label="Checking sign-in…"/></div></SignInViewport>
   if((data?.role==="admin" || data?.role==="bidder" && data.managed && data.workspace_id) && !data.must_change_password)return <AuthContext.Provider value={{role:data.role,session:data,signOut}}>{children}</AuthContext.Provider>
-  return <main className="sign-in-page offerpath-login">
-    <div className="login-layout">
+  return <SignInViewport>
       <header className="login-brand-header">
         <div className="sign-in-brand" aria-label="OfferPath"><span className="sign-in-brand-icon"><OfferPathMark size={64}/></span><span className="sign-in-wordmark">Offer<span>Path</span></span></div>
         <p className="login-tagline">MustGetJoboffer</p>
@@ -93,7 +133,7 @@ export function AuthGate({children}:{children:ReactNode}) {
           {!data?.must_change_password && <>
             <label className="setting-field"><span>Sign in as</span><select aria-label="Sign in as" disabled={busy} value={loginRole} onChange={e=>{setLoginRole(e.target.value as Role);setPassword("");setUsername("");setShowPassword(false);setError("")}}><option value="admin">Admin</option><option value="bidder">Bidder</option></select></label>
             <label className="setting-field"><span>Username</span><span className="login-input-wrap"><UserRound size={20} aria-hidden="true"/><input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={192} value={username} onChange={e=>setUsername(e.target.value)} disabled={busy} placeholder="Enter your username" aria-describedby={loginRole==="bidder"?"bidder-username-help":undefined}/></span></label>
-            {loginRole==="bidder" && <p id="bidder-username-help" className="login-help">Use your name + your admin’s username, exactly as provided by your admin.</p>}
+            {loginRole==="bidder" && <p id="bidder-username-help" className="login-help">Use the username provided by your admin.</p>}
           </>}
           <label className="setting-field"><span>{data?.must_change_password?"New password":"Password"}</span><span className="login-input-wrap"><LockKeyhole size={20} aria-hidden="true"/><input aria-label={data?.must_change_password?"New password":"Password"} disabled={busy} name="password" type={showPassword?"text":"password"} autoComplete={data?.must_change_password?"new-password":"current-password"} required minLength={data?.must_change_password?12:1} maxLength={256} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password"/><button className="login-password-toggle" type="button" disabled={busy} aria-label={showPassword?"Hide password":"Show password"} aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>{showPassword?<EyeOff size={20}/>:<Eye size={20}/>}</button></span></label>
           {data?.must_change_password && <label className="setting-field"><span>Confirm password</span><span className="login-input-wrap"><LockKeyhole size={20} aria-hidden="true"/><input disabled={busy} type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></span></label>}
@@ -104,6 +144,5 @@ export function AuthGate({children}:{children:ReactNode}) {
         <p className="login-security"><ShieldCheck size={16}/>Secure · Private · Your Data Stays Yours</p>
       </section>
       <aside className="login-milestones" aria-label="Your career journey"><span><CalendarDays/>Interview</span><span><FileText/>Application</span><span><Crosshair/>Job Match</span><span><UserRound/>Profile &amp; Skills</span></aside>
-    </div>
-  </main>
+  </SignInViewport>
 }

@@ -14,7 +14,7 @@ def worker_mock():
         requests.append(req)
         if req.url.path.startswith('/_internal/bidders/'):
             who=int(req.url.path.rsplit('/',1)[-1])
-            return httpx.Response(200,json={'id':who,'name':'Dany'}) if who in (1,2) else httpx.Response(404,json={'error':'Not found'})
+            return httpx.Response(200,json={'id':who,'name':'Dany' if req.headers.get('x-offerpath-worker')=='secret-legacy' else 'Joseph'}) if who in (1,2) else httpx.Response(404,json={'error':'Not found'})
         if req.url.path == '/api/payments':
             return httpx.Response(200,json={'bidders':[{'id':1,'name':'Dany'},{'id':2,'name':'Joseph'}]})
         return httpx.Response(200,json={'worker':req.headers.get('x-offerpath-worker'),'viewer':req.headers.get('x-offerpath-viewer')})
@@ -37,7 +37,7 @@ def test_directory_login_read_only_and_tenant_isolation(system,worker_mock):
         assert bidder.get('/api/auth/bidders').status_code==401
         login(admin);enable(admin)
         entry=admin.get('/api/auth/bidders').json()['bidders'][0]
-        assert entry['name']=='Dany + owner'
+        assert entry['name']=='Dany'
         assert set(entry)=={'id','name'}
         identity=bidder_login(bidder,entry)
         assert identity['role']=='bidder' and identity['workspace_id']=='legacy'
@@ -63,9 +63,9 @@ def test_same_bidder_id_in_different_workspaces_and_revocation(system,worker_moc
         login(owner);enable(owner)
         login(alice,'alice','alice-final-pass-123');enable(alice)
         entries=owner.get('/api/auth/bidders').json()['bidders']
-        assert {e['name'] for e in entries}=={'Dany + owner','Dany + alice'}
+        assert {e['name'] for e in entries}=={'Dany','Joseph'}
         assert len({e['id'] for e in entries})==2
-        entry=next(e for e in entries if e['name'].endswith('alice'))
+        entry=next(e for e in entries if e['name']=='Joseph')
         bidder_login(bidder,entry)
         assert bidder.get('/api/dashboard').json()['worker']=='secret-'+wid
         own=alice.get('/api/auth/bidders/manage').json()['bidders']
@@ -161,20 +161,20 @@ def test_typed_bidder_username_and_private_directories(system,worker_mock):
         login(admin);enable(admin)
         for path in ('/api/auth/admins','/api/auth/bidders'):
             assert bidder.get(path).status_code==401
-        for username,password in [('Dany + missing','bidder-password-123'),('Dany + owner','wrong')]:
+        for username,password in [('Missing','bidder-password-123'),('Dany','wrong')]:
             response=bidder.post('/api/auth/login',json={'role':'bidder','username':username,'password':password})
             assert response.status_code==401
             assert response.json()=={'detail':'Incorrect username or password.'}
-        response=bidder.post('/api/auth/login',json={'role':'bidder','username':'Dany + owner','password':'bidder-password-123'})
+        response=bidder.post('/api/auth/login',json={'role':'bidder','username':'Dany','password':'bidder-password-123'})
         assert response.status_code==200,response.text
         assert response.json()['bidder_name']=='Dany'
         assert response.json()['workspace_id']=='legacy'
 
 
-def test_duplicate_typed_bidder_identifier_fails_closed(system,worker_mock):
+def test_duplicate_bidder_username_is_rejected_when_enabling_login(system,worker_mock):
     app,store,pool=system
-    with TestClient(app) as admin,closing(TestClient(app)) as bidder:
-        login(admin);enable(admin,1);enable(admin,2)
-        response=bidder.post('/api/auth/login',json={'role':'bidder','username':'Dany + owner','password':'bidder-password-123'})
-        assert response.status_code==401
-        assert bidder.get('/api/auth/session').json()['role'] is None
+    with TestClient(app) as admin:
+        login(admin);enable(admin,1)
+        response=admin.post('/api/auth/bidders/2/password',json={'password':'bidder-password-123','enabled':True})
+        assert response.status_code==400
+        assert 'already in use' in response.text

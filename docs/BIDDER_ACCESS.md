@@ -1,8 +1,8 @@
 # Bidder web access
 
-An admin opens **Accounts → Manage bidders and account assignments → Bidder web access**, enters a password of at least 12 characters, and clicks **Enable bidder access**. Share the password and their **bidder name + admin username** identifier privately with that bidder.
+An admin opens **Accounts → Manage bidders and account assignments → Bidder web access**, enters a password of at least 12 characters, and clicks **Enable bidder access**. Share the password and their **bidder username** privately with that bidder.
 
-On the sign-in screen, choose **Bidder**, type **bidder name + admin username** in **Username**, and enter the password. The original workspace uses the admin username `owner`. Bidder accounts are opt-in; existing bidders are not automatically granted access.
+On the sign-in screen, choose **Bidder**, type **bidder username** in **Username**, and enter the password. Use the bidder name alone, without an admin suffix. Bidder accounts are opt-in; existing bidders are not automatically granted access.
 
 Bidders can view their admin's whole team on **Dashboard** and **Bidder management**, including team statistics, stored dashboard messages, and weekly payment totals. They can also view and copy their own saved Job sourcing workbook, navigating account tabs, dates, and saved history. Sourcing search is limited to their own workbook. They cannot edit, paste, import, check applications, refresh/rebuild stored matches, send messages, manage accounts, access Settings, or switch workspaces. Date/account/bidder filters are available for browsing saved data. Access restrictions apply at both the public gateway and private worker boundary.
 
@@ -11,3 +11,11 @@ Admins can reset a bidder's password or disable access from the same account car
 The sign-in page never fetches or displays account directories. Users type their identifier; account-directory endpoints require authentication. Failed sign-ins return the same generic error for unknown usernames and incorrect passwords. Duplicate bidder identifiers fail closed rather than selecting an arbitrary account.
 
 Credentials and sessions use separate additive tables in `offerpath-control/control.db`; existing mailbox, application, payment, and assignment tables are preserved. Old standalone writable bidder credentials are not automatically imported into the public multi-admin gateway.
+
+Bidder usernames must be unique across all registered workspaces, including
+suspended workspaces and bidders whose web access has not been enabled. Creation,
+rename and web-access setup check for duplicates; whitespace, case and Unicode
+normalization are ignored when comparing names. Existing duplicate login names
+are not silently reassigned: sign-in fails safely until an admin gives each
+conflicting bidder a distinct name. Existing passwords and workspace identities
+remain unchanged. Admin usernames use a separate role/namespace.

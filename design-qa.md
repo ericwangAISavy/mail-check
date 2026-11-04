@@ -2,6 +2,17 @@
 
 final result: passed
 
+## Follow-up: fitted viewport and plain bidder usernames
+
+The later user request requires a no-scroll sign-in page and plain bidder usernames.
+The layout now scales down to fit the visual viewport, with temporary root/body
+scroll locking that is restored when leaving sign-in. The bidder helper no longer
+asks for an admin suffix. Twenty-eight Chromium viewport/state combinations pass,
+including zoom-equivalent CSS dimensions, landscape, phone, error and required
+password-change states. Captures include `/tmp/signin-fit-1115x565.png` and
+`/tmp/signin-fit-390x280.png`; all controls remain within the viewport. This fit
+requirement intentionally supersedes 1:1 sizing at smaller screen dimensions.
+
 ## Source and evidence
 
 - Layout reference: first user-supplied sign-in screenshot in this conversation.

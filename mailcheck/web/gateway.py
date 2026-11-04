@@ -79,6 +79,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
     backup_manager=BackupManager(BackupLayout(original_config,original_db,store.root),store._lock)
     admin_change_lock=threading.Lock()
+    bidder_change_lock=asyncio.Lock()
     bidder_access=BidderAccess(store)
     model_slots=asyncio.Semaphore(1)
     leases={}
@@ -291,6 +292,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
 
     @app.post('/api/auth/bidders/{bidder_id}/password')
     async def bidder_password(bidder_id:int,body:BidderPassword,request:Request):
+        async with bidder_change_lock:
+            return await apply_bidder_password(bidder_id,body,request)
+
+    async def apply_bidder_password(bidder_id:int,body:BidderPassword,request:Request):
         identity=request.state.identity
         try:
             worker=await asyncio.to_thread(ensure_workspace,identity['workspace_id'])
@@ -302,6 +307,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if result.status_code==404:raise HTTPException(404,'Bidder not found in this workspace.')
         if not result.is_success:raise HTTPException(503,'Could not load workspace bidders.')
         member=result.json()
+        if body.enabled:
+            try:await asyncio.to_thread(bidder_access.check_username,member['name'],identity['workspace_id'],bidder_id,original_db)
+            except RuntimeError as exc:raise HTTPException(503,str(exc))
         await asyncio.to_thread(bidder_access.configure,request.cookies.get(COOKIE),identity['workspace_id'],bidder_id,member['name'],password=body.password,enabled=body.enabled)
         return {'ok':True}
 
@@ -375,8 +383,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     @app.api_route('/api/admin/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH'])
     def missing_admin(path:str,request:Request):owner(request);raise HTTPException(404,'Not found.')
 
-    @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
-    async def proxy(path:str,request:Request):
+    async def proxy_impl(path:str,request:Request):
         if not path.startswith('api/'):
             return page()
         from urllib.parse import unquote
@@ -430,5 +437,30 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
         return Response(result.content,status_code=result.status_code,headers=response_headers)
+
+    @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
+    async def proxy(path:str,request:Request):
+        import re
+        from urllib.parse import unquote
+        canonical=path
+        for _ in range(4):canonical=unquote(canonical)
+        canonical=canonical.rstrip('/')
+        match=re.fullmatch(r'api/payments/bidders(?:/([0-9]+)(/remove)?)?/?',canonical)
+        if request.method!='POST' or not match:
+            return await proxy_impl(path,request)
+        # Serialize the cross-workspace check with the worker's committed mutation.
+        # The async lock never blocks the event loop; unrelated reads still proceed.
+        async with bidder_change_lock:
+            body=await request.body()
+            if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
+            identity=request.state.identity
+            await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+            if not match[2]:
+                from ..payments import BidderBody
+                try:name=BidderBody.model_validate_json(body).name
+                except ValueError:raise HTTPException(422,'Enter a bidder username of 1–100 characters.')
+                try:await asyncio.to_thread(bidder_access.check_username,name,identity['workspace_id'],int(match[1]) if match[1] else None,original_db)
+                except RuntimeError as exc:raise HTTPException(503,str(exc))
+            return await proxy_impl(canonical,request)
 
     return app
