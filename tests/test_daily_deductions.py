@@ -155,3 +155,16 @@ def test_payment_writes_reject_changed_deductions_with_same_rule_and_weekly_tota
             assert 'calculated amount changed' in response.json()['error'].lower()
         response=client.post('/api/payments/bidders/1/amount',json={**body,'expected_calculated_amount_cents':475,'amount':'4.75'})
         assert response.status_code==200,response.text
+
+
+def test_header_today_matches_checked_daily_total_instead_of_received_replies(workspace):
+    conn,account=workspace
+    conn.executemany("INSERT INTO application_receipts(account_id,message_id,received_at,category) VALUES(?,?,'2026-11-04T18:00:00Z','application_ack')",[(account,str(i)) for i in range(572)])
+    conn.commit()
+    checks={(1,account,'2026-11-04'):312}
+    with patch.object(payments,'today',return_value=date(2026,11,4)),patch.object(sourcing_verification,'completed_account_counts',return_value=checks),TestClient(create_app()) as client:
+        assert payments.received_today(conn)==572
+        response=client.get('/api/applications/today')
+        assert response.status_code==200,response.text
+        day_report=payments.report(conn,date(2026,11,2),admin=True)
+        assert response.json()['applications_today']==day_report['checked_daily'][2]==312

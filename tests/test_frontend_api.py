@@ -343,7 +343,7 @@ class FrontendApiTests(unittest.TestCase):
         with patch.object(payments,'today',return_value=date(2026,11,3)),patch('mailcheck.web.app.cfgmod.load',side_effect=ValueError('invalid settings')),patch.object(db,'queue_counts',side_effect=AssertionError('full queue must not load')):
             response=self.client.get('/api/applications/today')
         self.assertEqual(response.status_code,200,response.text)
-        self.assertEqual(response.json(),{'applications_today':1})
+        self.assertEqual(response.json(),{'applications_today':0})
 
     def test_bootstrap_reads_queue_counts_once_without_changing_response(self):
         with patch.object(db, "queue_counts", wraps=db.queue_counts) as counts:

@@ -206,3 +206,7 @@ If either changes, close and reopen the form before saving. This includes daily
 count changes that alter deductions while leaving the weekly total unchanged.
 The current console's payment writes are checked inside the server transaction,
 so an unnoticed refresh cannot record a stale calculated amount.
+
+The header's **today** badge uses checked applications for the current Chicago day,
+matching the first number in the daily breakdown's workspace total. Received replies
+remain the second number in the admin table and do not drive the badge.

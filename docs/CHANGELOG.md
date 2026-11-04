@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.18.2 — 2026-11-04
+
+Match header badge to checked daily application totals
+
+- Use today's checked application total for the header badge, matching the first number in the daily breakdown instead of received replies.
+
 ## 2.18.1 — 2026-11-04
 
 Protect deduction edits and payment review from stale data

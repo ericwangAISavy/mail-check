@@ -1026,7 +1026,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         # Header count must work even when Settings or Admin management is used
         # to recover invalid configuration. This path never loads model settings.
         with db.session() as conn:
-            return {"applications_today": payments.received_today(conn)}
+            return {"applications_today": payments.checked_today(conn)}
 
     @app.get("/api/bootstrap", response_model=BootstrapResponse)
     def api_bootstrap(request: Request):
@@ -1038,7 +1038,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             summary = db.queue_counts(conn, since_iso=_default_since())
             state = _state(conn, accounts, summary)
             run = db.last_run(conn)
-            summary["applications_today"] = payments.received_today(conn)
+            summary["applications_today"] = payments.checked_today(conn)
         return {
             "readiness": {
                 "model": state["llm_ready"],

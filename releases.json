@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.18.2",
+    "date": "2026-11-04",
+    "title": "Match header badge to checked daily application totals",
+    "changes": [
+      "Use today's checked application total for the header badge, matching the first number in the daily breakdown instead of received replies."
+    ]
+  },
+  {
     "version": "2.18.1",
     "date": "2026-11-04",
     "title": "Protect deduction edits and payment review from stale data",

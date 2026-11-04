@@ -263,6 +263,13 @@ def received_today(conn: sqlite3.Connection) -> int:
         AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
 
 
+def checked_today(conn: sqlite3.Connection) -> int:
+    """Use the same completed-application aggregation as daily payment totals."""
+    from .sourcing_verification import completed_account_counts
+    day = today().isoformat()
+    return sum(completed_account_counts(conn, day, day).values())
+
+
 def accounting_day_case(column, start, end):
     """SQL calendar buckets with explicit UTC boundaries, including DST weeks."""
     parts, params = [], []
