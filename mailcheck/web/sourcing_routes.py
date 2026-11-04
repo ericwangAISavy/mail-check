@@ -16,6 +16,10 @@ class BlockedCompanies(BaseModel):
     companies: list[Annotated[str, Field(min_length=1,max_length=200)]] = Field(max_length=1000)
 
 
+class RoleKeywords(BaseModel):
+    keywords: list[Annotated[str, Field(min_length=1,max_length=200)]] = Field(max_length=1000)
+
+
 class Book(BaseModel):
     bidder_id: int
     title: str = Field(default="Applications", min_length=1, max_length=100)
@@ -147,6 +151,22 @@ def install(app, frontend_page, secure_cookies):
             try:set_companies(conn,body.companies)
             except ValueError as exc:raise HTTPException(400,str(exc))
             return {"companies":companies(conn)}
+
+    @router.get("/api/sourcing/role-filters")
+    def role_filters(req: Request):
+        admin(req)
+        from ..sourcing_filters import role_settings
+        with db.session() as conn:return role_settings(conn)
+
+    @router.post("/api/sourcing/role-filters/{account_id}")
+    def save_role_filters(account_id: int, body: RoleKeywords, req: Request):
+        admin(req)
+        from ..sourcing_filters import set_roles, roles
+        with db.session() as conn:
+            try:set_roles(conn,account_id,body.keywords)
+            except LookupError as exc:raise HTTPException(404,str(exc))
+            except ValueError as exc:raise HTTPException(400,str(exc))
+            return {"account_id":account_id,"keywords":roles(conn,account_id)}
 
     @router.get("/api/sourcing")
     def index(req: Request):

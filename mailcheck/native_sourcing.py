@@ -14,6 +14,11 @@ MAX_ROWS = 100_000
 MAX_COLUMNS = 101
 MAX_CELLS = 10_000
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS sourcing_blocked_roles (
+ account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+ key TEXT NOT NULL, keyword TEXT NOT NULL, PRIMARY KEY(account_id,key)
+);
+
 CREATE TABLE IF NOT EXISTS sourcing_blocked_companies (key TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS native_books (
  id INTEGER PRIMARY KEY AUTOINCREMENT, bidder_id INTEGER NOT NULL UNIQUE REFERENCES bidders(id),
@@ -370,8 +375,8 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     raise ValueError("Check cells must be checked or unchecked.")
                 if kind == "check" and cell and cell["value"] == "true" and value != "true":
                     raise ValueError("Checked job links cannot be unchecked.")
-                if (kind == 'link' or kind == 'company' and not (cell['value'] if cell else '').strip()) and value != (cell['value'] if cell else ''):
-                    # Filter new URLs and newly completed company fields, never
+                if (kind == 'link' or kind in ('company','role') and not (cell['value'] if cell else '').strip()) and value != (cell['value'] if cell else ''):
+                    # Filter new URLs and newly completed company/role fields, never
                     # remove an already checked historical application.
                     if row_id not in protected:candidates.add(row_id)
                 style = {

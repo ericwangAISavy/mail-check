@@ -20,7 +20,7 @@ export interface SheetColumn {
   width: number;
 }
 export interface Snapshot {
-  filtered?: {duplicates: number; blocked_companies: number};
+  filtered?: {duplicates: number; blocked_companies: number; blocked_roles?:number};
   verification?: {day: string; timezone: string; checked: number; future_checked?: number};
   id: number;
   rows: Cell[][];

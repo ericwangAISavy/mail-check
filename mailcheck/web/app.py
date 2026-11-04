@@ -1973,7 +1973,7 @@ def _open_link(row) -> tuple[str | None, str]:
         email = (row["account_email"] if "account_email" in keys else "") or ""
         account = f"?authuser={quote(email, safe='')}" if email else ""
         return (
-            f"https://mail.google.com/mail/{account}#search/rfc822msgid:"
+            f"https://mail.google.com/mail/{account}#search/in%3Aanywhere%20rfc822msgid:"
             f"{quote(row['message_id'])}",
             "Open in Gmail",
         )

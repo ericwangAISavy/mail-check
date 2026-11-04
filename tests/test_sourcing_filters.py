@@ -51,7 +51,7 @@ class IncomingFilterTests(unittest.TestCase):
         rows=[['blocked-co.','Engineer','https://jobs.test/new'],['Allowed','Engineer','https://jobs.test/ok']]
         result=self.native.append(self.conn,self.tab(),'filtered',revision,rows)
         replay=self.native.append(self.conn,self.tab(),'filtered',revision,rows)
-        self.assertEqual(result['filtered'],{'duplicates':0,'blocked_companies':1})
+        self.assertEqual(result['filtered'],{'duplicates':0,'blocked_companies':1,'blocked_roles':0})
         self.assertEqual(replay['filtered'],result['filtered'])
         self.assertEqual([r[0]['value'] for r in self.jobs()],['Blocked Co','Allowed'])
 
@@ -112,3 +112,70 @@ class IncomingFilterTests(unittest.TestCase):
                          ['Other Company','Engineer','https://jobs.test/d']])
         self.assertEqual(result['filtered']['blocked_companies'],3)
         self.assertEqual([r[0]['value'] for r in self.jobs()],['Acme Consulting','Other Company'])
+
+    def test_account_role_keywords_are_isolated_and_preserve_existing_rows(self):
+        self.add([['Old','MLOps Engineer','https://jobs.test/old']],'old-role')
+        filters.set_roles(self.conn,self.account_id,['MLOps','full stack','Machine learning','MLOPS'])
+        self.conn.commit()
+        result=self.add([['A','Senior mlops Engineer','https://jobs.test/a'],
+                         ['B','Full-stack Developer','https://jobs.test/b'],
+                         ['C','Machine Learning Engineer','https://jobs.test/c'],
+                         ['D','Backend Developer','https://jobs.test/d']],'roles')
+        self.assertEqual(result['filtered']['blocked_roles'],3)
+        self.assertEqual([r[0]['value'] for r in self.jobs()],['Old','D'])
+        other=db.add_account(self.conn,label='role-other',email='other@example.test')
+        tab=self.native.owned(self.conn,self.native.create_tab(self.conn,self.book,other,'Other'),self.principal)
+        result=self.add([['A','MLOps Engineer','https://jobs.test/a']],'other-role',tab=tab)
+        self.assertEqual(result['filtered']['blocked_roles'],0)
+        self.assertEqual(len(self.jobs(tab)),1)
+
+    def test_role_completed_after_job_link_is_filtered_but_checked_history_is_kept(self):
+        self.add([['A','','https://jobs.test/a']],'incomplete-role')
+        filters.set_roles(self.conn,self.account_id,['MLOps']);self.conn.commit()
+        base=self.snapshot()
+        row=base['row_ids'][1]
+        result=self.native.save(self.conn,self.tab(),'role-edit',[{'row_id':row,'column_id':base['columns'][1]['id'],'expected_version':0,'value':'MLOps'}])
+        self.assertEqual(result['filtered']['blocked_roles'],1)
+        self.add([['Historical','Engineer','https://jobs.test/checked','true']],'checked-role')
+        base=self.snapshot();cell=base['rows'][1][1]
+        self.native.save(self.conn,self.tab(),'checked-role-edit',[{'row_id':base['row_ids'][1],'column_id':base['columns'][1]['id'],'expected_version':cell['version'],'value':'MLOps'}])
+        self.assertEqual(len(self.jobs()),1)
+
+    def test_role_filter_api_is_account_scoped_and_admin_only(self):
+        response=self.client.post(f'/api/sourcing/role-filters/{self.account_id}',json={'keywords':['MLOps','Full stack']})
+        self.assertEqual(response.status_code,200,response.text)
+        data=self.client.get('/api/sourcing/role-filters').json()
+        self.assertEqual(data['accounts'][0]['keywords'],['Full stack','MLOps'])
+        self.assertEqual(self.client.post('/api/sourcing/role-filters/9999',json={'keywords':['MLOps']}).status_code,404)
+        from tests.web_client import sign_in_bidder
+        sign_in_bidder(self.client,1)
+        self.assertEqual(self.client.get('/api/sourcing/role-filters').status_code,403)
+        self.assertEqual(self.client.post(f'/api/sourcing/role-filters/{self.account_id}',json={'keywords':[]}).status_code,403)
+
+    def test_role_settings_persist_and_keep_programming_language_symbols(self):
+        filters.set_roles(self.conn,self.account_id,['C++','full stack','FULL-STACK'])
+        self.conn.commit()
+        with db.session(self.path) as reopened:
+            self.assertEqual(len(filters.roles(reopened,self.account_id)),2)
+        result=self.add([['A','C# Engineer','https://jobs.test/csharp'],['B','Senior C++ Developer','https://jobs.test/cpp'],['C','Fullstack Engineer','https://jobs.test/full']],'symbols')
+        self.assertEqual(result['filtered']['blocked_roles'],2)
+        self.assertEqual([r[0]['value'] for r in self.jobs()],['A'])
+
+    def test_csv_roles_apply_and_clearing_one_account_leaves_company_filters(self):
+        filters.set_companies(self.conn,['Blocked Co'])
+        filters.set_roles(self.conn,self.account_id,['MLOps'])
+        self.conn.commit()
+        result=sourcing_csv.import_rows(self.conn,self.tab(),'role-csv',self.snapshot()['revision'],text='Company,Role,Job link\nAllowed,MLOps Engineer,https://jobs.test/no\nAllowed,Backend Engineer,https://jobs.test/yes')
+        self.assertEqual(result['filtered']['blocked_roles'],1)
+        filters.set_roles(self.conn,self.account_id,[])
+        self.assertEqual(filters.roles(self.conn,self.account_id),[])
+        self.assertEqual(filters.companies(self.conn),['Blocked Co'])
+
+    def test_role_schema_upgrade_keeps_existing_company_filters(self):
+        filters.set_companies(self.conn,['Keep Co'])
+        self.conn.execute("DROP TABLE sourcing_blocked_roles")
+        self.conn.execute("PRAGMA user_version=37")
+        self.conn.commit()
+        with db.session(self.path) as upgraded:
+            self.assertEqual(filters.companies(upgraded),['Keep Co'])
+            self.assertEqual(filters.roles(upgraded,self.account_id),[])

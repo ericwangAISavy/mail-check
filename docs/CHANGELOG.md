@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.12.0 — 2026-11-03
+
+Per-account role filters and Junk/Spam collection
+
+- Add a Roles by account section to Job link filters, with independent blocked role keywords for each email account and matching across its new job rows.
+- Include read and unread messages from Outlook Inbox and Junk Email and configured IMAP folders plus detected Junk/Spam, with safe checkpoint backfill and folder status reporting.
+
 ## 2.11.1 — 2026-11-03
 
 Fitted sign-in and unique bidder usernames

@@ -1,6 +1,7 @@
 """Filter incoming job rows only; account history remains untouched."""
 import json
 import re
+import unicodedata
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 
@@ -35,19 +36,53 @@ def set_companies(conn,names):
     conn.executemany('INSERT INTO sourcing_blocked_companies(key,name) VALUES(?,?)',cleaned.items())
 
 
+def role_key(value):
+    return re.sub(r"[\s_\-\u2010-\u2015]+", "", unicodedata.normalize("NFKC",value).casefold())
+
+
+def roles(conn,account_id):
+    return [r[0] for r in conn.execute(
+        "SELECT keyword FROM sourcing_blocked_roles WHERE account_id=? ORDER BY keyword COLLATE NOCASE",(account_id,))]
+
+
+def set_roles(conn,account_id,keywords):
+    if not conn.execute("SELECT 1 FROM accounts WHERE id=?",(account_id,)).fetchone():
+        raise LookupError("Email account not found.")
+    cleaned={}
+    for keyword in keywords:
+        keyword=keyword.strip()
+        key=role_key(keyword)
+        if not any(c.isalnum() for c in key) or len(keyword)>200:
+            raise ValueError("Enter role keywords of 1–200 characters containing letters or numbers.")
+        cleaned.setdefault(key,keyword)
+    if len(cleaned)>1000:raise ValueError("Save up to 1,000 role keywords per account.")
+    conn.execute("DELETE FROM sourcing_blocked_roles WHERE account_id=?",(account_id,))
+    conn.executemany("INSERT INTO sourcing_blocked_roles(account_id,key,keyword) VALUES(?,?,?)",
+                     [(account_id,key,keyword) for key,keyword in cleaned.items()])
+
+
+def role_settings(conn):
+    by_account={}
+    for row in conn.execute("SELECT account_id,keyword FROM sourcing_blocked_roles ORDER BY keyword COLLATE NOCASE"):
+        by_account.setdefault(row["account_id"],[]).append(row["keyword"])
+    return {"accounts":[{"id":row["id"],"label":row["label"],"email":row["email"],
+                         "keywords":by_account.get(row["id"],[])}
+                         for row in conn.execute("SELECT id,label,email FROM accounts ORDER BY label")]}
+
 def filter_rows(conn,tab,ids):
     """Only supplied incoming rows can be deleted. Keep the first incoming copy."""
     from .sourcing_structure import reorder, ordered_rows
     from .sourcing_progress import report
     ids=set(ids)
     report(0,len(ids))
-    summary={'duplicates':0,'blocked_companies':0}
+    summary={'duplicates':0,'blocked_companies':0,'blocked_roles':0}
     if not ids:return summary
     blocked={company_key(name) for name in companies(conn)}
+    blocked_roles=[role_key(keyword) for keyword in roles(conn,tab['account_id'])]
     rows=conn.execute('''SELECT r.id,r.tab_id,c.kind,v.value FROM native_rows r
         JOIN native_tabs t ON t.id=r.tab_id JOIN native_columns c ON c.tab_id=t.id
         JOIN native_cells v ON v.row_id=r.id AND v.column_id=c.id
-        WHERE (t.account_id=? OR t.id=?) AND c.kind IN ('company','link','check')
+        WHERE (t.account_id=? OR t.id=?) AND c.kind IN ('company','role','link','check')
         ORDER BY r.position,r.id''',(tab['account_id'],tab['id']))
     values={}
     for row in rows:values.setdefault(row['id'],{})[row['kind']]=row['value']
@@ -62,7 +97,10 @@ def filter_rows(conn,tab,ids):
         # Incomplete rows are checked once their job URL is entered.
         if not link:continue
         company=company_key(v.get('company',''))
-        reason='blocked_companies' if any(name in company for name in blocked) else 'duplicates' if link in seen else None
+        role=role_key(v.get('role',''))
+        reason=('blocked_companies' if any(name in company for name in blocked) else
+                'blocked_roles' if any(keyword in role for keyword in blocked_roles) else
+                'duplicates' if link in seen else None)
         if reason:
             conn.execute('DELETE FROM native_rows WHERE id=? AND tab_id=?',(key,tab['id']))
             summary[reason]+=1

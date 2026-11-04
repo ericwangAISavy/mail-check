@@ -832,7 +832,7 @@ export default function SourcingEditor({
         </div>
       )}
       {!importOpen && <SourcingProgress progress={progress}/>}
-      {!progress && snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies.</p>}
+      {!progress && snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies + (snapshot.filtered.blocked_roles||0) > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies, {snapshot.filtered.blocked_roles||0} blocked roles.</p>}
       {exportError && <p role="alert" className="inline-error">{exportError}</p>}
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot ? (

@@ -454,3 +454,14 @@ Interview opportunity tracking and migration: [Interview pipeline](docs/INTERVIE
 ### Per-account bidder work breakdown
 
 In **Bidder management → Daily breakdown**, click the arrow beside a bidder’s name to show each email account separately. Account rows show daily estimated confirmations / checked applications and the account’s weekly estimated total. Shared-account rows use that bidder’s allocated share and add up to the bidder’s combined figures. Payments remain recorded for the bidder. Bidders viewing their own report only see their own account breakdown.
+
+
+### Account-specific blocked roles
+
+Open **Job sourcing → Job link filters → Roles by account**, select an email account, and enter one blocked role keyword or phrase per line. For example, `MLOps`, `Full stack`, or `Machine learning`. Save each account separately. Matching ignores case, spaces and hyphens, while preserving symbols such as `C++` and `C#`. Filters apply to new/pasted/imported jobs and newly completed role fields across that account’s tabs and bidders. Existing job history is preserved. Clearing the list disables role filtering only for that account.
+
+### Inbox and Junk/Spam collection
+
+Manual and automatic mail checks collect both read and unread mail from Outlook Inbox and Junk Email. IMAP checks the configured folder plus discovered Junk/Spam folders (including Gmail’s Spam folder). Folder selection and message fetching remain read-only; nothing is moved or marked read. Messages found in more than one scanned folder are collected once. Folder names and collected counts appear in collection status/log messages.
+
+The first incremental check after this upgrade uses the configured first-check lookback again to include the newly covered folders. Afterwards, successful per-account checkpoints resume as usual. A failure in any scanned folder keeps that account’s checkpoint unchanged for retry.

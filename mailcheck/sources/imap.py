@@ -19,7 +19,7 @@ from imap_tools.errors import ImapToolsError
 from ..models import RawMessage
 from ..interview_metadata import imap_calendars, message_references
 from ..secrets import clean_password
-from .base import SourceError
+from .base import SourceError, collection_status
 
 
 class IMAPSource:
@@ -81,26 +81,49 @@ class IMAPSource:
 
     def fetch_unread(self, since: date | datetime, *, include_read: bool = False) -> Iterator[RawMessage]:
         box = self._open()
+        folder = self.folder
         try:
-            if isinstance(since, datetime):
-                cutoff = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
-                # IMAP SINCE has day precision and mailbox-local dates. Include
-                # the preceding day, then inspect INTERNALDATE without bodies.
-                day = (cutoff - timedelta(days=1)).date()
-                criteria = AND(date_gte=day) if include_read else AND(seen=False, date_gte=day)
-                uids = self._arrival_uids(box, criteria, cutoff)
-                if not uids:
-                    return
-                messages = box.fetch(uid_list=uids, mark_seen=False, bulk=50)
-            else:
-                criteria = AND(date_gte=since) if include_read else AND(seen=False, date_gte=since)
-                messages = box.fetch(criteria, mark_seen=False, bulk=True)
-            for msg in messages:
-                yield _to_raw(msg, self.folder)
-        except (ImapToolsError, OSError) as exc:
-            raise SourceError(f"Fetch failed for {self.username}: {exc}") from exc
+            folders = self._mail_folders(box)
+            seen=set()
+            for index,folder in enumerate(folders):
+                collection_status(f"Checking {folder}…")
+                if index:
+                    box.folder.set(folder,readonly=True)
+                if isinstance(since, datetime):
+                    cutoff = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
+                    day = (cutoff - timedelta(days=1)).date()
+                    criteria = AND(date_gte=day) if include_read else AND(seen=False, date_gte=day)
+                    uids = self._arrival_uids(box, criteria, cutoff)
+                    messages = box.fetch(uid_list=uids, mark_seen=False, bulk=50) if uids else ()
+                else:
+                    criteria = AND(date_gte=since) if include_read else AND(seen=False, date_gte=since)
+                    messages = box.fetch(criteria, mark_seen=False, bulk=50)
+                count=0
+                for msg in messages:
+                    raw=_to_raw(msg,folder)
+                    if raw.message_id in seen:continue
+                    seen.add(raw.message_id)
+                    count+=1
+                    yield raw
+                collection_status(f"Collected {count} message(s) from {folder}.")
+        except (ImapToolsError, OSError, SourceError) as exc:
+            raise SourceError(f"Fetch failed for {self.username}, folder {folder}: {exc}") from exc
         finally:
             _quiet_logout(box)
+
+    def _mail_folders(self,box):
+        folders=[self.folder]
+        for item in box.folder.list():
+            name=item.name
+            flags={str(flag).casefold() for flag in item.flags}
+            delimiter=getattr(item,"delim",None) or "/"
+            leaf=name.rsplit(delimiter,1)[-1]
+            key=re.sub(r"[\s_\-]","",leaf.casefold())
+            if "\\noselect" in flags:continue
+            if "\\junk" in flags or key in ("spam","junk","junkemail","bulkmail"):
+                if not any(name==old or name.casefold()==old.casefold()=="inbox" for old in folders):
+                    folders.append(name)
+        return folders
 
     @staticmethod
     def _arrival_uids(box, criteria, cutoff):

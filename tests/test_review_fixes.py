@@ -132,6 +132,13 @@ class ReviewFixTests(unittest.TestCase):
         self.assertIn("authuser=me%2Bx%40gmail.com", url)
         self.assertEqual(label, "Open in Gmail")
 
+    def test_gmail_link_searches_spam_as_well_as_inbox(self):
+        from urllib.parse import unquote
+        url,_ = _open_link({"provider_url":None,"provider":"imap","imap_host":"imap.gmail.com",
+                           "message_id":"<spam@example.test>","account_email":"me@gmail.com"})
+        self.assertIn("in:anywhere",unquote(url))
+        self.assertIn("rfc822msgid:<spam@example.test>",unquote(url))
+
 
 if __name__ == "__main__":
     unittest.main()

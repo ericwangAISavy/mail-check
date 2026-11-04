@@ -13,6 +13,7 @@ from .diagnostics import PerformanceLog
 from .llm import LLMClient, PROMPT_VERSION, classify
 from .models import NormalizedMessage, RunResult, TriagedMessage
 from .sources import IMAPSource, OutlookGraphSource, SourceError
+from .sources.base import collection_scope
 from .taxonomy import UNCLASSIFIED
 
 StatusFn = Callable[[str], None]
@@ -144,7 +145,8 @@ def check_once(
             conn.commit()
         status(f"Fetching {account.label} ({account.email}) since {windows[account.id].isoformat()}...")
         try:
-            msgs = fetch_account(account, windows[account.id], cfg)
+            with collection_scope(lambda message: status(f"[{account.label}] {message}")):
+                msgs = fetch_account(account, windows[account.id], cfg)
         except (SourceError, secrets.SecretError) as exc:
             result.errors.append(f"[{account.label}] {exc}")
             continue

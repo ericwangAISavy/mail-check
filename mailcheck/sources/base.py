@@ -7,10 +7,29 @@ satisfies this protocol — not a refactor of the pipeline.
 from __future__ import annotations
 
 from datetime import date, datetime
+from contextlib import contextmanager
+from contextvars import ContextVar
+import logging
 from typing import Iterator, Protocol, runtime_checkable
 
 from ..models import RawMessage
 from ..calendar_events import CalendarBooking
+
+
+_collection_status = ContextVar("mail_collection_status",default=None)
+
+
+@contextmanager
+def collection_scope(callback):
+    token=_collection_status.set(callback)
+    try:yield
+    finally:_collection_status.reset(token)
+
+
+def collection_status(message):
+    logging.getLogger("mailcheck.collection").info(message)
+    callback=_collection_status.get()
+    if callback:callback(message)
 
 
 class SourceError(RuntimeError):

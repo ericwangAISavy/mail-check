@@ -19,7 +19,7 @@ from ..models import RawMessage
 from ..calendar_events import CalendarBooking
 from ..interview_metadata import graph_calendars, message_references
 from ..outlook_auth import OutlookAuthError, ReconnectRequired, acquire_token, CALENDAR_SCOPES
-from .base import SourceError
+from .base import SourceError, collection_status
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 MESSAGES_URL = f"{GRAPH}/me/mailFolders/inbox/messages"
@@ -179,20 +179,31 @@ class OutlookGraphSource:
             "$orderby": "receivedDateTime desc",
         }
         with self._client() as client:
-            url = MESSAGES_URL
-            visited: set[str] = set()
-            while url:
-                if url in visited:
-                    raise SourceError("Microsoft Graph repeated a mail page; collection is incomplete. Retry the check.")
-                visited.add(url)
-                data = self._get(client, url, params)
-                for item in data.get("value") or []:
-                    yield _to_raw(item)
-                # nextLink already carries every query parameter.
-                url, params = data.get("@odata.nextLink"), None
+            seen=set()
+            for first_url,folder in ((MESSAGES_URL,"Inbox"),(f"{GRAPH}/me/mailFolders/junkemail/messages","Junk Email")):
+                collection_status(f"Checking {folder}…")
+                url, page_params = first_url, params
+                visited=set()
+                count=0
+                try:
+                    while url:
+                        if url in visited:
+                            raise SourceError("Microsoft Graph repeated a mail page; collection is incomplete. Retry the check.")
+                        visited.add(url)
+                        data=self._get(client,url,page_params)
+                        for item in data.get("value") or []:
+                            raw=_to_raw(item,folder)
+                            if raw.message_id in seen:continue
+                            seen.add(raw.message_id)
+                            count+=1
+                            yield raw
+                        url,page_params=data.get("@odata.nextLink"),None
+                except SourceError as exc:
+                    raise SourceError(f"{folder}: {exc}") from exc
+                collection_status(f"Collected {count} message(s) from {folder}.")
 
 
-def _to_raw(item: dict) -> RawMessage:
+def _to_raw(item: dict, folder: str = "Inbox") -> RawMessage:
     sender = ((item.get("from") or {}).get("emailAddress")) or {}
     body = item.get("body") or {}
     text = body.get("content") or item.get("bodyPreview") or ""
@@ -215,7 +226,7 @@ def _to_raw(item: dict) -> RawMessage:
     return RawMessage(
         message_id=message_id,
         uid=str(item.get("id") or ""),
-        folder="Inbox",
+        folder=folder,
         from_addr=(sender.get("address") or "").lower(),
         from_name=sender.get("name") or "",
         subject=item.get("subject") or "(no subject)",

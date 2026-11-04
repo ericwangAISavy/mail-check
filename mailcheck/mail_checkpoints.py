@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS mail_checkpoints (
 
 
 def mailbox_key(account):
-    identity = [account.provider, account.email.casefold(), account.imap_host,
+    identity = ["inbox-and-junk-v1", account.provider, account.email.casefold(), account.imap_host,
                 account.imap_port, account.use_ssl, account.folder]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 

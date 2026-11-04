@@ -48,11 +48,11 @@ export default function SourcingProgress({progress}:{progress:JobProgress|null})
   if(!progress)return null
   const complete=progress.stage==='complete'
   const percent=complete?100:progress.total!=null&&progress.total>0?Math.min(99,Math.floor(progress.processed/progress.total*100)):undefined
-  const label=complete?'Sheet ready':progress.stage==='error'?'Could not finish — your changes have not been confirmed':progress.stage==='rendering'||progress.stage==='saving'||percent===99?'Saving and preparing your sheet':progress.stage==='filtering'?'Checking duplicate links and blocked companies':'Preparing new jobs'
+  const label=complete?'Sheet ready':progress.stage==='error'?'Could not finish — your changes have not been confirmed':progress.stage==='rendering'||progress.stage==='saving'||percent===99?'Saving and preparing your sheet':progress.stage==='filtering'?'Checking duplicate links, companies and account role filters':'Preparing new jobs'
   return <div className="sourcing-progress" aria-live="polite">
     <div className="sourcing-progress-label"><span>{label}</span><span>{percent==null?'Working…':`${percent}%`}</span></div>
     <div className={`sourcing-progress-track ${percent==null&&progress.stage!=='error'?'is-indeterminate':''}`} role="progressbar" aria-label="Job filtering progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={label}><span style={{width:percent==null?'30%':`${percent}%`}}/></div>
     {progress.total!=null&&!complete&&<small>{progress.processed} of {progress.total} rows checked</small>}
-    {complete&&progress.filtered&&<small>{progress.filtered.duplicates} duplicate links and {progress.filtered.blocked_companies} blocked companies removed.</small>}
+    {complete&&progress.filtered&&<small>{progress.filtered.duplicates} duplicate links and {progress.filtered.blocked_companies} blocked companies, plus {progress.filtered.blocked_roles||0} blocked roles removed.</small>}
   </div>
 }

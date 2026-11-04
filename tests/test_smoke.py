@@ -1424,6 +1424,8 @@ def test_graph_source():
 
             if self.path.startswith("/v1.0/me?"):
                 payload = {"mail": "me@outlook.com"}
+            elif "junkemail/messages" in self.path:
+                payload = page([])
             elif "page2" in self.path:
                 payload = page([{
                     "id": "B", "internetMessageId": "", "subject": "Second",

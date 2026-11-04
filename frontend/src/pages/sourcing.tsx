@@ -296,7 +296,7 @@ export default function SourcingPage() {
           </button>}
         </div>
       )}
-      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>{filtersOpen && <SourcingFilters />}</Dialog>
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>{filtersOpen && <SourcingFilters accountId={tab?.account_id}/>}</Dialog>
       <Dialog open={deleting !== null} onOpenChange={open => {if (!open && !deletion.isPending) setDeleting(null)}}>
         {deleting && <DialogContent><DialogTitle>Delete {deleting.title} tab?</DialogTitle>
           <DialogDescription>This permanently deletes this tab and all its job rows. Its checked links will be removed from payment breakdowns. Received emails and recorded payments stay saved. This cannot be undone.</DialogDescription>
