@@ -304,3 +304,16 @@ it("offers Today and Last 24 hours and sends the selected range", async () => {
   fireEvent.change(range, { target: { value: "1" } })
   await waitFor(() => expect(requests.some(url => url.includes("days=1"))).toBe(true))
 })
+
+it("submits text search with existing filters and clears it", async () => {
+  window.history.replaceState({}, "", "/?view=all&days=1&account=Personal")
+  renderPage()
+  await screen.findByText("Interview 1")
+  fireEvent.click(screen.getByRole("button", { name: /Filters/ }))
+  fireEvent.change(screen.getByLabelText("Search mail"), { target: { value: "  Acme  " } })
+  fireEvent.click(screen.getByRole("button", { name: "Search" }))
+  await waitFor(() => expect(requests.some(url => url.includes("q=Acme") && url.includes("days=1") && url.includes("account=Personal"))).toBe(true))
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }))
+  await waitFor(() => expect((screen.getByLabelText("Search mail") as HTMLInputElement).value).toBe(""))
+  expect(new URLSearchParams(window.location.search).has("q")).toBe(false)
+})

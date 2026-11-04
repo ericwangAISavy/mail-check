@@ -1039,7 +1039,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.get("/api/triage", response_model=TriageResponse)
     def api_triage(view: str = "queue", category: str | None = None,
-                   account: str | None = None, days: int = 30):
+                   account: str | None = None, days: int = 30, q: str = Query(default="", max_length=200)):
         """Read the same bounded, body-free rows as the original console."""
         if view not in ("queue", "all", "completed"):
             return _err("Unknown mail view.")
@@ -1059,12 +1059,13 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 since_iso=since,
                 handled=handled,
                 limit=500,
+                search=q,
             ) if view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
             counts = db.category_counts(conn, since_iso=since, account_label=account,
-                                        handled=handled)
+                                        handled=handled, search=q)
             if view == "queue":
                 counts = {name: count for name, count in counts.items() if is_queue_category(name)}
-            summary = db.queue_counts(conn, since_iso=since, account_label=account)
+            summary = db.queue_counts(conn, since_iso=since, account_label=account, search=q)
             accounts = db.list_accounts(conn)
         grouped: dict[str, list] = {tier: [] for tier in TIER_ORDER}
         for row in rows:

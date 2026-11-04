@@ -719,12 +719,25 @@ LATEST_CLASSIFICATION = """
 """
 
 
+def _text_search(search: str | None) -> tuple[str, list[str]]:
+    """Literal substring matching; user input never becomes SQL or LIKE syntax."""
+    term = (search or "").strip()
+    if not term:
+        return "", []
+    fields = ("m.subject", "m.from_addr", "m.from_name", "m.body_text",
+              "c.company", "c.role", "c.summary")
+    return " AND (" + " OR ".join(
+        f"instr(lower(COALESCE({field},'')), lower(?)) > 0" for field in fields
+    ) + ")", [term] * len(fields)
+
+
 def category_counts(
     conn: sqlite3.Connection,
     *,
     since_iso: str | None = None,
     account_label: str | None = None,
     handled: bool | None = None,
+    search: str | None = None,
 ) -> dict[str, int]:
     """Counts per category over the latest classification of each message."""
     sql = (
@@ -737,6 +750,9 @@ def category_counts(
         + " WHERE 1 = 1"
     )
     params: list = []
+    search_sql, search_params = _text_search(search)
+    sql += search_sql
+    params.extend(search_params)
     if since_iso:
         sql += f" AND {RECEIVED} >= ?"
         params.append(since_iso)
@@ -759,6 +775,7 @@ def query_triaged(
     since_iso: str | None = None,
     handled: bool | None = None,
     limit: int = 500,
+    search: str | None = None,
 ) -> list[sqlite3.Row]:
     """Latest classification per message, joined with the message and account.
 
@@ -783,6 +800,9 @@ def query_triaged(
         + " WHERE 1 = 1"
     )
     params: list = []
+    search_sql, search_params = _text_search(search)
+    sql += search_sql
+    params.extend(search_params)
     if categories:
         sql += f" AND c.category IN ({','.join('?' * len(categories))})"
         params += categories
@@ -850,6 +870,7 @@ def queue_counts(
     *,
     since_iso: str | None = None,
     account_label: str | None = None,
+    search: str | None = None,
 ) -> dict[str, int]:
     """Headline numbers for the action queue: actionable, informational, done.
 
@@ -873,6 +894,9 @@ def queue_counts(
         + " WHERE 1 = 1"
     )
     params: list = []
+    search_sql, search_params = _text_search(search)
+    sql += search_sql
+    params.extend(search_params)
     if since_iso:
         sql += f" AND {RECEIVED} >= ?"
         params.append(since_iso)

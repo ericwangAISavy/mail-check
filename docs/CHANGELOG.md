@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.16.0 — 2026-11-04
+
+Search Triage mail by text
+
+- Search subjects, senders, companies, roles, summaries and stored message text within the selected Triage filters.
+
 ## 2.15.0 — 2026-11-04
 
 Add Today to Triage time ranges

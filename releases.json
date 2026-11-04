@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.16.0",
+    "date": "2026-11-04",
+    "title": "Search Triage mail by text",
+    "changes": [
+      "Search subjects, senders, companies, roles, summaries and stored message text within the selected Triage filters."
+    ]
+  },
+  {
     "version": "2.15.0",
     "date": "2026-11-04",
     "title": "Add Today to Triage time ranges",

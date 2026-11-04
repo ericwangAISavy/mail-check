@@ -236,6 +236,25 @@ class FrontendApiTests(unittest.TestCase):
                 self.assertEqual(sum(payload["counts"].values()), 1)
                 self.assertEqual(payload["days"], 0)
 
+    def test_triage_text_search_matches_saved_fields_and_literal_characters(self):
+        wanted = self.add_message("wanted")
+        other = self.add_message("other")
+        self.conn.execute("UPDATE messages SET subject='Unique subject',from_addr='hello@special.test',from_name='Talent Team',body_text='Literal 100%_ match' WHERE id=?", (wanted,))
+        self.conn.execute("UPDATE classifications SET company='ExampleCorp',role='Rust engineer',summary='Choose a slot' WHERE message_pk=?", (wanted,))
+        self.conn.commit()
+        for term in ("unique", "SPECIAL.TEST", "Talent Team", "100%_", "examplecorp", "Rust", "Choose a slot"):
+            with self.subTest(term=term):
+                response = self.client.get("/api/triage", params={"view":"all", "account":"personal", "q":term})
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                self.assertEqual([row["pk"] for group in payload["groups"] for row in group["items"]], [wanted])
+                self.assertEqual(sum(payload["counts"].values()), 1)
+                self.assertEqual(payload["summary"]["actionable"], 1)
+                self.assertNotIn("body_text", str(payload["groups"]))
+        self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"' OR 1=1 --"}).json()["total"], 0)
+        self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"unique", "category":"rejection"}).json()["total"], 0)
+        self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"   "}).json()["total"], 2)
+
     def test_triage_filters_views_and_keeps_message_bodies_out_of_rows(self):
         active = self.add_message("active")
         self.add_message("finished", done=True)
