@@ -13,7 +13,7 @@ ics = fixtures.ics
 
 
 def event(identity="booking-1", **values):
-    return dict(id=identity,iCalUId="uid-"+identity,subject="Booked appointment",
+    return dict(id=identity,iCalUId="uid-"+identity,subject="Interview appointment",
         start={"dateTime":"2026-10-18T15:30:00.0000000","timeZone":"UTC"},
         end={"dateTime":"2026-10-18T16:30:00.0000000","timeZone":"UTC"},
         originalStartTimeZone="Central Standard Time",isCancelled=False,
@@ -49,7 +49,7 @@ class NativeCalendarTests(unittest.TestCase):
             ("phone",None,"unknown",None),("office",None,"unknown",None)]
         items=[]
         for name,link,provider,platform in kinds:
-            item=event(name);item.update(subject=name,onlineMeeting={"joinUrl":link} if link else None,
+            item=event(name);item.update(subject=name+" interview",onlineMeeting={"joinUrl":link} if link else None,
                 onlineMeetingProvider=provider,location={"displayName":"Phone" if name=="phone" else "Office"})
             items.append(item)
         result=self.collect(self.source(items))
@@ -137,7 +137,7 @@ class NativeCalendarTests(unittest.TestCase):
         rows=self.conn.execute('SELECT * FROM interview_events').fetchall()
         self.assertEqual(len(rows),1)
         self.assertEqual(rows[0]['extraction_rank'],3)
-        self.assertEqual(rows[0]['company'],'Booked appointment')
+        self.assertEqual(rows[0]['company'],'Interview appointment')
 
     def test_imap_account_is_rejected_before_mail_credentials_are_opened(self):
         with patch.object(pipeline,"build_source",side_effect=AssertionError("No mail source should be opened")):
@@ -185,11 +185,11 @@ class CalendarDuplicateTests(unittest.TestCase):
 
     def test_existing_duplicates_display_once_without_losing_sources_or_manual_edits(self):
         first=event('original',organizer={'emailAddress':{'address':'recruiter@test'}})
-        second=event('copy',organizer=first['organizer']);second['subject']='Temporary different title'
+        second=event('copy',organizer=first['organizer']);second['subject']='Temporary interview title'
         self.collect(self.source([first]))
         self.collect(self.source([first,second]))
         rows=self.conn.execute('SELECT id FROM interview_events ORDER BY id').fetchall()
-        self.conn.execute("UPDATE interview_events SET company='Booked appointment'")
+        self.conn.execute("UPDATE interview_events SET company='Interview appointment'")
         interviews.correct_event(self.conn,rows[0][0],{'notes':'Keep my correction'})
         self.assertEqual(len(interviews.list_events(self.conn)),1)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
@@ -219,7 +219,7 @@ class CalendarDuplicateTests(unittest.TestCase):
 
     def test_incomplete_review_copy_is_hidden_behind_confirmed_booking(self):
         one=event('confirmed',organizer={'emailAddress':{'address':'recruiter@test'}})
-        two=event('incomplete',organizer=one['organizer']);two['subject']='Temporary different title'
+        two=event('incomplete',organizer=one['organizer']);two['subject']='Temporary interview title'
         self.collect(self.source([one,two]))
         ids=[row[0] for row in self.conn.execute('SELECT id FROM interview_events ORDER BY id')]
         self.conn.execute("UPDATE interview_events SET company='Carta Phone Meeting'")
@@ -379,3 +379,68 @@ class CalendarPerformanceTests(unittest.TestCase):
         bulk=interviews.event_sources_many(self.conn,[identity])[identity]
         self.assertEqual(old,[{key:value for key,value in source.items() if key!='calendar_present'} for source in bulk])
         self.assertEqual(len(bulk),2)
+
+class InterviewCalendarFilteringTests(unittest.TestCase):
+    setUp=NativeCalendarTests.setUp
+    source=NativeCalendarTests.source
+    collect=NativeCalendarTests.collect
+    def test_holidays_personal_and_generic_online_meetings_are_not_imported(self):
+        items=[]
+        for index,title in enumerate(['Constitution Day','Christmas Day','Birthday','Dentist appointment','Team standup','Project meeting','Acme next round']):
+            item=event(str(index));item.update(subject=title,isAllDay=index<2,onlineMeeting={'joinUrl':'https://teams.microsoft.com/l/meetup-join/holiday'})
+            items.append(item)
+        for index,title in enumerate(['Acme Interview','Phone screen with Acme','Recruiter call','Technical assessment']):
+            item=event('interview-'+str(index));item['subject']=title;items.append(item)
+        result=self.collect(self.source(items))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(result['changes']),4)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],4)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0],0)
+
+    def test_categories_and_combined_recruiter_call_context_are_supported(self):
+        tagged=event('tagged');tagged.update(subject='Acme and candidate',categories=['Interview'])
+        recruiter=event('recruiter');recruiter.update(subject='Acme Phone Meeting',organizer={'emailAddress':{'address':'recruiter@acme.test'}})
+        unrelated=event('unrelated');unrelated.update(subject='Christmas holiday',categories=['Interview'],organizer=recruiter['organizer'])
+        result=self.collect(self.source([tagged,recruiter,unrelated]))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(result['changes']),2)
+
+    def test_all_day_interview_is_not_rejected_as_a_holiday(self):
+        item=event();item.update(subject='Acme onsite interview',isAllDay=True)
+        self.assertEqual(len(self.collect(self.source([item]))['changes']),1)
+
+    def test_known_interview_keeps_generic_title_updates_and_cancellations(self):
+        item=event();self.collect(self.source([item]))
+        identity=self.conn.execute('SELECT id FROM interview_events').fetchone()[0]
+        item.update(subject='Acme and candidate',lastModifiedDateTime='2026-10-16T12:00:00Z')
+        self.collect(self.source([item]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        item.update(subject='Cancelled appointment',isCancelled=True,lastModifiedDateTime='2026-10-17T12:00:00Z')
+        self.collect(self.source([item]))
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual(row['id'],identity)
+        self.assertEqual(row['status'],'Cancelled')
+
+    def test_successful_sync_hides_old_unrelated_bookings_without_deleting_them(self):
+        from datetime import timedelta
+        item=event('legacy-holiday')
+        start=datetime.now(timezone.utc)+timedelta(days=1)
+        item['start']={'dateTime':start.isoformat(),'timeZone':'UTC'}
+        item['end']={'dateTime':(start+timedelta(hours=1)).isoformat(),'timeZone':'UTC'}
+        self.collect(self.source([item]))
+        self.conn.execute("UPDATE interview_events SET company='Constitution Day',stage='Other',role=NULL")
+        self.conn.execute("UPDATE interview_sources SET source_subject='Constitution Day',source_sender='calendar@example.test'")
+        self.conn.execute('UPDATE interview_calendar_state SET interview_related=0')
+        self.conn.commit()
+        item['subject']='Constitution Day'
+        result=self.collect(self.source([item]))
+        self.assertFalse(result['errors'])
+        self.assertEqual(interviews.list_events(self.conn),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.assertEqual(self.conn.execute('SELECT present FROM interview_calendar_state').fetchone()[0],0)
+
+    def test_mail_calendar_compatibility_does_not_import_holidays(self):
+        holiday=ics(uid='holiday-ics').replace('Acme Technical Interview','Constitution Day')
+        pk,_=fixtures.InterviewTests.message(self,subject='Holiday calendar',calendar_data=[holiday])
+        self.assertEqual(interviews.process_message(self.conn,pk,{},calendar_only=True),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)

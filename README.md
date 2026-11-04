@@ -45,10 +45,10 @@ Prefer the terminal? The same steps are below.
 
 On Triage, **Check now** and automatic web checks fetch and classify read and unread mail
 from all enabled accounts using the existing categories. On Interview, both
-**Check now** buttons collect native calendar bookings from
+**Check now** buttons collect interview-related native calendar bookings from
 connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
-phone and in-person bookings are included without reading inbox messages or running
-classification. Calendar
+phone and in-person interviews are included without reading inbox messages or running
+classification. Holidays, birthdays and unrelated meetings are excluded. Calendar
 collection requires read-only `Calendars.Read`; reconnect existing Outlook accounts
 in Accounts after adding that permission to your Microsoft application. IMAP does
 not expose calendar events and is not used as a fallback. See

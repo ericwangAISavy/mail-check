@@ -1,6 +1,6 @@
 # Meeting calendar
 
-The admin-only Interview page displays local calendar bookings in Work week, Week,
+The admin-only Interview page displays interview-related calendar bookings in Work week, Week,
 Month and Day views. Named bidders are limited to their own sourcing sheets and payments. No production events are
 seeded, and existing mail history is preserved.
 
@@ -93,11 +93,26 @@ accessible calendar and reads each calendar's `calendarView`, following calendar
 and event pagination. The default date window covers at least the previous year
 and one year ahead, independently of the mail lookback. It is based on event dates, not invitation receipt dates.
 
-`calendarView` expands recurring occurrences and exceptions. Bookings are accepted
-regardless of title, organizer, meeting provider, or whether they have a join link.
-Teams, Google Meet, Zoom, Webex, Skype, telephone and in-person bookings all use the
-same collection path. This does not connect to Google Calendar itself: Google Meet
-bookings must exist on a connected Outlook calendar.
+`calendarView` expands recurring occurrences and exceptions. Collection requires
+interview evidence in the event title (such as Interview, Phone screen, Recruiter
+call or Technical assessment) or an Interview category. A generic phone meeting
+also qualifies when its organizer explicitly identifies recruiting; an organizer,
+calendar name or Teams/Zoom link alone does not qualify. Holidays, birthdays,
+personal appointments and unrelated generic meetings are not imported. An all-day
+onsite interview can still qualify; all-day duration alone does not mean holiday.
+Teams, Google Meet, Zoom, Webex, Skype, phone and in-person interviews are supported.
+Generic new titles without recruiting context are intentionally skipped. Add an
+Interview category or explicit interview wording in Outlook when necessary.
+
+Once an interview is recognized, its provider identity remains trusted through
+generic-title reschedules and cancellations. An unrelated title such as Holiday
+still does not become an interview merely because an older app imported it.
+After a complete successful sync, previously imported unrelated bookings in the
+collected window are hidden from the calendar; records, sources and local edits
+are retained. Incomplete or failed syncs do not remove missing bookings. Run
+**Check now** once after upgrading to apply the filter to existing imported events.
+No events are deleted or edited in Outlook. Availability calculations still read
+all relevant busy calendar appointments to avoid offering occupied times.
 
 Only event metadata is used and saved: title, start/end, original timezone, organizer,
 attendees, location, online-meeting link/provider, cancellation and revision data.
@@ -105,7 +120,7 @@ Graph calendarView uses its default projection because revision timestamps do no
 support `$select`; unused properties, including event bodies, are discarded.
 The calendar client requests UTC timestamps and uses read-only `Calendars.Read`.
 There are no inbox/message endpoints, attachment scans, email bodies, model calls,
-or meeting-relevance classification in this flow. The saved-mail scan endpoint is
+or model-based classification in this flow. Relevance uses the metadata rules above. The saved-mail scan endpoint is
 retired (HTTP 410), and its UI action and source-email reader have been removed
 from the calendar. The separate CLI mail tools retain their existing workflow.
 

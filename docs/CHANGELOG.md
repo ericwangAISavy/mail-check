@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.17.3 — 2026-11-04
+
+Collect interview-related calendar events only
+
+- Exclude holidays, birthdays and unrelated calendar meetings while keeping interview-tagged events, recruiter calls and recognized interview updates.
+- Hide previously imported unrelated bookings after a successful sync without deleting saved records or changing Outlook; preserve complete-sync safeguards and availability checks.
+
 ## 2.17.2 — 2026-11-04
 
 Show checked counts only to bidders

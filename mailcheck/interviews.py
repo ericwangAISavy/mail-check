@@ -19,15 +19,15 @@ from icalendar import Calendar
 from pydantic import BaseModel, Field
 
 from . import db
+from .calendar_events import interview_evidence, unrelated_booking
 from .llm import LLMClient
 from .llm.schema import extract_json
 
 log = logging.getLogger(__name__)
-DETECTOR_VERSION = "2"
+DETECTOR_VERSION = "3"
 STAGES = ("Recruiter Screen", "Phone Screen", "Technical Interview", "Coding Interview", "System Design", "Behavioral Interview", "Hiring Manager", "Onsite", "Final Round", "Other")
 STATUSES = ("Scheduled", "Rescheduled", "Cancelled", "Completed", "Needs review")
 INDICATORS = re.compile(r"interview|phone screen|hiring manager|onsite|on-site|calendar invitation|meeting invitation|schedule (?:a|your) call|select a time|like to meet", re.I)
-INTERVIEW_CONTEXT = re.compile(r"interview|phone screen|recruiter screen|hiring manager|onsite|on-site|coding|system design|behavioral", re.I)
 CHANGE = re.compile(r"reschedul|new interview time|moved your interview|updated invitation", re.I)
 CANCEL = re.compile(r"cancel(?:led|ed|lation)?|position (?:has been )?closed", re.I)
 URLS = re.compile(r"https://[^\s<>\[\]\"']+", re.I)
@@ -150,7 +150,7 @@ def detect(row: dict, cls: dict, client=None, *, known_uids: set[str] | None = N
                 summary = str(component.get("SUMMARY", ""))
                 description = str(component.get("DESCRIPTION", ""))
                 # Calendar evidence + classification/context, not every dentist appointment.
-                if not calendar_only and cls.get("category") != "interview_invite" and not INTERVIEW_CONTEXT.search(row["subject"] + summary + description) and str(component.get("UID", "")) not in (known_uids or set()):
+                if cls.get("category") != "interview_invite" and not interview_evidence(row["subject"] + "\n" + summary + "\n" + description) and str(component.get("UID", "")) not in (known_uids or set()):
                     continue
                 start_prop = component.get("DTSTART")
                 end_prop = component.get("DTEND")
@@ -423,7 +423,7 @@ def process_message(conn, pk: int, cls: dict, *, client=None, force=False, calen
     # Each message is atomic; a malformed invite never rolls back mail writes.
     conn.execute("SAVEPOINT interview_message")
     try:
-        known_uids = {r[0] for r in conn.execute("SELECT calendar_uid FROM interview_events WHERE calendar_uid IS NOT NULL")}
+        known_uids = {r["calendar_uid"] for r in _known_calendar_interviews(conn,row["account_id"]) if r["calendar_uid"]}
         candidates, retryable = detect(row, cls, client, known_uids=known_uids, calendar_only=calendar_only)
         changes = [change for item in candidates if (change := reconcile(conn, item, row))]
         conn.execute("INSERT INTO interview_scans VALUES (?,?,?,?) ON CONFLICT(message_pk) DO UPDATE SET fingerprint=excluded.fingerprint,retryable=excluded.retryable,scanned_at=excluded.scanned_at", (pk,fingerprint,int(retryable),db._now()))
@@ -443,6 +443,17 @@ def process_run(conn, cfg, result) -> None:
         if row:
             result.interview_changes.extend(process_message(conn,row["id"],{},calendar_only=True))
     conn.commit()
+
+
+def _known_calendar_interviews(conn, account_id):
+    """Keep proven interview identity through title changes, never legacy holidays."""
+    rows = conn.execute("""SELECT s.external_message_id,s.source_subject,s.source_sender,e.calendar_uid,e.recurrence_id,
+        e.company,e.role,e.stage,COALESCE(c.interview_related,0) AS interview_related
+        FROM interview_sources s JOIN interview_events e ON e.id=s.event_id
+        LEFT JOIN interview_calendar_state c ON c.source_id=s.id WHERE s.account_id=?""", (account_id,))
+    return [row for row in rows if row['interview_related'] or (row['role'] or '').strip()
+            or (row['stage'] in STAGES and row['stage'] != 'Other')
+            or interview_evidence(row['source_subject'],organizer=row['source_sender']) or interview_evidence(row['company'])]
 
 
 def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None):
@@ -468,15 +479,25 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 raise SourceError("IMAP cannot read calendar events. Connect your calendar through Microsoft sign-in with read-only Calendars.Read access; email fallback is disabled.")
             source = build_source(account, cfg)
             seen = set()
+            known = _known_calendar_interviews(conn,account.id)
+            known_ids = {r['external_message_id'] for r in known}
+            known_uids = {(r['calendar_uid'],r['recurrence_id']) for r in known if r['calendar_uid']}
             complete = True
             for booking in source.fetch_calendar(since, until=until):
+                # Preserve recognized interview updates even if a later revision
+                # has a generic title. Previously imported personal events do not
+                # become trusted merely because they were imported before.
+                evidence = interview_evidence(booking.title,booking.categories,organizer=" ".join(filter(None,[booking.organizer_name,booking.organizer_email])))
+                recognized = booking.provider_id in known_ids or (booking.uid,booking.recurrence_id) in known_uids
+                if not evidence and (not recognized or unrelated_booking(booking.title)):
+                    continue
                 # Native provider events only: no inbox reads, ICS extraction, or model.
                 row = dict(id=None,account_id=account.id,message_id=booking.provider_id,
                     subject=booking.title,from_addr=booking.organizer_email,
                     date_utc=booking.updated_at.isoformat() if booking.updated_at else None,
                     fetched_at=db._now(),references_json="[]")
                 candidate = dict(calendar_uid=booking.uid,recurrence_id=booking.recurrence_id,
-                    company=booking.title,role=None,stage="Other",
+                    company=booking.title,role=None,stage=_stage(booking.title),
                     status="Cancelled" if booking.cancelled else "Scheduled",
                     start_at=booking.start.isoformat(),end_at=booking.end.isoformat() if booking.end else None,
                     timezone=booking.timezone,meeting_platform=booking.meeting_platform,
@@ -491,9 +512,9 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 try:
                     change = reconcile(conn,candidate,row)
                     seen.add(booking.provider_id)
-                    conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present)
-                        SELECT id,?,?,1 FROM interview_sources WHERE account_id=? AND external_message_id=?
-                        ON CONFLICT(source_id) DO UPDATE SET start_at=excluded.start_at,end_at=excluded.end_at,present=1""",
+                    conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present,interview_related)
+                        SELECT id,?,?,1,1 FROM interview_sources WHERE account_id=? AND external_message_id=?
+                        ON CONFLICT(source_id) DO UPDATE SET start_at=excluded.start_at,end_at=excluded.end_at,present=1,interview_related=1""",
                         (candidate['start_at'],candidate['end_at'],account.id,booking.provider_id))
                     if change:
                         changes.append(change)

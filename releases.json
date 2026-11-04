@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.17.3",
+    "date": "2026-11-04",
+    "title": "Collect interview-related calendar events only",
+    "changes": [
+      "Exclude holidays, birthdays and unrelated calendar meetings while keeping interview-tagged events, recruiter calls and recognized interview updates.",
+      "Hide previously imported unrelated bookings after a successful sync without deleting saved records or changing Outlook; preserve complete-sync safeguards and availability checks."
+    ]
+  },
+  {
     "version": "2.17.2",
     "date": "2026-11-04",
     "title": "Show checked counts only to bidders",

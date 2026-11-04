@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 41
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -204,6 +204,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
+    ("interview_calendar_state", "interview_related", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

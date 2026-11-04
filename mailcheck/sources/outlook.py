@@ -290,4 +290,4 @@ def _calendar_booking(item: dict, calendar: dict) -> CalendarBooking:
         organizer_name=organizer.get("name"),organizer_email=organizer.get("address"),
         participants=[a["emailAddress"]["address"] for a in item.get("attendees") or [] if (a.get("emailAddress") or {}).get("address")],
         updated_at=datetime.fromisoformat(modified.replace("Z","+00:00")) if modified else None,
-        calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "",show_as=item.get("showAs") or "busy",all_day=bool(item.get("isAllDay")))
+        calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "",show_as=item.get("showAs") or "busy",all_day=bool(item.get("isAllDay")),categories=[value for value in item.get("categories") or [] if isinstance(value,str)])
