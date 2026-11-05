@@ -589,3 +589,69 @@ class SourcingVerificationTests(unittest.TestCase):
         db.save_classification(self.conn,pk,Classification(category='application_ack',company='Beta',role='Engineer'),'test','1')
         verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
         self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:4]], ['false','true','false'])
+
+    def test_inspira_company_and_role_containment_check_the_application(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'inspira',base['revision'],[
+            ['Inspira Financial','Principal AI Operations Engineer','https://jobs.test/inspira']],work_date='2026-10-20')
+        self.receipt('inspira-confirmation','Inspira Financial Trust, LLC','2026-10-20T12:00:00Z',role='Principal AI Operations Engineer (Remote)')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+
+    def test_manual_matching_accepts_shorter_email_company_and_role(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        jobs=self.native.append(self.conn,self.tab(),'expanded-names',base['revision'],[
+            ['Inspira Financial Trust LLC','Principal AI Operations Engineer (Remote)','https://jobs.test/inspira']],work_date='2026-10-20')
+        self.receipt('short-names','Inspira Financial','2026-10-20T12:00:00Z',role='AI Operations Engineer')
+        self.conn.commit()
+        result=verification.verify(self.conn,self.tab(),'short-name-check',jobs['revision'],'2026-10-20')
+        self.assertEqual(result['rows'][1][3]['value'],'true')
+
+    def test_contained_role_does_not_choose_between_multiple_eligible_titles(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'role-alternatives',base['revision'],[
+            ['Inspira Financial','Senior Software Engineer','https://jobs.test/senior'],
+            ['Inspira Financial Trust LLC','Principal Software Engineer','https://jobs.test/principal']],work_date='2026-10-20')
+        self.receipt('ambiguous-containment','Inspira Financial Trust LLC','2026-10-20T12:00:00Z',role='Software Engineer')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]],['false','false'])
+
+    def test_containment_does_not_match_word_fragments_or_conflicting_role_tokens(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        jobs=[['Metamask','Engineer','https://jobs.test/meta'],['Levels','Engineer III','https://jobs.test/level'],
+            ['Languages','C++ Engineer','https://jobs.test/cpp'],['Titles','Engineering Manager','https://jobs.test/manager']]
+        self.native.append(self.conn,self.tab(),'distinct-identities',base['revision'],jobs,work_date='2026-10-20')
+        for key,company,role in [('meta','Meta','Engineer'),('level','Levels','Engineer II'),('language','Languages','C# Engineer'),('title','Titles','Engineer')]:
+            self.receipt(key,company,'2026-10-20T12:00:00Z',role=role)
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:5]],['false']*4)
+
+    def test_company_only_containment_remains_ambiguous_across_name_variants(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'company-alternatives',base['revision'],[
+            ['Inspira Financial','Engineer','https://jobs.test/engineer'],
+            ['Inspira Financial Trust LLC','Analyst','https://jobs.test/analyst']],work_date='2026-10-20')
+        self.receipt('company-only-contained','Inspira Financial','2026-10-20T12:00:00Z',role=None)
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]],['false','false'])
+
+    def test_out_of_window_exact_role_does_not_block_eligible_containment(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'old-exact-role',base['revision'],[
+            ['Acme','Engineer','https://jobs.test/old']],work_date='2026-10-01')
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'current-contained-role',base['revision'],[
+            ['Acme','Senior Engineer','https://jobs.test/current']],work_date='2026-10-20')
+        self.receipt('current-short-role','Acme','2026-10-20T12:00:00Z',role='Engineer')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        checks=dict(self.conn.execute("""SELECT r.work_date,c.value FROM native_rows r
+            JOIN native_cells c ON c.row_id=r.id JOIN native_columns col ON col.id=c.column_id
+            WHERE col.kind='check' AND r.work_date IS NOT NULL"""))
+        self.assertEqual(checks['2026-10-01'],'false')
+        self.assertEqual(checks['2026-10-20'],'true')

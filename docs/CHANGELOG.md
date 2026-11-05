@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.1 — 2026-11-05
+
+Match contained company and role names
+
+- Application confirmations match company names when either normalized name contains the other as a whole-word phrase, including Inspira Financial Trust LLC and Inspira Financial.
+- Role names support the same bidirectional containment when no exact eligible role match exists. Ambiguous matches, account/date limits, receipt reservations, and saved payments remain protected.
+
 ## 2.21.0 — 2026-11-04
 
 Resume calendar analysis automatically

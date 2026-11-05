@@ -65,8 +65,10 @@ undo history clears on a day change so it cannot affect another day's jobs.
 Select the account tab and job date, wait for **Saved**, then click
 **Check applications**. For each job link on that tab and date, mail-check compares
 its company and role with a single saved **Application received** confirmation from
-the same account. If the confirmation includes a role, company and role must both
-match. Only confirmations with no role allow company-only matching. A missing role
+the same account. Company names match when either normalized whole-word phrase
+contains the other. If the confirmation includes a role, exact eligible role matches
+are preferred; otherwise the same bidirectional phrase-containment rule applies
+to role names. Company and role must both qualify. Only confirmations with no role allow company-only matching. A missing role
 on the sourcing row does not bypass a role present in the email. Missing roles in older receipts are filled from retained email
 classifications when available.
 Confirmations received during the seven-day window beginning on the sourcing date
@@ -82,10 +84,14 @@ Automatic verification adds new matches and never clears existing checks.
 
 Before comparison, company names preserve their full identity, ignoring case,
 separator punctuation, dotted initialisms and trailing legal suffixes such as Inc.
-or LLC. `First National` does not match `First Horizon`; `Cube Software` does not
-become `Cube`. Roles preserve seniority, level numbers and C++/C# distinctions;
-Sr./Senior and explicit Remote/Hybrid annotations are normalized. No fuzzy
-similarity is used.
+or LLC. `Inspira Financial Trust, LLC` matches `Inspira Financial` in either
+direction. `Principal AI Operations Engineer (Remote)` can match `Principal AI
+Operations Engineer`. `First National` does not match `First Horizon`, and `Meta`
+does not match the word fragment in `Metamask`. Sr./Senior and explicit Remote/Hybrid
+annotations are normalized. Exact roles take priority; containment is used only
+when no exact eligible role exists. Explicit conflicting levels (`Engineer II` vs
+`Engineer III`) and languages (`C++` vs `C#`) remain distinct. No fuzzy similarity
+or unordered word-set matching is used.
 
 Both manual **Check applications** and automatic checks consider competing jobs
 across the same account's active bidder tabs. A reply is bound only when its
