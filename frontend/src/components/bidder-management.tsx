@@ -11,8 +11,8 @@ type Assignment = { id: number; account_id: number; account_label: string; start
 type Bidder = { id: number; name: string; wallet_network?:string; wallet_address?:string; pay_per_bid?:string|null; adjustment_percent?:string; assignments: Assignment[] }
 type Report = { today: string; bidders: Bidder[]; accounts: { id: number; label: string }[] }
 
-export default function BidderManagement({initiallyOpen=false}:{initiallyOpen?:boolean}) {
-  const [open, setOpen] = useState(() => initiallyOpen || window.location.hash === "#bidder-management")
+export default function BidderManagement({initiallyOpen=false,embedded=false}:{initiallyOpen?:boolean;embedded?:boolean}) {
+  const [open, setOpen] = useState(() => embedded || initiallyOpen || window.location.hash === "#bidder-management")
   const [expandedBidder, setExpandedBidder] = useState<number | null | undefined>(undefined)
   const client = useQueryClient()
   const toast = useToast()
@@ -24,8 +24,7 @@ export default function BidderManagement({initiallyOpen=false}:{initiallyOpen?:b
   } })
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
   const data = query.data
-  return (
-    <details id="bidder-management" className="payment-management" open={open} onToggle={e => setOpen(e.currentTarget.open)}><summary>Manage bidders and account assignments</summary>
+  const content = <>
       {query.isPending && <Loading label="Loading bidders and assignments…" />}
       {query.error && <p role="alert" className="inline-error">{query.error.message} <Button onClick={() => void query.refetch()}>Try again</Button></p>}
       {access.error && <p role="alert" className="inline-error">Could not load bidder web access. <Button onClick={()=>void access.refetch()}>Try again</Button></p>}
@@ -33,8 +32,8 @@ export default function BidderManagement({initiallyOpen=false}:{initiallyOpen?:b
       {data && <><Card className="payment-admin-card"><h2>Add bidder</h2><form className="payment-inline-form" onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const values = new FormData(form); try { await write("/api/payments/bidders", { name: values.get("name") }); form.reset() } catch { /* shown above */ } }}><label>Bidder name<input name="name" required maxLength={100} placeholder="e.g. Alex" /></label><Button disabled={mutation.isPending}><Plus size={16} />Add bidder</Button></form></Card>
       {data.bidders.map(b => <BidderManager expanded={(expandedBidder === undefined ? data.bidders[0]?.id : expandedBidder) === b.id} onToggle={() => setExpandedBidder(current => (current === undefined ? data.bidders[0]?.id : current) === b.id ? null : b.id)} accessEnabled={!!access.data?.bidders.find(member=>member.bidder_id===b.id)?.enabled} accessReady={access.isSuccess} key={b.id} bidder={b} accounts={data.accounts} today={data.today} busy={mutation.isPending} write={write} />)}
     </>}
-    </details>
-  )
+    </>
+  return embedded ? <div className="payment-management bidder-management-content">{content}</div> : <details id="bidder-management" className="payment-management" open={open} onToggle={e => setOpen(e.currentTarget.open)}><summary>Manage bidders and account assignments</summary>{content}</details>
 }
 
 function BidderManager({ expanded, onToggle, bidder, accounts, today, busy, write,accessEnabled,accessReady }: { expanded: boolean; onToggle: () => void; accessEnabled:boolean;accessReady:boolean;bidder: Bidder; accounts: Report["accounts"]; today: string; busy: boolean; write: (url: string, body: unknown) => Promise<unknown> }) {

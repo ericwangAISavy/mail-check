@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.2 — 2026-11-04
+
+Unify Accounts section headers
+
+- Accounts uses consistent Settings-style section headings with relevant inbox, connection, team, and visibility icons.
+- Bidder management and visibility headings sit above their cards, matching connected accounts and provider sections.
+
 ## 2.19.1 — 2026-11-04
 
 Fix visibility refresh and settings reads

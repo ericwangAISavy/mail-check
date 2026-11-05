@@ -68,10 +68,10 @@ function VisibilityRow({ member }: { member: Member }) {
   </tr>
 }
 
-export default function BidderVisibility() {
+export default function BidderVisibility({ embedded = false }: { embedded?: boolean }) {
   const query = useQuery({ queryKey: ["bidder-visibility"], queryFn: readVisibility })
   return <Card className="bidder-visibility-panel">
-    <h2>Bidder visibility</h2>
+    {!embedded && <h2>Bidder visibility</h2>}
     <p>Choose what each bidder can see. Other bidders’ work shows checked counts only; their payments and accounts stay private. Dashboard graphs always use the signed-in bidder’s assigned accounts.</p>
     {query.isPending ? <p>Loading visibility options…</p> : query.error && !query.data ? <div role="alert"><p>{query.error.message}</p><Button variant="outline" size="sm" onClick={() => void query.refetch()}>Try again</Button></div> : <div className="table-scroll">
       {query.error && <p role="alert">Could not refresh visibility options. Showing the last loaded settings.</p>}

@@ -1,10 +1,20 @@
 .accounts-page .settings-sections > section { min-width:0; scroll-margin-top:90px; }
-.accounts-page .payment-management,.bidder-visibility-panel { margin:0; padding:20px; border:1px solid var(--border); border-radius:10px; background:var(--card); }
-.accounts-page .payment-management>summary { font-size:18px; padding:0 0 16px; }
-.accounts-page .payment-admin-card { margin:12px 0 0; }
-.accounts-page .provider-heading { margin-top:0; }
+.accounts-page .account-section-heading { gap:12px; margin:0 1px 14px; }
+.accounts-page .account-section-heading .section-symbol { flex:none; width:36px; height:36px; border-radius:11px; }
+.accounts-page .account-section-heading .eyebrow { margin:0 0 4px; font-size:10px; line-height:1.3; letter-spacing:.12em; }
+.accounts-page .account-section-heading h2 { margin:0; font-size:18px; line-height:1.35; }
+.accounts-page .account-section-detail { max-width:220px; color:var(--muted-foreground); font-size:12px; text-align:right; }
+.accounts-page .bidder-management-content { display:grid; gap:12px; margin:0; }
+.accounts-page .bidder-management-content > .payment-admin-card { margin:0; }
+.bidder-visibility-panel { margin:0; padding:20px; }
 .bidder-visibility-panel h2 { margin:0; font-size:18px; }
 .bidder-visibility-panel p { color:var(--muted-foreground); font-size:13px; line-height:1.6; }
+.bidder-visibility-panel > p:first-child { margin-top:0; }
 .bidder-visibility-panel table { width:100%; border-collapse:collapse; }
 .bidder-visibility-panel th,.bidder-visibility-panel td { padding:12px; border-top:1px solid var(--border); text-align:left; }
 .bidder-visibility-panel input[type=checkbox] { width:18px; height:18px; accent-color:var(--primary); }
+@media (max-width:700px) {
+  .accounts-page .account-section-heading { flex-wrap:wrap; gap:10px; }
+  .accounts-page .account-section-heading h2 { font-size:17px; }
+  .accounts-page .account-section-detail { max-width:none; margin-left:46px; text-align:left; }
+}

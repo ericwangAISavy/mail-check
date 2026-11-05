@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.19.2",
+    "date": "2026-11-04",
+    "title": "Unify Accounts section headers",
+    "changes": [
+      "Accounts uses consistent Settings-style section headings with relevant inbox, connection, team, and visibility icons.",
+      "Bidder management and visibility headings sit above their cards, matching connected accounts and provider sections."
+    ]
+  },
+  {
     "version": "2.19.1",
     "date": "2026-11-04",
     "title": "Fix visibility refresh and settings reads",
