@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.2 — 2026-11-05
+
+Keep expanded matching additive and daily counts stable
+
+- Preserve legacy exact company/role matches before considering broader name containment, including valid saved receipt reservations during rebuilds.
+- Keep legitimate saved confirmation dates instead of moving historical counts to newly discovered earlier aliases or duplicate receipts.
+- Adding receipt evidence to an already manually checked job preserves its original manual accounting day; unchanged refreshes do not rewrite tab revisions.
+
 ## 2.21.1 — 2026-11-05
 
 Match contained company and role names

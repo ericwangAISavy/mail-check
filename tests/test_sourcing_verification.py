@@ -630,11 +630,11 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit();verification.verify_all(self.conn,sample=False)
         self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:5]],['false']*4)
 
-    def test_company_only_containment_remains_ambiguous_across_name_variants(self):
+    def test_company_only_containment_remains_ambiguous_without_an_exact_company(self):
         from mailcheck import sourcing_verification as verification
         base=self.snapshot()
         self.native.append(self.conn,self.tab(),'company-alternatives',base['revision'],[
-            ['Inspira Financial','Engineer','https://jobs.test/engineer'],
+            ['Inspira Financial Services','Engineer','https://jobs.test/engineer'],
             ['Inspira Financial Trust LLC','Analyst','https://jobs.test/analyst']],work_date='2026-10-20')
         self.receipt('company-only-contained','Inspira Financial','2026-10-20T12:00:00Z',role=None)
         self.conn.commit();verification.verify_all(self.conn,sample=False)
@@ -655,3 +655,108 @@ class SourcingVerificationTests(unittest.TestCase):
             WHERE col.kind='check' AND r.work_date IS NOT NULL"""))
         self.assertEqual(checks['2026-10-01'],'false')
         self.assertEqual(checks['2026-10-20'],'true')
+
+    def test_expanded_company_aliases_do_not_remove_a_legacy_exact_check_on_rebuild(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.receipt('legacy-exact','Acme','2026-10-21T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        base=self.snapshot()
+        self.assertEqual(base['rows'][1][3]['value'],'true')
+        # Older activity records may have a counted time without a receipt ID.
+        self.conn.execute('UPDATE sourcing_check_activity SET message_id=NULL WHERE row_id=?',(base['row_ids'][1],))
+        self.conn.commit()
+        self.native.append(self.conn,self.tab(),'new-company-alias',base['revision'],[
+            ['Acme Trust LLC','Engineer','https://jobs.test/alias']],work_date='2026-10-20')
+        self.conn.commit()
+        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
+        snap=self.snapshot()
+        self.assertEqual(snap['rows'][1][3]['value'],'true')
+        self.assertEqual(snap['rows'][4][3]['value'],'false')
+
+    def test_new_earlier_contained_receipt_cannot_move_an_existing_daily_count(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,))
+        self.receipt('original-proof','Acme','2026-10-21T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        before=payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily']
+        self.receipt('new-earlier-alias','Acme Trust LLC','2026-10-20T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        after=payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily']
+        self.assertEqual(before,after)
+        row=self.conn.execute('SELECT message_id,confirmed_at FROM sourcing_check_activity WHERE row_id=?',(self.snapshot()['row_ids'][1],)).fetchone()
+        self.assertEqual(row['message_id'],'original-proof')
+        self.assertEqual(row['confirmed_at'],'2026-10-21T14:00:00+00:00')
+
+    def test_matching_a_previously_manual_check_preserves_its_original_daily_total(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,))
+        self.conn.commit()
+        checked=self.native.save(self.conn,self.tab(),'manual-before-containment',[{
+            'row_id':base['row_ids'][1],'column_id':base['columns'][3]['id'],
+            'expected_version':base['rows'][1][3]['version'],'value':'true'}])
+        before=payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily']
+        self.receipt('new-manual-proof','Acme Trust LLC','2026-10-21T14:00:00Z')
+        self.conn.commit()
+        verification.verify(self.conn,self.tab(),'manual-proof-check',checked['revision'],'2026-10-20')
+        after=payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily']
+        self.assertEqual(before,after)
+        activity=self.conn.execute('SELECT message_id,confirmed_at FROM sourcing_check_activity WHERE row_id=?',(base['row_ids'][1],)).fetchone()
+        self.assertEqual(activity['message_id'],'new-manual-proof')
+        self.assertIsNone(activity['confirmed_at'])
+
+    def test_fresh_matches_keep_legacy_receipt_day_before_containment_evidence(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.receipt('exact-proof','Acme','2026-10-21T14:00:00Z')
+        self.receipt('earlier-contained-proof','Acme Trust LLC','2026-10-20T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        proof=self.conn.execute('SELECT message_id,confirmed_at FROM sourcing_check_activity WHERE row_id=?',(self.snapshot()['row_ids'][1],)).fetchone()
+        self.assertEqual(proof['message_id'],'exact-proof')
+        self.assertEqual(proof['confirmed_at'],'2026-10-21T14:00:00+00:00')
+
+    def test_manual_receipt_proof_is_idempotent_without_rewriting_tab_revision(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.jobs('2026-10-20')
+        self.native.save(self.conn,self.tab(),'manual-stable-proof',[{'row_id':base['row_ids'][1],
+            'column_id':base['columns'][3]['id'],'expected_version':base['rows'][1][3]['version'],'value':'true'}])
+        self.receipt('manual-stable','Acme Trust LLC','2026-10-21T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        first=self.snapshot();writes=self.conn.total_changes
+        verification.verify_all(self.conn,sample=False)
+        self.assertEqual(self.conn.total_changes,writes)
+        self.assertEqual(self.snapshot()['revision'],first['revision'])
+
+    def test_rebuild_preserves_a_valid_saved_alias_binding_when_exact_jobs_are_added(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'first-alias-job',base['revision'],[
+            ['Acme Trust LLC','Engineer','https://jobs.test/original-alias']],work_date='2026-10-20')
+        self.receipt('reserved-alias-proof','Acme','2026-10-21T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        first=self.snapshot()
+        self.assertEqual(first['rows'][1][3]['value'],'true')
+        self.native.append(self.conn,self.tab(),'later-exact-job',first['revision'],[
+            ['Acme','Engineer','https://jobs.test/new-exact']],work_date='2026-10-20')
+        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
+        snap=self.snapshot()
+        self.assertEqual([row[3]['value'] for row in snap['rows'][1:3]],['true','false'])
+
+    def test_broader_matching_only_adds_daily_counts_without_relocating_saved_checks(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,));self.conn.commit()
+        self.native.save(self.conn,self.tab(),'manual-daily-baseline',[{'row_id':base['row_ids'][3],
+            'column_id':base['columns'][3]['id'],'expected_version':base['rows'][3][3]['version'],'value':'true'}])
+        self.receipt('exact-daily-baseline','Acme','2026-10-21T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        before=payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily']
+        self.receipt('earlier-extra-proof','Acme Trust LLC','2026-10-20T14:00:00Z')
+        self.receipt('newly-eligible-job','Beta Trust LLC','2026-10-21T15:00:00Z')
+        self.receipt('manual-extra-proof','Other Trust LLC','2026-10-21T16:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        after=payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily']
+        self.assertTrue(all(new>=old for old,new in zip(before,after)),(before,after))
+        self.assertEqual(sum(after),sum(before)+1)

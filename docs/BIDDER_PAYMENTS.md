@@ -45,7 +45,10 @@ Existing manually checked and legacy job-link rows remain included. Checked coun
 are grouped by the matching reply's Chicago receipt date and require an account
 assignment on that completion date. Untimed manual or legacy checks keep their
 sourcing date. Each row counts once; archived sheets retain historical counts.
-Received replies do not increase pay unless a sourcing row is checked.
+Received replies do not increase pay unless a sourcing row is checked. Valid saved confirmation dates are retained when extra matching
+receipts are discovered. Receipt evidence added to an existing manual check does
+not relocate its daily count. This keeps expanded matching additive without
+rewriting historical day totals merely because a longer/shorter name now matches.
 
 ## Verification rules
 

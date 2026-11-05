@@ -43,18 +43,25 @@ def initialize(conn):
 
 def confirm(conn, row_id, received, message_id):
     row = conn.execute("SELECT r.work_date,t.account_id,b.bidder_id FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id WHERE r.id=?", (row_id,)).fetchone()
-    conn.execute("""INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source,confirmed_at,message_id)
+    cursor = conn.execute("""INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source,confirmed_at,message_id)
         VALUES(?,?,?,?,?,'confirmation',?,?) ON CONFLICT(row_id) DO UPDATE SET
-        confirmed_at=excluded.confirmed_at,message_id=excluded.message_id,account_id=excluded.account_id,
+        confirmed_at=CASE WHEN sourcing_check_activity.confirmed_at IS NULL
+            AND sourcing_check_activity.source NOT IN ('confirmation','rebuild-cleared')
+            THEN NULL ELSE excluded.confirmed_at END,
+        message_id=excluded.message_id,account_id=excluded.account_id,
         bidder_id=excluded.bidder_id,work_date=excluded.work_date,
         source=CASE WHEN sourcing_check_activity.source IN ('confirmation','rebuild-cleared')
           THEN 'confirmation' ELSE 'manual-confirmation' END
-        WHERE sourcing_check_activity.confirmed_at IS NOT excluded.confirmed_at
+        WHERE sourcing_check_activity.confirmed_at IS NOT (CASE WHEN sourcing_check_activity.confirmed_at IS NULL
+            AND sourcing_check_activity.source NOT IN ('confirmation','rebuild-cleared')
+            THEN NULL ELSE excluded.confirmed_at END)
            OR sourcing_check_activity.message_id IS NOT excluded.message_id
            OR sourcing_check_activity.account_id IS NOT excluded.account_id
            OR sourcing_check_activity.bidder_id IS NOT excluded.bidder_id
            OR sourcing_check_activity.work_date IS NOT excluded.work_date""",
         (row_id,row['bidder_id'],row['account_id'],row['work_date'],now().isoformat(),received.isoformat(),message_id))
+
+    return cursor.rowcount > 0
 
 
 def record(conn, source, *, sample=False):

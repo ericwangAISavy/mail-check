@@ -66,8 +66,9 @@ Select the account tab and job date, wait for **Saved**, then click
 **Check applications**. For each job link on that tab and date, mail-check compares
 its company and role with a single saved **Application received** confirmation from
 the same account. Company names match when either normalized whole-word phrase
-contains the other. If the confirmation includes a role, exact eligible role matches
-are preferred; otherwise the same bidirectional phrase-containment rule applies
+contains the other. Existing exact company/role pairs retain first priority.
+If no exact pair qualifies and the confirmation includes a role, exact eligible
+roles across company aliases are preferred; otherwise the same bidirectional phrase-containment rule applies
 to role names. Company and role must both qualify. Only confirmations with no role allow company-only matching. A missing role
 on the sourcing row does not bypass a role present in the email. Missing roles in older receipts are filled from retained email
 classifications when available.
@@ -99,7 +100,11 @@ company, role when present, and date evidence identify one eligible row. A
 company-only reply with several eligible roles stays unmatched for review. The
 same reply cannot newly check several jobs or be borrowed from an existing bound
 job, including an archived checked job. Existing checks stay saved on normal
-refresh. A selected-week rebuild may clear stale automatic bindings and repair
+refresh. A valid saved receipt binding keeps its original accounting day; a newly
+found earlier duplicate or company alias does not move that count to another day.
+Adding receipt evidence to an already manually checked row preserves its manual
+sourcing-day count. Fresh matches prefer exact evidence before containment, then
+the earliest receipt within the same specificity tier. A selected-week rebuild may clear stale automatic bindings and repair
 unambiguous replacements; manual checks and payment history remain saved.
 
 On **Bidder payments**, daily cells show **checked applications / received replies**.

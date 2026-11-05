@@ -39,7 +39,7 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
     Index candidates by account/company/role/date instead of comparing each
     receipt with every job. The plan is shared by manual and automatic checks.
     """
-    groups, company_words, company_roles = {}, {}, {}
+    groups, company_words, company_roles, identities = {}, {}, {}, {}
     releasable = set(releasable)
     for row in rows:
         if not row['work_date'] or not (row['link'] or '').strip():
@@ -48,6 +48,7 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
         if not company:
             continue
         account = row['account_id']
+        identities[row['id']] = (account, company, role, row['work_date'])
         company_roles.setdefault((account, company), set()).add(role)
         for word in set(company.split()):
             company_words.setdefault((account, word), set()).add(company)
@@ -56,12 +57,12 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
     indexed = {key: (sorted(days), days) for key, days in groups.items()}
     matching_groups, company_aliases = {}, {}
 
-    def compatible_groups(account, company, role, partial):
-        key = (account, company, role, partial)
+    def compatible_groups(account, company, role, partial, aliases):
+        key = (account, company, role, partial, aliases)
         if key in matching_groups:
             return matching_groups[key]
         alias_key = (account, company)
-        if alias_key not in company_aliases:
+        if aliases and alias_key not in company_aliases:
             words = company.split()
             variants = set()
             # Shorter saved names are complete phrases inside the receipt.
@@ -78,25 +79,25 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
                 variants.update(name for name in longer if _contains_name(company, name))
             company_aliases[alias_key] = variants
         keys = []
-        for name in company_aliases[alias_key]:
+        for name in company_aliases[alias_key] if aliases else (company,):
             if not partial:
                 value = (account, name, role)
                 if value in indexed:
                     keys.append(value)
             else:
-                keys.extend((account, name, saved_role) for saved_role in company_roles[account, name]
+                keys.extend((account, name, saved_role) for saved_role in company_roles.get((account, name), ())
                     if saved_role != role and _contains_name(role, saved_role))
         matching_groups[key] = [indexed[value] for value in keys]
         return matching_groups[key]
 
-    reservations = {}
+    reservations, bindings = {}, {}
     receipt_keys = {(r['account_id'],r['message_id']) for r in receipts}
     message_ids = sorted({key[1] for key in receipt_keys})
     # Only inspect reservations for this batch of receipts, not all history.
     for offset in range(0,len(message_ids),800):
         batch = message_ids[offset:offset+800]
         placeholders = ','.join('?' for _ in batch)
-        for row in conn.execute("""SELECT e.message_id,r.id,t.account_id FROM sourcing_check_activity e
+        for row in conn.execute("""SELECT e.message_id,e.confirmed_at,r.id,t.account_id FROM sourcing_check_activity e
             JOIN native_rows r ON r.id=e.row_id JOIN native_tabs t ON t.id=r.tab_id
             JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
             JOIN native_columns cc ON cc.tab_id=t.id AND cc.kind='check'
@@ -107,8 +108,9 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
             key = (row['account_id'],row['message_id'])
             if key in receipt_keys:
                 reservations.setdefault(key, set()).add(row['id'])
+                bindings[row['id']] = (row['message_id'], row['confirmed_at'])
     today = payments.today().isoformat()
-    plan = {}
+    plan, quality, stable = {}, {}, set()
     for receipt in receipts:
         company = company_key(receipt['company'])
         role = role_key(receipt['role']) if (receipt['role'] or '').strip() else None
@@ -121,17 +123,30 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
             continue
         day = stamp.astimezone(ZONE).date()
         candidates = set()
-        for partial in (False, True):
-            for dates, by_date in compatible_groups(receipt['account_id'], company, role, partial):
-                for source_day in dates[bisect_left(dates, (day-timedelta(days=6)).isoformat()):bisect_right(dates, day.isoformat())]:
-                    candidates.update(by_date[source_day])
-                if day >= early_since:
-                    for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
+        # Legacy exact company/role evidence wins before any broader alias.
+        # A wider matcher must not turn a previous exact match into ambiguity.
+        tiers = ((False, False), (False, True)) if role is None else ((False, False), (False, True), (True, True))
+        reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
+        if len(reserved) == 1:
+            saved_row = next(iter(reserved))
+            identity = identities.get(saved_row)
+            if identity:
+                saved_account, saved_company, saved_role, saved_day = identity
+                same_date = (day-timedelta(days=6)).isoformat() <= saved_day <= day.isoformat()
+                early_date = day >= early_since and saved_day > max(today,day.isoformat())
+                if saved_account == receipt['account_id'] and _contains_name(company,saved_company) and (role is None or _contains_name(role,saved_role)) and (same_date or early_date):
+                    candidates.add(saved_row)
+                    tier = 0 if company == saved_company and (role is None or role == saved_role) else 1 if role is None or role == saved_role else 2
+        if not candidates:
+            for tier, (partial, aliases) in enumerate(tiers):
+                for dates, by_date in compatible_groups(receipt['account_id'], company, role, partial, aliases):
+                    for source_day in dates[bisect_left(dates, (day-timedelta(days=6)).isoformat()):bisect_right(dates, day.isoformat())]:
                         candidates.update(by_date[source_day])
-            # Preserve exact-role precedence and its indexed fast path. Only
-            # search longer/shorter titles when no exact eligible job exists.
-            if candidates or role is None:
-                break
+                    if day >= early_since:
+                        for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
+                            candidates.update(by_date[source_day])
+                if candidates:
+                    break
         reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
         # A requested rebuild may move a proven stale automatic binding within
         # its week. Ordinary refreshes and manual bindings are never released.
@@ -145,8 +160,21 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
             continue
         row_id = next(iter(candidates))
         match = (stamp, receipt['message_id'])
-        if row_id not in plan or match < plan[row_id]:
-            plan[row_id] = match
+        saved = bindings.get(row_id)
+        valid_saved = False
+        if saved and saved[0] == receipt['message_id']:
+            try:
+                saved_time = datetime.fromisoformat(saved[1].replace('Z', '+00:00')) if saved[1] else None
+                valid_saved = saved_time is None or saved_time.replace(tzinfo=saved_time.tzinfo or timezone.utc) == stamp
+            except (ValueError, TypeError):
+                pass
+        if valid_saved:
+            # Keep a legitimate saved proof and its accounting day. A newly
+            # discovered alias/duplicate must not relocate a historical count.
+            stable.add(row_id)
+            plan[row_id], quality[row_id] = match, tier
+        elif row_id not in stable and (row_id not in plan or tier < quality[row_id] or (tier == quality[row_id] and match < plan[row_id])):
+            plan[row_id], quality[row_id] = match, tier
     return plan
 
 
@@ -313,8 +341,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                 conn.execute("UPDATE sourcing_check_activity SET confirmed_at=NULL,message_id=NULL,source='rebuild-cleared' WHERE row_id=?", (row['id'],))
             if match:
                 from .sourcing_activity import confirm
-                confirm(conn,row['id'],*match)
-                if row['confirmed_at'] != match[0].isoformat():
+                if confirm(conn,row['id'],*match):
                     changed_tabs.add(row['tab_id'])
             checked_count += int(checked)
             value = str(checked).lower()
