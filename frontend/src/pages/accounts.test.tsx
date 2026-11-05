@@ -2,13 +2,16 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ToastProvider } from "@/components/common"
+import * as apiModule from "@/lib/api"
 import { api } from "@/lib/api"
 import type { Account } from "@/lib/types"
 import AccountsPage from "./accounts"
 
 const clients: QueryClient[] = []
 let accounts: Account[] = []
+const originalRequest=apiModule.request
 beforeEach(() => {
+  vi.spyOn(apiModule,"request").mockImplementation((url,init)=>url.startsWith("/api/payments")||url==="/api/auth/bidders/manage" ? Promise.resolve({bidders:[],accounts:[]} as any) : originalRequest(url,init))
   accounts = [{ id: 1, label: "personal", email: "me@example.test", provider: "imap", imap_host: "imap.example.test", imap_port: 993, folder: "INBOX", use_ssl: true, enabled: true }]
   vi.spyOn(api, "accounts").mockImplementation(async () => ({ accounts: structuredClone(accounts), outlook_ready: true }))
 })
@@ -129,4 +132,14 @@ it("shows each account's last successful mail check",async()=>{
  mount()
  expect(await screen.findByText(/Last mail check:/)).toBeTruthy()
  expect(screen.getByText(/Last mail check:/).textContent).toContain(new Date(accounts[0].last_checked_at).toLocaleString())
+})
+
+it('orders provider, bidder management, and visibility panels beneath connected accounts',async()=>{
+ mount();await screen.findByText('Manage bidders and account assignments')
+ const provider=document.getElementById('provider-options')!
+ const management=document.getElementById('bidder-management')!
+ const visibility=document.getElementById('bidder-visibility')!
+ expect(provider.compareDocumentPosition(management)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(management.compareDocumentPosition(visibility)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(screen.getByRole('navigation',{name:'Account sections'})).toBeTruthy()
 })

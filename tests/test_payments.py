@@ -452,7 +452,7 @@ class PaymentTests(unittest.TestCase):
             with patch("mailcheck.web.app.sourcing_verification.verify_all") as verify, patch("mailcheck.payments.sync_receipts") as sync:
                 result=client.get("/api/payments",headers=headers)
                 self.assertEqual(result.status_code,200,result.text)
-                self.assertEqual([b['name'] for b in result.json()['bidders']],['Alex','Blair'])
+                self.assertEqual([b['name'] for b in result.json()['bidders']],['Alex'])
                 verify.assert_not_called();sync.assert_not_called()
             self.assertEqual(client.post("/api/payments/refresh",json={},headers=headers).status_code,403)
             self.assertEqual(client.get("/api/accounts",headers=headers).status_code,403)
@@ -588,3 +588,82 @@ class PaymentTests(unittest.TestCase):
         for account in row['account_breakdown']:
             self.assertEqual(account['daily'],account['checked_daily'])
             self.assertNotIn('received_reply_total',account)
+
+    def test_visibility_defaults_updates_conflicts_and_bidder_write_denied(self):
+        response = self.client.get('/api/payments/visibility')
+        self.assertEqual(response.status_code, 200)
+        alex = response.json()['bidders'][0]
+        self.assertEqual((alex['payment_visible'], alex['other_work_visible'], alex['visibility_revision']), (1, 0, 0))
+        body = dict(payment_visible=False, other_work_visible=True, expected_revision=0)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/visibility', json=body).status_code, 200)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/visibility', json=body).status_code, 400)
+        self.assertEqual(payments.visibility(self.conn, 1), dict(payment_visible=False, other_work_visible=True))
+        sign_in_bidder(self.client)
+        self.assertEqual(self.client.get('/api/payments/visibility').status_code, 403)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/visibility', json=body).status_code, 403)
+
+    def test_hidden_money_and_shared_work_are_redacted_for_local_and_worker_bidders(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        self.assign(); self.assign(who=2, account=self.other)
+        self.add_checks(1, self.account, 1); self.add_checks(2, self.other, 2)
+        self.message('mine'); self.message('theirs', account=self.other)
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',payment_visible=0,other_work_visible=1 WHERE id=1")
+        self.conn.execute("UPDATE bidders SET pay_per_bid='100',wallet_address='private-wallet' WHERE id=2")
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(2,'2026-10-12',2,9999,'2026-10-19','private-note')")
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            for client, extra in ((self.client, {}), (worker, {'headers':headers})):
+                response=client.get('/api/payments?week=2026-10-12&bidder=2', **extra)
+                self.assertEqual(response.status_code,200,response.text)
+                data=response.json()
+                self.assertFalse(data['payment_visible'])
+                self.assertEqual([b['total'] for b in data['bidders']], [1,2])
+                for row in data['bidders']:
+                    for field in ('pay_per_bid','gross_amount_cents','calculated_amount_cents','payable_amount_cents','amount_override_cents','deduction_daily','deduction_total_cents','wallet_address','received_reply_total'):
+                        self.assertNotIn(field,row)
+                    self.assertIsNone(row['payment'])
+                    self.assertEqual(row['daily'],row['checked_daily'])
+                self.assertEqual(data['bidders'][1]['assignments'],[])
+                self.assertEqual(data['bidders'][1]['account_breakdown'],[])
+                with patch.object(payments,'today',return_value=date(2026,10,12)):
+                    self.assertEqual(client.get('/api/applications/today',**extra).json()['applications_today'],1)
+                activity=client.get('/api/payments/activity?week=2026-10-12&bidder=2',**extra).json()
+                self.assertEqual([b['id'] for b in activity['bidders']],[1,2])
+                self.assertNotIn('accounts',activity)
+                self.assertNotIn('account_runs',activity['workday'])
+                self.assertNotIn('private-wallet',response.text)
+                self.assertNotIn('private-note',response.text)
+            missing={k:v for k,v in headers.items() if k!='x-offerpath-bidder'}
+            self.assertEqual(worker.get('/api/payments',headers=missing).status_code,401)
+        self.conn.execute('UPDATE bidders SET payment_visible=1,other_work_visible=0 WHERE id=1');self.conn.commit()
+        data=self.client.get('/api/payments?week=2026-10-12').json()
+        self.assertTrue(data['payment_visible'])
+        self.assertEqual([b['id'] for b in data['bidders']],[1])
+        self.assertEqual(data['bidders'][0]['gross_amount_cents'],120)
+
+    def test_dashboard_graphs_are_own_assignment_scoped_and_have_no_messages_or_status(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        self.assign(end=date(2026,10,13));self.assign(who=2,account=self.other)
+        self.message('mine');self.message('others',account=self.other)
+        self.message('after-assignment','2026-10-14T15:00:00+00:00')
+        self.conn.execute('UPDATE bidders SET other_work_visible=1 WHERE id=1');self.conn.commit()
+        sign_in_bidder(self.client)
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            for client,extra in ((self.client,{}),(worker,{'headers':headers})):
+                response=client.get('/api/dashboard?start=2026-10-12&end=2026-10-18&tz=America/Chicago&bidder=2',**extra)
+                self.assertEqual(response.status_code,200,response.text)
+                data=response.json()
+                self.assertEqual(data['summary']['total'],1)
+                self.assertEqual(sum(day['total'] for day in data['daily']),1)
+                self.assertNotIn('messages',data);self.assertNotIn('history',data)
+                accounts=client.get('/api/dashboard/accounts',**extra).json()
+                self.assertEqual(accounts,{'accounts':[{'label':'personal'}],'bidders':[]})
+                self.assertEqual(client.get('/api/messages/1',**extra).status_code,403)
+                self.assertEqual(client.get('/api/accounts',**extra).status_code,403)
+                scoped=client.get('/api/dashboard?start=2026-10-12&end=2026-10-18&account=work',**extra).json()
+                self.assertEqual(scoped['summary']['total'],0)
+        self.assertEqual(self.client.get('/dashboard').status_code,200)
+        self.assertEqual(self.client.get('/',follow_redirects=False).headers['location'],'/dashboard')

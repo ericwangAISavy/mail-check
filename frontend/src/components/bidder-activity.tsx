@@ -25,7 +25,7 @@ const time = (value: unknown) => {const date = chartDate(value); return date ? n
 const dayLabel = (value: unknown) => {if (value === "start") return "Start"; const date = chartDate(value); return date ? new Intl.DateTimeFormat("en-US", {month:"short",day:"numeric",timeZone:"UTC"}).format(date) : ""}
 const axisHour = (value: unknown) => {const date = chartDate(value); return date ? new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",hour:"numeric"}).format(date) : ""}
 const hourLabel = (hour: number) => `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`
-export default function BidderActivity({ week, selected, onSelect,readOnly=false }: { readOnly?:boolean;week: string; selected: string; onSelect: (id: string) => void }) {
+export default function BidderActivity({ week, selected, onSelect,readOnly=false,allowAccounts=true }: { allowAccounts?:boolean;readOnly?:boolean;week: string; selected: string; onSelect: (id: string) => void }) {
   const chart = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -37,7 +37,8 @@ export default function BidderActivity({ week, selected, onSelect,readOnly=false
   const cumulative = display === "cumulative"
   const [day, setDay] = useState("")
   useEffect(() => {setDay("")}, [week])
-  const [group, setGroup] = useState<"bidders" | "accounts">("bidders")
+  const [selectedGroup, setGroup] = useState<"bidders" | "accounts">("bidders")
+  const group = allowAccounts ? selectedGroup : "bidders"
   const [account, setAccount] = useState("")
   useEffect(() => { setAccount(""); }, [week, selected])
   const scope = group === "accounts" ? selected : ""
@@ -88,7 +89,7 @@ export default function BidderActivity({ week, selected, onSelect,readOnly=false
   return <Card className="bidder-activity" aria-label="Bidder activity monitor">
     <div className="activity-heading"><div><p className="eyebrow"><Activity size={14} /> ACTIVITY MONITOR</p><h2>When confirmations arrive</h2><p>Matched confirmation receipt times in America/Chicago, not check-button times. Email arrival is a signal, not exact working hours.</p></div><span className="activity-live"><i />Updates after each check</span></div>
     {query.isPending ? <p role="status">Loading bidder activity…</p> : query.error ? <div role="alert">Could not load activity. <Button variant="outline" size="sm" onClick={() => void query.refetch()}>Retry activity</Button></div> : <>
-      <div className="activity-group-controls" role="group" aria-label="Activity grouping"><Button size="sm" variant={group === "bidders" ? "secondary" : "outline"} aria-pressed={group === "bidders"} onClick={() => setGroup("bidders")}>By bidder</Button><Button size="sm" variant={group === "accounts" ? "secondary" : "outline"} aria-pressed={group === "accounts"} onClick={() => setGroup("accounts")}>By account</Button>{group === "accounts" && <span>Checked links across {selected ? "the selected bidder’s account tabs" : "all assigned bidders’ account tabs"}; shared-account counts may overlap.</span>}</div>
+      <div className="activity-group-controls" role="group" aria-label="Activity grouping"><Button size="sm" variant={group === "bidders" ? "secondary" : "outline"} aria-pressed={group === "bidders"} onClick={() => setGroup("bidders")}>By bidder</Button>{allowAccounts && <Button size="sm" variant={group === "accounts" ? "secondary" : "outline"} aria-pressed={group === "accounts"} onClick={() => setGroup("accounts")}>By account</Button>}{group === "accounts" && <span>Checked links across {selected ? "the selected bidder’s account tabs" : "all assigned bidders’ account tabs"}; shared-account counts may overlap.</span>}</div>
       <div className="activity-legend"><Button size="sm" variant={!selection ? "secondary" : "ghost"} onClick={() => choose("")}>All {group}</Button>{entities.map((b, i) => <button key={b.id} aria-pressed={selection === String(b.id)} onClick={() => choose(selection === String(b.id) ? "" : String(b.id))}><i style={{ background: colors[i % colors.length] }} />{b.name}</button>)}</div>
       <div className="activity-chart-heading"><h3>{cumulative ? mode === "days" ? "Cumulative weekly confirmations" : mode === "checks" ? "Cumulative links by check run" : "Cumulative confirmations in this day" : mode === "days" ? "Daily confirmation totals" : mode === "checks" ? "New links by check run" : "Confirmations per interval"}</h3><div role="group" aria-label="Activity graph period"><Button size="sm" variant={mode === "confirmed" ? "secondary" : "ghost"} aria-pressed={mode === "confirmed"} onClick={() => setMode("confirmed")}>Confirmation time</Button><Button size="sm" variant={mode === "checks" ? "secondary" : "ghost"} aria-pressed={mode === "checks"} onClick={() => setMode("checks")}>Check runs</Button><Button size="sm" variant={mode === "days" ? "secondary" : "ghost"} aria-pressed={mode === "days"} onClick={() => setMode("days")}>By day</Button></div></div>
       <div className="activity-group-controls" role="group" aria-label="Graph display"><Button size="sm" variant={!cumulative ? "secondary" : "outline"} aria-pressed={!cumulative} onClick={()=>setDisplay("interval")}>Per interval</Button><Button size="sm" variant={cumulative ? "secondary" : "outline"} aria-pressed={cumulative} onClick={()=>setDisplay("cumulative")}>Cumulative</Button></div>

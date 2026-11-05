@@ -641,20 +641,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
         path = request.url.path
+        viewer_id = None
         request.state.viewer_read_only = bool(worker_secret and request.headers.get('x-offerpath-viewer') == 'bidder')
         if request.state.viewer_read_only:
             from ..bidder_access import viewer_read_allowed
             if not viewer_read_allowed(path,request.method):
                 return _err('Bidder access is read-only.',403)
             viewer_id=request.headers.get('x-offerpath-bidder')
-            if viewer_id:
-                with db.session() as conn:
-                    member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
-                if not member:return _err('Bidder access is no longer available.',401)
+            if not viewer_id or not viewer_id.isdigit():return _err('Bidder identity is required.',401)
+            with db.session() as conn:
+                member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
+            if not member:return _err('Bidder access is no longer available.',401)
         public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
         try:
-            identity = {"role":"admin", "bidder_id":None} if worker_secret else auth.identity(request.cookies.get(COOKIE))
-            if identity and identity["role"] == "bidder":
+            if worker_secret:
+                # The gateway authenticates credentials; the worker still enforces
+                # the actual bidder role and scope on every data endpoint.
+                identity = {"role":"bidder", "bidder_id":int(viewer_id)} if viewer_id else {"role":"admin", "bidder_id":None}
+            else:
+                identity = auth.identity(request.cookies.get(COOKIE))
+            if identity and identity["role"] == "bidder" and not worker_secret:
                 with db.session() as conn:
                     enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (identity["bidder_id"],)).fetchone()
                 if not enabled:
@@ -669,8 +675,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     return RedirectResponse("/login", status_code=303)
                 if role == "bidder":
                     if path == "/" and request.method in ("GET", "HEAD"):
-                        return RedirectResponse("/sourcing", status_code=303)
-                    allowed = path in ("/sourcing", "/api/sourcing", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
+                        return RedirectResponse("/dashboard", status_code=303)
+                    allowed = path in ("/sourcing", "/api/sourcing", "/dashboard", "/api/dashboard", "/api/dashboard/accounts", "/api/applications/today", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
                     allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
                     if not allowed:
                         return _err("Admin access is required.", 403)
@@ -882,33 +888,30 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def bidder_activity(request: Request, day: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 30)), week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
         from ..sourcing_activity import report
         with db.session() as conn:
-            return report(conn, week, bidder_id=request.state.bidder_id or bidder, day=day)
+            viewer = request.state.bidder_id if request.state.role=='bidder' else None
+            share = payments.visibility(conn,viewer)['other_work_visible'] if viewer else False
+            result = report(conn,week,bidder_id=None if share else viewer or bidder,day=day)
+            if viewer and share:
+                for key in ('accounts','account_timeline','account_confirmation_timeline'):result.pop(key,None)
+                if result.get('workday'):
+                    result['workday'].pop('account_confirmations',None)
+                    result['workday'].pop('account_runs',None)
+            return result
 
     @app.get("/api/payments")
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
         with db.session() as conn:
             start = payments.monday(week or payments.today())
-            read_only = getattr(request.state,"viewer_read_only",False)
+            read_only = request.state.role == "bidder"
             if read_only:conn.execute("PRAGMA query_only=ON")
             if not read_only:
                 sourcing_verification.verify_all(conn, refresh_since=start,
                     refresh_until=start + timedelta(days=6), sample=False, week_only=True)
-            report = payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=True)
-            if request.state.role == 'bidder':
-                # Bidder payloads contain checked counts only, including legacy
-                # fields that admins use for reply allocations and saved reviews.
-                report['daily'] = list(report['checked_daily'])
-                report.pop('unallocated_daily', None)
-                for row in report['bidders']:
-                    row['daily'] = list(row['checked_daily'])
-                    row.pop('received_reply_total', None)
-                    row.pop('override_application_count', None)
-                    if row['payment']:
-                        row['payment'].pop('application_count', None)
-                    for account in row['account_breakdown']:
-                        account['daily'] = list(account['checked_daily'])
-                        account.pop('received_reply_total', None)
-            return report
+            viewer = request.state.bidder_id if request.state.role=='bidder' else None
+            policy = payments.visibility(conn,viewer) if viewer else None
+            scope = None if viewer and policy['other_work_visible'] else viewer
+            report = payments.report(conn,week,admin=viewer is None,bidder_id=scope,read_only=True)
+            return payments.bidder_report(report,viewer,policy) if viewer else report
 
     def payment_write(action):
         try:
@@ -920,6 +923,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err(str(exc), 404)
         except (ValueError, sqlite3.IntegrityError) as exc:
             return _err("A bidder with that name or payment already exists." if isinstance(exc, sqlite3.IntegrityError) else str(exc), 400)
+
+    @app.get('/api/payments/visibility')
+    def bidder_visibility_options():
+        with db.session() as conn:
+            return {'bidders':[dict(row) for row in conn.execute('SELECT id,name,payment_visible,other_work_visible,visibility_revision FROM bidders WHERE removed_at IS NULL ORDER BY name')]}
+
+    @app.post('/api/payments/bidders/{bidder_id}/visibility')
+    def update_bidder_visibility(bidder_id:int,body:payments.VisibilityBody):
+        return payment_write(lambda conn:payments.save_visibility(conn,bidder_id,body))
 
     @app.post("/api/payments/deduction-rule")
     def update_deduction_rule(body: payments.DeductionRuleBody):
@@ -986,8 +998,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return payment_write(lambda conn: payments.edit_payment(conn,bidder_id,body))
 
     @app.get("/api/dashboard/accounts")
-    def dashboard_accounts():
+    def dashboard_accounts(request: Request):
         with db.session() as conn:
+            if request.state.role=="bidder":
+                return {"accounts":[{"label":row[0]} for row in conn.execute("SELECT DISTINCT a.label FROM accounts a JOIN bidder_assignments b ON b.account_id=a.id WHERE b.bidder_id=? ORDER BY a.label",(request.state.bidder_id,))],"bidders":[]}
             return {
                 "accounts": [{"label": a.label} for a in db.list_accounts(conn)],
                 "bidders": [dict(row) for row in conn.execute("SELECT id, name FROM bidders WHERE removed_at IS NULL ORDER BY name COLLATE NOCASE, id")],
@@ -1019,13 +1033,17 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err(exc.errors()[0]["msg"])
         cfg = cfgmod.load()
         with db.session() as conn:
-            return dashboard_data(conn, filters, retention_days=cfg.check.retain_days)
+            if request.state.role=='bidder':
+                filters=filters.model_copy(update={'bidder':request.state.bidder_id,'q':'','focus_date':None,'focus_category':None,'status':'all','action':'all'})
+            return dashboard_data(conn, filters, retention_days=cfg.check.retain_days,graphs_only=request.state.role=='bidder')
 
     @app.get("/api/applications/today")
-    def api_applications_today():
+    def api_applications_today(request: Request):
         # Header count must work even when Settings or Admin management is used
         # to recover invalid configuration. This path never loads model settings.
         with db.session() as conn:
+            if request.state.role=='bidder':
+                return {'applications_today':payments.checked_today(conn,bidder_id=request.state.bidder_id)}
             return {"applications_today": payments.checked_today(conn)}
 
     @app.get("/api/bootstrap", response_model=BootstrapResponse)

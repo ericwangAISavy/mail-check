@@ -195,3 +195,16 @@ it("uses the same real totals and category counts for weekly stacks and the tren
  mount("/dashboard?interval=week")
  await waitFor(()=>expect(chart.rows).toEqual([{date:"2026-09-14",total:13,partial:false,counts:{offer:0,rejection:13}}]))
 })
+
+it('shows only graphs and own account selector for bidders',async()=>{
+ mount('/dashboard',true)
+ await screen.findByText('Messages collected')
+ expect(screen.queryByText('ACCOUNT STATUS')).toBeNull()
+ expect(screen.queryByLabelText('Search stored mail')).toBeNull()
+ expect(screen.queryByText('Find a message')).toBeNull()
+ expect(document.getElementById('message-explorer')).toBeNull()
+ expect(screen.queryByLabelText('Bidder')).toBeNull()
+ expect(api.accounts).not.toHaveBeenCalled()
+ expect(screen.getByLabelText('Account')).toBeTruthy()
+ expect(screen.getByText('Applications over time')).toBeTruthy()
+})

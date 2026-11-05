@@ -2,6 +2,15 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.0 — 2026-11-04
+
+Scoped bidder dashboards and visibility controls
+
+- Bidders can view dashboard graphs for their assigned accounts without message lists or account status.
+- Accounts now groups providers, bidder management, and per-bidder payment and coworker-work visibility options in Settings-style panels.
+- Payment cells show gross totals before deductions and calculated net totals after deductions; saved records remain available in the admin editor.
+- Enforce bidder identity and data redaction in both standalone and private workspace APIs; reject stale visibility edits.
+
 ## 2.18.2 — 2026-11-04
 
 Match header badge to checked daily application totals

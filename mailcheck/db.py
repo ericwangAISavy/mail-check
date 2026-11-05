@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -199,6 +199,9 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("runs", "llm_retries", "INTEGER DEFAULT 0"),
     ("bidder_payments", "revision", "INTEGER NOT NULL DEFAULT 0"),
     ("bidders", "pay_per_bid", "TEXT"),
+    ("bidders", "visibility_revision", "INTEGER NOT NULL DEFAULT 0"),
+    ("bidders", "payment_visible", "INTEGER NOT NULL DEFAULT 1"),
+    ("bidders", "other_work_visible", "INTEGER NOT NULL DEFAULT 0"),
     ("bidders", "adjustment_percent", "TEXT NOT NULL DEFAULT '20'"),
     ("bidders", "wallet_network", "TEXT NOT NULL DEFAULT ''"),
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),

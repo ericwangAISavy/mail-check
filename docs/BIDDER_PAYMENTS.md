@@ -1,14 +1,10 @@
 # Bidder payments
 
-> In owner-managed mode, only the owner and admins sign in. Each admin has an
-> isolated workspace; bidders are managed records. Any bidder-login permissions
-> described below apply only to the legacy standalone compatibility mode. See
-> [Multi-admin workspaces and rollback](MULTI_ADMIN.md).
-
-Open **Bidder payments** in the sidebar. Admins manage bidders, account assignments,
-and payment records. Named bidders use their individual sign-in to view their own
-daily and weekly totals and recorded payment amounts. Bidder writes are rejected by
-the server. Individual bidder credentials are managed in [Job sourcing](JOB_SOURCING.md).
+Open **Bidder management** in the sidebar. Admins manage bidders, account assignments,
+and payment records. Named bidders can view their own checked activity and, when enabled,
+their own payment amounts. Admins configure payment visibility and sharing of team work
+counts in **Accounts → Bidder visibility**. See [Bidder web access](BIDDER_ACCESS.md).
+Bidder writes are rejected by the server.
 
 ## Setup and use
 
@@ -97,7 +93,7 @@ recording before a week ends. Assignment changes that would affect that bidder�
 week are rejected. Later classifications and checked-link changes can update current totals but do not rewrite recorded payments;
 the table flags any difference between the current count and paid count.
 
-Payment cells show only **estimated / confirmed**, with the confirmed amount in blue. Without a saved manual amount or paid record, confirmation defaults to the estimate. Click the blue confirmed amount to edit it; paid rows open the recorded-payment correction form. The form starts with the recorded amount and note; **Use calculated amount** fills the current formula result. **Save changes** updates the amount, note, and application-count snapshot to the reviewed weekly total, while retaining the original payment date. Previous and new values are stored in an edit history. Concurrent edits and changed counts are rejected until the admin refreshes and reviews them. Rate changes never amend paid records automatically. There is no payment gateway or bank integration; these records describe payments made elsewhere.
+Payment cells show only **before / after deductions**: gross calculated pay first, then net calculated pay in blue. For example, **$10.00 / $7.00** means $10 gross and $7 after daily deductions. Formula details appear only in the admin editor. This pair is independent of saved manual amounts and recorded payments. Click the blue amount on a completed week to open the payment editor; paid rows open the recorded-payment correction form. The form starts with the saved amount and note; **Use calculated amount** fills the current formula result. **Save changes** updates the amount, note, and application-count snapshot to the reviewed weekly total, while retaining the original payment date. Previous and new values are stored in an edit history. Concurrent edits and changed counts are rejected until the admin refreshes and reviews them. Rate changes never amend paid records automatically. Reports continue to use the saved paid or manual amount when one exists. There is no payment gateway or bank integration; these records describe payments made elsewhere.
 
 The database migration runs automatically on startup. Bidder responses omit the full
 account-management list, while assigned account labels remain visible in the table.
@@ -192,7 +188,7 @@ Multiple assigned accounts never multiply the daily fee.
 
 The calculated payment is `max(0, rounded weekly gross − total daily deductions)`.
 The existing adjustment applies to gross pay before the flat deductions. The
-report shows gross, deductions and net. A zero-dollar deduction can still display
+table shows gross / net, with deduction details in the admin editor. A zero-dollar deduction can still display
 the below-minimum warning without reducing pay. Saved manual amounts and recorded
 payments retain their precedence and do not change automatically; administrators
 can explicitly review and edit them. Bidder viewers cannot change the rule.

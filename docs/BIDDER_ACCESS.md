@@ -4,7 +4,16 @@ An admin opens **Accounts → Manage bidders and account assignments → Bidder 
 
 On the sign-in screen, choose **Bidder**, type **bidder username** in **Username**, and enter the password. Use the bidder name alone, without an admin suffix. Bidder accounts are opt-in; existing bidders are not automatically granted access.
 
-Bidders can view their admin's whole team on **Dashboard** and **Bidder management**, including team statistics, stored dashboard messages, and weekly payment totals. They can also view and copy their own saved Job sourcing workbook, navigating account tabs, dates, and saved history. Sourcing search is limited to their own workbook. They cannot edit, paste, import, check applications, refresh/rebuild stored matches, send messages, manage accounts, access Settings, or switch workspaces. Date/account/bidder filters are available for browsing saved data. Access restrictions apply at both the public gateway and private worker boundary.
+Bidders can open **Dashboard** to see graphs for accounts assigned to them on the message’s Chicago receipt date. The dashboard has no message list, message reader, or account-status panel for bidders. Account filters list only their assigned accounts; changing URL parameters cannot select another bidder’s data.
+
+On **Accounts → Bidder visibility**, admins save two checkbox options for each bidder:
+
+- **Payment visible** shows that bidder’s own payment amounts. It defaults to enabled. Disabling it removes money, rates, deductions, and recorded-payment details from their payment API response and page.
+- **Other bidders’ work visible** shares the team’s checked counts and work-activity graphs. It defaults to disabled, showing only the signed-in bidder. It never shares coworkers’ accounts, received replies, payment amounts, or wallets. Dashboard graphs remain restricted to the signed-in bidder regardless of this option.
+
+Options apply to the active workspace and all viewed weeks. Changes require **Save visibility**; conflicting edits require reloading the saved options. Bidders cannot read or change these admin settings.
+
+Bidders can also view and copy their own saved Job sourcing workbook, navigating account tabs, dates, and saved history. Sourcing search is limited to their own workbook. They cannot edit, paste, import, check applications, refresh/rebuild stored matches, send messages, manage accounts, access Settings, or switch workspaces. Access restrictions apply at both the public gateway and private worker boundary.
 
 Admins can reset a bidder's password or disable access from the same account card. Reset, disable, or removal revokes the bidder's sessions. Admin password changes/resets and workspace suspension also invalidate the associated bidder sessions. Bidder names are updated when renamed through the Accounts page.
 

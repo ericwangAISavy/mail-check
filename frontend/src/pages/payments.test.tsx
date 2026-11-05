@@ -6,7 +6,7 @@ import PaymentsPage from "./payments"
 vi.mock("@/lib/api", () => ({ api: { post: vi.fn() }, request: vi.fn() }))
 vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title, action }: { title: string; action?: any }) => <><h1>{title}</h1>{action}</>, useToast: () => vi.fn() }))
 const clients: QueryClient[] = []
-const data = () => ({ week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
+const data = () => ({ payment_visible:true, week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
 function mount(readOnly = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>) }
@@ -23,13 +23,13 @@ it("supports previous week navigation", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Previous week" }))
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
 })
-it("shows only estimated and confirmed amounts without payment metadata", async () => {
+it("shows gross and net amounts independently of saved payment metadata", async () => {
   const report = data() as any
   report.bidders[0].payment = { amount_cents: 1025, application_count: 2, paid_at: "2026-10-19T12:00:00Z", note: "Paid by bank" }
   vi.mocked(request).mockResolvedValue(report)
   mount(true)
   const row=(await screen.findByRole("rowheader",{name:/Alex/})).closest("tr")!
-  expect(within(row).getByLabelText("Estimated / confirmed payment").textContent).toBe("Rate not set / $10.25")
+  expect(within(row).getByLabelText("Before / after deductions").textContent).toBe("Rate not set / Unavailable")
   expect(screen.queryByText("Count changed since payment")).toBeNull()
   expect(screen.queryByText("Paid by bank")).toBeNull()
   expect(screen.queryByText(/applications at recording/)).toBeNull()
@@ -186,7 +186,7 @@ it('defaults the blue confirmed amount to the estimate until manually changed',a
  Object.assign(report.bidders[0],{calculated_amount_cents:1854,payable_amount_cents:1854,pay_per_bid:'0.05',adjustment_percent:'20'})
  vi.mocked(request).mockResolvedValue(report);mount()
  const row=(await screen.findByRole('rowheader',{name:/Alex/})).closest('tr')!
- expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$18.54 / $18.54')
+ expect(within(row).getByLabelText('Before / after deductions').textContent).toBe('$18.54 / $18.54')
  expect(within(row).getByRole('button',{name:/Edit confirmed payment for Alex/}).className).toContain('payment-confirmed')
  expect(within(row).queryByText(/Calculated amount|Paid ·|Manual amount|previous values|×/)).toBeNull()
 })
@@ -210,7 +210,7 @@ it('explains missing Nifemi rates and saves a rate during an in-progress week',a
  fireEvent.click(screen.getByRole('button',{name:'Save rate'}))
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/rate',{pay_per_bid:'0.05',adjustment_percent:'20'}))
  const row=(await screen.findByRole('rowheader',{name:/Nifemi/})).closest('tr')!
- await waitFor(()=>expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$0.60 / $0.60'))
+ await waitFor(()=>expect(within(row).getByLabelText('Before / after deductions').textContent).toBe('$0.60 / $0.60'))
 })
 
 it('explains unavailable amounts to bidders without offering financial editing',async()=>{
@@ -236,7 +236,7 @@ it('displays an explicitly zero rate as zero money instead of a missing rate',as
  const report:any=data();Object.assign(report.bidders[0],{pay_per_bid:'0',calculated_amount_cents:0,payable_amount_cents:0})
  vi.mocked(request).mockResolvedValue(report);mount(true)
  const row=(await screen.findByRole('rowheader',{name:/Alex/})).closest('tr')!
- expect(within(row).getByLabelText('Estimated / confirmed payment').textContent).toBe('$0.00 / $0.00')
+ expect(within(row).getByLabelText('Before / after deductions').textContent).toBe('$0.00 / $0.00')
  expect(within(row).queryByText('Rate not set')).toBeNull()
 })
 
@@ -279,15 +279,17 @@ it("explains when saved payment counts differ from the checked payment basis", a
  const report=data() as any
  report.bidders[0].payment={amount_cents:1000,application_count:171,paid_at:"2026-10-19T12:00:00Z",note:"",revision:0}
  vi.mocked(request).mockResolvedValue(report);mount()
+ fireEvent.click(await screen.findByRole("button",{name:/Edit confirmed payment for Alex/}))
  expect(await screen.findByText("Recorded count: 171; current checked total: 3. Saved payment unchanged.")).toBeTruthy()
- expect(screen.getByLabelText("Estimated / confirmed payment").textContent).toContain("$10.00")
+ expect(screen.getByLabelText("Before / after deductions").textContent).not.toContain("$10.00")
 })
 it("explains stale manual amount reviews without changing the saved amount", async () => {
  const report=data() as any
  Object.assign(report.bidders[0],{amount_override_cents:1200,override_application_count:171,calculated_amount_cents:18,payable_amount_cents:1200})
  vi.mocked(request).mockResolvedValue(report);mount()
+ fireEvent.click(await screen.findByRole("button",{name:/Edit confirmed payment for Alex/}))
  expect(await screen.findByText("Saved amount reviewed at 171 count; current checked total: 3.")).toBeTruthy()
- expect(screen.getByLabelText("Estimated / confirmed payment").textContent).toContain("$12.00")
+ expect(screen.getByLabelText("Before / after deductions").textContent).toBe("$0.18 / $0.18")
 })
 
 it("shows bidders checked counts only even if a cached payload contains replies", async () => {
@@ -320,8 +322,8 @@ it('saves the daily rule explicitly and refreshes net pay while preserving recor
  expect(api.post).not.toHaveBeenCalled()
  fireEvent.click(screen.getByRole('button',{name:'Save deduction rule'}))
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/deduction-rule',{minimum_daily:60,deduction_amount:'2.00',expected_rule:{minimum_daily:50,amount_cents:100}}))
- await waitFor(()=>expect(screen.getByLabelText('Estimated / confirmed payment').textContent).toBe('$1.60 / $9.00'))
- expect(screen.getByText('$3.60 − $2.00 deductions = $1.60')).toBeTruthy()
+ await waitFor(()=>expect(screen.getByLabelText('Before / after deductions').textContent).toBe('$3.60 / $1.60'))
+ expect(screen.queryByText('$3.60 − $2.00 deductions = $1.60')).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:/Edit confirmed payment for Alex/}))
  expect(screen.getByText(/Calculated:.*\$3.60.*− \$2.00 deductions = \$1.60/)).toBeTruthy()
 })
@@ -440,4 +442,25 @@ it('starts a fresh payment draft when reopening the same bidder from the row',as
  expect(screen.queryByRole('alert')).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'Save amount'}))
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/amount',{week:'2026-10-12',expected_count:3,expected_rule:{minimum_daily:50,amount_cents:100},expected_calculated_amount_cents:2500,amount:'25.00'}))
+})
+
+it('hides all payment displays when visibility is disabled',async()=>{
+ const report:any=data();report.payment_visible=false
+ Object.assign(report.bidders[0],{payment_visible:false,pay_per_bid:'1',gross_amount_cents:360,calculated_amount_cents:260,payment:{amount_cents:900}})
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ const row=(await screen.findByRole('rowheader',{name:/Alex/})).closest('tr')!
+ expect(within(row).getAllByRole('cell')).toHaveLength(8)
+ expect(screen.queryByText('Payments recorded')).toBeNull()
+ expect(screen.queryByLabelText('Before / after deductions')).toBeNull()
+ expect(document.body.textContent).not.toContain('$')
+})
+it('shows shared work without revealing peer payments',async()=>{
+ const report:any=data();report.other_work_visible=true
+ Object.assign(report.bidders[0],{payment_visible:true,gross_amount_cents:360,calculated_amount_cents:260})
+ report.bidders.push({...report.bidders[0],id:2,name:'Blair',payment_visible:false,assignments:[],account_breakdown:[]})
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ const peer=(await screen.findByRole('rowheader',{name:/Blair/})).closest('tr')!
+ expect(within(peer).getByLabelText('Payment hidden').textContent).toBe('—')
+ expect(screen.getAllByLabelText('Before / after deductions')).toHaveLength(1)
+ expect(screen.queryByRole('button',{name:'By account'})).toBeNull()
 })

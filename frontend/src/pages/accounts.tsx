@@ -11,6 +11,8 @@ import { EmptyState, Loading, PageHeading, Switch, useToast } from "@/components
 
 import OutlookDialog from "@/components/outlook-dialog"
 import OutgoingDialog from "@/components/outgoing-dialog"
+import BidderVisibility from "@/components/bidder-visibility"
+import "./accounts.css"
 import BidderManagement from "@/components/bidder-management"
 
 function AccountRow({ account, onRefresh, onReconnect }: { account: Account; onRefresh: () => void; onReconnect: () => void }) {
@@ -106,11 +108,13 @@ export default function AccountsPage({canManageSettings=true}:{canManageSettings
   return <div className="page-wrap accounts-page"><PageHeading title="Accounts" description="Connect the inboxes behind your next opportunity." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect mailbox</Button>} />
     <div className="security-note"><ShieldCheck size={18} /><span><strong>You control outgoing mail.</strong> Mail checks never mark messages as read. Replies are sent only when you click Send.</span></div>
     {error && <p className="inline-error" role="alert">{error.message}</p>}
+    <div className="settings-layout"><nav className="settings-nav" aria-label="Account sections">{[["connected-accounts","Connected accounts"],["provider-options","Choose provider"],["bidder-management","Manage bidders"],["bidder-visibility","Bidder visibility"]].map(([id,label])=><a href={`#${id}`} key={id}>{label}</a>)}</nav><div className="settings-sections"><section id="connected-accounts">
     {data?.accounts.length ? <><div className="section-title-line"><div><p className="eyebrow">CONNECTED INBOXES</p><h2>Your accounts</h2></div><span className="account-total">{data.accounts.length} total</span></div><Card className="account-card">{data.accounts.map((account) => <AccountRow key={account.id} account={account} onRefresh={refresh} onReconnect={()=>{if(account.provider==="imap")setImapReconnect(account);else{setReconnectLabel(account.label);setOutlookOpen(true)}}} />)}</Card></> : <EmptyState title="One inbox at a time" description="Connect a mailbox to begin building your private application queue." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect your first mailbox</Button>} />}
-    <BidderManagement />
+    </section><section id="provider-options">
     <div className="provider-heading"><div><p className="eyebrow">CONNECTION OPTIONS</p><h2>Choose your provider</h2></div><span>Credentials stay on your computer.</span></div>
     <div className="provider-grid"><button className="provider-card" onClick={() => setImapOpen(true)}><span className="provider-logo"><KeyRound /></span><span><strong>Gmail, Yahoo, iCloud &amp; more</strong><small>Connect with a secure app password over IMAP.</small></span><Plus size={17} className="provider-add" /></button><button className="provider-card" disabled={!data?.outlook_ready && !canManageSettings} onClick={() => data?.outlook_ready ? (setReconnectLabel(undefined),setOutlookOpen(true)) : (window.location.href = "/settings#outlook")}><span className="provider-logo provider-microsoft">M</span><span><strong>Personal Outlook</strong><small>{data?.outlook_ready ? "Sign in with Microsoft. No password is stored." : canManageSettings ? "Add your Microsoft client ID in Settings first." : "The owner must configure the shared Microsoft connection."}</small></span><Plus size={17} className="provider-add" /></button></div>
     <Card className="privacy-card"><ShieldCheck size={18} /><div><strong>Your mail stays yours.</strong><p>Messages and email bodies live in your local database. Only sender, subject, and the configured body excerpt go to your chosen Ollama model. Microsoft 365 work and school accounts are not supported.</p></div></Card>
+    </section><section><BidderManagement initiallyOpen /></section><section id="bidder-visibility"><BidderVisibility /></section></div></div>
     <ReconnectImapDialog account={imapReconnect} onClose={()=>setImapReconnect(null)} refresh={refresh}/><AddImapDialog open={imapOpen} onOpenChange={setImapOpen} refresh={refresh} /><OutlookDialog accountLabel={reconnectLabel} open={outlookOpen} onOpenChange={setOutlookOpen} refresh={refresh} />
   </div>
 }

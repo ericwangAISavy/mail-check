@@ -11,15 +11,15 @@ type Assignment = { id: number; account_id: number; account_label: string; start
 type Bidder = { id: number; name: string; wallet_network?:string; wallet_address?:string; pay_per_bid?:string|null; adjustment_percent?:string; assignments: Assignment[] }
 type Report = { today: string; bidders: Bidder[]; accounts: { id: number; label: string }[] }
 
-export default function BidderManagement() {
-  const [open, setOpen] = useState(() => window.location.hash === "#bidder-management")
+export default function BidderManagement({initiallyOpen=false}:{initiallyOpen?:boolean}) {
+  const [open, setOpen] = useState(() => initiallyOpen || window.location.hash === "#bidder-management")
   const [expandedBidder, setExpandedBidder] = useState<number | null | undefined>(undefined)
   const client = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["bidder-management"], queryFn: () => request<Report>("/api/payments"), enabled: open })
   const access=useQuery({queryKey:["bidder-access"],queryFn:()=>request<{bidders:{bidder_id:number;enabled:boolean}[]}>("/api/auth/bidders/manage"),enabled:open})
   const mutation = useMutation({ mutationFn: ({ url, body }: { url: string; body: unknown }) => api.post(url, body), onSuccess: async () => {
-    await Promise.all(["bidder-access", "bidder-management", "payments", "dashboard-accounts", "dashboard", "sourcing-index", "sourcing-search", "login-bidders"].map(key => client.invalidateQueries({ queryKey: [key] })))
+    await Promise.all(["bidder-access", "bidder-management", "payments", "dashboard-accounts", "dashboard", "sourcing-index", "sourcing-search", "login-bidders", "bidder-visibility"].map(key => client.invalidateQueries({ queryKey: [key] })))
     toast("Saved.", "success")
   } })
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })

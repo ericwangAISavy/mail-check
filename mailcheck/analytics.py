@@ -143,18 +143,18 @@ def _scope(filters: DashboardFilters, *, focus: bool = False) -> tuple[str, list
     return " WHERE " + " AND ".join(clauses), params
 
 
-def dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int) -> dict:
+def dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int, graphs_only: bool = False) -> dict:
     """Return an overview and a page of metadata. Never read message bodies."""
     # A savepoint gives every SELECT one snapshot, including with an existing
     # caller transaction, without blocking writers in the WAL database.
     conn.execute("SAVEPOINT dashboard_snapshot")
     try:
-        return _dashboard_data(conn, filters, retention_days=retention_days)
+        return _dashboard_data(conn, filters, retention_days=retention_days,graphs_only=graphs_only)
     finally:
         conn.execute("RELEASE SAVEPOINT dashboard_snapshot")
 
 
-def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int) -> dict:
+def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int, graphs_only: bool = False) -> dict:
     zone = ZoneInfo(filters.tz)
 
     def local_day(value):
@@ -193,6 +193,16 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         summary["completed"] += row["completed"] or 0
         summary["retryable"] += row["retryable"] or 0
     summary["unclassified"] = totals["unclassified"]
+
+    if graphs_only:
+        daily = []
+        day = filters.start
+        while day <= filters.end:
+            counts = {category.name:per_day.get(day.isoformat(),{}).get(category.name,0) for category in CATEGORIES}
+            daily.append({'date':day.isoformat(),'counts':counts,'total':sum(counts.values()),'partial':False})
+            day += timedelta(days=1)
+        return {'ok':True,'filters':filters.model_dump(mode='json'),'summary':summary,'daily':daily,
+            'categories':[{'name':c.name,'label':c.label,'tier':c.tier,'count':totals[c.name]} for c in CATEGORIES]}
 
     first_run = conn.execute(
         "SELECT started_at FROM runs WHERE finished_at IS NOT NULL AND accounts_checked > 0 "

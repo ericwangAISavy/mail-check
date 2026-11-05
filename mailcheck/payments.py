@@ -55,6 +55,65 @@ CREATE TABLE IF NOT EXISTS bidder_payments (
 """
 
 
+class VisibilityBody(BaseModel):
+    payment_visible: bool
+    other_work_visible: bool
+    expected_revision: int = Field(ge=0)
+
+
+def visibility(conn, bidder_id):
+    row = conn.execute('SELECT payment_visible,other_work_visible FROM bidders WHERE id=? AND removed_at IS NULL',(bidder_id,)).fetchone()
+    if not row:
+        raise LookupError('Bidder not found')
+    return {key:bool(row[key]) for key in ('payment_visible','other_work_visible')}
+
+
+def save_visibility(conn, bidder_id, body):
+    bidder(conn,bidder_id)
+    changed = conn.execute('UPDATE bidders SET payment_visible=?,other_work_visible=?,visibility_revision=visibility_revision+1 WHERE id=? AND visibility_revision=?',(int(body.payment_visible),int(body.other_work_visible),bidder_id,body.expected_revision)).rowcount
+    if not changed:
+        raise ValueError('Visibility options changed elsewhere. Reload the saved options before saving.')
+
+
+def bidder_report(report, viewer_id, policy):
+    """Only the owner's checked counts and expressly permitted coworker status."""
+    result = dict(report)
+    result['payment_visible'] = policy['payment_visible']
+    result['other_work_visible'] = policy['other_work_visible']
+    result.pop('unallocated_daily',None)
+    result.pop('deduction_rule',None)
+    result['accounts'] = []
+    result['unassigned'] = 0
+    rows = []
+    money_fields = ('pay_per_bid','adjustment_percent','gross_amount_cents','deduction_daily',
+        'deduction_total_cents','calculated_amount_cents','payable_amount_cents','amount_override_cents',
+        'override_application_count','wallet_network','wallet_address')
+    for original in result['bidders']:
+        own = original['id'] == viewer_id
+        row = dict(original)
+        row['daily'] = list(row['checked_daily'])
+        row.pop('received_reply_total',None)
+        row.pop('override_application_count',None)
+        row['payment_visible'] = own and policy['payment_visible']
+        row['account_breakdown'] = [dict(a,daily=list(a['checked_daily'])) for a in row['account_breakdown']] if own else []
+        for account in row['account_breakdown']:
+            account.pop('received_reply_total',None)
+        if row['payment_visible']:
+            row['payment'] = dict(row['payment']) if row['payment'] else None
+            if row['payment']:row['payment'].pop('application_count',None)
+        else:
+            for key in money_fields:row.pop(key,None)
+            row['payment'] = None
+        if not own:
+            row['assignments'] = []
+            row.pop('below_minimum_daily',None)
+        rows.append(row)
+    result['bidders'] = rows
+    result['daily'] = [sum(row['checked_daily'][i] for row in rows) for i in range(7)]
+    result['checked_daily'] = list(result['daily'])
+    return result
+
+
 class BidderBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
@@ -263,11 +322,12 @@ def received_today(conn: sqlite3.Connection) -> int:
         AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
 
 
-def checked_today(conn: sqlite3.Connection) -> int:
+def checked_today(conn: sqlite3.Connection, *, bidder_id: int | None = None) -> int:
     """Use the same completed-application aggregation as daily payment totals."""
     from .sourcing_verification import completed_account_counts
     day = today().isoformat()
-    return sum(completed_account_counts(conn, day, day).values())
+    return sum(count for (who, _account, _day), count in completed_account_counts(conn, day, day).items()
+               if bidder_id is None or who == bidder_id)
 
 
 def accounting_day_case(column, start, end):

@@ -22,8 +22,8 @@ def viewer_read_allowed(path, method):
     import re
     return method in ('GET', 'HEAD') and (path in VIEWER_APIS or path in VIEWER_PAGES
         or re.fullmatch(r'/api/sourcing/tabs/[0-9]+',path) is not None
-        or path.startswith('/api/messages/') and path.removeprefix('/api/messages/').isascii()
-        and path.removeprefix('/api/messages/').isdigit())
+)
+
 
 
 def username_key(name):
