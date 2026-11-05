@@ -369,3 +369,6 @@
 .interview-essential-details .interview-location { grid-column:1 / -1; }
 .interview-essential-details .interview-meeting-link { margin:4px 0 0; }
 .interview-dialog-maintenance { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+
+.interview-essential-details .interview-explicit-link { display:inline; overflow-wrap:anywhere; word-break:break-word; }
+.interview-explicit-link svg { display:inline; margin-left:6px; vertical-align:middle; }

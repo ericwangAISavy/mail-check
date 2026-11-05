@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.4 — 2026-11-04
+
+Show explicit meeting links
+
+- Calendar event details display the full meeting URL in its own clickable Meeting link field, separate from location.
+
 ## 2.19.3 — 2026-11-04
 
 Simplify interview calendar details

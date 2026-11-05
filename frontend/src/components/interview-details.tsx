@@ -67,7 +67,8 @@ export function InterviewDetails({id,stages,statuses,displayTimezone,onCloseAuto
         <div><dt>Company</dt><dd>{company || "Not provided"}</dd></div>
         <div><dt>Role</dt><dd>{event.role || "Not provided"}</dd></div>
         <div><dt>Interviewer / contact</dt><dd>{contacts.size ? [...contacts].map(([key,contact]) => <span className="interview-detail-line" key={key}>{contact}</span>) : "Not provided"}</dd></div>
-        <div className="interview-location"><dt>Location</dt><dd>{physicalLocation && <span className="interview-detail-line">{physicalLocation}</span>}{joinUrl && <a className="interview-meeting-link" href={joinUrl} target="_blank" rel="noopener noreferrer">Join {event.meeting_platform || "meeting"} <ExternalLink size={14}/></a>}{!physicalLocation && !joinUrl && "Not provided"}</dd></div>
+        <div><dt>Location</dt><dd>{physicalLocation || (joinUrl ? "Online" : "Not provided")}</dd></div>
+        {joinUrl && <div className="interview-location"><dt>Meeting link</dt><dd><a className="interview-meeting-link interview-explicit-link" href={joinUrl} target="_blank" rel="noopener noreferrer">{joinUrl}<ExternalLink size={14} aria-hidden="true"/></a></dd></div>}
       </dl>
     </>}
     {editing && <div className="interview-dialog-maintenance"><Button variant="destructive" disabled={remove.isPending} onClick={()=>remove.mutate()}>{remove.isPending ? "Removing…" : "Remove from calendar"}</Button>

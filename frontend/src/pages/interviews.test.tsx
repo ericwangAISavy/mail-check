@@ -58,7 +58,7 @@ it("opens event details and persists only fields explicitly corrected",async()=>
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   await within(dialog).findByRole("button",{name:"Edit details"})
-  expect(within(dialog).getByRole("link",{name:/Join Zoom/}).getAttribute('href')).toBe('https://zoom.us/j/123')
+  expect(within(dialog).getByRole("link",{name:current.meeting_url!}).getAttribute('href')).toBe('https://zoom.us/j/123')
   expect(within(dialog).queryByRole("button",{name:"View source email"})).toBeNull()
   fireEvent.click(within(dialog).getByRole("button",{name:"Edit details"}))
   fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:"Correct Company"}})
@@ -174,6 +174,7 @@ it('deduplicates native accounts and contacts without treating the event title a
  expect(within(dialog).getByText('Role').nextElementSibling!.textContent).toBe('Not provided')
  const contacts=within(dialog).getByText('Interviewer / contact').nextElementSibling!
  expect(contacts.textContent).toBe('Rebecca Moore · rebecca@airbus.comantonio@airbus.com')
- expect(within(dialog).getAllByRole('link',{name:/Join Zoom/})).toHaveLength(1)
- expect(within(dialog).queryByText(current.meeting_url!)).toBeNull()
+ expect(within(dialog).getAllByRole('link',{name:current.meeting_url!})).toHaveLength(1)
+ expect(within(dialog).getByText('Meeting link')).toBeTruthy()
+ expect(within(dialog).getByRole('link',{name:current.meeting_url!}).getAttribute('href')).toBe(current.meeting_url)
 })

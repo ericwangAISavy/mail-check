@@ -249,7 +249,7 @@ and never edits Outlook.
 ## Calendar event summary
 
 The event dialog shows time in the selected display timezone, linked email accounts,
-company, role, interview contacts, and location or a single meeting link. Accounts
+company, role, interview contacts, location, and a separate clickable full meeting URL when available. Accounts
 and contacts are deduplicated; the candidate's linked email addresses are omitted
 from the contact list. Organizer/contact information does not establish who will
 conduct the interview.
