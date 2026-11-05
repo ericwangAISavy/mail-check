@@ -92,8 +92,10 @@ across the same account's active bidder tabs. A reply is bound only when its
 company, role when present, and date evidence identify one eligible row. A
 company-only reply with several eligible roles stays unmatched for review. The
 same reply cannot newly check several jobs or be borrowed from an existing bound
-job, including an archived checked job. Existing checks stay saved on normal
-refresh. A selected-week rebuild checks only unchecked links. Existing checkmarks,
+job, including an archived checked job. All checks—automatic, periodic, selected-week refresh/rebuild, and manual
+**Check applications**—check only unchecked links. Existing checks, receipt
+bindings and confirmation dates stay saved even when matching rules, receipt
+classifications or extracted company/role details change. A selected-week rebuild checks only unchecked links. Existing checkmarks,
 receipt bindings and confirmation dates remain unchanged, including automatic
 and manual checks and archived sheets. Previously bound receipts cannot be
 reassigned to another job.

@@ -271,7 +271,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(completed["daily"],[1,0,0,0,0,0,0])
         self.assertEqual(completed["application_total"],1)
 
-    def test_confirmation_timestamp_is_received_time_and_refresh_repairs_it(self):
+    def test_normal_refresh_preserves_existing_confirmation_timestamp(self):
         from unittest.mock import patch
         from mailcheck import sourcing_verification as verification, sourcing_activity as activity
         from tests.web_client import sign_in_bidder
@@ -295,7 +295,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(response.json()['from'],'2026-10-19')
         refreshed = self.snapshot()
         self.assertEqual(refreshed['rows'][1][3]['value'],'true')
-        self.assertEqual(refreshed['rows'][1][3]['checked_at'],"2026-10-21T14:23:00+00:00")
+        self.assertEqual(refreshed['rows'][1][3]['checked_at'],"2026-10-22T20:00:00+00:00")
         sign_in_bidder(self.client,1)
         self.assertEqual(self.client.post('/api/payments/refresh',json={}).status_code,403)
 
@@ -384,7 +384,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         verification.verify_all(self.conn)
         event = self.conn.execute('SELECT source FROM sourcing_check_activity WHERE row_id=?', (base['row_ids'][1],)).fetchone()
-        self.assertEqual(event['source'], 'manual-confirmation')
+        self.assertEqual(event['source'], 'manual-edit')
         db.save_classification(self.conn, pk, Classification(category='other', company='Acme'), 'test', '1')
         self.conn.commit()
         self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
@@ -618,3 +618,46 @@ class SourcingVerificationTests(unittest.TestCase):
         response = self.client.post('/api/payments/refresh',json={'week':'2026-10-19','mode':'rebuild'})
         self.assertEqual(response.json()['changed'],0)
         self.assertEqual(self.snapshot(),after)
+
+    def test_all_check_paths_preserve_existing_credit_and_proofs(self):
+        from unittest.mock import patch
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,))
+        self.conn.commit()
+        base = self.snapshot()
+        self.native.save(self.conn,self.tab(),'manual-credit',[{
+            'row_id':base['row_ids'][3],'column_id':base['columns'][3]['id'],
+            'expected_version':base['rows'][3][3]['version'],'value':'true'}])
+        self.receipt('original','Acme','2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn,sample=False)
+        before = self.snapshot()
+        ids = (before['row_ids'][1],before['row_ids'][3])
+        proofs = [tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(i,)).fetchone()) for i in ids]
+        self.receipt('earlier','Acme','2026-10-20T14:00:00+00:00')
+        self.receipt('new','Beta','2026-10-22T14:00:00+00:00')
+        self.conn.commit()
+        for mode in ('auto-periodic','refresh','manual','rebuild','payment-poll'):
+            with self.subTest(mode=mode):
+                if mode == 'auto-periodic':
+                    verification.verify_all(self.conn)
+                    self.conn.commit()
+                elif mode == 'manual':
+                    verification.verify(self.conn,self.tab(),'check-with-saved-credit',self.snapshot()['revision'],'2026-10-20')
+                    self.conn.commit()
+                elif mode == 'payment-poll':
+                    self.assertEqual(self.client.get('/api/payments?week=2026-10-19').status_code,200)
+                else:
+                    response = self.client.post('/api/payments/refresh',json={'week':'2026-10-19','mode':mode})
+                    self.assertEqual(response.status_code,200,response.text)
+                after = self.snapshot()
+                for index in (1,3):
+                    self.assertEqual(after['rows'][index][3],before['rows'][index][3])
+                self.assertEqual([tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(i,)).fetchone()) for i in ids],proofs)
+                self.assertEqual(after['rows'][2][3]['value'],'true')
+                self.assertEqual(payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily'],[0,1,1,1,0,0,0])
+        # Even a future rule that produces no matches must preserve credited rows.
+        with patch.object(verification,'_matching_plan',return_value={}):
+            verification.verify_all(self.conn,sample=False)
+            self.assertEqual([r[3]['value'] for r in self.snapshot()['rows'][1:4]],['true']*3)

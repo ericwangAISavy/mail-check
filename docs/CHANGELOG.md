@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.8 — 2026-11-05
+
+Preserve checked links across every checking path
+
+- Auto-checks, periodic checks, refreshes and manual Check applications now process only unchecked links, preserving saved checkmarks, receipt bindings and confirmation dates even after matching rules change.
+
 ## 2.21.7 — 2026-11-05
 
 Make full rebuild preserve checked applications
