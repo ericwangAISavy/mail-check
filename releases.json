@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.19.5",
+    "date": "2026-11-04",
+    "title": "Dismiss completed link import progress",
+    "changes": [
+      "The sourcing progress bar briefly shows 100% after the saved sheet is ready, then automatically disappears."
+    ]
+  },
+  {
     "version": "2.19.4",
     "date": "2026-11-04",
     "title": "Show explicit meeting links",

@@ -17,6 +17,13 @@ export function useSourcingProgress(tabId:number,revision?:string) {
     else if(progress?.stage==='complete' && progress.revision!==revision)
       setProgress(null)
   },[revision,progress?.revision,progress?.stage])
+  useEffect(() => {
+    if (progress?.stage !== 'complete') return
+    // Briefly acknowledge 100%, then reclaim the sheet space. A subsequent
+    // operation cancels this timer so its progress cannot be dismissed early.
+    const timer = window.setTimeout(() => setProgress(current => current === progress ? null : current), 1000)
+    return () => window.clearTimeout(timer)
+  }, [progress])
   const run:RunJobOperation=useCallback(async(url,payload)=>{
     cancel.current?.()
     let active=true,timer=0

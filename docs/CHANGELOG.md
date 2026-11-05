@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.5 — 2026-11-04
+
+Dismiss completed link import progress
+
+- The sourcing progress bar briefly shows 100% after the saved sheet is ready, then automatically disappears.
+
 ## 2.19.4 — 2026-11-04
 
 Show explicit meeting links
