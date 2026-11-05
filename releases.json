@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.21.9",
+    "date": "2026-11-05",
+    "title": "Broaden matching only for unchecked applications",
+    "changes": [
+      "Restore bidirectional whole-phrase company and role containment with exact-match priority, while preserving checked links, receipt bindings and historical confirmation dates across all checking paths."
+    ]
+  },
+  {
     "version": "2.21.8",
     "date": "2026-11-05",
     "title": "Preserve checked links across every checking path",

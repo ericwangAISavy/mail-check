@@ -80,12 +80,15 @@ been removed are skipped. The completion message includes the matched-link and t
 counts. An open, saved sheet refreshes immediately; active edits remain protected.
 Automatic verification adds new matches and never clears existing checks.
 
-Before comparison, company names preserve their full identity, ignoring case,
-separator punctuation, dotted initialisms and trailing legal suffixes such as Inc.
-or LLC. `First National` does not match `First Horizon`; `Cube Software` does not
-become `Cube`. Roles preserve seniority, level numbers and C++/C# distinctions;
-Sr./Senior and explicit Remote/Hybrid annotations are normalized. No fuzzy
-similarity is used.
+Before comparison, company names ignore case, separator punctuation, dotted
+initialisms and trailing legal suffixes such as Inc. or LLC. Roles normalize
+Sr./Senior and explicit Remote/Hybrid annotations. Exact company/role matches
+win first; otherwise either complete normalized company phrase may contain the
+other. Roles also allow whole-phrase containment in either direction.
+For example, Inspira Financial matches Inspira Financial Trust LLC, and AI
+Operations Engineer matches Principal AI Operations Engineer. Word fragments
+do not match: Meta is not Metamask, Engineer is not Engineering, Engineer II is
+not Engineer III, and C++ is not C#. No fuzzy similarity is used.
 
 Both manual **Check applications** and automatic checks consider competing jobs
 across the same account's active bidder tabs. A reply is bound only when its
@@ -95,10 +98,8 @@ same reply cannot newly check several jobs or be borrowed from an existing bound
 job, including an archived checked job. All checks—automatic, periodic, selected-week refresh/rebuild, and manual
 **Check applications**—check only unchecked links. Existing checks, receipt
 bindings and confirmation dates stay saved even when matching rules, receipt
-classifications or extracted company/role details change. A selected-week rebuild checks only unchecked links. Existing checkmarks,
-receipt bindings and confirmation dates remain unchanged, including automatic
-and manual checks and archived sheets. Previously bound receipts cannot be
-reassigned to another job.
+classifications or extracted company/role details change. This protection includes automatic and manual checks and archived sheets.
+Previously bound receipts cannot be reassigned to another job.
 
 On **Bidder payments**, daily cells show **checked applications / received replies**.
 For example, **60 / 112** means 60 checked job-link rows and an allocated share of

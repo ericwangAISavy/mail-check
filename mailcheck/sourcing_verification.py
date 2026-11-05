@@ -28,22 +28,66 @@ def role_key(value):
     return " ".join({"sr": "senior", "jr": "junior"}.get(word, word) for word in words)
 
 
+def _contains_name(left, right):
+    """Accept either whole normalized phrase inside the other, never word fragments."""
+    return bool(left and right and (f" {left} " in f" {right} " or f" {right} " in f" {left} "))
+
+
 def _matching_plan(conn, rows, receipts, *, early_since):
     """Only bind a receipt to an unambiguous job; never reuse a reserved receipt.
 
     Index candidates by account/company/role/date instead of comparing each
     receipt with every job. The plan is shared by manual and automatic checks.
     """
-    groups = {}
+    groups, company_words, company_roles = {}, {}, {}
     for row in rows:
         if not row['work_date'] or not (row['link'] or '').strip():
             continue
         company, role = company_key(row['company']), role_key(row['role'])
         if not company:
             continue
+        account = row['account_id']
+        company_roles.setdefault((account, company), set()).add(role)
+        for word in set(company.split()):
+            company_words.setdefault((account, word), set()).add(company)
         for key in ((row['account_id'], company, role), (row['account_id'], company, None)):
             groups.setdefault(key, {}).setdefault(row['work_date'], []).append(row['id'])
     indexed = {key: (sorted(days), days) for key, days in groups.items()}
+    matching_groups, company_aliases = {}, {}
+
+    def compatible_groups(account, company, role, partial, aliases):
+        key = (account, company, role, partial, aliases)
+        if key in matching_groups:
+            return matching_groups[key]
+        alias_key = (account, company)
+        if aliases and alias_key not in company_aliases:
+            words = company.split()
+            variants = set()
+            # Shorter saved names are complete phrases inside the receipt.
+            # For longer names, intersect word postings before testing order.
+            for start in range(len(words)):
+                for end in range(start + 1, len(words) + 1):
+                    name = ' '.join(words[start:end])
+                    if (account, name) in company_roles:
+                        variants.add(name)
+            postings = [company_words.get((account, word), set()) for word in set(words)]
+            if postings and all(postings):
+                postings.sort(key=len)
+                longer = postings[0].intersection(*postings[1:])
+                variants.update(name for name in longer if _contains_name(company, name))
+            company_aliases[alias_key] = variants
+        keys = []
+        for name in company_aliases[alias_key] if aliases else (company,):
+            if not partial:
+                value = (account, name, role)
+                if value in indexed:
+                    keys.append(value)
+            else:
+                keys.extend((account, name, saved_role) for saved_role in company_roles.get((account, name), ())
+                    if saved_role != role and _contains_name(role, saved_role))
+        matching_groups[key] = [indexed[value] for value in keys]
+        return matching_groups[key]
+
     reservations = {}
     receipt_keys = {(r['account_id'],r['message_id']) for r in receipts}
     message_ids = sorted({key[1] for key in receipt_keys})
@@ -69,22 +113,24 @@ def _matching_plan(conn, rows, receipts, *, early_since):
         role = role_key(receipt['role']) if (receipt['role'] or '').strip() else None
         if role == '':
             continue
-        indexed_group = indexed.get((receipt['account_id'], company, role))
-        if not indexed_group:
-            continue
         try:
             stamp = datetime.fromisoformat(receipt['received_at'].replace('Z', '+00:00'))
             stamp = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(timezone.utc)
         except (ValueError, TypeError):
             continue
         day = stamp.astimezone(ZONE).date()
-        dates, by_date = indexed_group
         candidates = set()
-        for source_day in dates[bisect_left(dates, (day-timedelta(days=6)).isoformat()):bisect_right(dates, day.isoformat())]:
-            candidates.update(by_date[source_day])
-        if day >= early_since:
-            for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
-                candidates.update(by_date[source_day])
+        # Preserve the original exact match before broadening either name.
+        tiers = ((False, False), (False, True)) if role is None else ((False, False), (False, True), (True, True))
+        for partial, aliases in tiers:
+            for dates, by_date in compatible_groups(receipt['account_id'], company, role, partial, aliases):
+                for source_day in dates[bisect_left(dates, (day-timedelta(days=6)).isoformat()):bisect_right(dates, day.isoformat())]:
+                    candidates.update(by_date[source_day])
+                if day >= early_since:
+                    for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
+                        candidates.update(by_date[source_day])
+            if candidates:
+                break
         reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
         if reserved:
             # Existing bindings win over new candidates, including archived rows.

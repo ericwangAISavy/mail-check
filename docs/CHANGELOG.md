@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.9 — 2026-11-05
+
+Broaden matching only for unchecked applications
+
+- Restore bidirectional whole-phrase company and role containment with exact-match priority, while preserving checked links, receipt bindings and historical confirmation dates across all checking paths.
+
 ## 2.21.8 — 2026-11-05
 
 Preserve checked links across every checking path

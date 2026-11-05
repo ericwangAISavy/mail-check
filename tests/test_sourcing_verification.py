@@ -661,3 +661,117 @@ class SourcingVerificationTests(unittest.TestCase):
         with patch.object(verification,'_matching_plan',return_value={}):
             verification.verify_all(self.conn,sample=False)
             self.assertEqual([r[3]['value'] for r in self.snapshot()['rows'][1:4]],['true']*3)
+
+    def test_inspira_company_and_role_containment_check_the_application(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'inspira',base['revision'],[
+            ['Inspira Financial','Principal AI Operations Engineer','https://jobs.test/inspira']],work_date='2026-10-20')
+        self.receipt('inspira-confirmation','Inspira Financial Trust, LLC','2026-10-20T12:00:00Z',role='Principal AI Operations Engineer (Remote)')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+
+    def test_manual_matching_accepts_shorter_email_company_and_role(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        jobs=self.native.append(self.conn,self.tab(),'expanded-names',base['revision'],[
+            ['Inspira Financial Trust LLC','Principal AI Operations Engineer (Remote)','https://jobs.test/inspira']],work_date='2026-10-20')
+        self.receipt('short-names','Inspira Financial','2026-10-20T12:00:00Z',role='AI Operations Engineer')
+        self.conn.commit()
+        result=verification.verify(self.conn,self.tab(),'short-name-check',jobs['revision'],'2026-10-20')
+        self.assertEqual(result['rows'][1][3]['value'],'true')
+
+    def test_contained_role_does_not_choose_between_multiple_eligible_titles(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'role-alternatives',base['revision'],[
+            ['Inspira Financial','Senior Software Engineer','https://jobs.test/senior'],
+            ['Inspira Financial Trust LLC','Principal Software Engineer','https://jobs.test/principal']],work_date='2026-10-20')
+        self.receipt('ambiguous-containment','Inspira Financial Trust LLC','2026-10-20T12:00:00Z',role='Software Engineer')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]],['false','false'])
+
+    def test_containment_does_not_match_word_fragments_or_conflicting_role_tokens(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        jobs=[['Metamask','Engineer','https://jobs.test/meta'],['Levels','Engineer III','https://jobs.test/level'],
+            ['Languages','C++ Engineer','https://jobs.test/cpp'],['Titles','Engineering Manager','https://jobs.test/manager']]
+        self.native.append(self.conn,self.tab(),'distinct-identities',base['revision'],jobs,work_date='2026-10-20')
+        for key,company,role in [('meta','Meta','Engineer'),('level','Levels','Engineer II'),('language','Languages','C# Engineer'),('title','Titles','Engineer')]:
+            self.receipt(key,company,'2026-10-20T12:00:00Z',role=role)
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:5]],['false']*4)
+
+    def test_company_only_containment_remains_ambiguous_without_an_exact_company(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'company-alternatives',base['revision'],[
+            ['Inspira Financial Services','Engineer','https://jobs.test/engineer'],
+            ['Inspira Financial Trust LLC','Analyst','https://jobs.test/analyst']],work_date='2026-10-20')
+        self.receipt('company-only-contained','Inspira Financial','2026-10-20T12:00:00Z',role=None)
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]],['false','false'])
+
+    def test_out_of_window_exact_role_does_not_block_eligible_containment(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'old-exact-role',base['revision'],[
+            ['Acme','Engineer','https://jobs.test/old']],work_date='2026-10-01')
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'current-contained-role',base['revision'],[
+            ['Acme','Senior Engineer','https://jobs.test/current']],work_date='2026-10-20')
+        self.receipt('current-short-role','Acme','2026-10-20T12:00:00Z',role='Engineer')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        checks=dict(self.conn.execute("""SELECT r.work_date,c.value FROM native_rows r
+            JOIN native_cells c ON c.row_id=r.id JOIN native_columns col ON col.id=c.column_id
+            WHERE col.kind='check' AND r.work_date IS NOT NULL"""))
+        self.assertEqual(checks['2026-10-01'],'false')
+        self.assertEqual(checks['2026-10-20'],'true')
+
+    def test_expanded_company_aliases_do_not_remove_a_legacy_exact_check_on_rebuild(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.receipt('legacy-exact','Acme','2026-10-21T14:00:00Z')
+        self.conn.commit();verification.verify_all(self.conn,sample=False)
+        base=self.snapshot()
+        self.assertEqual(base['rows'][1][3]['value'],'true')
+        # Older activity records may have a counted time without a receipt ID.
+        self.conn.execute('UPDATE sourcing_check_activity SET message_id=NULL WHERE row_id=?',(base['row_ids'][1],))
+        self.conn.commit()
+        self.native.append(self.conn,self.tab(),'new-company-alias',base['revision'],[
+            ['Acme Trust LLC','Engineer','https://jobs.test/alias']],work_date='2026-10-20')
+        self.conn.commit()
+        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
+        snap=self.snapshot()
+        self.assertEqual(snap['rows'][1][3]['value'],'true')
+        self.assertEqual(snap['rows'][4][3]['value'],'false')
+
+
+    def test_broad_matches_add_credit_without_relocating_existing_checks(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,))
+        self.receipt('saved-exact','Acme','2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn,sample=False)
+        base = self.snapshot()
+        row_id = base['row_ids'][1]
+        proof = tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(row_id,)).fetchone())
+        self.native.append(self.conn,self.tab(),'broad-only-job',base['revision'],[
+            ['Inspira Financial','Principal AI Operations Engineer','https://jobs.test/inspira-new']],work_date='2026-10-20')
+        self.receipt('earlier-broad-alias','Acme Trust LLC','2026-10-20T14:00:00+00:00')
+        self.receipt('new-broad-match','Inspira Financial Trust LLC','2026-10-22T14:00:00+00:00',role='AI Operations Engineer')
+        self.conn.commit()
+        for mode in ('rebuild','refresh','auto-periodic'):
+            with self.subTest(mode=mode):
+                if mode == 'auto-periodic':
+                    verification.verify_all(self.conn,sample=False)
+                    self.conn.commit()
+                else:
+                    response = self.client.post('/api/payments/refresh',json={'week':'2026-10-19','mode':mode})
+                    self.assertEqual(response.status_code,200,response.text)
+                after = self.snapshot()
+                self.assertEqual(after['rows'][1][3],base['rows'][1][3])
+                self.assertEqual(after['rows'][4][3]['value'],'true')
+                self.assertEqual(tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(row_id,)).fetchone()),proof)
+                self.assertEqual(payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily'],[0,0,1,1,0,0,0])
