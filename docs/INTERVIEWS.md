@@ -110,7 +110,10 @@ All-day onsite interviews are supported; all-day duration alone does not mean ho
 Without a configured model, collection still works with conservative interview
 metadata checks. If analysis fails, recognizable interviews retain their native
 schedule and previous extracted details; manual corrections always win. The sync
-queues unfinished analysis for automatic retry. Successful
+queues unfinished analysis for automatic retry. Common output formatting differences
+are normalized without inventing interview details. Invalid or truncated JSON gets
+one bounded repair request with a larger response budget. A missing interview
+decision or invalid confidence is never treated as a successful analysis. Successful
 analysis is cached by event content and prompt version, so unchanged events do not
 make repeat model requests. Description or attendee changes trigger reanalysis.
 Calendar collection queues uncached events without waiting for inference. A saved
@@ -119,7 +122,14 @@ Upcoming events are prioritized within each account, and accounts take turns so 
 large account cannot monopolize analysis. Failed events back off from 30 seconds to
 30 minutes; a busy/unavailable model pauses requests for at least a minute. Untried
 events continue before repeated failures. The configured classification deadline
-bounds each batch rather than a full year of collection.
+bounds each batch rather than a full year of collection. An invalid response after
+three task attempts pauses that event as **Needs review** instead of retrying
+forever. These tasks retain their saved booking and remain in the total count;
+they are not counted as completed. Other events continue. Timeouts and service
+outages retain automatic retries. **Retry analysis now** resets the attempt budget
+for paused/retrying tasks; correcting the model or changing the event content can
+then allow analysis to finish. Successful cached events, native dates, meeting
+links, and manual corrections are preserved.
 
 The calendar shows completed/remaining counts, retry reasons, and **Retry analysis
 now**. Background batches update results without repeated completion toasts or

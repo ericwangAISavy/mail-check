@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.14 — 2026-11-05
+
+Recover invalid calendar analysis responses and bound retries
+
+- Normalize common model formats, use larger output budgets, and repair invalid or truncated calendar JSON once without inventing interview details.
+- Pause repeatedly invalid events as needs review, preserve their schedules and manual edits, and allow explicit retry without repeating successful analyses.
+
 ## 2.21.13 — 2026-11-05
 
 Match delayed company-only confirmations and explain unchecked links

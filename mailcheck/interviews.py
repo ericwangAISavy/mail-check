@@ -601,7 +601,7 @@ def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_
                     conn.commit();continue
                 result = analyzer.analyze(account,booking)
                 if result is None:
-                    queue.retry(conn,task,analyzer.last_error or 'Analysis budget reached; continuing automatically',service_unavailable=analyzer.unavailable)
+                    queue.retry(conn,task,analyzer.last_error or 'Analysis budget reached; continuing automatically',service_unavailable=analyzer.unavailable,invalid_response=analyzer.failure_kind=='invalid_response')
                     conn.commit()
                     if analyzer.unavailable:break
                     continue

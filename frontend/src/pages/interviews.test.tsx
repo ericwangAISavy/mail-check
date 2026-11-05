@@ -215,3 +215,20 @@ it('shows real queued analysis progress and a manual retry without labeling coll
  fireEvent.click(screen.getByRole('button',{name:'Retry analysis now'}))
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/analysis/retry'))
 })
+
+it('keeps invalid analyses visible as needing review instead of claiming completion or endless retries',async()=>{
+ const base=vi.mocked(request).getMockImplementation()!
+ vi.mocked(request).mockImplementation(async(url,init)=>{
+  const result:any=await base(url,init)
+  const progress={done:341,total:364,pending:0,needs_review:23,retrying:0,running:0,retry_in:0,last_error:'Invalid analysis fields: confidence'}
+  if(url==='/api/interviews/analysis')return progress
+  return url.startsWith('/api/interviews?')?{...result,analysis:progress}:result
+ })
+ mount()
+ await screen.findByText('Calendar analysis: 341 of 364 complete')
+ expect(screen.getByText('23 need review · Automatic retries paused for invalid responses')).toBeTruthy()
+ expect(screen.queryByText(/Automatic retry scheduled/)).toBeNull()
+ expect(screen.getByText('Invalid analysis fields: confidence')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Retry analysis now'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/analysis/retry'))
+})

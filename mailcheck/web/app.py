@@ -537,7 +537,8 @@ def _run_calendar_analysis():
         cfg = cfgmod.load()
         with db.session() as conn:
             result = interviews.resume_calendar_analysis(conn,cfg,status=lambda message:_job.update(message=message))
-        _job.update(interview_changes=result['changes'],message=f"Calendar analysis · {result['done']} of {result['total']} complete · {result['pending']} remaining",
+        review_note = f" · {result['needs_review']} need review" if result.get('needs_review') else ''
+        _job.update(interview_changes=result['changes'],message=f"Calendar analysis · {result['done']} of {result['total']} complete · {result['pending']} remaining{review_note}",
             detail=result['last_error'],ok=True)
     _start_job(work,failed="Calendar analysis paused; saved work will retry",verify_sourcing=False,background=True)
 

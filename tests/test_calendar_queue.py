@@ -116,3 +116,40 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT next_run FROM calendar_analysis_worker').fetchone()[0],0)
         queue.finish(self.conn,new);self.conn.commit()
         self.assertEqual(queue.progress(self.conn)['done'],1)
+
+    def test_invalid_outputs_pause_after_three_attempts_and_manual_retry_recovers(self):
+        import json
+        bad=event('bad');bad['subject']='Bad interview'
+        cfg,_=self.collect([bad,event('good')])
+        identity=self.conn.execute("SELECT e.id FROM interview_events e JOIN interview_sources s ON s.event_id=e.id WHERE s.external_message_id='graph-event:bad'").fetchone()[0]
+        interviews.correct_event(self.conn,identity,{'company':'Manual employer','role':'Manual role'})
+        self.conn.commit()
+        model=self.Model();valid=model.complete
+        def complete(system,content,**kwargs):
+            return '{invalid JSON' if 'bad' in json.loads(content)['title'].lower() else valid(system,content,**kwargs)
+        for _ in range(3):
+            with patch.object(model,'complete',side_effect=complete):
+                result=interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=model,limit=3)
+            self.conn.execute("UPDATE calendar_analysis_tasks SET next_attempt=0 WHERE state='retry'")
+            self.conn.commit()
+        self.assertEqual((result['done'],result['pending'],result['needs_review'],result['total']),(1,0,1,2))
+        self.assertFalse(queue.due(self.conn))
+        self.assertIsNotNone(self.conn.execute("SELECT booking FROM calendar_analysis_tasks WHERE state='needs_review'").fetchone()[0])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
+        queue.retry_now(self.conn);self.conn.commit()
+        task=self.conn.execute("SELECT attempts,state FROM calendar_analysis_tasks WHERE external_id='graph-event:bad'").fetchone()
+        self.assertEqual(tuple(task),(0,'pending'))
+        self.assertEqual(queue.progress(self.conn)['last_error'],'')
+        recovered=interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=model,limit=3)
+        self.assertEqual((recovered['done'],recovered['pending'],recovered['needs_review']),(2,0,0))
+        self.assertEqual(recovered['processed'],1)
+        self.assertEqual(tuple(self.conn.execute('SELECT company,role FROM interview_events WHERE id=?',(identity,)).fetchone()),('Manual employer','Manual role'))
+
+    def test_service_failures_remain_retryable_after_many_attempts(self):
+        self.collect([event()]);task=queue.claim(self.conn)
+        self.conn.execute('UPDATE calendar_analysis_tasks SET attempts=7 WHERE id=?',(task['id'],))
+        task['attempts']=7
+        queue.retry(self.conn,task,'Model response timed out',service_unavailable=True)
+        self.conn.commit()
+        progress=queue.progress(self.conn)
+        self.assertEqual((progress['pending'],progress['needs_review'],progress['retrying']),(1,0,1))

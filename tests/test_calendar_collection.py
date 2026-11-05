@@ -586,3 +586,37 @@ class CalendarAnalysisTests(unittest.TestCase):
         self.assertEqual(first['analyzed'],2);self.assertEqual(second['analyzed'],0)
         create.assert_called_once();model.prepare.assert_called_once();model.close.assert_called_once()
         self.assertEqual(len(model.calls),2)
+
+    def test_model_format_variants_are_normalized_without_inventing_details(self):
+        import json
+        model=self.Model(is_interview_event='true',confidence='96%',stage=None,ambiguous='false',
+            interviewers=[{'name':'Rebecca Moore','email':'rebecca@airbus.com'},None,{'email':'work@example.test'}])
+        result=self.analyze([event()],model)
+        self.assertEqual(result['analyzed'],1)
+        row=self.conn.execute('SELECT result FROM calendar_analyses').fetchone()
+        stored=json.loads(row['result'])
+        self.assertEqual(stored['confidence'],.96)
+        self.assertEqual(stored['stage'],'Other')
+        self.assertEqual(stored['interviewers'],['Rebecca Moore <rebecca@airbus.com>'])
+
+    def test_invalid_response_gets_one_json_repair_with_more_output_budget(self):
+        import json
+        model=self.Model()
+        with patch.object(model,'complete',side_effect=['not JSON',json.dumps({'analysis':model.values})]) as complete:
+            result=self.analyze([event()],model)
+        self.assertEqual(result['analyzed'],1)
+        self.assertEqual(complete.call_count,2)
+        self.assertTrue(complete.call_args.kwargs['json_mode'])
+        self.assertGreater(complete.call_args.kwargs['max_tokens'],complete.call_args_list[0].kwargs['max_tokens'])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analyses').fetchone()[0],1)
+
+    def test_truncated_reply_is_retried_even_if_its_json_can_be_parsed(self):
+        import json
+        from mailcheck.llm.client import Completion
+        model=self.Model()
+        truncated=Completion(json.dumps({**model.values,'company':'Truncated answer'}),finish_reason='length')
+        with patch.object(model,'complete',side_effect=[truncated,json.dumps(model.values)]) as complete:
+            result=self.analyze([event()],model)
+        self.assertEqual(result['analyzed'],1)
+        self.assertEqual(complete.call_count,2)
+        self.assertEqual(self.conn.execute('SELECT company FROM interview_events').fetchone()[0],'Airbus')
