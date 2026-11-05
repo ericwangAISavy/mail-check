@@ -41,8 +41,13 @@ def initialize(conn):
                      (row['row_id'],row['bidder_id'],row['account_id'],row['work_date']))
 
 
-def confirm(conn, row_id, received, message_id):
-    row = conn.execute("SELECT r.work_date,t.account_id,b.bidder_id FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id WHERE r.id=?", (row_id,)).fetchone()
+def confirm(conn, row_id, received, message_id, *, replace_existing=False):
+    row = conn.execute("""SELECT r.work_date,t.account_id,b.bidder_id,
+        EXISTS(SELECT 1 FROM native_columns col JOIN native_cells c ON c.column_id=col.id
+            WHERE col.tab_id=t.id AND col.kind='check' AND c.row_id=r.id AND c.value='true') AS checked
+        FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id JOIN native_books b ON b.id=t.book_id WHERE r.id=?""", (row_id,)).fetchone()
+    if row['checked'] and not replace_existing:
+        return False
     conn.execute("""INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,detected_at,source,confirmed_at,message_id)
         VALUES(?,?,?,?,?,'confirmation',?,?) ON CONFLICT(row_id) DO UPDATE SET
         confirmed_at=excluded.confirmed_at,message_id=excluded.message_id,account_id=excluded.account_id,

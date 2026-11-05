@@ -191,10 +191,10 @@ it('defaults the blue confirmed amount to the estimate until manually changed',a
  expect(within(row).queryByText(/Calculated amount|Paid ·|Manual amount|previous values|×/)).toBeNull()
 })
 
-it("offers full rebuild for the displayed week", async () => {
-  mount(); await screen.findByRole("rowheader", {name:/Alex/})
-  fireEvent.click(screen.getByRole("button", {name:"Fully rebuild this week"}))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"rebuild"}))
+it("does not expose a destructive rebuild action", async () => {
+ mount();await screen.findByRole("rowheader",{name:/Alex/})
+ expect(screen.queryByRole("button",{name:"Fully rebuild this week"})).toBeNull()
+ expect(screen.getByRole("button",{name:"Refresh this week"})).toBeTruthy()
 })
 
 it('explains missing Nifemi rates and saves a rate during an in-progress week',async()=>{

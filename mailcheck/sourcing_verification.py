@@ -141,12 +141,15 @@ def verify(conn, tab, operation, revision, work_date):
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
-            for row in conn.execute("""SELECT r.id,r.work_date,company.value AS company,role.value AS role,link.value AS link
+            for row in conn.execute("""SELECT r.id,r.work_date,company.value AS company,role.value AS role,link.value AS link,
+                (SELECT c.value FROM native_cells c WHERE c.row_id=r.id AND c.column_id=?) AS checked
                 FROM native_rows r LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=?
                 LEFT JOIN native_cells link ON link.row_id=r.id AND link.column_id=?
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=?
-                WHERE r.tab_id=? AND (r.work_date=? OR r.work_date>?)""", (columns["company"], columns["link"], columns["role"], tab["id"], day, current.isoformat())).fetchall():
+                WHERE r.tab_id=? AND (r.work_date=? OR r.work_date>?)""", (columns["check"], columns["company"], columns["link"], columns["role"], tab["id"], day, current.isoformat())).fetchall():
                 if not (row["company"] or "").strip() and not (row["link"] or "").strip():
+                    continue
+                if row['checked'] == 'true':
                     continue
                 match = plan.get(row['id'])
                 checked = bool(match)
@@ -247,6 +250,9 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
+            if row['checked'] == 'true' and not rebuild:
+                checked_count += 1
+                continue
             match = plan.get(row['id'])
             if week_only:
                 # Source dates can precede the receipt week. Never rewrite a
@@ -267,7 +273,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                 conn.execute("UPDATE sourcing_check_activity SET confirmed_at=NULL,message_id=NULL,source='rebuild-cleared' WHERE row_id=?", (row['id'],))
             if match:
                 from .sourcing_activity import confirm
-                confirm(conn,row['id'],*match)
+                confirm(conn,row['id'],*match,replace_existing=rebuild)
                 if row['confirmed_at'] != match[0].isoformat():
                     changed_tabs.add(row['tab_id'])
             checked_count += int(checked)

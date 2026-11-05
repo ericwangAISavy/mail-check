@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.21.4",
+    "date": "2026-11-05",
+    "title": "Preserve recorded checks and stop payment report writes",
+    "changes": [
+      "Make payment reports read-only and preserve existing checks and receipt dates during ordinary verification.",
+      "Disable destructive full rebuild requests and add a read-only application-count audit for recovery investigations."
+    ]
+  },
+  {
     "version": "2.21.3",
     "date": "2026-11-05",
     "title": "Restore checking behavior from v2.21.0",

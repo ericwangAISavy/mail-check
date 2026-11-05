@@ -321,12 +321,13 @@ class PaymentTests(unittest.TestCase):
             self.assertEqual(self.client.post(route,json={}).status_code,403)
 
     def test_preassigned_links_count_on_confirmation_day_and_allocate_shared_receipts(self):
+        # Explicit proof setup models persisted automatic completions, not a normal recheck.
         from mailcheck import sourcing_activity as activity
         self.assign(); self.assign(who=2)
         self.add_checks(1,self.account,1,day='2026-10-11')
         self.add_checks(2,self.account,3,day='2026-10-11')
         for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
-            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,1,tzinfo=timezone.utc),'receipt-'+row['row_id'])
+            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,1,tzinfo=timezone.utc),'receipt-'+row['row_id'],replace_existing=True)
         for i in range(20): self.message('confirmation-'+str(i))
         report = self.report()
         self.assertEqual([b['checked_daily'][0] for b in report['bidders']],[1,3])
@@ -346,10 +347,10 @@ class PaymentTests(unittest.TestCase):
         self.add_checks(1,self.account,1)
         self.add_checks(2,self.account,1)
         for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
-            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,4,59,tzinfo=timezone.utc),'receipt-'+row['row_id'])
+            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,4,59,tzinfo=timezone.utc),'receipt-'+row['row_id'],replace_existing=True)
         self.assertEqual(self.report()['checked_daily'],[1,0,0,0,0,0,0])
         for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
-            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,6,tzinfo=timezone.utc),'receipt-'+row['row_id'])
+            activity.confirm(self.conn,row['row_id'],datetime(2026,10,13,6,tzinfo=timezone.utc),'receipt-'+row['row_id'],replace_existing=True)
         report = self.report()
         self.assertEqual([b['checked_daily'][1] for b in report['bidders']],[1,0])
         self.assertEqual(report['checked_daily'],[0,1,0,0,0,0,0])

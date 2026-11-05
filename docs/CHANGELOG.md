@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.4 — 2026-11-05
+
+Preserve recorded checks and stop payment report writes
+
+- Make payment reports read-only and preserve existing checks and receipt dates during ordinary verification.
+- Disable destructive full rebuild requests and add a read-only application-count audit for recovery investigations.
+
 ## 2.21.3 — 2026-11-05
 
 Restore checking behavior from v2.21.0

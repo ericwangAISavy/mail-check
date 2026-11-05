@@ -92,9 +92,10 @@ across the same account's active bidder tabs. A reply is bound only when its
 company, role when present, and date evidence identify one eligible row. A
 company-only reply with several eligible roles stays unmatched for review. The
 same reply cannot newly check several jobs or be borrowed from an existing bound
-job, including an archived checked job. Existing checks stay saved on normal
-refresh. A selected-week rebuild may clear stale automatic bindings and repair
-unambiguous replacements; manual checks and payment history remain saved.
+job, including an archived checked job. Existing checks and their saved confirmation dates stay unchanged on normal
+refresh. The public full rebuild action is disabled to protect recorded checks.
+Payment reports are read-only; use **Refresh this week** to find new matches.
+See [application count audit](APPLICATION_COUNT_AUDIT.md) for historical discrepancies.
 
 On **Bidder payments**, daily cells show **checked applications / received replies**.
 For example, **60 / 112** means 60 checked job-link rows and an allocated share of
