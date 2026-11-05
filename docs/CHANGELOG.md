@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.3 — 2026-11-05
+
+Restore checking behavior from v2.21.0
+
+- Restore the application matching and confirmation attribution logic from v2.21.0, before company/role containment changes.
+- Keep calendar analysis, background queue, dashboard permissions, UI improvements, and published release history unchanged. This restores code behavior; stored database history is not rolled back.
+
 ## 2.21.2 — 2026-11-05
 
 Keep expanded matching additive and daily counts stable

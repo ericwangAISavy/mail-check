@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.21.3",
+    "date": "2026-11-05",
+    "title": "Restore checking behavior from v2.21.0",
+    "changes": [
+      "Restore the application matching and confirmation attribution logic from v2.21.0, before company/role containment changes.",
+      "Keep calendar analysis, background queue, dashboard permissions, UI improvements, and published release history unchanged. This restores code behavior; stored database history is not rolled back."
+    ]
+  },
+  {
     "version": "2.21.2",
     "date": "2026-11-05",
     "title": "Keep expanded matching additive and daily counts stable",
