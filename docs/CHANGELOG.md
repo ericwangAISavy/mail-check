@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.7 — 2026-11-04
+
+Fix spreadsheet drag selection regressions
+
+- Preserve the original range anchor for Shift-click selection after drag cleanup.
+- Start edge auto-scrolling only after the pointer actually moves, so holding an ordinary click cannot expand the selection.
+- Calculate drag-selection bounds from the usable grid viewport, excluding borders and the horizontal scrollbar.
+
 ## 2.19.6 — 2026-11-04
 
 Auto-scroll spreadsheet drag selection

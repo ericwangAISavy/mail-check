@@ -262,16 +262,18 @@ export function SheetGrid({
             select({ row: rowIdx, col: column.key==="id"?0:Number(column.key) }, extending.current);
         }}
         onCellMouseDown={({ rowIdx, column }, event) => {
+          stopDrag.current();
           extending.current = event.shiftKey;
           select({ row: rowIdx, col: column.key==="id"?0:Number(column.key) }, event.shiftKey);
           if (event.button !== 0 || (event.target as Element).closest("input"))
             return;
-          stopDrag.current();
-          let pointer = { x: event.clientX, y: event.clientY };
+          const start = { x: event.clientX, y: event.clientY };
+          let pointer = start, dragging = false;
           let frame = 0, lastTime = 0, active = true;
           const move = (e: MouseEvent) => {
             if (!(e.buttons & 1)) { stop(); return; }
             pointer = { x: e.clientX, y: e.clientY };
+            if (Math.hypot(pointer.x - start.x, pointer.y - start.y) >= 3) dragging = true;
             const cell = (e.target as Element).closest?.('[role="gridcell"]');
             const row = cell?.closest('[role="row"]');
             if (!cell || !row || !grid.current?.element?.contains(cell)) return;
@@ -286,10 +288,11 @@ export function SheetGrid({
             const elapsed = lastTime ? Math.min(32, time - lastTime) : 16;
             lastTime = time;
             const element = grid.current?.element;
-            if (element && visible.length) {
+            if (dragging && element && visible.length) {
               const rect = element.getBoundingClientRect();
-              const bodyTop = rect.top + 28;
-              const top = Math.max(0, bodyTop), bottom = Math.min(window.innerHeight, rect.bottom);
+              const viewportTop = rect.top + element.clientTop;
+              const bodyTop = viewportTop + 28;
+              const top = Math.max(0, bodyTop), bottom = Math.min(window.innerHeight, viewportTop + element.clientHeight);
               const band = Math.min(40, (bottom - top) / 3);
               if (band > 0 && pointer.x >= rect.left && pointer.x <= rect.right) {
                 const direction = pointer.y > bottom - band ? 1 : pointer.y < top + band ? -1 : 0;

@@ -184,7 +184,7 @@ it("auto-scrolls a held drag beyond the viewport and stops on release", () => {
   const selection = vi.fn();
   render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onSelection={selection}/>);
   const grid = screen.getByRole("grid");
-  vi.spyOn(grid, "getBoundingClientRect").mockReturnValue({top:10,bottom:130,left:0,right:900,width:900,height:120,x:0,y:10,toJSON:()=>({})});
+  vi.spyOn(grid, "getBoundingClientRect").mockReturnValue({top:10,bottom:160,left:0,right:900,width:900,height:150,x:0,y:10,toJSON:()=>({})});
   Object.defineProperty(grid,"clientHeight",{value:120,configurable:true});
   Object.defineProperty(grid,"scrollHeight",{value:1262,configurable:true});
   let next = 0;
@@ -194,23 +194,44 @@ it("auto-scrolls a held drag beyond the viewport and stops on release", () => {
   const tick = (time:number) => act(()=>{
     const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(time));
   });
-  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Acme"}),{button:0,buttons:1,clientX:200,clientY:60});
-  fireEvent.mouseMove(document,{buttons:1,clientX:200,clientY:140});
-  for(let i=1;i<=20;i++)tick(i*16);
+  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Acme"}),{button:0,buttons:1,clientX:200,clientY:125});
+  // A click-and-hold near the edge is not a drag and must not scroll.
+  tick(16);
+  expect(grid.scrollTop).toBe(0);
+  fireEvent.mouseMove(document,{buttons:1,clientX:200,clientY:160});
+  tick(32);
+  // The scrollbar is outside the usable body; wrapped row 2 ends at 94px.
+  expect(selection.mock.lastCall![0].rows).toEqual([1,2,3]);
+  for(let i=3;i<=21;i++)tick(i*16);
   expect(grid.scrollTop).toBeGreaterThan(0);
   const down=grid.scrollTop;
   expect(selection.mock.lastCall![0].rows[0]).toBe(1);
   expect(selection.mock.lastCall![0].rows.at(-1)).toBeGreaterThan(4);
   fireEvent.mouseMove(document,{buttons:1,clientX:200,clientY:20});
-  tick(336);
+  tick(352);
   expect(grid.scrollTop).toBeLessThan(down);
   fireEvent.mouseUp(document);
   expect(frames.size).toBe(0);
   const stopped=grid.scrollTop;
-  tick(352);
+  tick(368);
   expect(grid.scrollTop).toBe(stopped);
   fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Acme"}),{button:0,buttons:1,clientX:200,clientY:60});
   expect(frames.size).toBeGreaterThan(0);
   fireEvent(window,new Event("blur"));
   expect(frames.size).toBe(0);
+});
+
+it("preserves the original anchor when extending selection with Shift-click", () => {
+  const data=snapshot();
+  for(let row=2;row<=3;row++) {
+    data.rows.push([cell(`Company ${row}`),cell("Engineer"),cell(`https://jobs.test/${row}`),cell("false")]);
+    data.row_ids.push(`row${row}`);
+  }
+  const selection=vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onSelection={selection}/>);
+  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Acme"}),{button:0,buttons:1});
+  fireEvent.mouseUp(document);
+  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Company 3"}),{button:0,buttons:1,shiftKey:true});
+  fireEvent.mouseUp(document);
+  expect(selection.mock.lastCall![0].rows).toEqual([1,2,3]);
 });

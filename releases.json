@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.19.7",
+    "date": "2026-11-04",
+    "title": "Fix spreadsheet drag selection regressions",
+    "changes": [
+      "Preserve the original range anchor for Shift-click selection after drag cleanup.",
+      "Start edge auto-scrolling only after the pointer actually moves, so holding an ordinary click cannot expand the selection.",
+      "Calculate drag-selection bounds from the usable grid viewport, excluding borders and the horizontal scrollbar."
+    ]
+  },
+  {
     "version": "2.19.6",
     "date": "2026-11-04",
     "title": "Auto-scroll spreadsheet drag selection",
