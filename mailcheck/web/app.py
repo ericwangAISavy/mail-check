@@ -924,6 +924,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 if result.get('workday'):
                     result['workday'].pop('account_confirmations',None)
                     result['workday'].pop('account_runs',None)
+                    result['workday'].pop('account_totals',None)
             return result
 
     @app.get("/api/payments")

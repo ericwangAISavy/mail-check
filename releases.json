@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.21.15",
+    "date": "2026-11-05",
+    "title": "Reconcile activity graphs with checked application totals",
+    "changes": [
+      "Use payment accounting for By day graphs and show the selected-day split between timed confirmations and checked links without receipt times.",
+      "Clarify that confirmation-time lines and hourly heatmaps show only recorded receipt times; preserve existing checks and timestamps."
+    ]
+  },
+  {
     "version": "2.21.14",
     "date": "2026-11-05",
     "title": "Recover invalid calendar analysis responses and bound retries",

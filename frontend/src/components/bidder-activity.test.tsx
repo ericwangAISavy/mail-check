@@ -195,3 +195,20 @@ it('discards cached team graphs as soon as the visibility policy changes',async(
  expect(screen.queryByRole('button',{name:'Blair'})).toBeNull()
  expect(screen.queryByLabelText('2026-10-12, 10am: 7 matched checked links')).toBeNull()
 })
+
+it('reconciles untimed checks and includes them in the daily chart without inventing receipt times',async()=>{
+ const data:any=payload()
+ data.bidders[0].checked_daily=[8];data.bidders[0].without_time_daily=[3]
+ data.bidders[1].checked_daily=[2]
+ data.workday={date:'2026-10-12',start:'2026-10-12T05:00:00Z',end:'2026-10-13T05:00:00Z',confirmations:[{at:'2026-10-12T15:00:00Z',source:'confirmation',counts:{'1':5,'2':2}}],account_confirmations:[],runs:[],account_runs:[],totals:{'1':{checked:8,timed:5,without_time:3},'2':{checked:2,timed:2,without_time:0}}}
+ vi.mocked(request).mockResolvedValue(data);mount()
+ await screen.findByRole('button',{name:'Alex'})
+ expect(screen.getByText(/Selected day:/).textContent).toContain('10 checked = 7 with receipt time + 3 without receipt time')
+ let points=JSON.parse(screen.getByTestId('chart-points').getAttribute('data-points')!)
+ expect(points.at(-1)['1']).toBe(5)
+ fireEvent.click(screen.getByRole('button',{name:'Alex'}))
+ expect(screen.getByText(/Selected day:/).textContent).toContain('8 checked = 5 with receipt time + 3 without receipt time')
+ fireEvent.click(screen.getByRole('button',{name:'By day'}))
+ points=JSON.parse(screen.getByTestId('chart-points').getAttribute('data-points')!)
+ expect(points.at(-1)['1']).toBe(8)
+})

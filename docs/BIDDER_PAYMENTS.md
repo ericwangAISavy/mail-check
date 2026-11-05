@@ -100,11 +100,18 @@ account-management list, while assigned account labels remain visible in the tab
 
 ## Activity monitor and Refresh
 
-The default **Confirmation time** graph, daily activity, hourly heatmaps, peak hour,
+The default **Confirmation time** graph, hourly heatmaps, peak hour,
 and last confirmation use the matching email's received timestamp, not the time
 Check now or auto-check ran. Multiple valid matches use the earliest receipt in the
 row's seven-day matching window. Both bidder and account views use these timestamps.
-Rows checked manually without a matching confirmation have no inferred receipt time.
+Rows checked manually or preserved from older data without a matching confirmation
+keep their payment credit but have no inferred receipt time. The selected-day
+summary reconciles the payment total as timed confirmations plus checks without
+receipt times. Selecting a bidder/account updates this breakdown. The final point
+on the confirmation-time line is only its timed total, not the full payment total.
+**By day** uses the same checked-application accounting as Daily breakdown,
+including untimed credit on its saved sourcing date. No checkmarks or timestamps
+are rewritten to reconcile these displays.
 
 **Check runs** remains a separate processing-history view, showing when checks ran
 and how many newly checked rows were observed. It includes every run in the selected Chicago workday. Payment
@@ -128,7 +135,7 @@ The Activity Monitor distinguishes three graph views:
 
 - **Confirmation time:** matched link arrivals in 15-minute intervals for one Chicago calendar day, including zero-count intervals.
 - **Check runs:** every recorded processing checkpoint in that calendar day, including quiet checks. Hover shows exact Chicago time and source; the expandable checkpoint table shows all per-bidder or per-account counts. This daily view has no 240-run truncation.
-- **By day:** calendar-day confirmation totals for the payment table's selected week.
+- **By day:** all checked-application totals for the payment table's selected week, including manual/legacy checks without receipt timestamps.
 
 Intraday views use midnight to the following midnight in America/Chicago, matching the daily breakdown's calendar dates. The default is today's Chicago date, including before 6 AM. A separate date selector browses other calendar days without changing the payment week. Hourly axis marks use Chicago time, including daylight saving transitions. The heatmap remains explicitly weekly.
 

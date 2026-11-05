@@ -89,6 +89,18 @@ def record(conn, source, *, sample=False):
 
 
 def report(conn, week=None, *, bidder_id=None, day=None):
+    # Reconciliation must see the same rows as its receipt-time series even
+    # when a background checker commits while the graph is loading.
+    if conn.in_transaction:
+        return _report(conn,week,bidder_id=bidder_id,day=day)
+    conn.execute('BEGIN')
+    try:
+        return _report(conn,week,bidder_id=bidder_id,day=day)
+    finally:
+        conn.rollback()  # Only this function's read transaction; never caller work.
+
+
+def _report(conn, week=None, *, bidder_id=None, day=None):
     activity_day = day
     start = monday(week or today())
     end = start + timedelta(days=7)
@@ -145,6 +157,21 @@ def report(conn, week=None, *, bidder_id=None, day=None):
         account['new_checks'] += 1
         account['last_detected'] = row['activity_at']
         account_buckets[row['account_id']].add((stamp.date().isoformat(),stamp.hour,stamp.minute//30,stamp.utcoffset()))
+    # Reuse payment accounting for daily totals. Receipt-time series retain
+    # only actual timestamps; manual/legacy credit must not acquire fake times.
+    from .sourcing_verification import completed_account_counts
+    checked = completed_account_counts(conn,dates[0],dates[-1])
+    for entity in (*bidders.values(),*accounts.values()):
+        entity['checked_daily'] = [0]*7
+    for (who,account,source_day),count in checked.items():
+        if who not in bidders:
+            continue
+        index = dates.index(source_day)
+        bidders[who]['checked_daily'][index] += count
+        if account in accounts:
+            accounts[account]['checked_daily'][index] += count
+    for entity in (*bidders.values(),*accounts.values()):
+        entity['without_time_daily'] = [max(0,total-timed) for total,timed in zip(entity['checked_daily'],entity['daily'])]
     # Run cursors already persist the exact event range observed at each check.
     # Reconstruct account series from those ranges, including quiet checks.
     runs = conn.execute("""SELECT r.*,COALESCE((SELECT through_event FROM sourcing_activity_runs prev
@@ -194,13 +221,13 @@ def report(conn, week=None, *, bidder_id=None, day=None):
     if activity_day is None and not start <= selected_day < end:
         selected_day = start
     day_events = events if start <= selected_day < end else None
-    return {'workday':workday_report(conn,selected_day,bidders,accounts,bidder_id,events=day_events), 'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
+    return {'workday':workday_report(conn,selected_day,bidders,accounts,bidder_id,events=day_events,checked=checked if start <= selected_day < end else None), 'week_start':dates[0],'dates':dates,'timezone':ZONE.key,'tracking_since':meta['started_at'] if meta else None,
             'confirmation_timeline':list(confirmation_points.values()),'account_confirmation_timeline':list(account_confirmation_points.values()),
             'accounts':list(accounts.values()),'account_timeline':account_timeline[-240:],
             'bidders':list(bidders.values()),'check_count':len(timeline),'timeline':list(timeline.values())[-240:]}
 
 
-def workday_report(conn, day, bidders, accounts, bidder_id, *, events=None):
+def workday_report(conn, day, bidders, accounts, bidder_id, *, events=None, checked=None):
     local = now().astimezone(ZONE)
     day = day or local.date()
     lower = datetime.combine(day,datetime.min.time(),ZONE).astimezone(timezone.utc)
@@ -257,6 +284,21 @@ def workday_report(conn, day, bidders, accounts, bidder_id, *, events=None):
             index += 1
         run_points.append(bidder_point)
         account_runs.append(account_point)
-    return {'date':day.isoformat(),'start':lower.isoformat(),'end':upper.isoformat(),
+    from .sourcing_verification import completed_account_counts
+    if checked is None:
+        checked = completed_account_counts(conn,day.isoformat(),day.isoformat())
+    totals = {str(who):{'checked':0,'timed':0,'without_time':0} for who in bidders}
+    account_totals = {str(who):{'checked':0,'timed':0,'without_time':0} for who in accounts}
+    for (who,account,source_day),count in checked.items():
+        if source_day!=day.isoformat() or who not in bidders:
+            continue
+        totals[str(who)]['checked'] += count
+        if account in accounts:
+            account_totals[str(account)]['checked'] += count
+    for items,points in ((totals,confirmations),(account_totals,account_confirmations)):
+        for who,summary in items.items():
+            summary['timed'] = sum(p['counts'].get(who,0) for p in points.values())
+            summary['without_time'] = max(0,summary['checked']-summary['timed'])
+    return {'totals':totals,'account_totals':account_totals,'date':day.isoformat(),'start':lower.isoformat(),'end':upper.isoformat(),
             'confirmations':list(confirmations.values()),'account_confirmations':list(account_confirmations.values()),
             'runs':run_points,'account_runs':account_runs}

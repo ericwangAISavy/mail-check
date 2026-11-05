@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.15 — 2026-11-05
+
+Reconcile activity graphs with checked application totals
+
+- Use payment accounting for By day graphs and show the selected-day split between timed confirmations and checked links without receipt times.
+- Clarify that confirmation-time lines and hourly heatmaps show only recorded receipt times; preserve existing checks and timestamps.
+
 ## 2.21.14 — 2026-11-05
 
 Recover invalid calendar analysis responses and bound retries

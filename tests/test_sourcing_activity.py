@@ -196,3 +196,47 @@ class ActivityTests(unittest.TestCase):
         report=activity.report(self.conn,date(2026,10,12),day=date(2026,10,20))
         self.assertEqual(sum(p['counts']['1'] for p in report['workday']['confirmations']),1)
         self.assertEqual(report['bidders'][0]['new_checks'],0)
+
+    def test_timed_and_untimed_credit_reconcile_with_payment_daily_totals(self):
+        from mailcheck import payments
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(1,self.account,2)
+        self.confirm_existing(datetime(2026,10,12,15,tzinfo=timezone.utc))
+        self.conn.commit()
+        self.add_checks(1,self.account,3)
+        self.add_checks(2,self.other,4)
+        self.conn.commit()
+        before=self.conn.total_changes
+        graph=activity.report(self.conn,date(2026,10,12),day=date(2026,10,12))
+        self.assertEqual(self.conn.total_changes,before)
+        table=payments.report(self.conn,date(2026,10,12),read_only=True)
+        self.assertEqual([b['checked_daily'] for b in graph['bidders']],[b['checked_daily'] for b in table['bidders']])
+        self.assertEqual(graph['workday']['totals']['1'],{'checked':5,'timed':2,'without_time':3})
+        self.assertEqual(graph['workday']['totals']['2'],{'checked':4,'timed':0,'without_time':4})
+        self.assertEqual(graph['workday']['account_totals'][str(self.account)],{'checked':5,'timed':2,'without_time':3})
+        self.assertEqual(sum(p['counts']['1'] for p in graph['workday']['confirmations']),2)
+        self.assertEqual(graph['bidders'][0]['without_time_daily'],[3,0,0,0,0,0,0])
+
+    def test_outside_week_untimed_credit_uses_requested_day_without_leaking_peer_accounts(self):
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(1,self.account,3,day='2026-10-20')
+        self.add_checks(2,self.other,4,day='2026-10-20')
+        graph=activity.report(self.conn,date(2026,10,12),day=date(2026,10,20),bidder_id=1)
+        self.assertEqual(graph['workday']['totals'],{'1':{'checked':3,'timed':0,'without_time':3}})
+        self.assertEqual(set(graph['workday']['account_totals']),{str(self.account)})
+        self.conn.execute('UPDATE bidders SET other_work_visible=1 WHERE id=1');self.conn.commit()
+        sign_in_bidder(self.client,1)
+        response=self.client.get('/api/payments/activity?week=2026-10-12&day=2026-10-20').json()
+        self.assertNotIn('account_totals',response['workday'])
+        self.assertEqual(set(response['workday']['totals']),{'1','2'})
+
+    def test_activity_read_does_not_leave_a_transaction_or_rollback_caller_work(self):
+        self.assign();self.add_checks(1,self.account,1)
+        self.conn.commit()
+        activity.report(self.conn,date(2026,10,12))
+        self.assertFalse(self.conn.in_transaction)
+        self.conn.execute("UPDATE bidders SET name='Pending rename' WHERE id=1")
+        activity.report(self.conn,date(2026,10,12))
+        self.assertTrue(self.conn.in_transaction)
+        self.assertEqual(self.conn.execute('SELECT name FROM bidders WHERE id=1').fetchone()[0],'Pending rename')
+        self.conn.rollback()
