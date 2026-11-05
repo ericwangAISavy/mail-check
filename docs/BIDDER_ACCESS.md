@@ -28,3 +28,9 @@ normalization are ignored when comparing names. Existing duplicate login names
 are not silently reassigned: sign-in fails safely until an admin gives each
 conflicting bidder a distinct name. Existing passwords and workspace identities
 remain unchanged. Admin usernames use a separate role/namespace.
+
+Visible payment rows show the calculated before/after-deduction amounts separately
+from **Recorded paid: $…** or **Not recorded as paid**. Saved manual amounts
+that differ from the current calculation are also shown without marking them paid. A recorded payment can differ
+from the current calculation; the recorded status does not imply the app transferred
+funds. Coworker payment notes are not shown.

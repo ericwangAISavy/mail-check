@@ -713,3 +713,28 @@ class PaymentTests(unittest.TestCase):
                 self.assertEqual(peer['account_breakdown'],[])
                 self.assertNotIn('private-wallet',response.text)
                 self.assertNotIn('private-note',response.text)
+
+    def test_bidder_report_filters_peer_rows_even_with_an_unscoped_input(self):
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(1,self.account,1);self.add_checks(2,self.other,2)
+        original=self.report()
+        result=payments.bidder_report(original,1,{'payment_visible':True,'other_work_visible':False})
+        self.assertEqual([r['id'] for r in result['bidders']],[1])
+        self.assertEqual(sum(result['checked_daily']),1)
+        self.assertEqual(len(original['bidders']),2)
+
+    def test_shared_payment_status_includes_saved_amount_without_private_editor_fields(self):
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(2,self.other,2)
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',payment_visible=1,other_work_visible=1 WHERE id=1")
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',wallet_address='private-wallet' WHERE id=2")
+        self.conn.execute("INSERT INTO bidder_payment_amounts VALUES(2,'2026-10-12',777,2)")
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        data=self.client.get('/api/payments?week=2026-10-12').json()
+        peer=next(row for row in data['bidders'] if row['id']==2)
+        self.assertEqual(peer['calculated_amount_cents'],240)
+        self.assertEqual(peer['payable_amount_cents'],777)
+        self.assertIsNone(peer['payment'])
+        self.assertNotIn('amount_override_cents',peer)
+        self.assertNotIn('wallet_address',peer)

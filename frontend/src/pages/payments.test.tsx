@@ -60,7 +60,7 @@ it("shows daily and weekly totals to guests without management or payment contro
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Rate not set / UnavailableAsk your admin to set a payment rate."])
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Rate not set / UnavailableNot recorded as paidAsk your admin to set a payment rate."])
   expect(screen.queryByRole("button", { name: /Edit confirmed payment for Alex/ })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
@@ -457,11 +457,12 @@ it('hides all payment displays when visibility is disabled',async()=>{
 it('shows coworker payment amounts when payment and team visibility are enabled',async()=>{
  const report:any=data();report.other_work_visible=true
  Object.assign(report.bidders[0],{payment_visible:true,gross_amount_cents:360,calculated_amount_cents:260})
- report.bidders.push({...report.bidders[0],id:2,name:'Blair',payment_visible:true,assignments:[],account_breakdown:[]})
+ report.bidders.push({...report.bidders[0],id:2,name:'Blair',payment_visible:true,assignments:[],account_breakdown:[],payment:{amount_cents:900,paid_at:'2026-10-19T12:00:00Z'}})
  vi.mocked(request).mockResolvedValue(report);mount(true)
  const peer=(await screen.findByRole('rowheader',{name:/Blair/})).closest('tr')!
  expect(within(peer).queryByLabelText('Payment hidden')).toBeNull()
  expect(within(peer).getByLabelText('Before / after deductions').textContent).toBe('$3.60 / $2.60')
+ expect(within(peer).getByText('Recorded paid: $9.00')).toBeTruthy()
  expect(screen.getAllByLabelText('Before / after deductions')).toHaveLength(2)
  expect(screen.queryByRole('button',{name:'By account'})).toBeNull()
 })
@@ -477,4 +478,15 @@ it('resets a selected coworker when team visibility is revoked',async()=>{
  await act(async()=>{await clients[clients.length-1].invalidateQueries({queryKey:['payments']})})
  expect(await screen.findByRole('rowheader',{name:/Alex/})).toBeTruthy()
  expect((screen.getByLabelText('Bidder') as HTMLSelectElement).value).toBe('')
+})
+
+it('distinguishes a saved coworker amount from a recorded payment',async()=>{
+ const report:any=data();report.other_work_visible=true
+ report.bidders.push({...report.bidders[0],id:2,name:'Blair',payment_visible:true,assignments:[],account_breakdown:[],gross_amount_cents:360,calculated_amount_cents:260,payable_amount_cents:777,payment:null})
+ vi.mocked(request).mockResolvedValue(report);mount(true)
+ const peer=(await screen.findByRole('rowheader',{name:/Blair/})).closest('tr')!
+ expect(within(peer).getByLabelText('Before / after deductions').textContent).toBe('$3.60 / $2.60')
+ expect(within(peer).getByText('Saved amount: $7.77 · Not recorded as paid')).toBeTruthy()
+ expect(within(peer).queryByText(/Recorded paid:/)).toBeNull()
+ expect(within(peer).queryByRole('button',{name:/Edit.*payment/})).toBeNull()
 })

@@ -258,3 +258,25 @@ Checked rows have a green tint and green job links. Their cell values and format
 are read-only, enforced by both the grid and save API. They can still be selected,
 copied, moved to another date, or explicitly deleted as rows. A newly pasted row
 may include its job details and initial checked state in the same save.
+
+### Diagnose an unchecked company confirmation
+
+A missing role does not by itself prevent matching: a company-only receipt must
+identify exactly one eligible job for the same account. Other dates and bidder
+tabs can provide competing candidates. Existing receipt bindings are reserved.
+Do not infer the cause of an unchecked row from the currently visible sheet alone.
+
+Run the diagnostic in the app’s Python environment (its virtualenv or application
+container). It opens the workspace database without migrations, matching writes
+or receipt syncing, and uses the actual matcher against saved receipt data:
+
+```sh
+python tools/explain_application_matches.py --database /actual/path/mail.db --account eric.wang.swe@outlook.com --company HP > hp-match-report.json
+```
+
+It lists company-related rows across account tabs, sourcing dates, roles, checked
+states, archived status, account compatibility, saved receipt bindings, and new
+matches the current matcher would propose. The report includes business metadata
+but excludes email bodies, job URLs, credentials and receipt identifiers. It is a
+snapshot of saved data, not a replacement for a selected-date check. Share the
+report to investigate the precise reason before changing matching rules.

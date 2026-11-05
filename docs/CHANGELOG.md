@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.11 — 2026-11-05
+
+Fix shared payment status display and add match diagnostics
+
+- Show recorded paid amounts separately from calculated payment amounts for bidders, and enforce viewer row scope in the report serializer.
+- Add a read-only company/account matching report to investigate unchecked confirmations such as HP without modifying checks or saved receipt dates.
+
 ## 2.21.10 — 2026-11-05
 
 Show permitted team payment status to bidders

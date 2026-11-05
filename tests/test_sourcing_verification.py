@@ -775,3 +775,28 @@ class SourcingVerificationTests(unittest.TestCase):
                 self.assertEqual(after['rows'][4][3]['value'],'true')
                 self.assertEqual(tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(row_id,)).fetchone()),proof)
                 self.assertEqual(payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily'],[0,0,1,1,0,0,0])
+
+    def test_hp_company_only_diagnostic_is_read_only_and_exposes_ambiguity(self):
+        from tools.explain_application_matches import explain
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'hp-first',base['revision'],[
+            ['HP','Embedded AI/ML Developer','https://hp.test/first']],work_date='2026-10-20')
+        self.receipt('hp-no-role','HP','2026-10-21T14:00:00Z',role=None)
+        self.conn.commit()
+        email=self.conn.execute('SELECT email FROM accounts WHERE id=?',(self.account_id,)).fetchone()[0]
+        before=self.snapshot()
+        result=explain(self.path,email,'HP')
+        self.assertEqual(self.snapshot(),before)
+        self.assertTrue(result['rows'][0]['would_add_check'])
+        self.assertTrue(result['rows'][0]['has_job_link'])
+        self.assertFalse(result['receipts'][0]['role'])
+        self.assertNotIn('message_id',result['receipts'][0])
+        self.assertNotIn('link',result['rows'][0])
+        self.native.append(self.conn,self.tab(),'hp-second',before['revision'],[
+            ['HP','Senior Engineer','https://hp.test/second']],work_date='2026-10-20')
+        result=explain(self.path,email,'HP')
+        self.assertEqual(len(result['rows']),2)
+        self.assertFalse(any(row['would_add_check'] for row in result['rows']))
+        result=explain(self.path,'different@example.test','HP')
+        self.assertEqual(result['matching_account_ids'],[])
+        self.assertFalse(any(row['same_email_account'] for row in result['rows']))

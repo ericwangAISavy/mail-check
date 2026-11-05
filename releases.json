@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.21.11",
+    "date": "2026-11-05",
+    "title": "Fix shared payment status display and add match diagnostics",
+    "changes": [
+      "Show recorded paid amounts separately from calculated payment amounts for bidders, and enforce viewer row scope in the report serializer.",
+      "Add a read-only company/account matching report to investigate unchecked confirmations such as HP without modifying checks or saved receipt dates."
+    ]
+  },
+  {
     "version": "2.21.10",
     "date": "2026-11-05",
     "title": "Show permitted team payment status to bidders",

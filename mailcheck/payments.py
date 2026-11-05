@@ -102,6 +102,8 @@ def bidder_report(report, viewer_id, policy):
         'override_application_count','wallet_network','wallet_address')
     for original in result['bidders']:
         own = original['id'] == viewer_id
+        if not own and not policy['other_work_visible']:
+            continue
         row = dict(original)
         row['daily'] = list(row['checked_daily'])
         row.pop('received_reply_total',None)
@@ -120,7 +122,7 @@ def bidder_report(report, viewer_id, policy):
             # Sharing payment status grants amounts, not wallet details, rates,
             # internal notes, or another bidder's payment editing metadata.
             for key in money_fields:
-                if key not in ('gross_amount_cents','calculated_amount_cents'):
+                if key not in ('gross_amount_cents','calculated_amount_cents','payable_amount_cents'):
                     row.pop(key,None)
             if row['payment']:
                 row['payment'] = {key:row['payment'][key] for key in ('amount_cents','paid_at') if key in row['payment']}
