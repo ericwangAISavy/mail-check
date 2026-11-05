@@ -25,7 +25,7 @@ const time = (value: unknown) => {const date = chartDate(value); return date ? n
 const dayLabel = (value: unknown) => {if (value === "start") return "Start"; const date = chartDate(value); return date ? new Intl.DateTimeFormat("en-US", {month:"short",day:"numeric",timeZone:"UTC"}).format(date) : ""}
 const axisHour = (value: unknown) => {const date = chartDate(value); return date ? new Intl.DateTimeFormat("en-US",{timeZone:"America/Chicago",hour:"numeric"}).format(date) : ""}
 const hourLabel = (hour: number) => `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`
-export default function BidderActivity({ week, selected, onSelect,readOnly=false,allowAccounts=true }: { allowAccounts?:boolean;readOnly?:boolean;week: string; selected: string; onSelect: (id: string) => void }) {
+export default function BidderActivity({ week, selected, onSelect,readOnly=false,allowAccounts=true,visibilityKey="default" }: { visibilityKey?:string;allowAccounts?:boolean;readOnly?:boolean;week: string; selected: string; onSelect: (id: string) => void }) {
   const chart = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -42,7 +42,7 @@ export default function BidderActivity({ week, selected, onSelect,readOnly=false
   const [account, setAccount] = useState("")
   useEffect(() => { setAccount(""); }, [week, selected])
   const scope = group === "accounts" ? selected : ""
-  const query = useQuery({ queryKey: ["payments", "activity", week, scope, day], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: readOnly ? false : 30_000 })
+  const query = useQuery({ queryKey: ["payments", "activity", week, scope, day, visibilityKey], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: 30_000 })
   const data = query.data
   const valid = data && Array.isArray(data.timeline)
   const entities = valid ? group === "accounts" ? (data.accounts || []).map(account => ({ ...account, name: maskAccountLabel(account.name) })) : data.bidders : []

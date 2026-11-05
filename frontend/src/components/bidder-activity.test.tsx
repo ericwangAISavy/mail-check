@@ -183,3 +183,15 @@ it("renders long tooltip lists outside the clipped chart container", async () =>
   expect(tooltip.textContent).toContain("Bidder 29")
   expect(tooltip.querySelector(".bidder-chart-tooltip-list")).toHaveProperty("tabIndex",0)
 })
+
+it('discards cached team graphs as soon as the visibility policy changes',async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ vi.mocked(request).mockResolvedValue(payload())
+ const view=(key:string)=><QueryClientProvider client={client}><BidderActivity readOnly visibilityKey={key} week="2026-10-12" selected="" onSelect={()=>{}}/></QueryClientProvider>
+ const mounted=render(view('shared'))
+ await screen.findByRole('button',{name:'Blair'})
+ vi.mocked(request).mockImplementation(()=>new Promise(()=>{}))
+ mounted.rerender(view('private'))
+ expect(screen.queryByRole('button',{name:'Blair'})).toBeNull()
+ expect(screen.queryByLabelText('2026-10-12, 10am: 7 matched checked links')).toBeNull()
+})

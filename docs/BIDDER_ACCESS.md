@@ -11,7 +11,7 @@ On **Accounts → Bidder visibility**, admins save two checkbox options for each
 - **Payment visible** shows that bidder’s own payment amounts. It defaults to enabled. Disabling it removes money, rates, deductions, and recorded-payment details from their payment API response and page.
 - **Other bidders’ work visible** shares the team’s checked counts and work-activity graphs. It defaults to disabled, showing only the signed-in bidder. It never shares coworkers’ accounts, received replies, payment amounts, or wallets. Dashboard graphs remain restricted to the signed-in bidder regardless of this option.
 
-Options apply to the active workspace and all viewed weeks. Changes require **Save visibility**; conflicting edits require reloading the saved options. Bidders cannot read or change these admin settings.
+Options apply to the active workspace and all viewed weeks. Changes require **Save visibility**; conflicting edits require reloading the saved options. Bidders cannot read or change these admin settings. Visible bidder payment and activity pages refresh every 30 seconds and on focus. When team visibility changes, the activity graph switches scope without displaying cached coworker data. API permissions apply to every request.
 
 Bidders can also view and copy their own saved Job sourcing workbook, navigating account tabs, dates, and saved history. Sourcing search is limited to their own workbook. They cannot edit, paste, import, check applications, refresh/rebuild stored matches, send messages, manage accounts, access Settings, or switch workspaces. Access restrictions apply at both the public gateway and private worker boundary.
 

@@ -464,3 +464,16 @@ it('shows shared work without revealing peer payments',async()=>{
  expect(screen.getAllByLabelText('Before / after deductions')).toHaveLength(1)
  expect(screen.queryByRole('button',{name:'By account'})).toBeNull()
 })
+it('resets a selected coworker when team visibility is revoked',async()=>{
+ let report:any=data();report.other_work_visible=true
+ report.bidders.push({...report.bidders[0],id:2,name:'Blair',assignments:[],payment_visible:false})
+ vi.mocked(request).mockImplementation(async()=>report)
+ mount(true)
+ await screen.findByRole('rowheader',{name:/Alex/})
+ fireEvent.change(screen.getByLabelText('Bidder'),{target:{value:'2'}})
+ expect(screen.queryByRole('rowheader',{name:/Alex/})).toBeNull()
+ report={...report,other_work_visible:false,bidders:[report.bidders[0]]}
+ await act(async()=>{await clients[clients.length-1].invalidateQueries({queryKey:['payments']})})
+ expect(await screen.findByRole('rowheader',{name:/Alex/})).toBeTruthy()
+ expect((screen.getByLabelText('Bidder') as HTMLSelectElement).value).toBe('')
+})

@@ -55,6 +55,18 @@ CREATE TABLE IF NOT EXISTS bidder_payments (
 """
 
 
+def management(conn):
+    """Settings-only read: no receipt scans, verification, or accounting writes."""
+    assigned = {}
+    for row in conn.execute("SELECT * FROM bidder_assignments ORDER BY start_date,id"):
+        assigned.setdefault(row['bidder_id'], []).append(dict(row))
+    members = []
+    for row in conn.execute("SELECT id,name,pay_per_bid,adjustment_percent,wallet_network,wallet_address FROM bidders WHERE removed_at IS NULL ORDER BY name COLLATE NOCASE,id"):
+        members.append(dict(row, assignments=assigned.get(row['id'], [])))
+    return {'today':today().isoformat(), 'bidders':members,
+            'accounts':[dict(row) for row in conn.execute("SELECT id,label FROM accounts ORDER BY id")]}
+
+
 class VisibilityBody(BaseModel):
     payment_visible: bool
     other_work_visible: bool

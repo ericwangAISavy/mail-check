@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.1 — 2026-11-04
+
+Fix visibility refresh and settings reads
+
+- Opening Accounts loads bidder settings without running application matching or scanning weekly payments.
+- Bidder pages refresh saved visibility settings and discard cached team graphs when access changes.
+- Preserve visibility drafts on failed reloads and keep successfully saved options when a follow-up read fails.
+
 ## 2.19.0 — 2026-11-04
 
 Scoped bidder dashboards and visibility controls

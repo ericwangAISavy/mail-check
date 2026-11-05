@@ -924,6 +924,11 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         except (ValueError, sqlite3.IntegrityError) as exc:
             return _err("A bidder with that name or payment already exists." if isinstance(exc, sqlite3.IntegrityError) else str(exc), 400)
 
+    @app.get('/api/payments/management')
+    def bidder_management_settings():
+        with db.session() as conn:
+            return payments.management(conn)
+
     @app.get('/api/payments/visibility')
     def bidder_visibility_options():
         with db.session() as conn:

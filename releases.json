@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.19.1",
+    "date": "2026-11-04",
+    "title": "Fix visibility refresh and settings reads",
+    "changes": [
+      "Opening Accounts loads bidder settings without running application matching or scanning weekly payments.",
+      "Bidder pages refresh saved visibility settings and discard cached team graphs when access changes.",
+      "Preserve visibility drafts on failed reloads and keep successfully saved options when a follow-up read fails."
+    ]
+  },
+  {
     "version": "2.19.0",
     "date": "2026-11-04",
     "title": "Scoped bidder dashboards and visibility controls",

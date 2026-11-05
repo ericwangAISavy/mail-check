@@ -667,3 +667,23 @@ class PaymentTests(unittest.TestCase):
                 self.assertEqual(scoped['summary']['total'],0)
         self.assertEqual(self.client.get('/dashboard').status_code,200)
         self.assertEqual(self.client.get('/',follow_redirects=False).headers['location'],'/dashboard')
+
+    def test_management_read_is_settings_only_and_does_not_verify_or_scan_payments(self):
+        self.assign()
+        self.conn.execute("UPDATE bidders SET pay_per_bid='0.05',wallet_address='wallet' WHERE id=1")
+        self.conn.commit()
+        with patch('mailcheck.web.app.sourcing_verification.verify_all') as verify, patch.object(payments,'report') as report:
+            response=self.client.get('/api/payments/management')
+            self.assertEqual(response.status_code,200,response.text)
+            data=response.json()
+            self.assertEqual(data['bidders'][0]['wallet_address'],'wallet')
+            self.assertEqual(data['bidders'][0]['assignments'][0]['account_id'],self.account)
+            self.assertEqual(len(data['accounts']),2)
+            self.assertNotIn('daily',data['bidders'][0])
+            verify.assert_not_called();report.assert_not_called()
+        sign_in_bidder(self.client)
+        self.assertEqual(self.client.get('/api/payments/management').status_code,403)
+        from fastapi.testclient import TestClient as WorkerClient
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            self.assertEqual(worker.get('/api/payments/management',headers=headers).status_code,403)
