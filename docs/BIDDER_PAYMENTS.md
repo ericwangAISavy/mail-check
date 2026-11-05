@@ -2,7 +2,7 @@
 
 Open **Bidder management** in the sidebar. Admins manage bidders, account assignments,
 and payment records. Named bidders can view their own checked activity and, when enabled,
-their own payment amounts. Admins configure payment visibility and sharing of team work
+payment amounts for all bidders they are allowed to view. Admins configure payment visibility and sharing of team work
 counts in **Accounts → Bidder visibility**. See [Bidder web access](BIDDER_ACCESS.md).
 Bidder writes are rejected by the server.
 

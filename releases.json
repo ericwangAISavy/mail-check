@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.21.10",
+    "date": "2026-11-05",
+    "title": "Show permitted team payment status to bidders",
+    "changes": [
+      "Payment-visible bidders can see payment amounts and recorded status for coworkers when team work visibility is enabled, while coworker wallet details, rates, notes and accounts remain private."
+    ]
+  },
+  {
     "version": "2.21.9",
     "date": "2026-11-05",
     "title": "Broaden matching only for unchecked applications",

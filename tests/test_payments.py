@@ -687,3 +687,29 @@ class PaymentTests(unittest.TestCase):
         with WorkerClient(create_app(worker_secret='trusted')) as worker:
             headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
             self.assertEqual(worker.get('/api/payments/management',headers=headers).status_code,403)
+
+    def test_payment_visible_viewers_can_see_visible_coworker_payment_status(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(1,self.account,1);self.add_checks(2,self.other,2)
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',payment_visible=1,other_work_visible=1 WHERE id=1")
+        self.conn.execute("UPDATE bidders SET pay_per_bid='100',payment_visible=0,wallet_address='private-wallet' WHERE id=2")
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(2,'2026-10-12',2,9999,'2026-10-19','private-note')")
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            for client,extra in ((self.client,{}),(worker,{'headers':headers})):
+                response=client.get('/api/payments?week=2026-10-12',**extra)
+                self.assertEqual(response.status_code,200,response.text)
+                peer=next(b for b in response.json()['bidders'] if b['id']==2)
+                self.assertTrue(peer['payment_visible'])
+                self.assertEqual(peer['gross_amount_cents'],24000)
+                self.assertEqual(peer['calculated_amount_cents'],24000)
+                self.assertEqual(peer['payment'],{'amount_cents':9999,'paid_at':'2026-10-19'})
+                for field in ('pay_per_bid','adjustment_percent','wallet_address','wallet_network','amount_override_cents'):
+                    self.assertNotIn(field,peer)
+                self.assertEqual(peer['assignments'],[])
+                self.assertEqual(peer['account_breakdown'],[])
+                self.assertNotIn('private-wallet',response.text)
+                self.assertNotIn('private-note',response.text)

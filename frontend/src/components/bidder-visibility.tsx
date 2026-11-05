@@ -72,7 +72,7 @@ export default function BidderVisibility({ embedded = false }: { embedded?: bool
   const query = useQuery({ queryKey: ["bidder-visibility"], queryFn: readVisibility })
   return <Card className="bidder-visibility-panel">
     {!embedded && <h2>Bidder visibility</h2>}
-    <p>Choose what each bidder can see. Other bidders’ work shows checked counts only; their payments and accounts stay private. Dashboard graphs always use the signed-in bidder’s assigned accounts.</p>
+    <p>Choose what each bidder can see. Payment visible allows payment amounts for every bidder they can view. Enable Other bidders’ work visible to share team counts and, when payment visibility is also enabled, team payment status. Account details and wallets stay private. Dashboard graphs always use the signed-in bidder’s assigned accounts.</p>
     {query.isPending ? <p>Loading visibility options…</p> : query.error && !query.data ? <div role="alert"><p>{query.error.message}</p><Button variant="outline" size="sm" onClick={() => void query.refetch()}>Try again</Button></div> : <div className="table-scroll">
       {query.error && <p role="alert">Could not refresh visibility options. Showing the last loaded settings.</p>}
       <table><thead><tr><th>Bidder</th><th>Payment visible</th><th>Other bidders’ work visible</th><th>Save</th></tr></thead>

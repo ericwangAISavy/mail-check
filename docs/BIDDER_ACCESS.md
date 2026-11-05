@@ -8,8 +8,8 @@ Bidders can open **Dashboard** to see graphs for accounts assigned to them on th
 
 On **Accounts → Bidder visibility**, admins save two checkbox options for each bidder:
 
-- **Payment visible** shows that bidder’s own payment amounts. It defaults to enabled. Disabling it removes money, rates, deductions, and recorded-payment details from their payment API response and page.
-- **Other bidders’ work visible** shares the team’s checked counts and work-activity graphs. It defaults to disabled, showing only the signed-in bidder. It never shares coworkers’ accounts, received replies, payment amounts, or wallets. Dashboard graphs remain restricted to the signed-in bidder regardless of this option.
+- **Payment visible** shows payment amounts for all bidder rows the viewer is allowed to see. When **Other bidders’ work visible** is also enabled, this includes coworkers’ before/after-deduction amounts and recorded payment status. Coworker wallets, rates, internal notes and account details remain private. It defaults to enabled. Disabling it removes money, rates, deductions, and recorded-payment details from their payment API response and page.
+- **Other bidders’ work visible** shares the team’s checked counts and work-activity graphs. It defaults to disabled, showing only the signed-in bidder. It shares payment amounts only when **Payment visible** is also enabled. It never shares coworkers’ accounts, received replies, or wallets. Dashboard graphs remain restricted to the signed-in bidder regardless of this option.
 
 Options apply to the active workspace and all viewed weeks. Changes require **Save visibility**; conflicting edits require reloading the saved options. Bidders cannot read or change these admin settings. Visible bidder payment and activity pages refresh every 30 seconds and on focus. When team visibility changes, the activity graph switches scope without displaying cached coworker data. API permissions apply to every request.
 

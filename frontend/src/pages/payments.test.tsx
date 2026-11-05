@@ -60,7 +60,7 @@ it("shows daily and weekly totals to guests without management or payment contro
   mount(true)
   const name = await screen.findByRole("rowheader", { name: /Alex/ })
   const row = name.closest("tr")!
-  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Rate not set / UnavailableAsk your admin to set your payment rate."])
+  expect(within(row).getAllByRole("cell").map(cell => cell.textContent)).toEqual(["3","0","0","0","0","0","0","3","Rate not set / UnavailableAsk your admin to set a payment rate."])
   expect(screen.queryByRole("button", { name: /Edit confirmed payment for Alex/ })).toBeNull()
   expect(screen.queryByText("Manage bidders and account assignments")).toBeNull()
   expect(screen.getByText("Monday–Sunday · America/Chicago")).toBeTruthy()
@@ -454,14 +454,15 @@ it('hides all payment displays when visibility is disabled',async()=>{
  expect(screen.queryByLabelText('Before / after deductions')).toBeNull()
  expect(document.body.textContent).not.toContain('$')
 })
-it('shows shared work without revealing peer payments',async()=>{
+it('shows coworker payment amounts when payment and team visibility are enabled',async()=>{
  const report:any=data();report.other_work_visible=true
  Object.assign(report.bidders[0],{payment_visible:true,gross_amount_cents:360,calculated_amount_cents:260})
- report.bidders.push({...report.bidders[0],id:2,name:'Blair',payment_visible:false,assignments:[],account_breakdown:[]})
+ report.bidders.push({...report.bidders[0],id:2,name:'Blair',payment_visible:true,assignments:[],account_breakdown:[]})
  vi.mocked(request).mockResolvedValue(report);mount(true)
  const peer=(await screen.findByRole('rowheader',{name:/Blair/})).closest('tr')!
- expect(within(peer).getByLabelText('Payment hidden').textContent).toBe('—')
- expect(screen.getAllByLabelText('Before / after deductions')).toHaveLength(1)
+ expect(within(peer).queryByLabelText('Payment hidden')).toBeNull()
+ expect(within(peer).getByLabelText('Before / after deductions').textContent).toBe('$3.60 / $2.60')
+ expect(screen.getAllByLabelText('Before / after deductions')).toHaveLength(2)
  expect(screen.queryByRole('button',{name:'By account'})).toBeNull()
 })
 it('resets a selected coworker when team visibility is revoked',async()=>{

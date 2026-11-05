@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.10 — 2026-11-05
+
+Show permitted team payment status to bidders
+
+- Payment-visible bidders can see payment amounts and recorded status for coworkers when team work visibility is enabled, while coworker wallet details, rates, notes and accounts remain private.
+
 ## 2.21.9 — 2026-11-05
 
 Broaden matching only for unchecked applications
