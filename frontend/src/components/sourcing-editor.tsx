@@ -164,7 +164,9 @@ export default function SourcingEditor({
           history.current = [];
           future.current = [];
         }
-        setSnapshot(data);
+        // Polling an unchanged sheet must not erase the last check's reasons.
+        setSnapshot(base.current && base.current.id===data.id && base.current.revision===data.revision
+          ? {...data,verification:base.current.verification} : data);
         setChanges([]);
         setError("");
         lastAction.current = null;
@@ -717,6 +719,15 @@ export default function SourcingEditor({
         </Button>
       </div>
       </div>
+      {snapshot?.verification?.day===day && Boolean(snapshot.verification.unmatched_count) && (
+        <details className="sheet-verification-details">
+          <summary>{snapshot.verification.unmatched_count} {snapshot.verification.unmatched_count===1?"link remains":"links remain"} unchecked — view reasons</summary>
+          {snapshot.verification.account_email && <p>Mailbox checked: {snapshot.verification.account_email}</p>}
+          <p>Results from your last check. Run Check applications to refresh these reasons.</p>
+          <ul>{snapshot.verification.unmatched?.map(item=><li key={item.row_id}><strong>Row {item.sheet_row} · {item.company || "Company missing"} · {item.work_date}</strong>: {item.reason}</li>)}</ul>
+          {(snapshot.verification.unmatched_count || 0)>(snapshot.verification.unmatched?.length || 0)&&<p>Showing the first {snapshot.verification.unmatched?.length || 0} unchecked links.</p>}
+        </details>
+      )}
       {showFilters && snapshot && (
         <div className="native-sheet-filters">
           <label>

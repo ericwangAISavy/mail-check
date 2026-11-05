@@ -542,6 +542,8 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         checked = verification.verify(self.conn, self.tab(), 'manual-ambiguous', jobs['revision'], '2026-10-20')
         self.assertEqual([row[3]['value'] for row in checked['rows'][1:3]], ['false', 'false'])
+        self.assertEqual(checked['verification']['unmatched_count'],2)
+        self.assertTrue(all('2 eligible jobs' in item['reason'] for item in checked['verification']['unmatched']))
         verification.verify_all(self.conn, sample=False)
         self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]], ['false', 'false'])
         self.receipt('specific-role', 'Nscale', '2026-10-20T12:01:00Z', role='Developer Experience Engineer')
@@ -837,3 +839,41 @@ class SourcingVerificationTests(unittest.TestCase):
         after=self.snapshot()
         self.assertEqual([r[3]['value'] for r in after['rows'][1:3]],['true','true'])
         self.assertEqual(before['rows'][1][3],after['rows'][1][3])
+
+    def test_hp_delayed_confirmation_prefers_latest_unchecked_source_day(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'older-hp',base['revision'],[
+            ['HP','Senior Engineer','https://hp.test/older']],work_date='2026-10-19')
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'recent-hp',base['revision'],[
+            ['HP','Embedded AI/ML Developer','https://hp.test/recent']],work_date='2026-10-20')
+        self.receipt('next-day-hp','HP','2026-10-21T14:00:00Z',role=None)
+        self.conn.commit()
+        verification.verify_all(self.conn,sample=False)
+        snap=self.snapshot()
+        self.assertEqual([r[3]['value'] for r in snap['rows'][1:3]],['false','true'])
+        self.assertEqual(snap['rows'][2][3]['checked_at'],'2026-10-21T14:00:00+00:00')
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM sourcing_check_activity WHERE message_id=?',('next-day-hp',)).fetchone()[0],1)
+        for rebuild in (False,True):
+            verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=rebuild,sample=False)
+            self.assertEqual(self.snapshot()['rows'][2][3],snap['rows'][2][3])
+            self.assertEqual(self.snapshot()['rows'][1][3]['value'],'false')
+
+    def test_unchecked_reason_identifies_a_confirmation_already_used_elsewhere(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'bound-hp-old',base['revision'],[
+            ['HP','Engineer','https://hp.test/old']],work_date='2026-10-19')
+        self.receipt('bound-hp','HP','2026-10-20T14:00:00Z',role=None)
+        self.conn.commit()
+        verification.verify_all(self.conn,sample=False)
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'unclaimed-hp-new',base['revision'],[
+            ['HP','Embedded AI/ML Developer','https://hp.test/new']],work_date='2026-10-20')
+        base=self.snapshot()
+        result=verification.verify(self.conn,self.tab(),'explain-bound',base['revision'],'2026-10-20')
+        self.assertEqual(result['verification']['unmatched_count'],1)
+        self.assertIn('already linked to a checked job',result['verification']['unmatched'][0]['reason'])
+        self.assertEqual(result['rows'][2][3]['value'],'false')
+        self.assertEqual(result['rows'][1][3],base['rows'][1][3])

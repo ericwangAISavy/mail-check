@@ -93,11 +93,10 @@ not Engineer III, and C++ is not C#. No fuzzy similarity is used.
 Both manual **Check applications** and automatic checks consider competing jobs
 across the same account's active bidder tabs. A reply is bound only when its
 company, role when present, and date evidence identify one eligible row. A
-company-only reply first considers unchecked jobs on the receipt’s Chicago date.
-One such job is sufficient even if other source dates have jobs at the company.
-If there is no same-day job, one eligible unchecked job in the existing date
-window is required. Multiple unchecked jobs on the preferred date remain
-ambiguous. Already checked jobs do not compete for a company-only reply. The
+company-only reply prefers the most recent eligible unchecked source date on or
+before its Chicago receipt date. This includes confirmations arriving the next
+day. If only future work is eligible, the nearest future source date takes
+priority. Multiple unchecked jobs on the preferred date remain ambiguous. Already checked jobs do not compete for a company-only reply. The
 same reply cannot newly check several jobs or be borrowed from an existing bound
 job, including an archived checked job. All checks—automatic, periodic, selected-week refresh/rebuild, and manual
 **Check applications**—check only unchecked links. Existing checks, receipt
@@ -266,9 +265,10 @@ may include its job details and initial checked state in the same save.
 ### Diagnose an unchecked company confirmation
 
 A missing role does not by itself prevent matching: a company-only receipt must
-identify one eligible unchecked job for the same account, preferring the receipt’s
-Chicago date. Other bidder tabs can provide competing unchecked candidates on
-that date. Without a same-day candidate the existing date window applies.
+identify one eligible unchecked job for the same account, preferring the most recent eligible
+source date on or before the receipt’s Chicago date (or the nearest eligible
+future date when no past work is eligible). Other bidder tabs can provide
+competing unchecked candidates on that date.
 Existing receipt bindings are reserved.
 Do not infer the cause of an unchecked row from the currently visible sheet alone.
 
@@ -286,3 +286,11 @@ matches the current matcher would propose. The report includes business metadata
 but excludes email bodies, job URLs, credentials and receipt identifiers. It is a
 snapshot of saved data, not a replacement for a selected-date check. Share the
 report to investigate the precise reason before changing matching rules.
+
+After **Check applications**, expand **links remain unchecked — view reasons**
+to see the actual mailbox checked, which rows remain unresolved, and why. Reasons distinguish competing jobs,
+receipts already used by a checked job, and a confirmation that prioritizes another
+source date. Without such evidence, the row reports that no eligible unclaimed
+confirmation was found for its mailbox, company, role and date window. The panel
+shows up to 50 rows from the last check; run another check to refresh it. No saved
+checkmarks, receipt dates or payment records are changed to create these reasons.

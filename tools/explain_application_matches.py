@@ -59,7 +59,7 @@ def explain(database, account, company):
         return {'company_query':company,'email_account':account,'matching_account_ids':sorted(ids),
             'rows':related,'receipts':[{**{k:r[k] for k in ('account_id','received_at','company','role')},
                 'bound_checked_row_ids':bindings.get((r['account_id'],r['message_id']),[])} for r in receipts],
-            'explanation':'A blank role prefers one unchecked job on the receipt Chicago date, otherwise one unchecked job in the existing date window. Compare account, work date, competing rows and existing receipt bindings. No data changed; this report uses currently saved receipt data.'}
+            'explanation':'A blank role prefers one unchecked job on the latest eligible source date not after the receipt Chicago date, otherwise the nearest eligible future date. Compare account, work date, competing rows and existing receipt bindings. No data changed; this report uses currently saved receipt data.'}
 
 
 def main():

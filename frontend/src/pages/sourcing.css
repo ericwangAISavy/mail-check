@@ -662,3 +662,8 @@
 .sourcing-grid .sheet-row-selected.sheet-checked-row > .rdg-cell { background-color:color-mix(in srgb,#12b886 24%,var(--background)); }
 .sourcing-grid .sheet-checked-row .native-cell-content a { color:#087f5b; font-weight:600; }
 .dark .sourcing-grid .sheet-checked-row .native-cell-content a { color:#6ee7b7; }
+
+.sheet-verification-details {max-height:14rem;overflow:auto;flex-shrink:0;padding: .75rem 1rem; border-bottom: 1px solid var(--border); background: var(--surface);}
+.sheet-verification-details summary {cursor:pointer; color:var(--muted-foreground);}
+.sheet-verification-details ul {margin:.75rem 0 0; padding-left:1.25rem;}
+.sheet-verification-details li {margin:.4rem 0; overflow-wrap:anywhere;}

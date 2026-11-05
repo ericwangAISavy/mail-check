@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.13 — 2026-11-05
+
+Match delayed company-only confirmations and explain unchecked links
+
+- Company-only replies prefer the most recent eligible source date, including next-day confirmations, while preserving checked links and reserved receipts.
+- Check applications now shows row-level reasons for unresolved links instead of leaving silent unchecked boxes.
+
 ## 2.21.12 — 2026-11-05
 
 Fix company-only confirmations blocked by checked job history

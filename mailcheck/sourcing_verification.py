@@ -33,7 +33,7 @@ def _contains_name(left, right):
     return bool(left and right and (f" {left} " in f" {right} " or f" {right} " in f" {left} "))
 
 
-def _matching_plan(conn, rows, receipts, *, early_since):
+def _matching_plan(conn, rows, receipts, *, early_since, explanations=None):
     """Only bind a receipt to an unambiguous job; never reuse a reserved receipt.
 
     Index candidates by account/company/role/date instead of comparing each
@@ -132,21 +132,33 @@ def _matching_plan(conn, rows, receipts, *, early_since):
                         candidates.update(by_date[source_day])
             if role is None:
                 # A role-less reply is evidence for the company, not a specific
-                # title. Saved checks cannot compete for fresh credit. Prefer
-                # the receipt day's work over historical or future source rows.
+                # title. Prefer the latest source day not after the receipt;
+                # delayed confirmations must not compete with all older jobs.
                 candidates = {row_id for row_id in candidates if rows_by_id[row_id]['checked'] != 'true'}
-                same_day = {row_id for row_id in candidates if rows_by_id[row_id]['work_date'] == day.isoformat()}
-                if same_day:
-                    candidates = same_day
+                if candidates:
+                    past = [rows_by_id[row_id]['work_date'] for row_id in candidates
+                            if rows_by_id[row_id]['work_date'] <= day.isoformat()]
+                    preferred_day = max(past) if past else min(rows_by_id[row_id]['work_date'] for row_id in candidates)
+                    preferred = {row_id for row_id in candidates if rows_by_id[row_id]['work_date'] == preferred_day}
+                    if explanations is not None:
+                        for row_id in candidates - preferred:
+                            explanations[row_id] = f'A matching confirmation prioritizes job date {preferred_day}.'
+                    candidates = preferred
             if candidates:
                 break
         reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
         if reserved:
+            if explanations is not None:
+                for row_id in candidates - reserved:
+                    explanations[row_id] = 'A matching confirmation is already linked to a checked job.'
             # Existing bindings win over new candidates, including archived rows.
             if len(reserved) != 1:
                 continue
             candidates &= reserved
         if len(candidates) != 1:
+            if explanations is not None:
+                for row_id in candidates:
+                    explanations[row_id] = f'{len(candidates)} eligible jobs match this confirmation; a role or job reference is needed.'
             continue
         row_id = next(iter(candidates))
         match = (stamp, receipt['message_id'])
@@ -168,6 +180,7 @@ def verify(conn, tab, operation, revision, work_date):
     lower = datetime.combine(selected, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(selected + timedelta(days=7), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     payload = {"action": "verify", "revision": revision, "work_date": day}
+    explanations = {}
     with sheets.atomic(conn):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
@@ -190,7 +203,7 @@ def verify(conn, tab, operation, revision, work_date):
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=rc.id
                 JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''
                 WHERE t.account_id=? AND (t.archived=0 OR t.id=?) AND r.work_date IS NOT NULL""", (tab['account_id'],tab['id'])).fetchall()
-            plan = _matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=6))
+            plan = _matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=6), explanations=explanations)
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
@@ -221,6 +234,23 @@ def verify(conn, tab, operation, revision, work_date):
             "checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1) if result["row_dates"][i] == day),
             "future_checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1)
                 if result["row_dates"][i] and result["row_dates"][i] > current.isoformat() and result["row_dates"][i] != day)}
+        company_col = next(i for i, col in enumerate(result['columns']) if col['kind']=='company')
+        link_col = next(i for i, col in enumerate(result['columns']) if col['kind']=='link')
+        unmatched = []
+        for i, row in enumerate(result['rows'][1:],1):
+            source_day = result['row_dates'][i]
+            if not source_day or (source_day != day and source_day <= current.isoformat()):
+                continue
+            if row[check]['value']=='true' or not str(row[link_col]['value'] or '').strip():
+                continue
+            row_id = result['row_ids'][i]
+            unmatched.append({'row_id':row_id,'sheet_row':i,'work_date':source_day,
+                'company':str(row[company_col]['value'] or ''),
+                'reason':explanations.get(row_id,'No eligible unclaimed confirmation for this mailbox, company, role and date window.')})
+        account = conn.execute('SELECT email FROM accounts WHERE id=?',(tab['account_id'],)).fetchone()
+        result['verification']['account_email'] = account['email'] if account else None
+        result['verification']['unmatched_count'] = len(unmatched)
+        result['verification']['unmatched'] = unmatched[:50]
         return result
 
 
