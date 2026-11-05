@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SheetGrid } from "./sourcing-grid";
 import type { Snapshot } from "@/lib/sourcing";
 
@@ -172,4 +172,45 @@ it("keeps pasting text inside the editor from changing whole spreadsheet cells",
   const input = screen.getByRole("textbox", {name:"Edit cell"});
   expect(fireEvent.paste(input, {clipboardData:{getData:()=>"replacement"}})).toBe(true);
   expect(change).not.toHaveBeenCalled();
+});
+
+it("auto-scrolls a held drag beyond the viewport and stops on release", () => {
+  const data = snapshot();
+  for (let i = 2; i <= 40; i++) {
+    data.rows.push([cell(`Company ${i}`), cell("Engineer"), cell(`https://jobs.test/${i}`), cell("false")]);
+    data.row_ids.push(`row${i}`);
+  }
+  data.rows[2][0].style = { wrap: true };
+  const selection = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onSelection={selection}/>);
+  const grid = screen.getByRole("grid");
+  vi.spyOn(grid, "getBoundingClientRect").mockReturnValue({top:10,bottom:130,left:0,right:900,width:900,height:120,x:0,y:10,toJSON:()=>({})});
+  Object.defineProperty(grid,"clientHeight",{value:120,configurable:true});
+  Object.defineProperty(grid,"scrollHeight",{value:1262,configurable:true});
+  let next = 0;
+  const frames = new Map<number,FrameRequestCallback>();
+  vi.spyOn(window,"requestAnimationFrame").mockImplementation(callback=>{frames.set(++next,callback);return next});
+  vi.spyOn(window,"cancelAnimationFrame").mockImplementation(id=>{frames.delete(id)});
+  const tick = (time:number) => act(()=>{
+    const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(time));
+  });
+  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Acme"}),{button:0,buttons:1,clientX:200,clientY:60});
+  fireEvent.mouseMove(document,{buttons:1,clientX:200,clientY:140});
+  for(let i=1;i<=20;i++)tick(i*16);
+  expect(grid.scrollTop).toBeGreaterThan(0);
+  const down=grid.scrollTop;
+  expect(selection.mock.lastCall![0].rows[0]).toBe(1);
+  expect(selection.mock.lastCall![0].rows.at(-1)).toBeGreaterThan(4);
+  fireEvent.mouseMove(document,{buttons:1,clientX:200,clientY:20});
+  tick(336);
+  expect(grid.scrollTop).toBeLessThan(down);
+  fireEvent.mouseUp(document);
+  expect(frames.size).toBe(0);
+  const stopped=grid.scrollTop;
+  tick(352);
+  expect(grid.scrollTop).toBe(stopped);
+  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"Acme"}),{button:0,buttons:1,clientX:200,clientY:60});
+  expect(frames.size).toBeGreaterThan(0);
+  fireEvent(window,new Event("blur"));
+  expect(frames.size).toBe(0);
 });

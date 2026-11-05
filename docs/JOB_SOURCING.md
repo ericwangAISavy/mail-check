@@ -111,7 +111,7 @@ sourcing date. Saved payments and manual amount overrides remain unchanged.
 - Double-click a column title to rename it directly; its Company/Role/Job link
   identity stays intact. The title row has no number; job rows start at 1.
 - Double-click, Enter or F2 to edit. Escape cancels; Enter/Tab commits. Arrows and
-  Tab navigate. Shift-click or drag selects a rectangle. Copy/paste supports TSV,
+  Tab navigate. Shift-click or drag selects a rectangle. Hold the pointer near the table’s top or bottom edge while dragging to scroll and extend the selection beyond the visible rows. Scrolling stops when you release the mouse or the window loses focus. Copy/paste supports TSV,
   quoted multiline values and blanks from Google Sheets or Excel.
 - Drag across cells to select the job rows they cover. Selected rows and row
   numbers are highlighted. Click **Delete rows** (with the selection count), or

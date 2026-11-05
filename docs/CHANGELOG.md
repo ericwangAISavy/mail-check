@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.6 — 2026-11-04
+
+Auto-scroll spreadsheet drag selection
+
+- Dragging a sourcing row selection near the top or bottom edge now scrolls continuously and extends selection beyond the visible viewport, including wrapped rows.
+- Auto-scrolling stops on mouse release, window blur, view changes, or leaving the sheet.
+
 ## 2.19.5 — 2026-11-04
 
 Dismiss completed link import progress

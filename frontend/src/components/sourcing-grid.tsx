@@ -82,6 +82,17 @@ export function SheetGrid({
       }),
     [visible, snapshot, drafts, count],
   );
+  const rowOffsets = useMemo(() => {
+    const offsets = [0];
+    for (const row of visible) {
+      const wrapped = snapshot.columns.some((_, col) => ({
+        ...snapshot.rows[row]?.[col]?.style,
+        ...drafts.get(`${row}:${col}`)?.style,
+      }).wrap);
+      offsets.push(offsets[offsets.length - 1] + (wrapped ? 64 : 30));
+    }
+    return offsets;
+  }, [visible, snapshot, drafts]);
   const notify = (
     a: { row: number; col: number },
     b: { row: number; col: number },
@@ -103,6 +114,7 @@ export function SheetGrid({
   };
   const rowOrder = visible.map(row => snapshot.row_ids[row]).join(":");
   useEffect(() => {
+    stopDrag.current();
     const index =
       highlightRow === undefined ? -1 : visible.indexOf(highlightRow);
     const rowIdx = index >= 0 ? index : 0;
@@ -235,17 +247,10 @@ export function SheetGrid({
         columns={columns}
         rows={rows}
         rowKeyGetter={(r) => snapshot.row_ids[r.id] || "header"}
-        rowHeight={(row) =>
-          snapshot.columns.some(
-            (_, c) =>
-              ({
-                ...snapshot.rows[row.id]?.[c]?.style,
-                ...drafts.get(`${row.id}:${c}`)?.style,
-              }).wrap,
-          )
-            ? 64
-            : 30
-        }
+        rowHeight={(row) => {
+          const index = indices.get(row.id) ?? 0;
+          return rowOffsets[index + 1] - rowOffsets[index];
+        }}
         headerRowHeight={28}
         rowClass={(row) => {
           const index = indices.get(row.id) ?? -1;
@@ -262,9 +267,12 @@ export function SheetGrid({
           if (event.button !== 0 || (event.target as Element).closest("input"))
             return;
           stopDrag.current();
+          let pointer = { x: event.clientX, y: event.clientY };
+          let frame = 0, lastTime = 0, active = true;
           const move = (e: MouseEvent) => {
-            if (!e.buttons) return;
-            const cell = (e.target as Element).closest('[role="gridcell"]');
+            if (!(e.buttons & 1)) { stop(); return; }
+            pointer = { x: e.clientX, y: e.clientY };
+            const cell = (e.target as Element).closest?.('[role="gridcell"]');
             const row = cell?.closest('[role="row"]');
             if (!cell || !row || !grid.current?.element?.contains(cell)) return;
             const r = Number(row.getAttribute("aria-rowindex")) - 2,
@@ -273,13 +281,55 @@ export function SheetGrid({
             extending.current = true;
             select({ row: r, col: c }, true);
           };
+          const scroll = (time: number) => {
+            if (!active) return;
+            const elapsed = lastTime ? Math.min(32, time - lastTime) : 16;
+            lastTime = time;
+            const element = grid.current?.element;
+            if (element && visible.length) {
+              const rect = element.getBoundingClientRect();
+              const bodyTop = rect.top + 28;
+              const top = Math.max(0, bodyTop), bottom = Math.min(window.innerHeight, rect.bottom);
+              const band = Math.min(40, (bottom - top) / 3);
+              if (band > 0 && pointer.x >= rect.left && pointer.x <= rect.right) {
+                const direction = pointer.y > bottom - band ? 1 : pointer.y < top + band ? -1 : 0;
+                if (direction) {
+                  const depth = direction > 0 ? pointer.y - (bottom - band) : top + band - pointer.y;
+                  const speed = 2 + 12 * Math.min(1, depth / band);
+                  element.scrollTop = Math.max(0, Math.min(element.scrollHeight - element.clientHeight,
+                    element.scrollTop + direction * speed * elapsed / 16));
+                  // Hit testing the DOM alone misses virtualized rows and does
+                  // not advance while the pointer is held still at the edge.
+                  const offset = element.scrollTop + Math.max(0, Math.min(bottom - 1, Math.max(top, pointer.y)) - bodyTop);
+                  let low = 0, high = visible.length;
+                  while (low < high) {
+                    const mid = (low + high) >>> 1;
+                    if (rowOffsets[mid + 1] <= offset) low = mid + 1;
+                    else high = mid;
+                  }
+                  const row = Math.min(visible.length - 1, low);
+                  if (row !== selected.current.row) {
+                    extending.current = true;
+                    select({ row, col: selected.current.col }, true);
+                  }
+                }
+              }
+            }
+            frame = window.requestAnimationFrame(scroll);
+          };
           const stop = () => {
+            active = false;
+            window.cancelAnimationFrame(frame);
+            extending.current = false;
             document.removeEventListener("mousemove", move);
             document.removeEventListener("mouseup", stop);
+            window.removeEventListener("blur", stop);
           };
           stopDrag.current = stop;
           document.addEventListener("mousemove", move);
           document.addEventListener("mouseup", stop);
+          window.addEventListener("blur", stop);
+          frame = window.requestAnimationFrame(scroll);
         }}
         onRowsChange={(next, { indexes, column }) => {
           apply(indexes.map(index=>({row:next[index].id,col:Number(column.key),value:String(next[index][column.key])})));
