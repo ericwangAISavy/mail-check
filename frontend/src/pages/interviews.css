@@ -372,3 +372,8 @@
 
 .interview-essential-details .interview-explicit-link { display:inline; overflow-wrap:anywhere; word-break:break-word; }
 .interview-explicit-link svg { display:inline; margin-left:6px; vertical-align:middle; }
+.calendar-analysis-status { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 18px; margin-bottom:14px; }
+.calendar-analysis-status strong { font-size:14px; }
+.calendar-analysis-status p { margin:4px 0 0; color:var(--muted-foreground); font-size:13px; }
+.calendar-analysis-status small { display:block; margin-top:6px; color:var(--muted-foreground); }
+@media(max-width:640px) { .calendar-analysis-status { align-items:flex-start; flex-direction:column; } }

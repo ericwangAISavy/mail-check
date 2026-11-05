@@ -201,3 +201,17 @@ it('keeps explicitly cleared interviewers empty instead of restoring unrelated a
  await within(dialog).findByText('Interviewer / contact')
  expect(within(dialog).getByText('Interviewer / contact').nextElementSibling!.textContent).toBe('Not provided')
 })
+
+it('shows real queued analysis progress and a manual retry without labeling collection a failure',async()=>{
+ const base=vi.mocked(request).getMockImplementation()!
+ vi.mocked(request).mockImplementation(async(url,init)=>{
+  const result:any=await base(url,init)
+  return url.startsWith('/api/interviews?') ? {...result,analysis:{done:3,total:356,pending:353,retrying:1,running:0,retry_in:60,last_error:'Model response timed out'}} : result
+ })
+ mount()
+ await screen.findByText('Calendar analysis: 3 of 356 complete')
+ expect(screen.getByText(/353 remaining.*Automatic retry scheduled/)).toBeTruthy()
+ expect(screen.getByText(/Model response timed out/)).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Retry analysis now'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/analysis/retry'))
+})

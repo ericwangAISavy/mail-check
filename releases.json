@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.21.0",
+    "date": "2026-11-04",
+    "title": "Resume calendar analysis automatically",
+    "changes": [
+      "Calendar collection saves a durable analysis queue and finishes without waiting for the model; background batches resume automatically even when mail auto-check is disabled.",
+      "Analysis prioritizes upcoming events, rotates across accounts, and retries failed events with backoff without restarting completed work or re-fetching calendars.",
+      "Show completed and remaining analysis counts with retry reasons and a Retry analysis now action. Background batches update the calendar without repeated completion toasts or unrelated sourcing checks."
+    ]
+  },
+  {
     "version": "2.20.0",
     "date": "2026-11-04",
     "title": "Analyze calendar interview details with the configured model",

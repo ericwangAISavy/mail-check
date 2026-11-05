@@ -60,9 +60,11 @@ class Analysis(BaseModel):
 
 
 class CalendarAnalyzer:
-    def __init__(self, conn, cfg, status, *, client=None):
+    def __init__(self, conn, cfg, status, *, client=None, defer=False):
         self.conn, self.cfg, self.status = conn, cfg, status
         self.client, self.owned = client, client is None
+        self.defer = defer
+        self.last_error = ""
         self.enabled = client is not None or cfg.is_llm_ready()
         self.unavailable = False
         self.failures = self.analyzed = self.pending = 0
@@ -76,7 +78,7 @@ class CalendarAnalyzer:
             self.client.close()
 
     def analyze(self, account, booking):
-        if not self.enabled:
+        if not self.enabled and not self.defer:
             return None
         payload = dict(candidate_email=account.email, title=booking.title[:2000],
             description=booking.description[:self.cfg.llm.max_body_chars],
@@ -87,11 +89,20 @@ class CalendarAnalyzer:
         fingerprint = hashlib.sha256((VERSION + self.cfg.llm.base_url + content).encode()).hexdigest()
         cached = self.conn.execute('SELECT result FROM calendar_analyses WHERE account_id=? AND external_id=? AND fingerprint=?',
             (account.id, booking.provider_id, fingerprint)).fetchone()
+        result = None
         if cached:
             try:
-                return Analysis.model_validate_json(cached['result'])
+                result = Analysis.model_validate_json(cached['result'])
             except ValueError:
-                pass  # Rebuild invalid/older cache entries rather than trusting them.
+                pass
+        if self.defer:
+            from .calendar_queue import enqueue
+            enqueue(self.conn,account.id,booking,cached=result is not None,max_chars=self.cfg.llm.max_body_chars)
+        if result is not None:
+            return result
+        if self.defer:
+            self.pending += 1
+            return None
         if self.unavailable or time.monotonic() >= self.deadline:
             self.pending += 1
             return None
@@ -102,7 +113,7 @@ class CalendarAnalyzer:
                 self.client = LLMClient.from_config(self.cfg.llm, fallback_model=db.last_llm_model(self.conn))
                 self.client.prepare()
             output = self.client.complete(PROMPT + ', '.join(STAGES), content, json_mode=self.cfg.llm.use_json_mode,
-                max_tokens=900, deadline=self.deadline)
+                max_tokens=600, deadline=self.deadline)
             result = Analysis.model_validate(extract_json(output))
             if result.stage not in STAGES:
                 result.stage = 'Other'
@@ -116,6 +127,8 @@ class CalendarAnalyzer:
             self.analyzed += 1
             return result
         except Exception as exc:
+            self.last_error = ('Model response timed out' if isinstance(exc, LLMError) and exc.category == 'timeout'
+                else 'Model is busy or unavailable' if isinstance(exc, LLMError) else 'Invalid model analysis response')
             self.failures += 1
             self.pending += 1
             # An unavailable service should not cause one timeout per calendar event.

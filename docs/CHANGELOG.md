@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.0 — 2026-11-04
+
+Resume calendar analysis automatically
+
+- Calendar collection saves a durable analysis queue and finishes without waiting for the model; background batches resume automatically even when mail auto-check is disabled.
+- Analysis prioritizes upcoming events, rotates across accounts, and retries failed events with backoff without restarting completed work or re-fetching calendars.
+- Show completed and remaining analysis counts with retry reasons and a Retry analysis now action. Background batches update the calendar without repeated completion toasts or unrelated sourcing checks.
+
 ## 2.20.0 — 2026-11-04
 
 Analyze calendar interview details with the configured model

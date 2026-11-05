@@ -35,3 +35,20 @@ def test_calendar_updates_survive_a_later_mail_failure():
         with pytest.raises(RuntimeError,match='model unavailable'):
             web._run_check(web.CheckBody(),include_calendar=True)
         assert web._job['interview_changes']==[{'id':7}]
+
+def test_calendar_queue_resumes_even_with_automatic_mail_checks_disabled():
+    cfg=Config();cfg.llm.base_url='http://model.test';cfg.watch.auto_check=False
+    with patch.object(web.cfgmod,'load',return_value=cfg),patch.object(web.time,'sleep',side_effect=[None,StopIteration]),patch.dict(web._job,running=False),patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())),patch('mailcheck.calendar_queue.due',return_value=True),patch.object(web,'_job_lock') as lock,patch.object(web,'_run_calendar_analysis') as resume,patch.object(web,'_run_check') as mail:
+        lock.acquire.return_value=True
+        with pytest.raises(StopIteration):web._scheduler()
+        resume.assert_called_once();mail.assert_not_called()
+
+
+def test_background_calendar_analysis_skips_unrelated_sourcing_verification():
+    result={'changes':[],'done':3,'total':356,'pending':353,'last_error':'Model response timed out'}
+    with patch.object(web.cfgmod,'load',return_value=Config()),patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())),patch.object(web.interviews,'resume_calendar_analysis',return_value=result),patch.object(web,'_start_job',side_effect=lambda work,**kwargs:work()) as start,patch.dict(web._job):
+        web._run_calendar_analysis()
+        assert start.call_args.kwargs['verify_sourcing'] is False
+        assert start.call_args.kwargs['background'] is True
+        assert web._job['ok'] is True
+        assert '353 remaining' in web._job['message']

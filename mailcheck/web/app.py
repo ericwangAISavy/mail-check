@@ -361,7 +361,7 @@ def _default_since() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=DEFAULT_DAYS)).isoformat()
 
 
-def _start_job(work, *, failed: str, on_finish=None) -> None:
+def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, background=False) -> None:
     """Run ``work`` on a thread against the shared ``_job`` status block.
 
     The caller must already hold ``_job_lock``; this releases it. Both the
@@ -371,15 +371,16 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
     """
 
     def runner():
-        _job.update(running=True, message="Connecting…", detail="", ok=True, interview_changes=[],
+        _job.update(running=True, message="Connecting…", detail="", ok=True, background=background, interview_changes=[],
                     stage_started=time.time())
         try:
             work()
-            previous_message = _job["message"]
-            _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
-            with db.session() as conn:
-                sourcing = sourcing_verification.verify_all(conn)
-            _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
+            if verify_sourcing:
+                previous_message = _job["message"]
+                _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
+                with db.session() as conn:
+                    sourcing = sourcing_verification.verify_all(conn)
+                _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
         except Exception as exc:  # noqa: BLE001 - surface it in the UI, never 500
             _job.update(message=failed, detail=str(exc), ok=False)
         finally:
@@ -422,7 +423,7 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
             try:
                 with db.session() as conn:
                     calendar = interviews.collect_calendar_events(conn, cfg,
-                        account_label=body.account, since_days=body.since_days,
+                        account_label=body.account, since_days=body.since_days,defer_analysis=True,
                         status=lambda message: _job.update(message=message))
                 calendar_changes = calendar['changes']
                 calendar_errors = calendar['errors']
@@ -470,13 +471,13 @@ def _run_calendar_check(body: CheckBody) -> None:
         cfg = cfgmod.load()
         with db.session() as conn:
             result = interviews.collect_calendar_events(conn, cfg, account_label=body.account,
-                since_days=body.since_days, status=lambda message: _job.update(message=message))
+                since_days=body.since_days,defer_analysis=True, status=lambda message: _job.update(message=message))
         _job.update(interview_changes=list({item["id"]:item for item in result["changes"]}.values()),
             message=(f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts"
                 + (f" · {result['analyzed']} analyzed" if result.get('analyzed') else "")
-                + (f" · {result['analysis_pending']} analysis deferred" if result.get('analysis_pending') else "")),
+                + (f" · {result['analysis_pending']} queued for automatic analysis" if result.get('analysis_pending') else "")),
             detail="\n".join(result["errors"][:5]),ok=not result["errors"])
-    _start_job(work, failed="Calendar collection failed", on_finish=_reschedule)
+    _start_job(work, failed="Calendar collection failed", on_finish=_reschedule, verify_sourcing=False)
 
 
 def _run_reclassify(body: ReclassifyBody) -> None:
@@ -531,35 +532,46 @@ def _run_reclassify(body: ReclassifyBody) -> None:
     _start_job(work, failed="Re-classification failed")
 
 
-def _scheduler() -> None:
-    """Fire an automatic check when one is due.
+def _run_calendar_analysis():
+    def work():
+        cfg = cfgmod.load()
+        with db.session() as conn:
+            result = interviews.resume_calendar_analysis(conn,cfg,status=lambda message:_job.update(message=message))
+        _job.update(interview_changes=result['changes'],message=f"Calendar analysis · {result['done']} of {result['total']} complete · {result['pending']} remaining",
+            detail=result['last_error'],ok=True)
+    _start_job(work,failed="Calendar analysis paused; saved work will retry",verify_sourcing=False,background=True)
 
-    Runs in the web server process, so the countdown the page shows is backed by
-    something real. `mail-check watch` remains the option for running unattended
-    without a browser.
-    """
+
+def _resume_calendar_if_due(cfg):
+    if not cfg.is_llm_ready() or _job['running']:return False
+    from ..calendar_queue import due
+    with db.session() as conn:
+        ready = due(conn)
+    if ready and _job_lock.acquire(blocking=False):
+        _run_calendar_analysis()
+        return True
+    return False
+
+
+def _scheduler() -> None:
+    """Resume saved calendar work independently of the optional mail schedule."""
     while True:
         time.sleep(2)
         try:
             cfg = cfgmod.load()
             if not cfg.watch.auto_check:
-                _sched["next_due"] = None
-                continue
-            if _sched["next_due"] is None:
+                _sched['next_due'] = None
+            elif _sched['next_due'] is None:
                 _reschedule(cfg)
-                continue
-            if _job["running"] or time.time() < _sched["next_due"]:
-                continue
-
-            state = _state()
-            if not state["has_accounts"]:
-                _reschedule(cfg)  # not set up yet; try again next interval
-                continue
-            if _job_lock.acquire(blocking=False):
-                _reschedule(cfg)
-                _run_check(CheckBody(), include_calendar=True)
-        except Exception:  # noqa: BLE001 - the scheduler must outlive a bad cycle
-            _sched["next_due"] = None
+            elif not _job['running'] and time.time() >= _sched['next_due']:
+                if _state()['has_accounts'] and _job_lock.acquire(blocking=False):
+                    _reschedule(cfg)
+                    _run_check(CheckBody(),include_calendar=True)
+                    continue
+                if not _state()['has_accounts']:_reschedule(cfg)
+            _resume_calendar_if_due(cfg)
+        except Exception:
+            _sched['next_due'] = None
 
 
 # ----------------------------------------------------------------------------- app
@@ -831,7 +843,20 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 event["account_labels"] = sorted({source["account_label"] for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]})
             accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
             companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
-        return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
+            from ..calendar_queue import progress
+            analysis = progress(conn)
+        return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES,"analysis":analysis}
+
+    @app.get('/api/interviews/analysis')
+    def calendar_analysis_progress():
+        from ..calendar_queue import progress
+        with db.session() as conn:return progress(conn)
+
+    @app.post('/api/interviews/analysis/retry')
+    def retry_calendar_analysis():
+        from ..calendar_queue import retry_now
+        with db.session() as conn:retry_now(conn)
+        return {'ok':True}
 
     @app.get("/api/interviews/scan")
     def interview_scan_status():

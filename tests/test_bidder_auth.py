@@ -21,8 +21,9 @@ class BidderAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['bidder_id'],1)
         self.assertEqual(self.client.get('/api/dashboard').status_code,200)
-        for path in ('/api/accounts','/api/triage','/api/interviews'):
+        for path in ('/api/accounts','/api/triage','/api/interviews','/api/interviews/analysis'):
             self.assertEqual(self.client.get(path).status_code,403,path)
+        self.assertEqual(self.client.post('/api/interviews/analysis/retry').status_code,403)
         report=self.client.get('/api/payments').json()
         self.assertEqual([b['name'] for b in report['bidders']],['Alex'])
         self.assertEqual(report['accounts'],[])

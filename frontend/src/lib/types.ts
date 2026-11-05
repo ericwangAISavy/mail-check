@@ -46,7 +46,8 @@ export type InterviewSource = {
   account_id?: number; id: number; message_pk: number | null; account_label: string; account_email: string
   source_subject: string; source_sender: string; source_received_at: string; account_enabled: boolean
 }
-export type InterviewData = { companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }
+export type CalendarAnalysisProgress = { done:number;pending:number;total:number;retrying:number;running:number;retry_in:number;last_error:string }
+export type InterviewData = { analysis?: CalendarAnalysisProgress; companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }
 export type ProcessEvent = InterviewEvent & { organization_domains: string[]; assignment_reason: string | null }
 export type ProcessMilestone = {
   id: string; kind: "event" | "message"; occurred_at: string; title: string; summary: string

@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import sqlite3
+import time
 from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
 from urllib.parse import urlparse
@@ -459,7 +460,37 @@ def _known_calendar_interviews(conn, account_id):
             or interview_evidence(row['source_subject'],organizer=row['source_sender']) or interview_evidence(row['company'])]
 
 
-def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None, analysis_client=None):
+def _save_calendar_booking(conn, account, booking, details, *, analysis_enabled):
+    review = bool(analysis_enabled and (details is None or details.ambiguous or details.confidence < .8 or not details.company or not details.role))
+    row = dict(id=None,account_id=account.id,message_id=booking.provider_id,
+        subject=booking.title,from_addr=booking.organizer_email,
+        date_utc=booking.updated_at.isoformat() if booking.updated_at else None,
+        fetched_at=db._now(),references_json="[]")
+    candidate = dict(calendar_uid=booking.uid,recurrence_id=booking.recurrence_id,
+        company=details.company if details else booking.title,
+        role=details.role if details else None, stage=details.stage if details else _stage(booking.title),
+        interviewers=details.interviewers if details else [], analysis_pending=details is None and analysis_enabled,
+        status="Cancelled" if booking.cancelled else "Scheduled",
+        start_at=booking.start.isoformat(),end_at=booking.end.isoformat() if booking.end else None,
+        timezone=booking.timezone,meeting_platform=booking.meeting_platform,
+        meeting_url=booking.meeting_url,location=booking.location,
+        organizer_name=booking.organizer_name,organizer_email=booking.organizer_email,
+        participants=booking.participants,notes="\n".join(filter(None,[
+            f"Calendar: {booking.calendar_name}" if booking.calendar_name else None,
+            f"Original time zone: {booking.original_timezone}" if booking.original_timezone else None])),
+        confidence=details.confidence if details else 1.,needs_review=review,
+        review_reason="Verify missing or uncertain calendar details" if review and details else "Calendar detail analysis deferred; retry calendar sync" if review else None,
+        extraction_rank=3,
+        sequence=0,revision_at=row["date_utc"] or row["fetched_at"])
+    change = reconcile(conn,candidate,row)
+    conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present,interview_related)
+        SELECT id,?,?,1,1 FROM interview_sources WHERE account_id=? AND external_message_id=?
+        ON CONFLICT(source_id) DO UPDATE SET start_at=excluded.start_at,end_at=excluded.end_at,present=1,interview_related=1""",
+        (candidate['start_at'],candidate['end_at'],account.id,booking.provider_id))
+    return change
+
+
+def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None, analysis_client=None, defer_analysis=False):
     """Read native calendar bookings and persist events, never mail or classifications."""
     from datetime import timedelta
     from .pipeline import build_source
@@ -475,7 +506,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else max(365, cfg.check.lookback_days))).date()
     until = datetime.now(timezone.utc) + timedelta(days=365)
     changes, errors, checked = [], [], 0
-    with CalendarAnalyzer(conn, cfg, status, client=analysis_client) as analyzer:
+    with CalendarAnalyzer(conn, cfg, status, client=analysis_client, defer=defer_analysis) as analyzer:
         for account in accounts:
             first_error = len(errors)
             status(f"Collecting calendar events from {account.label}…")
@@ -489,6 +520,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 known_uids = {(r['calendar_uid'],r['recurrence_id']) for r in known if r['calendar_uid']}
                 manual_ids = {r['external_message_id'] for r in known if json.loads(r['manual_fields'])}
                 complete = True
+                snapshot_started = time.time()
                 for booking in source.fetch_calendar(since, until=until):
                     # Preserve recognized interview updates even if a later revision
                     # has a generic title. Previously imported personal events do not
@@ -503,37 +535,12 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                     elif not (analysis and analysis.is_interview_event) and not evidence and (not recognized or unrelated_booking(booking.title)):
                         continue
                     details = analysis if analysis and analysis.is_interview_event else None
-                    review = bool(analyzer.enabled and (details is None or details.ambiguous or details.confidence < .8 or not details.company or not details.role))
                     # The model enriches meaning only; provider identity, schedule,
                     # cancellation and meeting URLs remain authoritative.
-                    row = dict(id=None,account_id=account.id,message_id=booking.provider_id,
-                        subject=booking.title,from_addr=booking.organizer_email,
-                        date_utc=booking.updated_at.isoformat() if booking.updated_at else None,
-                        fetched_at=db._now(),references_json="[]")
-                    candidate = dict(calendar_uid=booking.uid,recurrence_id=booking.recurrence_id,
-                        company=details.company if details else booking.title,
-                        role=details.role if details else None, stage=details.stage if details else _stage(booking.title),
-                        interviewers=details.interviewers if details else [], analysis_pending=details is None and analyzer.enabled,
-                        status="Cancelled" if booking.cancelled else "Scheduled",
-                        start_at=booking.start.isoformat(),end_at=booking.end.isoformat() if booking.end else None,
-                        timezone=booking.timezone,meeting_platform=booking.meeting_platform,
-                        meeting_url=booking.meeting_url,location=booking.location,
-                        organizer_name=booking.organizer_name,organizer_email=booking.organizer_email,
-                        participants=booking.participants,notes="\n".join(filter(None,[
-                            f"Calendar: {booking.calendar_name}" if booking.calendar_name else None,
-                            f"Original time zone: {booking.original_timezone}" if booking.original_timezone else None])),
-                        confidence=details.confidence if details else 1.,needs_review=review,
-                        review_reason="Verify missing or uncertain calendar details" if review and details else "Calendar detail analysis deferred; retry calendar sync" if review else None,
-                        extraction_rank=3,
-                        sequence=0,revision_at=row["date_utc"] or row["fetched_at"])
                     conn.execute("SAVEPOINT calendar_invitation")
                     try:
-                        change = reconcile(conn,candidate,row)
+                        change = _save_calendar_booking(conn,account,booking,details,analysis_enabled=analyzer.enabled)
                         seen.add(booking.provider_id)
-                        conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present,interview_related)
-                            SELECT id,?,?,1,1 FROM interview_sources WHERE account_id=? AND external_message_id=?
-                            ON CONFLICT(source_id) DO UPDATE SET start_at=excluded.start_at,end_at=excluded.end_at,present=1,interview_related=1""",
-                            (candidate['start_at'],candidate['end_at'],account.id,booking.provider_id))
                         if change:
                             changes.append(change)
                         conn.execute("RELEASE calendar_invitation")
@@ -548,6 +555,9 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 # Keep source times separately so local time corrections cannot move
                 # a booking into or out of the provider snapshot window.
                 if complete:
+                    if defer_analysis:
+                        from .calendar_queue import snapshot_complete
+                        snapshot_complete(conn,account.id,since.isoformat(),until.isoformat(),snapshot_started)
                     old_sources = conn.execute("""SELECT s.id,s.event_id,s.external_message_id,
                         COALESCE(c.start_at,e.start_at) AS start_at,COALESCE(c.end_at,e.end_at) AS end_at
                         FROM interview_sources s JOIN interview_events e ON e.id=s.event_id
@@ -570,9 +580,51 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 errors.append(f"[{account.label}] {exc}")
                 note_calendar_sync(conn,account.id,errors[first_error:])
                 conn.commit()
-        if analyzer.pending:
+        if analyzer.pending and not defer_analysis:
             errors.append(f"Calendar detail analysis deferred for {analyzer.pending} events; retry calendar sync when the model is available.")
         return {"changes":changes,"errors":errors,"accounts":checked,"analyzed":analyzer.analyzed,"analysis_pending":analyzer.pending}
+
+
+def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_client=None, limit=3):
+    from . import calendar_queue as queue
+    from .calendar_analysis import CalendarAnalyzer
+    changes, processed = [], 0
+    with CalendarAnalyzer(conn,cfg,status,client=analysis_client) as analyzer:
+        for _ in range(limit):
+            task = queue.claim(conn)
+            if task is None:break
+            try:
+                booking = queue.decode(task)
+                account = next((a for a in db.list_accounts(conn,only_enabled=True) if a.id==task['account_id']),None)
+                if account is None:
+                    conn.execute("UPDATE calendar_analysis_tasks SET state='cancelled',booking=NULL WHERE id=? AND version=?",(task['id'],task['version']))
+                    conn.commit();continue
+                result = analyzer.analyze(account,booking)
+                if result is None:
+                    queue.retry(conn,task,analyzer.last_error or 'Analysis budget reached; continuing automatically',service_unavailable=analyzer.unavailable)
+                    conn.commit()
+                    if analyzer.unavailable:break
+                    continue
+                conn.execute('BEGIN IMMEDIATE')
+                if not queue.current(conn,task):
+                    conn.commit();continue
+                manual = conn.execute("""SELECT e.manual_fields FROM interview_events e JOIN interview_sources s ON s.event_id=e.id
+                    WHERE s.account_id=? AND s.external_message_id=?""",(account.id,booking.provider_id)).fetchall()
+                if result.is_interview_event or any(json.loads(row[0]) for row in manual):
+                    change = _save_calendar_booking(conn,account,booking,result if result.is_interview_event else None,analysis_enabled=True)
+                    if change:changes.append(change)
+                elif result.confidence>=.8 and not result.ambiguous:
+                    conn.execute("""UPDATE interview_calendar_state SET present=0,interview_related=0 WHERE source_id IN
+                        (SELECT id FROM interview_sources WHERE account_id=? AND external_message_id=?)""",(account.id,booking.provider_id))
+                # Uncertain negative decisions must not retire a known interview.
+                queue.finish(conn,task)
+                conn.commit();processed+=1
+            except Exception:
+                conn.rollback()
+                queue.retry(conn,task,'Could not apply event analysis; retry scheduled')
+                conn.commit()
+                log.exception('Calendar analysis task could not be applied')
+    return {'changes':changes,'processed':processed,**queue.progress(conn)}
 
 
 def display_event(row: dict, *, now=None) -> dict:

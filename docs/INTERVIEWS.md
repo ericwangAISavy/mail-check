@@ -110,11 +110,26 @@ All-day onsite interviews are supported; all-day duration alone does not mean ho
 Without a configured model, collection still works with conservative interview
 metadata checks. If analysis fails, recognizable interviews retain their native
 schedule and previous extracted details; manual corrections always win. The sync
-reports deferred analysis and retries it on the next calendar refresh. Successful
+queues unfinished analysis for automatic retry. Successful
 analysis is cached by event content and prompt version, so unchanged events do not
 make repeat model requests. Description or attendee changes trigger reanalysis.
-Analysis uses the configured classification deadline as a per-sync budget; remaining
-uncached events are deferred, letting later refreshes make incremental progress.
+Calendar collection queues uncached events without waiting for inference. A saved
+background queue resumes in small batches, even when automatic mail checks are off.
+Upcoming events are prioritized within each account, and accounts take turns so a
+large account cannot monopolize analysis. Failed events back off from 30 seconds to
+30 minutes; a busy/unavailable model pauses requests for at least a minute. Untried
+events continue before repeated failures. The configured classification deadline
+bounds each batch rather than a full year of collection.
+
+The calendar shows completed/remaining counts, retry reasons, and **Retry analysis
+now**. Background batches update results without repeated completion toasts or
+unrelated sourcing checks. The server must stay running; the browser may be closed.
+Saved work survives restarts, including recovery of an interrupted worker claim.
+A complete provider snapshot cancels tasks for removed events; an incomplete fetch
+does not. Old queued results cannot overwrite a newer provider snapshot.
+
+After upgrading from v2.20.0, refresh the calendar once to seed the saved queue for
+previously deferred events. Further manual refreshes are not needed for the backlog.
 
 After a complete successful provider sync, missing or unrelated bookings in the
 collected window are hidden; incomplete provider syncs never remove missing events.
@@ -126,6 +141,9 @@ support `$select`. Event descriptions are converted to plain text and bounded by
 Settings’ body-excerpt limit before being sent to the configured model, alongside
 event metadata. Raw descriptions are not saved by this analysis cache; the cache
 stores fingerprints and validated analysis results in the workspace database.
+Pending queue entries retain native event metadata and the bounded description
+excerpt so analysis can resume without repeated Graph fetches. This queued payload
+is cleared after successful analysis or cancellation.
 Calendar sync uses read-only `Calendars.Read`. It never reads inbox messages,
 classifies emails, or creates message/classification rows. The saved-mail scan
 endpoint remains retired (HTTP 410).
@@ -156,6 +174,7 @@ SQLite tables. No new message or classification rows are created. Source rows
 contain the native event identifier and account association, with no stored email.
 Schema 44 adds extracted interviewers and the content-based calendar analysis cache
 without deleting existing events, source associations, or manual corrections.
+Schema 45 adds the durable analysis queue, retry state, and worker leases.
 Previous event history is preserved. Schema 19 retains organization pins and removal records and adds
 manual process names without deleting events or messages;
 timelines continue to derive events and messages from their existing tables.

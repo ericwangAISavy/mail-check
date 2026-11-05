@@ -131,8 +131,8 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["pipeline"] }),
           ])
           window.dispatchEvent(new Event("mailcheck:check-completed"))
-          toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
-          for (const item of current.interview_changes || []) {
+          if (!current.background) toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
+          for (const item of current.background ? [] : current.interview_changes || []) {
             const label = item.status === "Cancelled" ? "Meeting cancelled" : item.status === "Rescheduled" ? "Meeting rescheduled" : "Meeting added"
             toast(`${label} · ${item.company || "Company unknown"}${item.start_at ? " · " + new Date(item.start_at).toLocaleString() : " · Needs review"}`, "info")
           }

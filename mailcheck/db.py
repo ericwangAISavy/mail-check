@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 44
+SCHEMA_VERSION = 45
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -65,6 +65,19 @@ CREATE TABLE IF NOT EXISTS interview_calendar_state (
 CREATE INDEX IF NOT EXISTS idx_interviews_start ON interview_events(start_at);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_event ON interview_sources(event_id, account_id);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_thread ON interview_sources(account_id, thread_id);
+CREATE TABLE IF NOT EXISTS calendar_analysis_tasks (
+    id INTEGER PRIMARY KEY,account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    external_id TEXT NOT NULL,version TEXT NOT NULL,booking TEXT,start_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt REAL NOT NULL DEFAULT 0,lease_until REAL NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',last_seen REAL NOT NULL,
+    UNIQUE(account_id,external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_analysis_ready ON calendar_analysis_tasks(state,next_attempt);
+CREATE TABLE IF NOT EXISTS calendar_analysis_worker (
+    id INTEGER PRIMARY KEY CHECK(id=1),last_account INTEGER NOT NULL DEFAULT 0,
+    next_run REAL NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS calendar_analyses (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     external_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL,
