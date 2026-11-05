@@ -902,8 +902,6 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/payments/refresh")
     def refresh_application_metrics(body: MetricsRefreshBody):
-        if body.mode == 'rebuild':
-            return _err('Historical check removal is disabled. Use Refresh this week to add matches without changing saved checks.',409)
         first = payments.monday(body.week or payments.today())
         last = first + timedelta(days=6)
         with db.session() as conn:
@@ -930,9 +928,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/payments")
     def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
         with db.session() as conn:
-            # Viewing/polling a report must never run reconciliation or write
-            # accounting history, regardless of whether the viewer is an admin.
-            conn.execute("PRAGMA query_only=ON")
+            start = payments.monday(week or payments.today())
+            read_only = request.state.role == "bidder"
+            if read_only:conn.execute("PRAGMA query_only=ON")
+            if not read_only:
+                sourcing_verification.verify_all(conn, refresh_since=start,
+                    refresh_until=start + timedelta(days=6), sample=False, week_only=True)
             viewer = request.state.bidder_id if request.state.role=='bidder' else None
             policy = payments.visibility(conn,viewer) if viewer else None
             scope = None if viewer and policy['other_work_visible'] else viewer

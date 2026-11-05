@@ -11,9 +11,8 @@ class ActivityTests(unittest.TestCase):
     add_checks = fixtures.PaymentTests.add_checks
 
     def confirm_existing(self, stamp):
-        # Install historical proof fixtures explicitly; ordinary checking cannot rewrite them.
         for row in self.conn.execute(activity._CHECKED_ROWS).fetchall():
-            activity.confirm(self.conn,row['row_id'],stamp,'receipt-'+row['row_id'],replace_existing=True)
+            activity.confirm(self.conn,row['row_id'],stamp,'receipt-'+row['row_id'])
 
     def test_new_checks_are_recorded_once_and_zero_runs_are_visible(self):
         self.assign()
@@ -144,7 +143,7 @@ class ActivityTests(unittest.TestCase):
         rows=self.conn.execute(activity._CHECKED_ROWS).fetchall()
         stamps=['2026-10-12T04:59:00+00:00','2026-10-12T05:00:00+00:00','2026-10-13T04:59:00+00:00','2026-10-13T05:00:00+00:00']
         for row,stamp in zip(rows,stamps):
-            activity.confirm(self.conn,row['row_id'],datetime.fromisoformat(stamp),'receipt-'+row['row_id'],replace_existing=True)
+            activity.confirm(self.conn,row['row_id'],datetime.fromisoformat(stamp),'receipt-'+row['row_id'])
         graph=activity.report(self.conn,date(2026,10,12),day=date(2026,10,12))
         table=payments.report(self.conn,date(2026,10,12))
         total=sum(p['counts']['1'] for p in graph['workday']['confirmations'])

@@ -55,11 +55,6 @@ tab. A confirmation received on day D can check rows dated D through D−6, usin
 Chicago calendar dates. Account and full normalized company must match. A role in the reply must match the job role, retaining seniority, level numbers, and C++/C# distinctions. A company-only reply can automatically check a job only when it identifies one eligible row across the account’s active bidder tabs. One reply cannot automatically check several rows, even on different dates or bidder tabs. Ambiguous jobs remain unchecked for manual review. Pre-registered future dates are also eligible for early work: recent confirmations from the last seven Chicago dates can check future rows, with no limit on how far ahead the row is scheduled. A selected-week refresh compares that week’s receipts with future rows too. Manual
 **Check applications** checks the selected date plus future rows on that account tab.
 
-Opening or polling a payment report never runs verification. **Refresh this week**
-adds new matches; it leaves already checked rows and their saved receipt proofs and
-dates untouched. The public destructive rebuild action is disabled. See the
-[read-only audit guide](APPLICATION_COUNT_AUDIT.md) when historical totals differ.
-
 Checked rows stay checked through later checks, reclassification, and edits. A
 confirmation arriving next week counts on its received date, including links given the previous week. Manually checked rows count too. The checkbox cannot be cleared, although
 row deletion can affect totals. Changing a sourcing date only moves an untimed manual or legacy count; matched completions retain their confirmation date.

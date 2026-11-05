@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.21.6",
+    "date": "2026-11-05",
+    "title": "Restore complete v2.21.0 checkpoint",
+    "changes": [
+      "Restore the complete application code and behavior from bc02a75, before the company and role containment matching changes and subsequent checking and recovery changes. Database records are not reverted."
+    ]
+  },
+  {
     "version": "2.21.5",
     "date": "2026-11-05",
     "title": "Recover rebuild-cleared application checks",

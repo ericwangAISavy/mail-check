@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.6 — 2026-11-05
+
+Restore complete v2.21.0 checkpoint
+
+- Restore the complete application code and behavior from bc02a75, before the company and role containment matching changes and subsequent checking and recovery changes. Database records are not reverted.
+
 ## 2.21.5 — 2026-11-05
 
 Recover rebuild-cleared application checks
