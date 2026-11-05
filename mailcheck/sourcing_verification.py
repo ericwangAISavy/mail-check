@@ -40,6 +40,7 @@ def _matching_plan(conn, rows, receipts, *, early_since):
     receipt with every job. The plan is shared by manual and automatic checks.
     """
     groups, company_words, company_roles = {}, {}, {}
+    rows_by_id = {row['id']: row for row in rows}
     for row in rows:
         if not row['work_date'] or not (row['link'] or '').strip():
             continue
@@ -129,6 +130,14 @@ def _matching_plan(conn, rows, receipts, *, early_since):
                 if day >= early_since:
                     for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
                         candidates.update(by_date[source_day])
+            if role is None:
+                # A role-less reply is evidence for the company, not a specific
+                # title. Saved checks cannot compete for fresh credit. Prefer
+                # the receipt day's work over historical or future source rows.
+                candidates = {row_id for row_id in candidates if rows_by_id[row_id]['checked'] != 'true'}
+                same_day = {row_id for row_id in candidates if rows_by_id[row_id]['work_date'] == day.isoformat()}
+                if same_day:
+                    candidates = same_day
             if candidates:
                 break
         reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
@@ -169,12 +178,14 @@ def verify(conn, tab, operation, revision, work_date):
                   OR (julianday(received_at)>=julianday(?) AND julianday(received_at)<julianday(?)))""",
                 (tab['account_id'], lower, upper, early_lower, early_upper)))
             candidates = conn.execute("""SELECT r.id,r.tab_id,r.work_date,t.account_id,
-                company.value AS company,role.value AS role,link.value AS link
+                company.value AS company,role.value AS role,link.value AS link,checked.value AS checked
                 FROM native_rows r JOIN native_tabs t ON t.id=r.tab_id
                 JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
                 JOIN native_columns cc ON cc.tab_id=t.id AND cc.kind='company'
                 JOIN native_columns rc ON rc.tab_id=t.id AND rc.kind='role'
                 JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+                JOIN native_columns hc ON hc.tab_id=t.id AND hc.kind='check'
+                LEFT JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=hc.id
                 LEFT JOIN native_cells company ON company.row_id=r.id AND company.column_id=cc.id
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=rc.id
                 JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''

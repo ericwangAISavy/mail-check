@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.21.12",
+    "date": "2026-11-05",
+    "title": "Fix company-only confirmations blocked by checked job history",
+    "changes": [
+      "For confirmations without a role, match a unique unchecked company/account job on the receipt date before considering other source dates; checked rows cannot block new company-only matches, and bound receipts remain reserved."
+    ]
+  },
+  {
     "version": "2.21.11",
     "date": "2026-11-05",
     "title": "Fix shared payment status display and add match diagnostics",

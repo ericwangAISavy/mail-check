@@ -800,3 +800,40 @@ class SourcingVerificationTests(unittest.TestCase):
         result=explain(self.path,'different@example.test','HP')
         self.assertEqual(result['matching_account_ids'],[])
         self.assertFalse(any(row['same_email_account'] for row in result['rows']))
+
+    def test_hp_company_only_checks_current_unchecked_job_despite_history(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'hp-history',base['revision'],[
+            ['HP','Senior Engineer','https://hp.test/old']],work_date='2026-10-19')
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'hp-today',base['revision'],[
+            ['HP','Embedded AI/ML Developer','https://hp.test/new']],work_date='2026-10-20')
+        self.receipt('hp-company-only-today','HP','2026-10-20T12:00:00Z',role=None)
+        self.conn.commit()
+        before=self.snapshot()
+        after=verification.verify(self.conn,self.tab(),'hp-manual',before['revision'],'2026-10-20')
+        self.assertEqual([r[3]['value']=='true' for r in after['rows'][1:3]],[False,True])
+        proof=tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(after['row_ids'][2],)).fetchone())
+        for rebuild in (False,True):
+            verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=rebuild,sample=False)
+            self.assertEqual([r[3]['value']=='true' for r in self.snapshot()['rows'][1:3]],[False,True])
+            self.assertEqual(tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(after['row_ids'][2],)).fetchone()),proof)
+
+    def test_hp_checked_job_does_not_block_an_unbound_company_only_confirmation(self):
+        from mailcheck import sourcing_verification as verification
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'hp-two',base['revision'],[
+            ['HP','Engineer','https://hp.test/checked'],
+            ['HP','Embedded AI/ML Developer','https://hp.test/unchecked']],work_date='2026-10-20')
+        base=self.snapshot()
+        self.native.save(self.conn,self.tab(),'hp-existing-credit',[{
+            'row_id':base['row_ids'][1],'column_id':base['columns'][3]['id'],
+            'expected_version':base['rows'][1][3]['version'],'value':'true'}])
+        before=self.snapshot()
+        self.receipt('hp-new-company-only','HP','2026-10-20T12:00:00Z',role=None)
+        self.conn.commit()
+        verification.verify_all(self.conn,sample=False)
+        after=self.snapshot()
+        self.assertEqual([r[3]['value'] for r in after['rows'][1:3]],['true','true'])
+        self.assertEqual(before['rows'][1][3],after['rows'][1][3])

@@ -93,7 +93,11 @@ not Engineer III, and C++ is not C#. No fuzzy similarity is used.
 Both manual **Check applications** and automatic checks consider competing jobs
 across the same account's active bidder tabs. A reply is bound only when its
 company, role when present, and date evidence identify one eligible row. A
-company-only reply with several eligible roles stays unmatched for review. The
+company-only reply first considers unchecked jobs on the receipt’s Chicago date.
+One such job is sufficient even if other source dates have jobs at the company.
+If there is no same-day job, one eligible unchecked job in the existing date
+window is required. Multiple unchecked jobs on the preferred date remain
+ambiguous. Already checked jobs do not compete for a company-only reply. The
 same reply cannot newly check several jobs or be borrowed from an existing bound
 job, including an archived checked job. All checks—automatic, periodic, selected-week refresh/rebuild, and manual
 **Check applications**—check only unchecked links. Existing checks, receipt
@@ -262,8 +266,10 @@ may include its job details and initial checked state in the same save.
 ### Diagnose an unchecked company confirmation
 
 A missing role does not by itself prevent matching: a company-only receipt must
-identify exactly one eligible job for the same account. Other dates and bidder
-tabs can provide competing candidates. Existing receipt bindings are reserved.
+identify one eligible unchecked job for the same account, preferring the receipt’s
+Chicago date. Other bidder tabs can provide competing unchecked candidates on
+that date. Without a same-day candidate the existing date window applies.
+Existing receipt bindings are reserved.
 Do not infer the cause of an unchecked row from the currently visible sheet alone.
 
 Run the diagnostic in the app’s Python environment (its virtualenv or application

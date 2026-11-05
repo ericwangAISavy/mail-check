@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.12 — 2026-11-05
+
+Fix company-only confirmations blocked by checked job history
+
+- For confirmations without a role, match a unique unchecked company/account job on the receipt date before considering other source dates; checked rows cannot block new company-only matches, and bound receipts remain reserved.
+
 ## 2.21.11 — 2026-11-05
 
 Fix shared payment status display and add match diagnostics
