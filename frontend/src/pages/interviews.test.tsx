@@ -58,7 +58,7 @@ it("opens event details and persists only fields explicitly corrected",async()=>
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   await within(dialog).findByRole("button",{name:"Edit details"})
-  expect(within(dialog).getByRole("link",{name:/Open Zoom link/}).getAttribute('href')).toBe('https://zoom.us/j/123')
+  expect(within(dialog).getByRole("link",{name:/Join Zoom/}).getAttribute('href')).toBe('https://zoom.us/j/123')
   expect(within(dialog).queryByRole("button",{name:"View source email"})).toBeNull()
   fireEvent.click(within(dialog).getByRole("button",{name:"Edit details"}))
   fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:"Correct Company"}})
@@ -113,18 +113,26 @@ it("does not protect an unchanged end time when only the start is corrected",asy
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{start_at:'2026-10-20T10:00',timezone:zone}))
 })
 
-it('opens native application lookup with company, role and the available profile',async()=>{
+it('shows only useful details and the linked email account',async()=>{
  mount();await screen.findByRole('button',{name:'Month'})
  fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
- const link=await screen.findByRole('link',{name:/Find application/})
- expect(link.getAttribute('href')).toBe('/sourcing?q=Acme+Engineer&account=1')
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Email account')
+ expect(within(dialog).getByText('work@example.test')).toBeTruthy()
+ expect(within(dialog).getByText('Company')).toBeTruthy()
+ expect(within(dialog).getByText('Role')).toBeTruthy()
+ expect(within(dialog).getByText('Interviewer / contact')).toBeTruthy()
+ expect(within(dialog).getByText('Location')).toBeTruthy()
+ for(const label of ['Original timezone','Display timezone','Participants','Detected status','Last updated','Notes','Connected calendar accounts'])expect(within(dialog).queryByText(label)).toBeNull()
+ expect(within(dialog).queryByRole('button',{name:'Remove from calendar'})).toBeNull()
 })
 it("removes a saved event and closes its details", async () => {
   mount()
   await screen.findByRole("button", {name:"Month"})
   fireEvent.click(screen.getAllByRole("button", {name:/Acme, Technical Interview/})[0])
   const dialog = await screen.findByRole("dialog")
-  fireEvent.click(await within(dialog).findByRole("button", {name:"Remove from calendar"}))
+  fireEvent.click(await within(dialog).findByRole("button", {name:"Edit details"}))
+  fireEvent.click(within(dialog).getByRole("button", {name:"Remove from calendar"}))
   await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull())
   expect(api.post).toHaveBeenCalledWith("/api/interviews/1/remove")
 })
@@ -134,7 +142,8 @@ it("keeps the event details open if removal fails", async () => {
   await screen.findByRole("button", {name:"Month"})
   fireEvent.click(screen.getAllByRole("button", {name:/Acme, Technical Interview/})[0])
   const dialog = await screen.findByRole("dialog")
-  fireEvent.click(await within(dialog).findByRole("button", {name:"Remove from calendar"}))
+  fireEvent.click(await within(dialog).findByRole("button", {name:"Edit details"}))
+  fireEvent.click(within(dialog).getByRole("button", {name:"Remove from calendar"}))
   expect((await within(dialog).findByRole("alert")).textContent).toBe("Could not remove event")
   expect((within(dialog).getByRole("button", {name:"Remove from calendar"}) as HTMLButtonElement).disabled).toBe(false)
 })
@@ -143,4 +152,28 @@ it('Refresh requests a real Outlook calendar sync',async()=>{
   mount();await screen.findByRole('button',{name:'Month'})
   fireEvent.click(screen.getByRole('button',{name:'Refresh'}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/sync'))
+})
+
+it('deduplicates native accounts and contacts without treating the event title as a company',async()=>{
+ current.company='CONFIRMED - VIDEO Interview Danny Vo - HR AI Solutions Lead'
+ current.role=null
+ current.organizer_name='Rebecca Moore';current.organizer_email='rebecca@airbus.com'
+ current.participants=['REBECCA@airbus.com','antonio@airbus.com','work@example.test']
+ current.location=current.meeting_url
+ const base=vi.mocked(request).getMockImplementation()!
+ vi.mocked(request).mockImplementation(async(url,init)=>{
+  if(url==='/api/interviews/1')return {event:current,sources:[1,2].map(id=>({id,account_id:1,message_pk:null,account_label:'work',account_email:id===1?'work@example.test':'WORK@example.test',source_subject:current.company}))} as any
+  return base(url,init)
+ })
+ mount();await screen.findByRole('button',{name:'Month'})
+ fireEvent.click(screen.getAllByRole('button',{name:/CONFIRMED - VIDEO Interview/})[0])
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Email account')
+ expect(within(dialog).getAllByText(/^work@example.test$/i)).toHaveLength(1)
+ expect(within(dialog).getByText('Company').nextElementSibling!.textContent).toBe('Not provided')
+ expect(within(dialog).getByText('Role').nextElementSibling!.textContent).toBe('Not provided')
+ const contacts=within(dialog).getByText('Interviewer / contact').nextElementSibling!
+ expect(contacts.textContent).toBe('Rebecca Moore · rebecca@airbus.comantonio@airbus.com')
+ expect(within(dialog).getAllByRole('link',{name:/Join Zoom/})).toHaveLength(1)
+ expect(within(dialog).queryByText(current.meeting_url!)).toBeNull()
 })

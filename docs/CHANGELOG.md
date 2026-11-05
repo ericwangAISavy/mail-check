@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.19.3 — 2026-11-04
+
+Simplify interview calendar details
+
+- Interview dialogs focus on time, email account, company, role, interview contacts, and location or a meeting link.
+- Deduplicate calendar accounts and contacts, exclude the candidate’s own email addresses, and stop labeling fallback calendar titles as companies.
+- Move event removal into Edit details and remove technical metadata and repeated source-account sections from the summary.
+
 ## 2.19.2 — 2026-11-04
 
 Unify Accounts section headers

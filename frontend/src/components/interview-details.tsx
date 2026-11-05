@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink } from "lucide-react"
 import { api, request } from "@/lib/api"
@@ -30,23 +29,51 @@ export function InterviewDetails({id,stages,statuses,displayTimezone,onCloseAuto
   })
   const [editing,setEditing] = useState(false)
   const event = query.data?.event
-  const applicationLookup = new URLSearchParams({q:[event?.company,event?.role].filter(Boolean).join(" ")})
-  const profileIds = [...new Set(query.data?.sources.filter(s=>s.account_enabled!==false).map(s=>s.account_id).filter((id):id is number=>typeof id==="number")||[])]
-  if(profileIds.length===1)applicationLookup.set("account",String(profileIds[0]))
-  return <DialogContent className="interview-dialog" onCloseAutoFocus={onCloseAutoFocus}><DialogHeader><DialogTitle>{event?.company || "Meeting details"}</DialogTitle><DialogDescription>Calendar event details and local corrections.</DialogDescription></DialogHeader>
+  const sources = query.data?.sources || []
+  const accountEmails = new Set(sources.map(source => source.account_email.trim().toLowerCase()).filter(Boolean))
+  const accounts = [...new Map(sources.map(source => { const value = source.account_email.trim() || source.account_label; return [value.toLowerCase(), value] })).values()].filter(Boolean)
+  const contacts = new Map<string, string>()
+  const addContact = (value: string | null, name?: string | null) => {
+    if (!value) return
+    const key = (value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || value).trim().toLowerCase()
+    if (!key || accountEmails.has(key) || contacts.has(key)) return
+    contacts.set(key, name ? `${name} · ${value}` : value)
+  }
+  addContact(event?.organizer_email || event?.organizer_name || null, event?.organizer_email ? event.organizer_name : null)
+  event?.participants.forEach(participant => addContact(participant))
+  // Native calendars provide a title, not a structured company or role.
+  // Keep the title above, but do not mislabel it as an extracted company.
+  const titleAsCompany = event && !event.manual_fields.includes("company") &&
+    /\b(interview|confirmed|meeting|screening|call)\b/i.test(event.company || "") &&
+    sources.some(source => source.message_pk === null && source.source_subject === event.company)
+  const company = titleAsCompany ? null : event?.company
+  const httpUrl = (value: string | null | undefined) => {
+    try { const url = new URL(value || ""); return ["http:","https:"].includes(url.protocol) ? url.href : null } catch { return null }
+  }
+  const meetingUrl = httpUrl(event?.meeting_url)
+  const locationUrl = httpUrl(event?.location)
+  const joinUrl = meetingUrl || locationUrl
+  const physicalLocation = event?.location && !locationUrl ? event.location : null
+  const zone = displayTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+  const zoneLabel = event?.start_at ? new Intl.DateTimeFormat(undefined, { timeZone: zone, timeZoneName: "short" }).formatToParts(new Date(event.start_at)).find(part => part.type === "timeZoneName")?.value : null
+  return <DialogContent className="interview-dialog" onCloseAutoFocus={onCloseAutoFocus}><DialogHeader><DialogTitle>{event?.company || "Meeting details"}</DialogTitle><DialogDescription>Interview time, account, and meeting details.</DialogDescription></DialogHeader>
     {removed ? <p role="status">Event removed from calendar.</p> : query.isPending ? <Loading/> : query.error ? <p role="alert" className="inline-error">{query.error.message}</p> : event && <>
     <div className="interview-detail-status"><span className={`interview-status ${stateClass(event)}`}>{event.display_status}</span><Button variant="outline" onClick={()=>setEditing(!editing)}>{editing?"Cancel editing":"Edit details"}</Button></div>
     {editing ? <InterviewEditor displayTimezone={displayTimezone} event={event} stages={stages || query.data?.stages || []} statuses={statuses || query.data?.statuses || []} onSaved={()=>setEditing(false)}/> : <>
       {event.needs_review && <p className="review-note">Needs review: {event.review_reason || "Verify the event details in your calendar."}</p>}
-      <Link className="interview-meeting-link" to={`/sourcing?${applicationLookup}`}>Find application <ExternalLink size={14}/></Link>
-      <dl className="interview-details">{[["Company",event.company],["Role",event.role],["Interview stage",event.stage],["Start",dateTime(event.start_at,displayTimezone)],["End",dateTime(event.end_at,displayTimezone)],["Original timezone",event.timezone],["Display timezone",displayTimezone||Intl.DateTimeFormat().resolvedOptions().timeZone],["Meeting platform",event.meeting_platform],["Location",event.location],["Organizer",[event.organizer_name,event.organizer_email].filter(Boolean).join(" · ")],["Participants",event.participants.join(", ")],["Detected status",event.status],["Last updated",dateTime(event.updated_at,displayTimezone)],["Notes",event.notes]].map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value||"Unknown"}</dd></div>)}</dl>
-      {event.meeting_url && <a className="interview-meeting-link" href={event.meeting_url} target="_blank" rel="noopener noreferrer">Open {event.meeting_platform || "meeting"} link <ExternalLink size={14}/></a>}
-      {!!event.manual_fields.length && <p className="form-hint">Manually corrected fields are protected from later automated updates.</p>}
+      <div className="interview-time-summary"><span>When</span><strong>{dateTime(event.start_at,displayTimezone)}{event.end_at ? ` – ${dateTime(event.end_at,displayTimezone)}` : ""}{zoneLabel ? ` (${zoneLabel})` : ""}</strong></div>
+      <dl className="interview-details interview-essential-details">
+        <div><dt>Email account</dt><dd>{accounts.length ? accounts.map(account => <span className="interview-detail-line" key={account}>{account}</span>) : "Not provided"}</dd></div>
+        <div><dt>Company</dt><dd>{company || "Not provided"}</dd></div>
+        <div><dt>Role</dt><dd>{event.role || "Not provided"}</dd></div>
+        <div><dt>Interviewer / contact</dt><dd>{contacts.size ? [...contacts].map(([key,contact]) => <span className="interview-detail-line" key={key}>{contact}</span>) : "Not provided"}</dd></div>
+        <div className="interview-location"><dt>Location</dt><dd>{physicalLocation && <span className="interview-detail-line">{physicalLocation}</span>}{joinUrl && <a className="interview-meeting-link" href={joinUrl} target="_blank" rel="noopener noreferrer">Join {event.meeting_platform || "meeting"} <ExternalLink size={14}/></a>}{!physicalLocation && !joinUrl && "Not provided"}</dd></div>
+      </dl>
     </>}
-    <Button variant="destructive" disabled={remove.isPending} onClick={()=>remove.mutate()}>{remove.isPending ? "Removing…" : "Remove from calendar"}</Button>
+    {editing && <div className="interview-dialog-maintenance"><Button variant="destructive" disabled={remove.isPending} onClick={()=>remove.mutate()}>{remove.isPending ? "Removing…" : "Remove from calendar"}</Button>
     <p className="form-hint">Removes this event from this app. Your connected calendar is unchanged.</p>
-    {remove.error && <p role="alert" className="inline-error">{remove.error.message}</p>}
-    <div className="interview-sources"><h2>Connected calendar accounts</h2>{query.data?.sources.map(s=><article key={s.id}><strong>{s.account_label}</strong><p>{s.account_email}</p></article>)}</div>
+    {remove.error && <p role="alert" className="inline-error">{remove.error.message}</p>}</div>}
+
     </>}
   </DialogContent>
 }

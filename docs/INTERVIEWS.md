@@ -245,3 +245,17 @@ enabled account remain visible. Returning events reappear automatically. Outlook
 updates clear removed meeting links/locations and can reinstate cancelled events;
 explicit local corrections remain protected. Calendar collection is read-only
 and never edits Outlook.
+
+## Calendar event summary
+
+The event dialog shows time in the selected display timezone, linked email accounts,
+company, role, interview contacts, and location or a single meeting link. Accounts
+and contacts are deduplicated; the candidate's linked email addresses are omitted
+from the contact list. Organizer/contact information does not establish who will
+conduct the interview.
+
+Native calendar titles are not structured company data. When a calendar title was
+stored as a fallback company, the summary keeps it as the dialog title and marks
+the company as **Not provided**. Missing roles are also shown as **Not provided**;
+these details are not guessed. **Edit details** allows local corrections and event
+removal. Technical source metadata and calendar notes stay out of the summary.

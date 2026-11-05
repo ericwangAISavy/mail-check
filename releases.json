@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.19.3",
+    "date": "2026-11-04",
+    "title": "Simplify interview calendar details",
+    "changes": [
+      "Interview dialogs focus on time, email account, company, role, interview contacts, and location or a meeting link.",
+      "Deduplicate calendar accounts and contacts, exclude the candidate’s own email addresses, and stop labeling fallback calendar titles as companies.",
+      "Move event removal into Edit details and remove technical metadata and repeated source-account sections from the summary."
+    ]
+  },
+  {
     "version": "2.19.2",
     "date": "2026-11-04",
     "title": "Unify Accounts section headers",

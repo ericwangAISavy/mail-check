@@ -360,3 +360,12 @@
 .timezone-picker-popup button.is-active,.timezone-picker-popup button:hover { background:var(--oc-hover); }
 .timezone-picker-popup p { padding:10px; margin:0; }
 @media(max-width:640px) { .outlook-zone-selector { width:100%; margin-left:0; } .outlook-zone-selector .timezone-picker { flex:1; min-width:0; } }
+.interview-time-summary { display:grid; gap:5px; padding:14px 16px; border:1px solid var(--border); border-radius:10px; background:var(--secondary); }
+.interview-time-summary > span { color:var(--muted-foreground); font-size:var(--text-small); }
+.interview-time-summary strong { font-size:14px; font-weight:550; line-height:1.6; }
+.interview-essential-details { margin:20px 0 0; gap:20px 24px; }
+.interview-detail-line { display:block; }
+.interview-detail-line + .interview-detail-line { margin-top:5px; }
+.interview-essential-details .interview-location { grid-column:1 / -1; }
+.interview-essential-details .interview-meeting-link { margin:4px 0 0; }
+.interview-dialog-maintenance { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
