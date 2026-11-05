@@ -368,8 +368,8 @@ class SourcingVerificationTests(unittest.TestCase):
         response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
         self.assertEqual(response.status_code, 200, response.text)
         after = self.snapshot()
-        self.assertEqual([r[3]['value'] for r in after['rows'][1:4]], ['false', 'true', 'true'])
-        self.assertEqual(after['rows'][1][3]['checked_at'], None)
+        self.assertEqual([r[3]['value'] for r in after['rows'][1:4]], ['true', 'true', 'true'])
+        self.assertEqual(after['rows'][1][3]['checked_at'], '2026-10-21T14:00:00+00:00')
         again = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
         self.assertEqual(again.json()['changed'], 0)
 
@@ -411,7 +411,7 @@ class SourcingVerificationTests(unittest.TestCase):
         response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
         self.assertEqual(response.status_code, 200, response.text)
         cell = self.conn.execute('SELECT c.value FROM native_cells c JOIN native_columns col ON col.id=c.column_id WHERE c.row_id=? AND col.kind=\'check\'', (self.snapshot()['row_ids'][1],)).fetchone()
-        self.assertEqual(cell['value'], 'false')
+        self.assertEqual(cell['value'], 'true')
 
     def test_week_rebuild_preserves_saved_payment_and_rejects_invalid_scope(self):
         self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(1,'2026-10-19',42,12345,'2026-10-26T12:00:00+00:00','Saved payment')")
@@ -423,7 +423,7 @@ class SourcingVerificationTests(unittest.TestCase):
         for body in ({'week':'invalid'}, {'week':'1900-01-01'}, {'mode':'delete'}):
             self.assertEqual(self.client.post('/api/payments/refresh', json=body).status_code, 422)
 
-    def test_week_rebuild_repairs_stale_confirmation_even_if_row_became_undated(self):
+    def test_week_rebuild_preserves_confirmation_even_if_row_became_undated(self):
         from mailcheck import sourcing_verification as verification
         self.jobs('2026-10-20')
         pk = self.receipt('undated-stale', 'Acme', '2026-10-21T14:00:00+00:00')
@@ -436,8 +436,8 @@ class SourcingVerificationTests(unittest.TestCase):
         response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
         self.assertEqual(response.status_code, 200, response.text)
         event = self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?', (row_id,)).fetchone()
-        self.assertIsNone(event['confirmed_at'])
-        self.assertEqual(event['source'], 'rebuild-cleared')
+        self.assertEqual(event['confirmed_at'], '2026-10-21T14:00:00+00:00')
+        self.assertEqual(event['source'], 'confirmation')
 
     def test_week_rebuild_does_not_break_future_check_run_activity_cursor(self):
         from mailcheck import sourcing_verification as verification
@@ -579,7 +579,7 @@ class SourcingVerificationTests(unittest.TestCase):
         verification.verify_all(self.conn, sample=False)
         self.assertEqual(self.conn.total_changes, before)
 
-    def test_scoped_rebuild_moves_stale_automatic_binding_in_one_pass(self):
+    def test_scoped_rebuild_never_reassigns_a_saved_receipt(self):
         from mailcheck import sourcing_verification as verification
         self.jobs()
         pk = self.receipt('corrected-company', 'Acme', '2026-10-20T12:00:00Z')
@@ -588,4 +588,33 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
         db.save_classification(self.conn,pk,Classification(category='application_ack',company='Beta',role='Engineer'),'test','1')
         verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:4]], ['false','true','false'])
+        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:4]], ['true','false','false'])
+
+    def test_rebuild_adds_new_matches_without_touching_saved_cells_or_proofs(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        base = self.snapshot()
+        self.native.save(self.conn,self.tab(),'manual-before-rebuild',[{
+            'row_id':base['row_ids'][3],'column_id':base['columns'][3]['id'],
+            'expected_version':base['rows'][3][3]['version'],'value':'true'}])
+        self.receipt('original-acme','Acme','2026-10-21T14:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn,sample=False)
+        before = self.snapshot()
+        ids = (before['row_ids'][1],before['row_ids'][3])
+        proofs = [tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(i,)).fetchone()) for i in ids]
+        self.receipt('earlier-acme','Acme','2026-10-20T14:00:00+00:00')
+        self.receipt('new-beta','Beta','2026-10-22T14:00:00+00:00')
+        self.conn.commit()
+        response = self.client.post('/api/payments/refresh',json={'week':'2026-10-19','mode':'rebuild'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['changed'],1)
+        after = self.snapshot()
+        self.assertEqual([r[3]['value'] for r in after['rows'][1:4]],['true']*3)
+        for index in (1,3):
+            self.assertEqual(after['rows'][index][3],before['rows'][index][3])
+        self.assertEqual([tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(i,)).fetchone()) for i in ids],proofs)
+        self.assertEqual(after['rows'][2][3]['checked_at'],'2026-10-22T14:00:00+00:00')
+        response = self.client.post('/api/payments/refresh',json={'week':'2026-10-19','mode':'rebuild'})
+        self.assertEqual(response.json()['changed'],0)
+        self.assertEqual(self.snapshot(),after)

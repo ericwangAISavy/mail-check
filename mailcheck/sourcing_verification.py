@@ -28,14 +28,13 @@ def role_key(value):
     return " ".join({"sr": "senior", "jr": "junior"}.get(word, word) for word in words)
 
 
-def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
+def _matching_plan(conn, rows, receipts, *, early_since):
     """Only bind a receipt to an unambiguous job; never reuse a reserved receipt.
 
     Index candidates by account/company/role/date instead of comparing each
     receipt with every job. The plan is shared by manual and automatic checks.
     """
     groups = {}
-    releasable = set(releasable)
     for row in rows:
         if not row['work_date'] or not (row['link'] or '').strip():
             continue
@@ -87,9 +86,6 @@ def _matching_plan(conn, rows, receipts, *, early_since, releasable=()):
             for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
                 candidates.update(by_date[source_day])
         reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
-        # A requested rebuild may move a proven stale automatic binding within
-        # its week. Ordinary refreshes and manual bindings are never released.
-        reserved = reserved - (releasable - candidates)
         if reserved:
             # Existing bindings win over new candidates, including archived rows.
             if len(reserved) != 1:
@@ -242,11 +238,15 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"])
                     or (week_only and in_week(r["confirmed_at"]))]
         receipts = list(conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters))
-        releasable = {row['id'] for row in rows if rebuild and row['check_source']=='confirmation' and in_week(row['confirmed_at'])}
-        plan = _matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=6)), releasable=releasable)
+        plan = _matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=6)))
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
+            # Rebuild fills unchecked rows only. Saved proof/date metadata is
+            # accounting history and must not be reassigned or refreshed here.
+            if rebuild and row['checked'] == 'true':
+                checked_count += 1
+                continue
             match = plan.get(row['id'])
             if week_only:
                 # Source dates can precede the receipt week. Never rewrite a
@@ -262,9 +262,6 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                 if not match and not in_week(row['confirmed_at']) and not sourced_in_week:
                     continue
             checked = row['checked'] == 'true' or bool(match)
-            if rebuild and not match and row['check_source'] == 'confirmation' and in_week(row['confirmed_at']):
-                checked = False
-                conn.execute("UPDATE sourcing_check_activity SET confirmed_at=NULL,message_id=NULL,source='rebuild-cleared' WHERE row_id=?", (row['id'],))
             if match:
                 from .sourcing_activity import confirm
                 confirm(conn,row['id'],*match)

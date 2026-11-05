@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.21.7",
+    "date": "2026-11-05",
+    "title": "Make full rebuild preserve checked applications",
+    "changes": [
+      "Fully rebuild checks only unchecked links; existing checkmarks, receipt bindings, and confirmation dates remain unchanged, and bound receipts cannot be reassigned."
+    ]
+  },
+  {
     "version": "2.21.6",
     "date": "2026-11-05",
     "title": "Restore complete v2.21.0 checkpoint",

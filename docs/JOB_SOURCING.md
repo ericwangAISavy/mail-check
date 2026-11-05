@@ -93,8 +93,10 @@ company, role when present, and date evidence identify one eligible row. A
 company-only reply with several eligible roles stays unmatched for review. The
 same reply cannot newly check several jobs or be borrowed from an existing bound
 job, including an archived checked job. Existing checks stay saved on normal
-refresh. A selected-week rebuild may clear stale automatic bindings and repair
-unambiguous replacements; manual checks and payment history remain saved.
+refresh. A selected-week rebuild checks only unchecked links. Existing checkmarks,
+receipt bindings and confirmation dates remain unchanged, including automatic
+and manual checks and archived sheets. Previously bound receipts cannot be
+reassigned to another job.
 
 On **Bidder payments**, daily cells show **checked applications / received replies**.
 For example, **60 / 112** means 60 checked job-link rows and an allocated share of

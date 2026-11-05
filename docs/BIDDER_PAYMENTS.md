@@ -170,7 +170,7 @@ No rate is inferred from another bidder or from the input placeholder.
 
 Recorded payments and manual overrides keep their saved amounts when the current checked count differs. The payment table shows the saved review count and current checked total so admins can explicitly review a correction. Zero-dollar settlements are accepted, including an agreed zero rate. Removing a bidder excludes their checks from current report totals and shared-account reply weights without deleting payment history.
 
-Ordinary refresh preserves existing checks. **Fully rebuild this week** explicitly re-evaluates automatic bindings in that week under the conservative matching rules; manual checks and recorded payments remain saved. No automatic bulk rebuild runs during an upgrade. Repeated unchanged report/refresh requests avoid rewriting receipt and matching records.
+Ordinary refresh preserves existing checks. **Fully rebuild this week** checks only unchecked links using the original matching rules. It preserves all existing checkmarks, receipt bindings and confirmation dates, including manual, automatic and archived checks. It cannot move a bound receipt to another job. Recorded payments remain saved. No automatic bulk rebuild runs during an upgrade. Repeated unchanged report/refresh requests avoid rewriting receipt and matching records.
 
 ## Daily minimum and deductions
 

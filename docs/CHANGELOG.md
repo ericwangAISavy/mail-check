@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.21.7 — 2026-11-05
+
+Make full rebuild preserve checked applications
+
+- Fully rebuild checks only unchecked links; existing checkmarks, receipt bindings, and confirmation dates remain unchanged, and bound receipts cannot be reassigned.
+
 ## 2.21.6 — 2026-11-05
 
 Restore complete v2.21.0 checkpoint
