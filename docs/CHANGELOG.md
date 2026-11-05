@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.20.0 — 2026-11-04
+
+Analyze calendar interview details with the configured model
+
+- Calendar sync analyzes event titles, descriptions, organizers, and attendees to identify interviews and extract company, role, stage, and actual interviewers without requiring fixed title patterns.
+- Successful analysis is cached; changed events are reanalyzed, while unavailable or malformed analysis is deferred for retry without losing native schedules or manual corrections.
+- Calendar times, cancellations, and meeting links remain authoritative. Interviewer corrections are editable and protected from automated updates.
+
 ## 2.19.7 — 2026-11-04
 
 Fix spreadsheet drag selection regressions

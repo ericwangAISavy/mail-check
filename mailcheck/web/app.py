@@ -472,7 +472,9 @@ def _run_calendar_check(body: CheckBody) -> None:
             result = interviews.collect_calendar_events(conn, cfg, account_label=body.account,
                 since_days=body.since_days, status=lambda message: _job.update(message=message))
         _job.update(interview_changes=list({item["id"]:item for item in result["changes"]}.values()),
-            message=f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts",
+            message=(f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts"
+                + (f" · {result['analyzed']} analyzed" if result.get('analyzed') else "")
+                + (f" · {result['analysis_pending']} analysis deferred" if result.get('analysis_pending') else "")),
             detail="\n".join(result["errors"][:5]),ok=not result["errors"])
     _start_job(work, failed="Calendar collection failed", on_finish=_reschedule)
 

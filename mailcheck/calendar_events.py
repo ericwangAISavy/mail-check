@@ -1,4 +1,4 @@
-"""Provider-neutral calendar records. No email text or classification is involved."""
+"""Provider-neutral calendar records, including descriptions for semantic analysis."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -28,6 +28,8 @@ class CalendarBooking:
     show_as: str = "busy"
     all_day: bool = False
     categories: list[str] = field(default_factory=list)
+    description: str = ""
+    attendees: list[str] = field(default_factory=list)
 
 
 _INTERVIEW = re.compile(

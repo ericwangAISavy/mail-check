@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 43
+SCHEMA_VERSION = 44
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS interview_calendar_state (
 CREATE INDEX IF NOT EXISTS idx_interviews_start ON interview_events(start_at);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_event ON interview_sources(event_id, account_id);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_thread ON interview_sources(account_id, thread_id);
+CREATE TABLE IF NOT EXISTS calendar_analyses (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    external_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL,
+    analyzed_at TEXT NOT NULL, PRIMARY KEY(account_id,external_id)
+);
 CREATE TABLE IF NOT EXISTS interview_scans (
     message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
     fingerprint TEXT NOT NULL,
@@ -207,6 +212,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
+    ("interview_events", "interviewers", "TEXT NOT NULL DEFAULT '[]'"),
     ("interview_calendar_state", "interview_related", "INTEGER NOT NULL DEFAULT 0"),
 ]
 

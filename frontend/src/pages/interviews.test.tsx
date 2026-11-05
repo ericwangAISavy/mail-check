@@ -178,3 +178,26 @@ it('deduplicates native accounts and contacts without treating the event title a
  expect(within(dialog).getByText('Meeting link')).toBeTruthy()
  expect(within(dialog).getByRole('link',{name:current.meeting_url!}).getAttribute('href')).toBe(current.meeting_url)
 })
+
+it('shows extracted interviewers instead of treating every attendee as an interviewer',async()=>{
+ current.interviewers=['Rebecca Moore <rebecca@airbus.com>']
+ current.participants=['scheduler@airbus.com','candidate@example.test']
+ mount();await screen.findByRole('button',{name:'Month'})
+ fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Rebecca Moore <rebecca@airbus.com>')
+ expect(within(dialog).queryByText('scheduler@airbus.com')).toBeNull()
+ expect(within(dialog).queryByText('Recruiter · recruiter@acme.test')).toBeNull()
+ fireEvent.click(within(dialog).getByRole('button',{name:'Edit details'}))
+ fireEvent.change(within(dialog).getByLabelText('Interviewers (one per line)'),{target:{value:'Correct person <correct@airbus.com>\nSecond person'}})
+ fireEvent.click(within(dialog).getByRole('button',{name:'Save corrections'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{interviewers:['Correct person <correct@airbus.com>','Second person']}))
+})
+it('keeps explicitly cleared interviewers empty instead of restoring unrelated attendees',async()=>{
+ current.interviewers=[];current.manual_fields=['interviewers']
+ mount();await screen.findByRole('button',{name:'Month'})
+ fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Interviewer / contact')
+ expect(within(dialog).getByText('Interviewer / contact').nextElementSibling!.textContent).toBe('Not provided')
+})

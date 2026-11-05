@@ -93,36 +93,42 @@ accessible calendar and reads each calendar's `calendarView`, following calendar
 and event pagination. The default date window covers at least the previous year
 and one year ahead, independently of the mail lookback. It is based on event dates, not invitation receipt dates.
 
-`calendarView` expands recurring occurrences and exceptions. Collection requires
-interview evidence in the event title (such as Interview, Phone screen, Recruiter
-call or Technical assessment) or an Interview category. A generic phone meeting
-also qualifies when its organizer explicitly identifies recruiting; an organizer,
-calendar name or Teams/Zoom link alone does not qualify. Holidays, birthdays,
-personal appointments and unrelated generic meetings are not imported. An all-day
-onsite interview can still qualify; all-day duration alone does not mean holiday.
-Teams, Google Meet, Zoom, Webex, Skype, phone and in-person interviews are supported.
-Generic new titles without recruiting context are intentionally skipped. Add an
-Interview category or explicit interview wording in Outlook when necessary.
+`calendarView` expands recurring occurrences and exceptions. When an Ollama server is
+configured in Settings, calendar sync uses its loaded model to classify each event
+and extract company, role, interview stage, and explicitly identified interviewers.
+It considers the combined title, description, organizer, named attendees, location,
+and categories; there is no required keyword or fixed invitation format. Candidate
+addresses, organizers, recruiters, and other attendees are not automatically treated
+as interviewers. Holidays, personal appointments, and ordinary work meetings are
+excluded. Ambiguous or incomplete interview details are marked **Needs review**.
 
-Once an interview is recognized, its provider identity remains trusted through
-generic-title reschedules and cancellations. An unrelated title such as Holiday
-still does not become an interview merely because an older app imported it.
-After a complete successful sync, previously imported unrelated bookings in the
-collected window are hidden from the calendar; records, sources and local edits
-are retained. Incomplete or failed syncs do not remove missing bookings. Run
-**Check now** once after upgrading to apply the filter to existing imported events.
-No events are deleted or edited in Outlook. Availability calculations still read
-all relevant busy calendar appointments to avoid offering occupied times.
+Provider dates, recurrence identity, cancellation state, and meeting links remain
+authoritative. Model output cannot change them. Safe recognized meeting links in
+calendar descriptions are retained when structured meeting fields are absent.
+All-day onsite interviews are supported; all-day duration alone does not mean holiday.
 
-Only event metadata is used and saved: title, start/end, original timezone, organizer,
-attendees, location, online-meeting link/provider, cancellation and revision data.
+Without a configured model, collection still works with conservative interview
+metadata checks. If analysis fails, recognizable interviews retain their native
+schedule and previous extracted details; manual corrections always win. The sync
+reports deferred analysis and retries it on the next calendar refresh. Successful
+analysis is cached by event content and prompt version, so unchanged events do not
+make repeat model requests. Description or attendee changes trigger reanalysis.
+Analysis uses the configured classification deadline as a per-sync budget; remaining
+uncached events are deferred, letting later refreshes make incremental progress.
+
+After a complete successful provider sync, missing or unrelated bookings in the
+collected window are hidden; incomplete provider syncs never remove missing events.
+No events are edited or deleted in Outlook. Availability calculations still use all
+busy appointments independently of interview classification.
+
 Graph calendarView uses its default projection because revision timestamps do not
-support `$select`; unused properties, including event bodies, are discarded.
-The calendar client requests UTC timestamps and uses read-only `Calendars.Read`.
-There are no inbox/message endpoints, attachment scans, email bodies, model calls,
-or model-based classification in this flow. Relevance uses the metadata rules above. The saved-mail scan endpoint is
-retired (HTTP 410), and its UI action and source-email reader have been removed
-from the calendar. The separate CLI mail tools retain their existing workflow.
+support `$select`. Event descriptions are converted to plain text and bounded by
+Settings’ body-excerpt limit before being sent to the configured model, alongside
+event metadata. Raw descriptions are not saved by this analysis cache; the cache
+stores fingerprints and validated analysis results in the workspace database.
+Calendar sync uses read-only `Calendars.Read`. It never reads inbox messages,
+classifies emails, or creates message/classification rows. The saved-mail scan
+endpoint remains retired (HTTP 410).
 
 IMAP has no calendar event API. IMAP-only accounts report this explicitly without
 opening a mailbox or falling back to reading messages. Native Google Calendar and
@@ -135,7 +141,7 @@ CalDAV account connections are not implemented.
    is requested.
 2. In Accounts, click **Reconnect** beside each existing Outlook account and finish
    Microsoft's device-code consent with the same Microsoft account.
-3. Click **Check now**. A model connection is not required.
+3. Configure your Ollama connection in Settings for semantic event analysis, then click **Check now**. Collection itself still works without a model.
 
 Reconnection retains the account ID, local event records and account associations.
 A different Microsoft identity is rejected. Tokens stay in the existing OS keyring.
@@ -148,6 +154,8 @@ reconnect instruction, without a message-based fallback.
 Provider-neutral `CalendarBooking` records feed the existing local event/source
 SQLite tables. No new message or classification rows are created. Source rows
 contain the native event identifier and account association, with no stored email.
+Schema 44 adds extracted interviewers and the content-based calendar analysis cache
+without deleting existing events, source associations, or manual corrections.
 Previous event history is preserved. Schema 19 retains organization pins and removal records and adds
 manual process names without deleting events or messages;
 timelines continue to derive events and messages from their existing tables.
@@ -257,5 +265,5 @@ conduct the interview.
 Native calendar titles are not structured company data. When a calendar title was
 stored as a fallback company, the summary keeps it as the dialog title and marks
 the company as **Not provided**. Missing roles are also shown as **Not provided**;
-these details are not guessed. **Edit details** allows local corrections and event
+these details are not guessed. Model analysis can fill supported details on the next calendar sync. **Edit details** allows local company, role, and interviewer corrections and event
 removal. Technical source metadata and calendar notes stay out of the summary.

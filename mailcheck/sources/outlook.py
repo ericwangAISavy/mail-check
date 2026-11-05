@@ -281,6 +281,14 @@ def _calendar_booking(item: dict, calendar: dict) -> CalendarBooking:
         platform = "Microsoft Teams"
     elif provider in ("skypeForBusiness","skypeForConsumer"):
         platform = "Skype"
+    body = item.get("body") or {}
+    description = body.get("content") or item.get("bodyPreview") or ""
+    if body.get("contentType", "").lower() == "html":
+        from ..normalize import _html_to_text
+        description = _html_to_text(description)
+    if not link and not found:
+        found, described_platform = meeting_link(description)
+        platform = described_platform or platform
     modified = item.get("lastModifiedDateTime")
     return CalendarBooking(provider_id="graph-event:"+identity,
         uid=item.get("iCalUId") or f"graph:{calendar['id']}:{identity}",
@@ -290,4 +298,6 @@ def _calendar_booking(item: dict, calendar: dict) -> CalendarBooking:
         organizer_name=organizer.get("name"),organizer_email=organizer.get("address"),
         participants=[a["emailAddress"]["address"] for a in item.get("attendees") or [] if (a.get("emailAddress") or {}).get("address")],
         updated_at=datetime.fromisoformat(modified.replace("Z","+00:00")) if modified else None,
+        description=description,
+        attendees=[" ".join(filter(None, [a['emailAddress'].get('name'), a['emailAddress'].get('address')])) for a in item.get('attendees') or [] if isinstance(a.get('emailAddress'), dict)],
         calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "",show_as=item.get("showAs") or "busy",all_day=bool(item.get("isAllDay")),categories=[value for value in item.get("categories") or [] if isinstance(value,str)])

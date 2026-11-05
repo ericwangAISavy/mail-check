@@ -38,7 +38,7 @@ export type InterviewEvent = {
   id: number; account_labels?: string[]; calendar_uid: string | null; company: string | null; role: string | null
   stage: string; status: string; display_status: string; start_at: string | null; end_at: string | null
   timezone: string | null; meeting_platform: string | null; meeting_url: string | null; location: string | null
-  organizer_name: string | null; organizer_email: string | null; participants: string[]; notes: string | null
+  organizer_name: string | null; organizer_email: string | null; interviewers?: string[]; participants: string[]; notes: string | null
   confidence: number; needs_review: boolean; review_reason: string | null; manual_fields: string[]
   created_at: string; updated_at: string
 }

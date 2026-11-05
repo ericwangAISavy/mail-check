@@ -444,3 +444,145 @@ class InterviewCalendarFilteringTests(unittest.TestCase):
         pk,_=fixtures.InterviewTests.message(self,subject='Holiday calendar',calendar_data=[holiday])
         self.assertEqual(interviews.process_message(self.conn,pk,{},calendar_only=True),[])
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
+
+class CalendarAnalysisTests(unittest.TestCase):
+    """Real Graph conversion and SQLite persistence, with only model inference mocked."""
+    setUp = NativeCalendarTests.setUp
+    source = NativeCalendarTests.source
+    class Model:
+        def __init__(self, **values):
+            self.values=dict(is_interview_event=True,company='Airbus',role='HR AI Solutions Lead',
+                stage='Hiring Manager',interviewers=['Rebecca Moore <rebecca@airbus.com>'],confidence=.96,ambiguous=False)
+            self.values.update(values)
+            self.calls=[]
+        def complete(self, system, content, **kwargs):
+            import json
+            self.calls.append((system,json.loads(content)))
+            return json.dumps(self.values)
+
+    def analyze(self, items, model, cfg=None):
+        source=self.source(items)
+        with patch.object(pipeline,'build_source',return_value=source),patch.object(source,'fetch_unread',side_effect=AssertionError('No mail reads')):
+            return interviews.collect_calendar_events(self.conn,cfg or config.Config(),account_label='work',analysis_client=model)
+
+    def test_generic_title_is_classified_using_body_organizer_and_named_attendees(self):
+        import json
+        item=event();item.update(subject='Conversation with Rebecca',body={'contentType':'html','content':'<p>Airbus invites you to discuss the HR AI Solutions Lead position with your interviewer Rebecca Moore.</p>'},
+            organizer={'emailAddress':{'name':'Scheduling Team','address':'calendar@airbus.com'}},
+            attendees=[{'emailAddress':{'name':'Rebecca Moore','address':'rebecca@airbus.com'}},{'emailAddress':{'name':'Candidate','address':'work@example.test'}}],onlineMeeting={'joinUrl':'https://meet.google.com/abc-defg-hij'})
+        model=self.Model(interviewers=['Rebecca Moore <rebecca@airbus.com>','Candidate <work@example.test>'],start_time='2099-01-01T00:00:00Z',meeting_url='https://evil.test')
+        result=self.analyze([item],model)
+        self.assertFalse(result['errors']);self.assertEqual(result['analyzed'],1)
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual((row['company'],row['role'],row['stage']),('Airbus','HR AI Solutions Lead','Hiring Manager'))
+        self.assertEqual(json.loads(row['interviewers']),['Rebecca Moore <rebecca@airbus.com>'])
+        self.assertEqual(row['start_at'],'2026-10-18T15:30:00+00:00')
+        self.assertEqual(row['meeting_url'],'https://meet.google.com/abc-defg-hij')
+        self.assertIn('Airbus invites',model.calls[0][1]['description'])
+        self.assertNotIn('<p>',model.calls[0][1]['description'])
+        self.assertIn('Rebecca Moore rebecca@airbus.com',model.calls[0][1]['attendees'])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0],0)
+
+    def test_content_cache_skips_repeat_inference_but_reanalyzes_changed_descriptions(self):
+        item=event();item['body']={'contentType':'text','content':'First role description'}
+        model=self.Model()
+        self.analyze([item],model);self.analyze([item],model)
+        self.assertEqual(len(model.calls),1)
+        item['body']['content']='Different role description'
+        model.values['role']='Principal Engineer'
+        self.analyze([item],model)
+        self.assertEqual(len(model.calls),2)
+        self.assertEqual(self.conn.execute('SELECT role FROM interview_events').fetchone()[0],'Principal Engineer')
+
+    def test_non_interview_model_decision_excludes_events_and_is_cached(self):
+        item=event();item.update(subject='Annual holiday interview schedule reminder')
+        model=self.Model(is_interview_event=False,company=None,role=None,interviewers=[])
+        self.analyze([item],model);self.analyze([item],model)
+        self.assertEqual(len(model.calls),1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
+
+    def test_manual_company_role_and_interviewer_corrections_survive_reanalysis(self):
+        import json
+        item=event();model=self.Model()
+        self.analyze([item],model)
+        identity=self.conn.execute('SELECT id FROM interview_events').fetchone()[0]
+        interviews.correct_event(self.conn,identity,{'company':'Correct employer','role':'Correct role','interviewers':['Correct interviewer']})
+        self.conn.commit()
+        item['body']={'contentType':'text','content':'New event wording'}
+        model.values.update(company='Wrong employer',role='Wrong role',interviewers=['Wrong person'])
+        self.analyze([item],model)
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual((row['company'],row['role']),('Correct employer','Correct role'))
+        self.assertEqual(json.loads(row['interviewers']),['Correct interviewer'])
+
+    def test_failure_keeps_schedule_and_previously_extracted_details_then_retries(self):
+        from mailcheck.llm import LLMError
+        item=event();model=self.Model()
+        self.analyze([item],model)
+        item['body']={'contentType':'text','content':'Updated interview details'}
+        item['start']['dateTime']='2026-10-18T17:30:00';item['end']['dateTime']='2026-10-18T18:30:00'
+        item['lastModifiedDateTime']='2026-10-16T12:00:00Z'
+        with patch.object(model,'complete',side_effect=LLMError('Model unavailable')) as complete:
+            result=self.analyze([item,event('another')],model)
+            self.assertEqual(complete.call_count,1)
+            self.assertEqual(result['analysis_pending'],2)
+        row=self.conn.execute('SELECT * FROM interview_events WHERE calendar_uid=?',('uid-booking-1',)).fetchone()
+        self.assertEqual((row['company'],row['role']),('Airbus','HR AI Solutions Lead'))
+        self.assertEqual(row['start_at'],'2026-10-18T17:30:00+00:00')
+        result=self.analyze([item],model)
+        self.assertFalse(result['errors'])
+        self.assertEqual(result['analyzed'],1)
+
+    def test_malformed_output_does_not_cache_or_poison_other_events(self):
+        model=self.Model();good=model.complete
+        def complete(system,content,**kwargs):
+            import json
+            if json.loads(content)['title']=='Broken interview':return '{invalid JSON'
+            return good(system,content,**kwargs)
+        model.complete=complete
+        broken=event('broken');broken['subject']='Broken interview'
+        result=self.analyze([broken,event('good')],model)
+        self.assertEqual(result['analysis_pending'],1)
+        self.assertEqual(result['analyzed'],1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analyses').fetchone()[0],1)
+
+    def test_meeting_link_in_description_is_retained_without_structured_online_meeting(self):
+        item=event();item['body']={'contentType':'html','content':'<p>Interview with Airbus. Join <a href="https://meet.google.com/abc-defg-hij">video call</a></p>'}
+        self.analyze([item],self.Model())
+        row=self.conn.execute('SELECT meeting_url,meeting_platform FROM interview_events').fetchone()
+        self.assertEqual(tuple(row),('https://meet.google.com/abc-defg-hij','Google Meet'))
+
+    def test_analysis_budget_defers_uncached_events_without_calling_the_model(self):
+        from mailcheck.calendar_analysis import CalendarAnalyzer
+        model=self.Model()
+        booking=next(self.source([event()]).fetch_calendar(datetime(2026,10,1).date()))
+        account=db.list_accounts(self.conn)[0]
+        with CalendarAnalyzer(self.conn,config.Config(),lambda message:None,client=model) as analyzer:
+            analyzer.deadline=0
+            self.assertIsNone(analyzer.analyze(account,booking))
+            self.assertEqual(analyzer.pending,1)
+        self.assertEqual(model.calls,[])
+
+    def test_existing_native_events_are_enriched_without_changing_identity(self):
+        item=event()
+        NativeCalendarTests.collect(self,self.source([item]))
+        before=self.conn.execute('SELECT id,company,start_at FROM interview_events').fetchone()
+        self.assertEqual(before['company'],'Interview appointment')
+        self.analyze([item],self.Model())
+        after=self.conn.execute('SELECT id,company,role,start_at FROM interview_events').fetchone()
+        self.assertEqual(after['id'],before['id'])
+        self.assertEqual(after['start_at'],before['start_at'])
+        self.assertEqual((after['company'],after['role']),('Airbus','HR AI Solutions Lead'))
+
+    def test_configured_client_is_prepared_once_closed_and_skipped_for_cached_events(self):
+        from unittest.mock import Mock
+        model=self.Model();model.prepare=Mock();model.close=Mock()
+        cfg=config.Config();cfg.llm.base_url='http://ollama.test'
+        source=self.source([event('one'),event('two')])
+        with patch.object(pipeline,'build_source',return_value=source),patch('mailcheck.calendar_analysis.LLMClient.from_config',return_value=model) as create:
+            first=interviews.collect_calendar_events(self.conn,cfg,account_label='work')
+            second=interviews.collect_calendar_events(self.conn,cfg,account_label='work')
+        self.assertFalse(first['errors']);self.assertFalse(second['errors'])
+        self.assertEqual(first['analyzed'],2);self.assertEqual(second['analyzed'],0)
+        create.assert_called_once();model.prepare.assert_called_once();model.close.assert_called_once()
+        self.assertEqual(len(model.calls),2)
