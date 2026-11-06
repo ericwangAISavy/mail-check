@@ -9,6 +9,7 @@ export type Message = {
 }
 export type TriageGroup = { tier: string; label: string; items: Message[] }
 export type TriageData = {
+  check_schedule?: { automatic: boolean; running: boolean; next_at: string | null } | null
   view: "queue" | "all" | "completed"; groups: TriageGroup[]; total: number
   summary: Record<string, number>; counts: Record<string, number>
   accounts: { label: string; enabled: boolean }[]; days: number

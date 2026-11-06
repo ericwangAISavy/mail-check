@@ -23,6 +23,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
   const [retrying, setRetrying] = useState(false)
   useEffect(()=>{if(autoReply && message && !readOnly)setCompose({pk:message.pk,mode:"reply"})},[autoReply,message?.pk,readOnly])
   const { data, isPending, error } = useQuery({ queryKey: ["reader", message?.pk], queryFn: () => api.reader(message!.pk), enabled: Boolean(message), staleTime: readOnly?0:60_000,refetchInterval:readOnly?10000:false })
+  if (readOnly && error) return <section className="reader-empty" role="alert">This message is unavailable. Your account assignment or message category may have changed.</section>
   message = data?.message || message
   if (!message) return <section className={`reader-empty ${mobile ? "mobile-visible" : ""}`}><span className="reader-empty-icon"><Sparkles size={18} /></span><h2>Choose a message</h2><p>Select a message from your queue and its full story will appear here.</p><p className="shortcut-hint"><kbd>↑</kbd><kbd>↓</kbd> to move <span>·</span> <kbd>E</kbd> to mark done</p></section>
   const retryClassification = async () => {
@@ -100,7 +101,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
     return () => window.removeEventListener("popstate", sync)
   }, [])
   const normalized = useMemo(() => {const next=triageParams(params.toString());if(bidderInbox)next.set("category","info_request");return next}, [params,bidderInbox])
-  const query = useQuery({ queryKey: ["triage", normalized.toString()], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous,refetchInterval:bidderInbox?10000:false })
+  const query = useQuery({ queryKey: ["triage", normalized.toString(), bidderInbox ? "bidder" : "admin"], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous,refetchInterval:bidderInbox?10000:false })
   const data = query.data as TriageData | undefined
   const messages = data?.groups.flatMap((group) => group.items) || []
   const targetPk=Number(params.get("message")) || null
@@ -172,9 +173,11 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   }, [messages, selected, selectedMessage, done.isPending, selectMessage])
 
   if (query.isPending) return <div className="page-wrap"><Loading /></div>
-  if (query.error && !data) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void query.refetch()}><RefreshCw size={14} />Try again</Button></div></div>
+  if (query.error && (bidderInbox || !data)) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void query.refetch()}><RefreshCw size={14} />Try again</Button></div></div>
   const waitingSetup = !bidderInbox && (!bootstrap.readiness.model || !bootstrap.readiness.accounts)
   const categories=bidderInbox?[{name:"info_request",label:"Info request",tier:"reply"}]:bootstrap.taxonomy
+  const schedule = data?.check_schedule
+  const checkTime = !schedule ? "Check schedule unavailable" : schedule.running ? "Server is processing updates; mail checks resume afterward" : !schedule.automatic ? "Automatic mail checks are off" : schedule.next_at ? `Next mail check: ${new Date(schedule.next_at).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})} (your local time)` : "Next mail check is being scheduled"
   const noMessages = !messages.length
   const activeFilters = (normalized.has("q") ? 1 : 0) + (normalized.has("account") ? 1 : 0) + (normalized.has("category") ? 1 : 0) + (normalized.get("days") !== "30" ? 1 : 0)
   const unclassifiedCount = data?.counts.unclassified ?? 0
@@ -184,6 +187,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
     <PageHeading title={bidderInbox ? "Inbox" : title || "Your triage"} description={bidderInbox ? "Info request messages for your assigned accounts." : data?.last_run || bootstrap.last_run || undefined} />
     <div className="triage-bar"><div className="view-tabs" role="tablist" aria-label="Mail views">{(["queue", "all", "completed"] as const).map((key) => <button type="button" role="tab" aria-selected={view === key} className={view === key ? "selected" : ""} key={key} onClick={() => setFilter("view", key)}>{key === "queue" ? "Queue" : key === "all" ? "All mail" : "Completed"}{key === "queue" && data?.summary.actionable ? <span className="tab-count">{data.summary.actionable}</span> : null}</button>)}</div>
       <div className="triage-tools"><Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>
+    {bidderInbox && <span role="status" className="form-hint">{checkTime}</span>}
     {!bidderInbox && <Button className="triage-undo" variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>}
     </div>
     {!bidderInbox && (view === "queue" || view === "all") && unclassifiedCount > 0 && bootstrap.readiness.model && <ReclassifyBanner count={unclassifiedCount} />}

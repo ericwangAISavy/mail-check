@@ -247,6 +247,7 @@ class TriageGroup(BaseModel):
 
 
 class TriageResponse(BaseModel):
+    check_schedule: dict[str, Any] | None = None
     view: str
     groups: list[TriageGroup]
     summary: dict[str, int]
@@ -1170,7 +1171,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             item = _decorate(row)
             if viewer:item.update(open_url=None,provider_url=None)
             grouped[item["tier"]].append(item)
+        cfg = cfgmod.load()
+        due = _sched["next_due"] if cfg.watch.auto_check else None
+        schedule = {"automatic": cfg.watch.auto_check, "running": bool(_job["running"]),
+                    "next_at": datetime.fromtimestamp(due, timezone.utc).isoformat() if due else None}
         return {
+            "check_schedule": schedule,
             "view": view,
             "groups": [{"tier": tier, "label": TIER_META[tier][0],
                         "items": grouped[tier]} for tier in TIER_ORDER if grouped[tier]],

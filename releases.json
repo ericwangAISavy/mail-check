@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.22.1",
+    "date": "2026-11-06",
+    "title": "Improve bidder inbox refresh and check schedule",
+    "changes": [
+      "Show bidders the next automatic mail check time and hide cached message details when access can no longer be confirmed."
+    ]
+  },
+  {
     "version": "2.22.0",
     "date": "2026-11-06",
     "title": "Add a restricted bidder inbox using Info request",

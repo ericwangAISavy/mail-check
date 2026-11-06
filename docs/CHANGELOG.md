@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.22.1 — 2026-11-06
+
+Improve bidder inbox refresh and check schedule
+
+- Show bidders the next automatic mail check time and hide cached message details when access can no longer be confirmed.
+
 ## 2.22.0 — 2026-11-06
 
 Add a restricted bidder inbox using Info request

@@ -1,5 +1,7 @@
 from datetime import datetime,timedelta,timezone
 import unittest
+from unittest.mock import patch
+import time
 from fastapi.testclient import TestClient as WorkerClient
 from mailcheck import db,payments
 from mailcheck.models import Classification
@@ -77,3 +79,21 @@ class BidderInboxTests(unittest.TestCase):
         sign_in_bidder(self.client)
         self.assertEqual(self.client.get('/api/triage?days=90').json()['total'],0)
         self.assertEqual(self.client.get(f'/api/messages/{mine}').status_code,404)
+
+    def test_schedule_is_available_without_exposing_job_details(self):
+        self.prepare()
+        sign_in_bidder(self.client)
+        from mailcheck.web import app as web
+        cfg = web.cfgmod.load()
+        cfg.watch.auto_check = True
+        due = time.time()+300
+        with patch.object(web.cfgmod, 'load', return_value=cfg), patch.dict(web._sched, next_due=due):
+            schedule=self.client.get('/api/triage').json()['check_schedule']
+            self.assertEqual(set(schedule), {'automatic','running','next_at'})
+            self.assertTrue(schedule['automatic'])
+            self.assertAlmostEqual(datetime.fromisoformat(schedule['next_at']).timestamp(), due, places=5)
+            cfg.watch.auto_check=False
+            schedule=self.client.get('/api/triage').json()['check_schedule']
+            self.assertFalse(schedule['automatic'])
+            self.assertIsNone(schedule['next_at'])
+        self.assertEqual(self.client.get('/api/status').status_code,403)

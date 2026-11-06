@@ -329,6 +329,7 @@ it('reuses triage for bidder Info requests with reading and scoped Done only',as
   if(url.startsWith('/api/triage')){
    data.groups=data.groups.map((group:any)=>({...group,items:group.items.map((message:any)=>({...message,category:'info_request',category_label:'Info request'}))}))
    data.counts={info_request:data.total}
+   data.check_schedule={automatic:true,running:false,next_at:"2026-11-06T20:30:00Z"}
   }else if(url.startsWith('/api/messages/')&&init?.method!=='POST'){
    data.message={...data.message,category:'info_request',category_label:'Info request',open_url:'https://outlook.live.com/mail/',open_label:'Open in Outlook'}
    data.body_html='<p>Your verification code is 123456</p>'
@@ -337,6 +338,7 @@ it('reuses triage for bidder Info requests with reading and scoped Done only',as
  })
  renderPage(true)
  expect(await screen.findByText('Your verification code is 123456')).toBeTruthy()
+ expect(screen.getByText(/Next mail check:.*your local time/)).toBeTruthy()
  expect(requests.some(url=>url.startsWith('GET /api/triage?')&&url.includes('category=info_request'))).toBe(true)
  expect(screen.queryByRole('button',{name:'Reply'})).toBeNull()
  expect(screen.queryByRole('link',{name:/Open in Outlook/})).toBeNull()
@@ -351,4 +353,12 @@ it('reuses triage for bidder Info requests with reading and scoped Done only',as
  fireEvent.click(screen.getByRole('button',{name:'Undo'}))
  await waitFor(()=>expect(requests.some(url=>url.startsWith('POST /api/messages/1/handled?done=false'))).toBe(true))
  expect(requests.some(url=>url.includes('/api/messages/undo-last'))).toBe(false)
+})
+
+it('hides cached reader metadata when bidder access is rejected',async()=>{
+ vi.mocked(fetch).mockImplementation(()=>response({error:'No such message.'},404))
+ renderWithReader(messages[0],true)
+ expect((await screen.findByRole('alert')).textContent).toContain('This message is unavailable')
+ expect(screen.queryByText('Interview 1')).toBeNull()
+ expect(screen.queryByText('Acme')).toBeNull()
 })
