@@ -661,7 +661,7 @@ class PaymentTests(unittest.TestCase):
                 self.assertNotIn('messages',data);self.assertNotIn('history',data)
                 accounts=client.get('/api/dashboard/accounts',**extra).json()
                 self.assertEqual(accounts,{'accounts':[{'label':'personal'}],'bidders':[]})
-                self.assertEqual(client.get('/api/messages/1',**extra).status_code,403)
+                self.assertEqual(client.get('/api/messages/1',**extra).status_code,404)
                 self.assertEqual(client.get('/api/accounts',**extra).status_code,403)
                 scoped=client.get('/api/dashboard?start=2026-10-12&end=2026-10-18&account=work',**extra).json()
                 self.assertEqual(scoped['summary']['total'],0)

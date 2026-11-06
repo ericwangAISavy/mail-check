@@ -65,8 +65,11 @@ class AuthTests(unittest.TestCase):
         from tests.web_client import sign_in_bidder
         sign_in_bidder(self.client)
         self.assertEqual(self.client.get("/api/dashboard").status_code,200)
-        for path in ("/api/accounts", "/api/settings", "/api/triage", "/api/messages/999"):
+        for path in ("/api/accounts", "/api/settings"):
             self.assertEqual(self.client.get(path).status_code,403,path)
+        self.assertEqual(self.client.get('/api/triage').json()['total'],0)
+        self.assertEqual(self.client.get('/api/messages/999').status_code,404)
+        self.assertEqual(self.client.get('/inbox').status_code,200)
         for path in ("/api/check", "/api/settings", "/api/auth/password", "/api/payments/bidders"):
             self.assertEqual(self.client.post(path,json={}).status_code,403,path)
         self.assertEqual(self.client.get("/",follow_redirects=False).headers["location"],"/dashboard")

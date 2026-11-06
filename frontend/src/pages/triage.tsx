@@ -16,13 +16,13 @@ function PersonLine({ message }: { message: Message }) {
   return <div className="sender-line"><span className="sender-avatar">{sender.slice(0, 1).toUpperCase()}</span><span className="sender-copy"><strong>{sender}</strong><span>{message.from_addr}</span></span><span className="sender-date">{message.date_display}{message.date_estimated && <Badge variant="muted">estimated</Badge>}</span></div>
 }
 
-export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false, readOnly = false, readerRef, autoReply = false }: { autoReply?:boolean; message: Message | null; mobile: boolean; onBack: () => void; onDone: () => void; busy: boolean; canRetry?: boolean; readOnly?: boolean; readerRef?: Ref<HTMLElement> }) {
+export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false, readOnly = false, allowDone = false, readerRef, autoReply = false }: { autoReply?:boolean; message: Message | null; mobile: boolean; onBack: () => void; onDone: () => void; busy: boolean; canRetry?: boolean; readOnly?: boolean; allowDone?:boolean; readerRef?: Ref<HTMLElement> }) {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [compose, setCompose] = useState<{pk:number;mode:"reply"|"reply_all"}|null>(null)
   const [retrying, setRetrying] = useState(false)
   useEffect(()=>{if(autoReply && message && !readOnly)setCompose({pk:message.pk,mode:"reply"})},[autoReply,message?.pk,readOnly])
-  const { data, isPending, error } = useQuery({ queryKey: ["reader", message?.pk], queryFn: () => api.reader(message!.pk), enabled: Boolean(message), staleTime: 60_000 })
+  const { data, isPending, error } = useQuery({ queryKey: ["reader", message?.pk], queryFn: () => api.reader(message!.pk), enabled: Boolean(message), staleTime: readOnly?0:60_000,refetchInterval:readOnly?10000:false })
   message = data?.message || message
   if (!message) return <section className={`reader-empty ${mobile ? "mobile-visible" : ""}`}><span className="reader-empty-icon"><Sparkles size={18} /></span><h2>Choose a message</h2><p>Select a message from your queue and its full story will appear here.</p><p className="shortcut-hint"><kbd>↑</kbd><kbd>↓</kbd> to move <span>·</span> <kbd>E</kbd> to mark done</p></section>
   const retryClassification = async () => {
@@ -36,7 +36,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
     finally { setRetrying(false) }
   }
   return <article ref={readerRef} tabIndex={-1} className={`reader-pane ${mobile ? "mobile-visible" : ""}`}>
-    <div className="reader-toolbar"><Button className="reader-back" variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={16} /> All messages</Button><span className="reader-account">{message.account_label}</span><div className="reader-actions">{!readOnly && ["outlook","imap"].includes(message.provider) && <Button variant="outline" size="sm" onClick={()=>setCompose({pk:message.pk,mode:"reply"})}><Reply size={15}/>Reply</Button>}{message.category === "unclassified" && canRetry && !readOnly && <Button variant="outline" size="sm" onClick={retryClassification} disabled={retrying}>{retrying ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Try classification again</Button>}{message.open_url && <Button variant="outline" size="sm" asChild><a href={message.open_url} target="_blank" rel="noopener">{message.open_label}<ArrowUpRight size={14} /></a></Button>}{!readOnly && <Button size="sm" onClick={onDone} disabled={busy}><Check size={15} />{message.handled_at ? "Restore" : "Done"}</Button>}</div></div>
+    <div className="reader-toolbar"><Button className="reader-back" variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={16} /> All messages</Button><span className="reader-account">{message.account_label}</span><div className="reader-actions">{!readOnly && ["outlook","imap"].includes(message.provider) && <Button variant="outline" size="sm" onClick={()=>setCompose({pk:message.pk,mode:"reply"})}><Reply size={15}/>Reply</Button>}{message.category === "unclassified" && canRetry && !readOnly && <Button variant="outline" size="sm" onClick={retryClassification} disabled={retrying}>{retrying ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Try classification again</Button>}{!readOnly && message.open_url && <Button variant="outline" size="sm" asChild><a href={message.open_url} target="_blank" rel="noopener">{message.open_label}<ArrowUpRight size={14} /></a></Button>}{(!readOnly || allowDone) && <Button size="sm" onClick={onDone} disabled={busy}><Check size={15} />{message.handled_at ? "Restore" : "Done"}</Button>}</div></div>
     <div className="reader-content" key={message.pk}>
       <div className="reader-category"><CategoryBadge message={message} />{message.deadline_display && <span className="deadline-line"><CalendarClock size={15} />{message.deadline_display}</span>}</div>
       <h2 className="reader-subject">{message.subject || "(no subject)"}</h2>
@@ -85,7 +85,7 @@ function ReclassifyBanner({ count }: { count: number }) {
   </div>
 }
 
-export default function TriagePage({ bootstrap, canManageSettings=true }: { bootstrap: Bootstrap; canManageSettings?: boolean }) {
+export default function TriagePage({ bootstrap, canManageSettings=true, bidderInbox=false }: { bootstrap: Bootstrap; canManageSettings?: boolean; bidderInbox?:boolean }) {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [params, setParams] = useState(() => new URLSearchParams(window.location.search))
@@ -99,8 +99,8 @@ export default function TriagePage({ bootstrap, canManageSettings=true }: { boot
     window.addEventListener("popstate", sync)
     return () => window.removeEventListener("popstate", sync)
   }, [])
-  const normalized = useMemo(() => triageParams(params.toString()), [params])
-  const query = useQuery({ queryKey: ["triage", normalized.toString()], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous })
+  const normalized = useMemo(() => {const next=triageParams(params.toString());if(bidderInbox)next.set("category","info_request");return next}, [params,bidderInbox])
+  const query = useQuery({ queryKey: ["triage", normalized.toString()], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous,refetchInterval:bidderInbox?10000:false })
   const data = query.data as TriageData | undefined
   const messages = data?.groups.flatMap((group) => group.items) || []
   const targetPk=Number(params.get("message")) || null
@@ -138,7 +138,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true }: { boot
     if (messages.length && !messages.some((message) => message.pk === selected)) setSelected(messages[0].pk)
     if (!messages.length) setSelected(null)
   }, [messages, selected, targetPk])
-  const done = useDoneMutation()
+  const done = useDoneMutation(undefined,bidderInbox)
   const undo = useCallback(async () => {
     try {
       const response = await api.post<{ message: string }>("/api/messages/undo-last")
@@ -146,7 +146,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true }: { boot
       toast(response.message || "Restored to the queue.", "success")
     } catch (error) { toast(error instanceof Error ? error.message : "Nothing to undo.", "error") }
   }, [queryClient, toast])
-  useUndoShortcut(() => { void undo() })
+  useUndoShortcut(() => { if(!bidderInbox)void undo() })
   const setDone = (message: Message) => {
     if (done.isPending) return
     const target = !message.handled_at
@@ -173,27 +173,28 @@ export default function TriagePage({ bootstrap, canManageSettings=true }: { boot
 
   if (query.isPending) return <div className="page-wrap"><Loading /></div>
   if (query.error && !data) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void query.refetch()}><RefreshCw size={14} />Try again</Button></div></div>
-  const waitingSetup = !bootstrap.readiness.model || !bootstrap.readiness.accounts
+  const waitingSetup = !bidderInbox && (!bootstrap.readiness.model || !bootstrap.readiness.accounts)
+  const categories=bidderInbox?[{name:"info_request",label:"Info request",tier:"reply"}]:bootstrap.taxonomy
   const noMessages = !messages.length
   const activeFilters = (normalized.has("q") ? 1 : 0) + (normalized.has("account") ? 1 : 0) + (normalized.has("category") ? 1 : 0) + (normalized.get("days") !== "30" ? 1 : 0)
   const unclassifiedCount = data?.counts.unclassified ?? 0
   return <div className="page-wrap triage-page" onKeyDown={actKey}>
-    {params.get("followup")==="1" && <Button asChild variant="outline" size="sm"><Link to="/interview-processes"><ArrowLeft size={15}/>Back to interview processes</Link></Button>}
+    {!bidderInbox && params.get("followup")==="1" && <Button asChild variant="outline" size="sm"><Link to="/interview-processes"><ArrowLeft size={15}/>Back to interview processes</Link></Button>}
     <div className="triage-heading-row">
-    <PageHeading title={title || "Your triage"} description={data?.last_run || bootstrap.last_run || undefined} />
+    <PageHeading title={bidderInbox ? "Inbox" : title || "Your triage"} description={bidderInbox ? "Info request messages for your assigned accounts." : data?.last_run || bootstrap.last_run || undefined} />
     <div className="triage-bar"><div className="view-tabs" role="tablist" aria-label="Mail views">{(["queue", "all", "completed"] as const).map((key) => <button type="button" role="tab" aria-selected={view === key} className={view === key ? "selected" : ""} key={key} onClick={() => setFilter("view", key)}>{key === "queue" ? "Queue" : key === "all" ? "All mail" : "Completed"}{key === "queue" && data?.summary.actionable ? <span className="tab-count">{data.summary.actionable}</span> : null}</button>)}</div>
       <div className="triage-tools"><Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>
-    <Button className="triage-undo" variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>
+    {!bidderInbox && <Button className="triage-undo" variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>}
     </div>
-    {(view === "queue" || view === "all") && unclassifiedCount > 0 && bootstrap.readiness.model && <ReclassifyBanner count={unclassifiedCount} />}
-    {filtersOpen && <div className="filter-panel"><form className="triage-text-search" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); setFilter("q", String(form.get("q") || "").trim()) }}><label>Search mail<input key={normalized.get("q") || ""} type="search" name="q" maxLength={200} defaultValue={normalized.get("q") || ""} placeholder="Subject, sender, company or message text" /></label><Button type="submit" variant="outline" size="sm">Search</Button></form><label>Mailbox<select value={normalized.get("account") || ""} onChange={(e) => setFilter("account", e.target.value)}><option value="">All mailboxes</option>{data?.accounts.map((account) => <option key={account.label} value={account.label}>{account.label}</option>)}</select></label><label>Category<select value={normalized.get("category") || ""} onChange={(e) => setFilter("category", e.target.value)}><option value="">All categories</option>{bootstrap.taxonomy.filter((category) => data?.counts[category.name]).map((category) => <option key={category.name} value={category.name}>{category.label} · {data?.counts[category.name]}</option>)}</select></label><label>Time range<select value={normalized.get("days") || "30"} onChange={(e) => setFilter("days", e.target.value)}><option value="0">Today</option><option value="1">Last 24 hours</option>{[2, 3, 7, 14, 30, 90].map((days) => <option key={days} value={days}>Last {days} days</option>)}</select></label>{(normalized.has("q") || normalized.has("account") || normalized.has("category") || normalized.get("days") !== "30") && <Button variant="ghost" size="sm" onClick={() => { const next = new URLSearchParams("view=" + view); history.pushState(null, "", `/?${next}`); setParams(next) }}>Clear filters</Button>}</div>}
+    {!bidderInbox && (view === "queue" || view === "all") && unclassifiedCount > 0 && bootstrap.readiness.model && <ReclassifyBanner count={unclassifiedCount} />}
+    {filtersOpen && <div className="filter-panel"><form className="triage-text-search" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); setFilter("q", String(form.get("q") || "").trim()) }}><label>Search mail<input key={normalized.get("q") || ""} type="search" name="q" maxLength={200} defaultValue={normalized.get("q") || ""} placeholder="Subject, sender, company or message text" /></label><Button type="submit" variant="outline" size="sm">Search</Button></form><label>Mailbox<select value={normalized.get("account") || ""} onChange={(e) => setFilter("account", e.target.value)}><option value="">All mailboxes</option>{data?.accounts.map((account) => <option key={account.label} value={account.label}>{account.label}</option>)}</select></label><label>Category<select disabled={bidderInbox} value={normalized.get("category") || ""} onChange={(e) => setFilter("category", e.target.value)}>{!bidderInbox && <option value="">All categories</option>}{categories.filter((category) => bidderInbox || data?.counts[category.name]).map((category) => <option key={category.name} value={category.name}>{category.label} · {data?.counts[category.name]}</option>)}</select></label><label>Time range<select value={normalized.get("days") || "30"} onChange={(e) => setFilter("days", e.target.value)}><option value="0">Today</option><option value="1">Last 24 hours</option>{[2, 3, 7, 14, 30, 90].map((days) => <option key={days} value={days}>Last {days} days</option>)}</select></label>{(normalized.has("q") || normalized.has("account") || normalized.has("category") || normalized.get("days") !== "30") && <Button variant="ghost" size="sm" onClick={() => { const next = new URLSearchParams("view=" + view); history.pushState(null, "", `${window.location.pathname}?${next}`); setParams(next) }}>Clear filters</Button>}</div>}
     {waitingSetup && noMessages ? <EmptyState title="A thoughtful inbox starts here" description={!bootstrap.readiness.model ? canManageSettings ? "Connect your Ollama model in Settings. It runs where you choose. Replies are sent only when you click Send." : "Ask the owner to configure the shared model. You can connect your own mail accounts on Accounts." : "Connect a mail account to start building your private application inbox."} action={<Button onClick={() => window.location.assign(!bootstrap.readiness.model && canManageSettings ? "/settings" : "/accounts")}>Continue setup</Button>} /> : noMessages ? <EmptyState title={view === "completed" ? "No completed messages yet" : view === "queue" ? "Your queue is clear" : "No mail in this range"} description={view === "queue" ? "Nothing needs your attention right now. Your mail is still right where you left it." : "Try another date range or clear a filter to see more messages."} action={view === "queue" && data?.summary.informational ? <Button variant="outline" onClick={() => setFilter("view", "all")}>Take a look at all mail</Button> : undefined} /> : <div className={`triage-split ${readerOpen ? "reader-is-open" : ""}`}>
       <div className="message-list" ref={listRef} role="listbox" aria-label="Triage messages" tabIndex={-1}>{data?.groups.map((group) => <section key={group.tier} className="tier-section" data-tier={group.tier}><div className={`tier-label tier-${group.tier}`}><span className="tier-dot" /><span>{group.label}</span><span className="tier-rule" /><span className="tier-total">{group.items.length}</span></div>{group.items.map((message) => <button role="option" aria-selected={selected === message.pk} tabIndex={selected === message.pk ? 0 : -1} key={message.pk} data-pk={message.pk} className={`mail-row ${selected === message.pk ? "mail-selected" : ""} ${message.handled_at ? "mail-done" : ""}`} onClick={() => selectMessage(message.pk)} onDoubleClick={() => setDone(message)}>
         <span className="mail-row-top"><CategoryBadge message={message} />{message.deadline_display && <span className={`row-deadline ${/overdue|today/i.test(message.deadline_display) ? "deadline-urgent" : ""}`}><Clock3 size={12} />{message.deadline_display}</span>}<span className="row-date">{message.date_display}</span></span>
         <span className="mail-row-title">{message.company && message.role ? `${message.company} · ${message.role}` : message.company || message.role || message.from_name || message.from_addr}</span><span className="mail-account">{message.account_label}</span><span className="mail-row-summary">{message.summary || message.snippet || message.subject}</span>
       </button>)}</section>)}</div>
-      <Reader autoReply={Boolean(targetPk===selected&&params.get("reply")==="1")} message={selectedMessage} mobile={readerOpen} readerRef={readerRef} onBack={() => { setReaderOpen(false); focusSelection(selectedMessage?.pk ?? null, false) }} onDone={() => selectedMessage && setDone(selectedMessage)} busy={done.isPending} canRetry={bootstrap.readiness.model} />
+      <Reader readOnly={bidderInbox} allowDone={bidderInbox} autoReply={Boolean(targetPk===selected&&params.get("reply")==="1")} message={selectedMessage} mobile={readerOpen} readerRef={readerRef} onBack={() => { setReaderOpen(false); focusSelection(selectedMessage?.pk ?? null, false) }} onDone={() => selectedMessage && setDone(selectedMessage)} busy={done.isPending} canRetry={bootstrap.readiness.model} />
     </div>}
-    <div className="keyboard-note"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>E</kbd> done</span><span><kbd>{modKey}</kbd><kbd>Z</kbd> undo</span></div>
+    <div className="keyboard-note"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>E</kbd> done</span>{!bidderInbox && <span><kbd>{modKey}</kbd><kbd>Z</kbd> undo</span>}</div>
   </div>
 }

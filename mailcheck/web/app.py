@@ -692,13 +692,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     if path == "/" and request.method in ("GET", "HEAD"):
                         return RedirectResponse("/dashboard", status_code=303)
                     allowed = path in ("/sourcing", "/api/sourcing", "/dashboard", "/api/dashboard", "/api/dashboard/accounts", "/api/applications/today", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
+                    from ..bidder_access import viewer_read_allowed
+                    allowed |= viewer_read_allowed(path,request.method)
                     allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
                     if not allowed:
                         return _err("Admin access is required.", 403)
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/inbox", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -1108,8 +1110,22 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             "account_count": state["account_count"],
         }
 
+    def bidder_message_allowed(conn, viewer, pk):
+        scope,values=db.bidder_info_scope(viewer)
+        return conn.execute("SELECT 1 FROM messages m JOIN accounts a ON a.id=m.account_id "
+            +db.LATEST_CLASSIFICATION+" WHERE m.id=?"+scope,[pk,*values]).fetchone() is not None
+
+    def bidder_inbox_summary(conn,viewer,*,since=None,account=None,search=None):
+        pending=db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=False,search=search).get('info_request',0)
+        completed=db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=True,search=search).get('info_request',0)
+        return {'actionable':pending,'informational':0,'done':completed}
+
+    @app.get('/inbox')
+    def bidder_inbox_page():
+        return frontend_page() or PlainTextResponse('Build the React console first.',status_code=503)
+
     @app.get("/api/triage", response_model=TriageResponse)
-    def api_triage(view: str = "queue", category: str | None = None,
+    def api_triage(request: Request, view: str = "queue", category: str | None = None,
                    account: str | None = None, days: int = 30, q: str = Query(default="", max_length=200)):
         """Read the same bounded, body-free rows as the original console."""
         if view not in ("queue", "all", "completed"):
@@ -1121,7 +1137,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         since = (datetime.combine(now.astimezone(payments.ZONE).date(), datetime.min.time(), payments.ZONE).astimezone(timezone.utc)
                  if days == 0 else now - timedelta(days=days)).isoformat()
         handled = {"queue": False, "completed": True, "all": None}[view]
+        viewer=request.state.bidder_id if request.state.role=='bidder' else None
+        if viewer:category='info_request'
         with db.session() as conn:
+            if viewer:
+                conn.execute('PRAGMA query_only=ON')
+                conn.execute('BEGIN')
             rows = db.query_triaged(
                 conn,
                 categories=([category] if category else
@@ -1131,16 +1152,23 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 handled=handled,
                 limit=500,
                 search=q,
-            ) if view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
+                bidder_id=viewer,
+            ) if viewer or view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
             counts = db.category_counts(conn, since_iso=since, account_label=account,
-                                        handled=handled, search=q)
-            if view == "queue":
+                                        handled=handled, search=q,bidder_id=viewer)
+            if view == "queue" and not viewer:
                 counts = {name: count for name, count in counts.items() if is_queue_category(name)}
-            summary = db.queue_counts(conn, since_iso=since, account_label=account, search=q)
-            accounts = db.list_accounts(conn)
+            summary = bidder_inbox_summary(conn,viewer,since=since,account=account,search=q) if viewer else db.queue_counts(conn, since_iso=since, account_label=account, search=q)
+            if viewer:
+                day=payments.today().isoformat()
+                ids={r[0] for r in conn.execute("SELECT account_id FROM bidder_assignments WHERE bidder_id=? AND start_date<=? AND (end_date IS NULL OR end_date>=?)",(viewer,day,day))}
+                accounts=[a for a in db.list_accounts(conn) if a.id in ids and a.enabled]
+            else:
+                accounts = db.list_accounts(conn)
         grouped: dict[str, list] = {tier: [] for tier in TIER_ORDER}
         for row in rows:
             item = _decorate(row)
+            if viewer:item.update(open_url=None,provider_url=None)
             grouped[item["tier"]].append(item)
         return {
             "view": view,
@@ -1156,14 +1184,21 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         }
 
     @app.get("/api/messages/{pk}", response_model=ReaderResponse)
-    def api_message(pk: int):
+    def api_message(pk: int, request: Request):
         with db.session() as conn:
+            viewer=request.state.bidder_id if request.state.role=='bidder' else None
+            if viewer:
+                conn.execute('PRAGMA query_only=ON')
+                conn.execute('BEGIN')
+            if viewer and not bidder_message_allowed(conn,viewer,pk):return _err('No such message.',404)
             row = db.get_triaged(conn, pk)
             if not row:
                 return _err("No such message.", 404)
             body_html = bodyhtml.render_body(row["body_text"])
-            sent_replies = replies.history(conn,pk)
-        return {"message": _decorate(row), "body_html": str(body_html), "replies":sent_replies,
+            sent_replies = [] if viewer else replies.history(conn,pk)
+        message=_decorate(row)
+        if viewer:message.update(open_url=None,provider_url=None)
+        return {"message": message, "body_html": str(body_html), "replies":sent_replies,
                 "original_html": bodyhtml.sanitize_original(row["original_html"]) if row["original_html"] else None}
 
     @app.get("/followups")
@@ -1354,19 +1389,22 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return {"ok": True}
 
     @app.post("/api/messages/{pk}/handled")
-    def api_set_handled(pk: int, done: bool = True):
+    def api_set_handled(pk: int, request: Request, done: bool = True):
         """Local Done / Undo. Never touches the provider mailbox.
 
         Returns the recomputed headline counts so the page can update its
         badges in place. Reloading to refresh three numbers meant re-running
         every dashboard query and rebuilding the whole card list on each click.
         """
+        viewer=request.state.bidder_id if request.state.role=='bidder' else None
         with db.session() as conn:
+            if viewer:conn.execute('BEGIN IMMEDIATE')
             row = db.get_message(conn, pk)
             if not row:
                 return _err("No such message.", 404)
+            if viewer and not bidder_message_allowed(conn,viewer,pk):return _err('No such message.',404)
             db.set_handled(conn, pk, done)
-            summary = db.queue_counts(conn, since_iso=_default_since())
+            summary = bidder_inbox_summary(conn,viewer,since=_default_since()) if viewer else db.queue_counts(conn, since_iso=_default_since())
         return {
             "ok": True,
             "message": "Marked done." if done else "Restored to the queue.",

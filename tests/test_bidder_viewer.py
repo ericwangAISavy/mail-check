@@ -43,7 +43,12 @@ def test_directory_login_read_only_and_tenant_isolation(system,worker_mock):
         assert identity['role']=='bidder' and identity['workspace_id']=='legacy'
         for path in ['/dashboard','/payments','/api/dashboard','/api/dashboard/accounts','/api/payments','/api/payments/activity','/api/applications/today','/api/bootstrap']:
             assert bidder.get(path).status_code==200,path
-        assert bidder.get('/api/messages/1').status_code==403
+        assert bidder.get('/api/messages/1').status_code==200
+        assert bidder.get('/api/triage').status_code==200
+        assert bidder.get('/inbox').status_code==200
+        assert bidder.post('/api/messages/1/handled').status_code==200
+        assert bidder.post('/api/messages/1/reply',json={}).status_code==403
+        assert bidder.get('/api/messages/1/body').status_code==403
         assert bidder.get('/api/dashboard').json()=={'worker':'secret-legacy','viewer':'bidder'}
         assert bidder.get('/api/dashboard',headers={'x-offerpath-workspace':'other'}).status_code==409
         for path in ['/api/accounts','/api/settings','/api/status','/api/interviews','/api/admin/users','/api/auth/bidders/manage','/settings']:

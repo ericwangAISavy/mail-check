@@ -6,6 +6,21 @@ On the sign-in screen, choose **Bidder**, type **bidder username** in **Username
 
 Bidders can open **Dashboard** to see graphs for accounts assigned to them on the message’s Chicago receipt date. The dashboard has no message list, message reader, or account-status panel for bidders. Account filters list only their assigned accounts; changing URL parameters cannot select another bidder’s data.
 
+Bidders also have **Inbox**, which reuses the Triage list and reader but is fixed
+to the existing **Info request** category. Lists, search, counts, message bodies
+and Done requests are restricted to currently active account assignments (Chicago
+calendar dates); future/ended assignments and disabled accounts do not grant access.
+This restriction is enforced at the gateway and worker, not just in the page filters.
+Inbox refreshes every ten seconds. It adds no category and changes no classifier.
+
+Bidders may read messages and use the existing **Done / Restore** action. The
+status is the app's existing shared, local message status, not a new per-bidder
+acknowledgment; it never alters the provider mailbox. Undo from the Done toast
+restores only that specific authorized message. Global Undo, reply/composer/history,
+reclassification, Open in Outlook/Gmail, mailbox settings and other message categories
+remain unavailable. Assignment changes and reclassification are checked again for
+every message read and status update. Admin Triage keeps its existing behavior.
+
 On **Accounts → Bidder visibility**, admins save two checkbox options for each bidder:
 
 - **Payment visible** shows payment amounts for all bidder rows the viewer is allowed to see. When **Other bidders’ work visible** is also enabled, this includes coworkers’ before/after-deduction amounts and recorded payment status. Coworker wallets, rates, internal notes and account details remain private. It defaults to enabled. Disabling it removes money, rates, deductions, and recorded-payment details from their payment API response and page.

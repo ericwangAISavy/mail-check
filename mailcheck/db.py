@@ -758,6 +758,16 @@ def _text_search(search: str | None) -> tuple[str, list[str]]:
     ) + ")", [term] * len(fields)
 
 
+def bidder_info_scope(bidder_id):
+    """Info request access follows current account assignments, never client filters."""
+    from .payments import today
+    day=today().isoformat()
+    return (""" AND c.category='info_request' AND a.enabled=1 AND EXISTS (
+        SELECT 1 FROM bidder_assignments ba JOIN bidders b ON b.id=ba.bidder_id
+        WHERE ba.bidder_id=? AND b.removed_at IS NULL AND ba.account_id=m.account_id
+        AND ba.start_date<=? AND (ba.end_date IS NULL OR ba.end_date>=?))""",[bidder_id,day,day])
+
+
 def category_counts(
     conn: sqlite3.Connection,
     *,
@@ -765,6 +775,7 @@ def category_counts(
     account_label: str | None = None,
     handled: bool | None = None,
     search: str | None = None,
+    bidder_id: int | None = None,
 ) -> dict[str, int]:
     """Counts per category over the latest classification of each message."""
     sql = (
@@ -777,6 +788,10 @@ def category_counts(
         + " WHERE 1 = 1"
     )
     params: list = []
+    if bidder_id is not None:
+        scope, values = bidder_info_scope(bidder_id)
+        sql += scope
+        params.extend(values)
     search_sql, search_params = _text_search(search)
     sql += search_sql
     params.extend(search_params)
@@ -803,6 +818,7 @@ def query_triaged(
     handled: bool | None = None,
     limit: int = 500,
     search: str | None = None,
+    bidder_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """Latest classification per message, joined with the message and account.
 
@@ -827,6 +843,10 @@ def query_triaged(
         + " WHERE 1 = 1"
     )
     params: list = []
+    if bidder_id is not None:
+        scope, values = bidder_info_scope(bidder_id)
+        sql += scope
+        params.extend(values)
     search_sql, search_params = _text_search(search)
     sql += search_sql
     params.extend(search_params)

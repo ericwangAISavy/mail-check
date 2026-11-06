@@ -57,7 +57,7 @@ export function CategoryBadge({ message }: { message: Pick<Message, "category" |
   return <Badge variant={urgent ? "urgent" : message.tier === "reply" ? "default" : "muted"}>{message.category_label}</Badge>
 }
 
-export function useDoneMutation(onSuccess?: (message: Message) => void) {
+export function useDoneMutation(onSuccess?: (message: Message) => void, scopedUndo=false) {
   const client = useQueryClient()
   const toast = useToast()
   return useMutation({
@@ -72,7 +72,7 @@ export function useDoneMutation(onSuccess?: (message: Message) => void) {
       const toastText = variables.done ? "Moved to Completed." : "Restored to your queue."
       toast(toastText, "success", variables.done ? { label: "Undo", run: async () => {
         try {
-          await api.post("/api/messages/undo-last")
+          await api.post(scopedUndo ? `/api/messages/${message.pk}/handled?done=false` : "/api/messages/undo-last")
           client.invalidateQueries({ queryKey: ["triage"] })
           client.invalidateQueries({ queryKey: ["dashboard"] })
           client.invalidateQueries({ queryKey: ["bootstrap"] })

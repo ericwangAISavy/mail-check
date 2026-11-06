@@ -256,3 +256,13 @@ it.each(["/payments", "/payments/"])("hides header counts from bidders on %s", a
  expect(document.querySelector(".header-application-count")).toBeNull()
  expect(screen.queryByLabelText("171 checked applications today")).toBeNull()
 })
+
+it('gives bidders the restricted inbox navigation without admin triage or account controls',async()=>{
+ vi.mocked(api.session).mockResolvedValue({role:'bidder',managed:true,workspace_id:'legacy',bidder_id:1})
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/inbox']}><App/></MemoryRouter></QueryClientProvider>)
+ expect(await screen.findByRole('link',{name:'Inbox'})).toBeTruthy()
+ expect(screen.queryByRole('link',{name:'Triage'})).toBeNull()
+ expect(screen.queryByRole('link',{name:'Accounts'})).toBeNull()
+ expect(await screen.findByText('Info request messages for your assigned accounts.')).toBeTruthy()
+})

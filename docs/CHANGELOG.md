@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.22.0 — 2026-11-06
+
+Add a restricted bidder inbox using Info request
+
+- Reuse Triage for bidders to read only Info request messages from currently assigned accounts and mark them Done, with server-enforced access and no reply or mailbox-management permissions. No classification categories or rules changed.
+
 ## 2.21.15 — 2026-11-05
 
 Reconcile activity graphs with checked application totals

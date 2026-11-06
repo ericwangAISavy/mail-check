@@ -30,9 +30,9 @@ function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }))
 }
 
-function renderPage() {
+function renderPage(bidderInbox=false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bootstrap} /></ToastProvider></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bidderInbox ? {...bootstrap,readiness:{...bootstrap.readiness,model:false,accounts:false}} : bootstrap} bidderInbox={bidderInbox} /></ToastProvider></QueryClientProvider>)
 }
 
 function renderWithReader(message: Message, readOnly = false) {
@@ -316,4 +316,39 @@ it("submits text search with existing filters and clears it", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }))
   await waitFor(() => expect((screen.getByLabelText("Search mail") as HTMLInputElement).value).toBe(""))
   expect(new URLSearchParams(window.location.search).has("q")).toBe(false)
+})
+
+it('reuses triage for bidder Info requests with reading and scoped Done only',async()=>{
+ const base=vi.mocked(fetch).getMockImplementation()!
+ window.history.replaceState({},'', '/inbox?category=offer')
+ vi.mocked(fetch).mockImplementation(async(input,init)=>{
+  const url=String(input)
+  if(url.includes('/handled?done=false'))done.delete(Number(url.match(/messages\/(\d+)/)?.[1]))
+  const res=await base(input,init)
+  const data=await res.json()
+  if(url.startsWith('/api/triage')){
+   data.groups=data.groups.map((group:any)=>({...group,items:group.items.map((message:any)=>({...message,category:'info_request',category_label:'Info request'}))}))
+   data.counts={info_request:data.total}
+  }else if(url.startsWith('/api/messages/')&&init?.method!=='POST'){
+   data.message={...data.message,category:'info_request',category_label:'Info request',open_url:'https://outlook.live.com/mail/',open_label:'Open in Outlook'}
+   data.body_html='<p>Your verification code is 123456</p>'
+  }
+  return response(data,res.status)
+ })
+ renderPage(true)
+ expect(await screen.findByText('Your verification code is 123456')).toBeTruthy()
+ expect(requests.some(url=>url.startsWith('GET /api/triage?')&&url.includes('category=info_request'))).toBe(true)
+ expect(screen.queryByRole('button',{name:'Reply'})).toBeNull()
+ expect(screen.queryByRole('link',{name:/Open in Outlook/})).toBeNull()
+ expect(screen.queryByRole('button',{name:/Try classification again/})).toBeNull()
+ expect(screen.queryByRole('button',{name:/Undo/})).toBeNull()
+ expect(screen.queryByRole('button',{name:'Continue setup'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:/Filters/}))
+ expect((screen.getByLabelText('Category') as HTMLSelectElement).disabled).toBe(true)
+ expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe('info_request')
+ fireEvent.click(screen.getByRole('button',{name:'Done'}))
+ await screen.findByText('Moved to Completed.')
+ fireEvent.click(screen.getByRole('button',{name:'Undo'}))
+ await waitFor(()=>expect(requests.some(url=>url.startsWith('POST /api/messages/1/handled?done=false'))).toBe(true))
+ expect(requests.some(url=>url.includes('/api/messages/undo-last'))).toBe(false)
 })
