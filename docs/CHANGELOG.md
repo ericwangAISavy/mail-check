@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.3 — 2026-11-09
+
+Refresh daily counts after bidder assignment changes
+
+- Refresh the header daily-count badge immediately after assigning or removing accounts and other bidder-management changes.
+
 ## 2.24.2 — 2026-11-09
 
 Allow removal of previously paid account assignments

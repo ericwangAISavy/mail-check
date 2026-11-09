@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.24.3",
+    "date": "2026-11-09",
+    "title": "Refresh daily counts after bidder assignment changes",
+    "changes": [
+      "Refresh the header daily-count badge immediately after assigning or removing accounts and other bidder-management changes."
+    ]
+  },
+  {
     "version": "2.24.2",
     "date": "2026-11-09",
     "title": "Allow removal of previously paid account assignments",

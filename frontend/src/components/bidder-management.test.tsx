@@ -120,3 +120,16 @@ it('defers unvisited bidder forms while retaining drafts in previously opened ed
   fireEvent.click(screen.getByRole('button', { name: 'Alex' }))
   expect((screen.getByLabelText('Wallet address', { selector: '#bidder-editor-1 input' }) as HTMLInputElement).value).toBe('wallet draft')
 })
+
+it('refreshes both daily badge caches after removing an assignment', async () => {
+  mount()
+  const client = clients[clients.length - 1]
+  client.setQueryData(['bootstrap'], {counts: {applications_today: 3}})
+  client.setQueryData(['applications-today'], {applications_today: 3})
+  fireEvent.click(await screen.findByText('Manage bidders and account assignments'))
+  fireEvent.click(await screen.findByRole('button', {name: 'Remove'}))
+  fireEvent.click(screen.getByRole('button', {name: 'Remove assignment'}))
+  await waitFor(() => expect(screen.queryByRole('button', {name: 'Remove assignment'})).toBeNull())
+  expect(client.getQueryState(['bootstrap'])?.isInvalidated).toBe(true)
+  expect(client.getQueryState(['applications-today'])?.isInvalidated).toBe(true)
+})
