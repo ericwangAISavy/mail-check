@@ -94,19 +94,26 @@ class WorkerPool:
         try:
             with httpx.Client(trust_env=False,timeout=1) as client:
                 for _ in range(100):
-                    if worker.process.poll() is not None:break
+                    with self._lock:
+                        if self.workers.get(wid) is not worker or worker.process.poll() is not None:break
+                        if worker.ready:return worker
                     try:
                         if client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token}).status_code==200:
-                            worker.ready=True
-                            self.errors.pop(wid,None)
-                            return worker
+                            with self._lock:
+                                if self.workers.get(wid) is not worker:break
+                                worker.ready=True
+                                self.errors.pop(wid,None)
+                                return worker
                     except httpx.HTTPError:pass
                     time.sleep(.1)
+            with self._lock:
+                if self.workers.get(wid) is worker and worker.ready and worker.process.poll() is None:return worker
+                if self.workers.get(wid) is worker:self.stop(wid,suspended=False)
             raise RuntimeError('Workspace worker could not start. Check workspace health logs.')
         except BaseException:
             # Do not terminate a replacement process started by another request.
             with self._lock:
-                if self.workers.get(wid) is worker:self.stop(wid,suspended=False)
+                if self.workers.get(wid) is worker and not worker.ready:self.stop(wid,suspended=False)
             raise
 
     def _spawn(self,workspace):
@@ -133,8 +140,13 @@ class WorkerPool:
         env.update(OFFERPATH_WORKER_TOKEN=token,OFFERPATH_GATEWAY_URL=self.gateway_url,
                    OFFERPATH_WORKER_ID=wid,OFFERPATH_WORKER_LOCK=str(self.store.root/'runtime'/f'{wid}.lock'))
         logs=self.store.root/'logs';logs.mkdir(mode=0o700,exist_ok=True)
-        log=(logs/f'{wid}.log').open('ab');os.chmod(log.name,0o600)
-        process=subprocess.Popen([sys.executable,'-m','mailcheck.workspace_workers','--port',str(port)],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
+        log=(logs/f'{wid}.log').open('ab')
+        try:
+            os.chmod(log.name,0o600)
+            process=subprocess.Popen([sys.executable,'-m','mailcheck.workspace_workers','--port',str(port)],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
+        except BaseException:
+            log.close()
+            raise
         worker=Worker(wid,port,token,process,log)
         self.workers[wid]=worker;self.failures[wid]=recent+[time.time()]
         return worker

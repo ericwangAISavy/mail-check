@@ -139,3 +139,29 @@ it('keeps the read deadline active while parsing a stalled response body',async(
   await rejected
  } finally {vi.useRealTimers()}
 })
+
+it.each([200,401])("rejects a response from an earlier visit to the same workspace (%s)",async status=>{
+  let resolve!:(response:Response)=>void
+  vi.stubGlobal("fetch",vi.fn(()=>new Promise<Response>(done=>{resolve=done})))
+  const unauthorized=vi.fn()
+  window.addEventListener("mailcheck:unauthorized",unauthorized)
+  try {
+    setWorkspaceIdentity("alice")
+    const pending=request("/api/messages/1")
+    setWorkspaceIdentity()
+    setWorkspaceIdentity("alice")
+    resolve(new Response(JSON.stringify({body_html:"Old session message"}),{status,headers:{"Content-Type":"application/json"}}))
+    await expect(pending).rejects.toThrow("Workspace changed")
+    expect(unauthorized).not.toHaveBeenCalled()
+  } finally {window.removeEventListener("mailcheck:unauthorized",unauthorized)}
+})
+
+it("rejects a previous user's response after a same-workspace session handoff",async()=>{
+  let resolve!:(response:Response)=>void
+  vi.stubGlobal("fetch",vi.fn(()=>new Promise<Response>(done=>{resolve=done})))
+  setWorkspaceIdentity("team","admin:alice")
+  const pending=request("/api/messages/1")
+  setWorkspaceIdentity("team","admin:bob")
+  resolve(new Response(JSON.stringify({body_html:"Alice private message"}),{headers:{"Content-Type":"application/json"}}))
+  await expect(pending).rejects.toThrow("Workspace changed")
+})

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -693,6 +694,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         _scheduler_started.set()
         threading.Thread(target=_scheduler, daemon=True).start()
 
+    def bidder_member(bidder_id, *, require_login=False):
+        with db.session() as conn:
+            return conn.execute(
+                "SELECT id FROM bidders WHERE id=? AND removed_at IS NULL"
+                + (" AND login_enabled=1" if require_login else ""),
+                (bidder_id,),
+            ).fetchone()
+
     @app.middleware("http")
     async def same_origin_only(request: Request, call_next):
         if worker_secret:
@@ -722,8 +731,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 return _err('Bidder access is read-only.',403)
             viewer_id=request.headers.get('x-offerpath-bidder')
             if not viewer_id or not viewer_id.isdigit():return _err('Bidder identity is required.',401)
-            with db.session() as conn:
-                member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
+            member = await run_in_threadpool(bidder_member, viewer_id)
             if not member:return _err('Bidder access is no longer available.',401)
         public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
         try:
@@ -732,10 +740,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 # the actual bidder role and scope on every data endpoint.
                 identity = {"role":"bidder", "bidder_id":int(viewer_id)} if viewer_id else {"role":"admin", "bidder_id":None}
             else:
-                identity = auth.identity(request.cookies.get(COOKIE))
+                identity = await run_in_threadpool(auth.identity, request.cookies.get(COOKIE))
             if identity and identity["role"] == "bidder" and not worker_secret:
-                with db.session() as conn:
-                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (identity["bidder_id"],)).fetchone()
+                enabled = await run_in_threadpool(bidder_member, identity["bidder_id"], require_login=True)
                 if not enabled:
                     identity = None
             role = identity["role"] if identity else None

@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.1 — 2026-11-09
+
+Close startup and session race conditions
+
+- Prevent concurrent workspace startup requests from stopping healthy workers, and clean up failed process launches.
+- Recover shared model capacity when lease validation is interrupted; keep authentication database reads off the HTTP event loop.
+- Discard stale account responses after session changes and prevent delayed password or sign-in responses from restoring a signed-out session.
+
 ## 2.24.0 — 2026-11-09
 
 Improve active bidder Inbox speed and server reliability

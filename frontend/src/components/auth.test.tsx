@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,expect,it,vi} from "vitest"
-import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
+import {act,cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
 import {MemoryRouter} from "react-router-dom"
 import App from "@/App"
@@ -166,4 +166,58 @@ it("fits sign-in to changes in the visible viewport",async()=>{
   viewport.height=240
   viewport.dispatchEvent(new Event("resize"))
   await waitFor(()=>expect(page.style.height).toBe("240px"))
+})
+
+it("clears private caches when a legacy admin identity changes within the same workspace",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",username:"alice",workspace_id:"team"})
+  const client=mount("/dashboard")
+  await screen.findByRole("heading",{name:"Admin Dashboard"})
+  client.setQueryData(["reader",1],{body_html:"Alice private message"})
+  client.setQueryData(["auth"],{role:"admin",username:"bob",workspace_id:"team"})
+  await waitFor(()=>expect(client.getQueryData(["reader",1])).toBeUndefined())
+})
+
+it("does not reopen the workspace when a password change finishes after session expiration",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",workspace_id:"alice",must_change_password:true})
+  let finish!:(result:unknown)=>void
+  vi.spyOn(api,"post").mockImplementation((url)=>url==="/api/auth/password"?new Promise(resolve=>{finish=resolve}) as never:Promise.resolve({ok:true}) as never)
+  mount();await screen.findByRole("heading",{name:"Choose your password"})
+  fireEvent.change(screen.getByLabelText("New password"),{target:{value:"new-password-123"}})
+  fireEvent.change(screen.getByLabelText("Confirm password"),{target:{value:"new-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Save password"}))
+  await screen.findByRole("button",{name:"Please wait…"})
+  vi.mocked(api.session).mockResolvedValue({role:null})
+  fireEvent(window,new Event("mailcheck:unauthorized"))
+  await screen.findByRole("heading",{name:"Sign In to OfferPath"})
+  finish({session:{role:"admin",workspace_id:"alice",must_change_password:false}})
+  await waitFor(()=>expect(screen.getByRole("button",{name:"Sign in"})).toHaveProperty("disabled",true))
+  expect(screen.getByRole("heading",{name:"Sign In to OfferPath"})).toBeTruthy()
+  expect(api.bootstrap).not.toHaveBeenCalled()
+})
+
+it("serializes password sign-out and isolates a newer login from old form completion",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",workspace_id:"alice",must_change_password:true})
+  let finishOld!:(result:unknown)=>void,finishNew!:(result:any)=>void
+  vi.spyOn(api,"post").mockImplementation((url)=>url==="/api/auth/password"?new Promise(resolve=>{finishOld=resolve}) as never:Promise.resolve({ok:true}) as never)
+  vi.spyOn(api,"login").mockImplementation(()=>new Promise(resolve=>{finishNew=resolve}))
+  mount();await screen.findByRole("heading",{name:"Choose your password"})
+  fireEvent.change(screen.getByLabelText("New password"),{target:{value:"new-password-123"}})
+  fireEvent.change(screen.getByLabelText("Confirm password"),{target:{value:"new-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Save password"}))
+  await screen.findByRole("button",{name:"Please wait…"})
+  expect(screen.getByRole("button",{name:"Sign out"})).toHaveProperty("disabled",true)
+  vi.mocked(api.session).mockResolvedValue({role:null})
+  fireEvent(window,new Event("mailcheck:unauthorized"))
+  await screen.findByRole("heading",{name:"Sign In to OfferPath"})
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"bob"}})
+  fireEvent.change(screen.getByLabelText("Password"),{target:{value:"bob-password-123"}})
+  expect(screen.getByRole("button",{name:"Sign in"})).toHaveProperty("disabled",false)
+  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  await screen.findByRole("button",{name:"Please wait…"})
+  await act(async()=>finishOld({session:{role:"admin",workspace_id:"alice",must_change_password:false}}))
+  expect(screen.getByRole("button",{name:"Please wait…"})).toHaveProperty("disabled",true)
+  const nextIdentity={role:"admin" as const,user_id:3,workspace_id:"bob",username:"bob"}
+  vi.mocked(api.session).mockResolvedValue(nextIdentity)
+  await act(async()=>finishNew(nextIdentity))
+  await screen.findByRole("link",{name:"Dashboard"})
 })

@@ -230,15 +230,21 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # asyncio.Semaphore queues pending tasks FIFO. Lease expiry recovers dead workers.
         try:await asyncio.wait_for(model_slots.acquire(),timeout=600)
         except asyncio.TimeoutError:raise HTTPException(503,'The shared model queue is busy.')
-        if not await asyncio.to_thread(pool.authenticate_worker,request.headers.get('x-offerpath-worker','')):
-            model_slots.release();raise HTTPException(403,'Workspace worker is no longer active.')
-        import secrets
-        token=secrets.token_urlsafe(32)
-        loop=asyncio.get_running_loop()
-        def release():
-            if leases.pop(token,None):model_slots.release()
-        leases[token]=(request.state.worker,loop.call_later(900,release),request.headers['x-offerpath-worker'])
-        return {'lease':token}
+        try:
+            if not await asyncio.to_thread(pool.authenticate_worker,request.headers.get('x-offerpath-worker','')):
+                raise HTTPException(403,'Workspace worker is no longer active.')
+            import secrets
+            token=secrets.token_urlsafe(32)
+            loop=asyncio.get_running_loop()
+            def release():
+                if leases.pop(token,None):model_slots.release()
+            leases[token]=(request.state.worker,loop.call_later(900,release),request.headers['x-offerpath-worker'])
+            return {'lease':token}
+        except BaseException:
+            # Cancellation can arrive while validating a worker after acquiring
+            # capacity. Until a lease exists, no expiry timer can recover it.
+            model_slots.release()
+            raise
 
     @app.post('/_internal/model/release')
     async def release(request:Request):

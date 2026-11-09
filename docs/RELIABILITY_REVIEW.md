@@ -52,3 +52,38 @@ and admin automatic-check controls are unchanged.
 - Production CSP browser checks passed for normal startup, blocked browser storage,
   signed-in blocked storage, stale entry recovery and bounded missing-entry recovery.
 - Release consistency and whitespace checks passed.
+
+## Follow-up review — version 2.24.1
+
+Additional timing-sensitive failures reproduced after the first review:
+
+- Concurrent startup waiters could disagree on readiness. A delayed waiter could
+  time out and stop the shared worker after another request had confirmed it was
+  healthy. Waiters now share readiness under the pool lock and do not return a
+  worker removed by suspension. Failed process launches close their log handles.
+- Cancelling shared-model acquisition during worker validation permanently lost
+  semaphore capacity before any expiry lease existed. Failed or cancelled
+  validation now returns capacity immediately.
+- Bidder membership database reads ran directly on the worker HTTP event loop.
+  A slow database open/read therefore delayed unrelated HTTP traffic. Those
+  checks and standalone authentication now run in the request thread pool;
+  authorization conditions remain the same.
+- Frontend response protection compared only workspace names. A delayed response
+  could cross a logout/login round trip or a user change within one workspace;
+  an old 401 could sign out the newer session. Responses now also validate the
+  session handoff revision, and cache invalidation includes the full identity.
+- Pending sign-in/password form results could restore local session state after
+  sign-out. Reset now invalidates those pending form completions. The initial
+  password form disables sign-out during saving to avoid conflicting session
+  cookie updates; expired sessions can begin a new login without an older form
+  completion clearing its busy state.
+
+These are local reproductions; no production crash trace was available to
+attribute the reported Bad gateway events to a specific race.
+
+Follow-up verification: the complete backend run passed 798 tests and 92
+subtests. Expanded model-lease interruption coverage subsequently passed all
+three cancellation/error/revocation cases. Production compilation and Chromium
+checks passed, including startup recovery and initial password save/navigation.
+The complete frontend suite passed 424 tests across 47 files. Release metadata
+consistency checks passed.

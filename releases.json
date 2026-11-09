@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.24.1",
+    "date": "2026-11-09",
+    "title": "Close startup and session race conditions",
+    "changes": [
+      "Prevent concurrent workspace startup requests from stopping healthy workers, and clean up failed process launches.",
+      "Recover shared model capacity when lease validation is interrupted; keep authentication database reads off the HTTP event loop.",
+      "Discard stale account responses after session changes and prevent delayed password or sign-in responses from restoring a signed-out session."
+    ]
+  },
+  {
     "version": "2.24.0",
     "date": "2026-11-09",
     "title": "Improve active bidder Inbox speed and server reliability",

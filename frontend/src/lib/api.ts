@@ -2,7 +2,13 @@ import type { Account, Bootstrap, Settings, TriageData } from "./types"
 
 export type Session = {role: "admin" | "bidder" | null; bidder_id?: number; bidder_name?:string; user_id?: number; username?: string; is_owner?: boolean; workspace_id?: string; workspace_name?: string; must_change_password?: boolean; managed?: boolean}
 let workspaceId: string | undefined
-export function setWorkspaceIdentity(id?: string) { workspaceId = id }
+let sessionIdentity: string | undefined
+let identityRevision = 0
+export function setWorkspaceIdentity(id?: string, identity?: string) {
+  if (workspaceId !== id || sessionIdentity !== identity) identityRevision++
+  workspaceId = id
+  sessionIdentity = identity
+}
 export function getWorkspaceIdentity() {return workspaceId}
 
 export class ApiError extends Error {
@@ -38,6 +44,7 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
 
 async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   const requestWorkspace = workspaceId
+  const requestRevision = identityRevision
   const mutating=!["GET","HEAD","OPTIONS"].includes((init.method||"GET").toUpperCase())
   const advice=mutating?"Check whether the action completed before trying again.":"Please try again shortly."
   const unavailable=(status:number)=>`${status===504||status===524?"OfferPath took too long to respond":"OfferPath is temporarily unavailable"} (${status}). ${advice}`
@@ -51,7 +58,7 @@ async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T
     if(init.signal?.aborted || reason instanceof Error && reason.name==="AbortError")throw reason
     throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
   }
-  if (!url.startsWith("/api/auth/") && requestWorkspace !== workspaceId) throw new ApiError("Workspace changed. Reload before continuing.",409)
+  if (!url.startsWith("/api/auth/") && requestRevision !== identityRevision) throw new ApiError("Workspace changed. Reload before continuing.",409)
   const contentType = (response.headers.get("content-type") || "").toLowerCase()
   let html=contentType.includes("html")
   let value:any
@@ -70,7 +77,7 @@ async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T
     if(init.signal?.aborted || reason instanceof Error && reason.name==="AbortError")throw reason
     throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
   }
-  if (!url.startsWith("/api/auth/") && requestWorkspace !== workspaceId) throw new ApiError("Workspace changed. Reload before continuing.",409)
+  if (!url.startsWith("/api/auth/") && requestRevision !== identityRevision) throw new ApiError("Workspace changed. Reload before continuing.",409)
   if (response.status === 409 && value?.workspace_changed) window.dispatchEvent(new Event("offerpath:workspace-changed"))
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mailcheck:unauthorized"))

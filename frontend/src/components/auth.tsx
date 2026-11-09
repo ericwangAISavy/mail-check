@@ -62,12 +62,12 @@ export function AuthGate({children}:{children:ReactNode}) {
   const client=useQueryClient(), navigate=useNavigate()
   const session=useQuery({queryKey:["auth"],queryFn:api.session,retry:false,staleTime:0,refetchOnWindowFocus:true})
   const data=session.data
-  const identity=data?.role==="bidder" && data.managed && data.workspace_id ? `bidder:${data.workspace_id}:${data.bidder_id}` : data?.role==="admin" ? `${data.user_id || "legacy"}:${data.workspace_id || "legacy"}:${Boolean(data.must_change_password)}` : "signed-out"
   const pageScope=JSON.stringify([data?.workspace_id || "legacy",data?.user_id ?? data?.username ?? "legacy",data?.role,data?.bidder_id ?? null])
+  const identity=JSON.stringify([pageScope,Boolean(data?.must_change_password),Boolean(data?.managed)])
   const [activeIdentity,setActiveIdentity]=useState("")
   useEffect(()=>{
     if(session.isPending)return
-    setWorkspaceIdentity(data?.workspace_id)
+    setWorkspaceIdentity(data?.workspace_id,identity)
     if(activeIdentity!==identity){
       void client.cancelQueries({predicate:query=>query.queryKey[0]!=="auth"})
       client.removeQueries({predicate:query=>query.queryKey[0]!=="auth"})
@@ -89,7 +89,8 @@ export function AuthGate({children}:{children:ReactNode}) {
   const [username,setUsername]=useState(""),[password,setPassword]=useState(""),[confirmation,setConfirmation]=useState("")
   const [showPassword,setShowPassword]=useState(false)
   const [error,setError]=useState(""),[busy,setBusy]=useState(false)
-  const reset=()=>{setWorkspaceIdentity();client.clear();client.setQueryData(["auth"],{role:null});setPassword("");setUsername("");setShowPassword(false);navigate("/login",{replace:true})}
+  const authAttempt=useRef(0)
+  const reset=()=>{authAttempt.current++;setBusy(false);setWorkspaceIdentity();client.clear();client.setQueryData(["auth"],{role:null});setPassword("");setUsername("");setShowPassword(false);navigate("/login",{replace:true})}
   useEffect(()=>{
     const expired=()=>reset()
     const changed=()=>{void client.cancelQueries();client.removeQueries({predicate:q=>q.queryKey[0]!=="auth"});void session.refetch()}
@@ -102,19 +103,22 @@ export function AuthGate({children}:{children:ReactNode}) {
   const submit=async(event:React.FormEvent)=>{
     event.preventDefault()
     if(busy||(!data?.must_change_password&&!accountReady))return
+    const attempt=++authAttempt.current
     setBusy(true);setError("")
     try {
       if(data?.must_change_password){
         if(password!==confirmation)throw new Error("Passwords do not match.")
         const result=await api.post<{session:Session}>("/api/auth/password",{password,role:"admin"})
+        if(attempt!==authAttempt.current)return
         client.clear();client.setQueryData(["auth"],result.session)
       } else {
         const result=await api.login(loginRole,password,undefined,username.trim())
+        if(attempt!==authAttempt.current)return
         client.clear();client.setQueryData(["auth"],result)
       }
       setPassword("");setConfirmation("");navigate(loginRole==="bidder"?"/dashboard":"/",{replace:true})
-    } catch(reason){setError(reason instanceof Error?reason.message:"Could not sign in.")}
-    finally{setBusy(false)}
+    } catch(reason){if(attempt===authAttempt.current)setError(reason instanceof Error?reason.message:"Could not sign in.")}
+    finally{if(attempt===authAttempt.current)setBusy(false)}
   }
   if(session.isPending || activeIdentity!==identity)return <SignInViewport><div className="login-pending"><Loading label="Checking sign-in…"/></div></SignInViewport>
   if((data?.role==="admin" || data?.role==="bidder" && data.managed && data.workspace_id) && !data.must_change_password)return <AuthContext.Provider value={{role:data.role,session:data,signOut}}><PageStateProvider key={pageScope} scope={pageScope}>{children}</PageStateProvider></AuthContext.Provider>
@@ -142,7 +146,7 @@ export function AuthGate({children}:{children:ReactNode}) {
           {error && <p role="alert" className="inline-error">{error}</p>}
           <Button className="login-submit" type="submit" disabled={busy||(!data?.must_change_password&&!accountReady)}><LogIn size={22}/>{busy?"Please wait…":data?.must_change_password?"Save password":"Sign in"}</Button>
         </form>
-        {data?.must_change_password && <Button variant="ghost" onClick={()=>void signOut()}>Sign out</Button>}
+        {data?.must_change_password && <Button variant="ghost" disabled={busy} onClick={()=>void signOut()}>Sign out</Button>}
         <p className="login-security"><ShieldCheck size={16}/>Secure · Private · Your Data Stays Yours</p>
       </section>
       <aside className="login-milestones" aria-label="Your career journey"><span><CalendarDays/>Interview</span><span><FileText/>Application</span><span><Crosshair/>Job Match</span><span><UserRound/>Profile &amp; Skills</span></aside>
