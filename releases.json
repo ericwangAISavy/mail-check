@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.24.4",
+    "date": "2026-11-09",
+    "title": "Improve availability under concurrent users and preserve active filters",
+    "changes": [
+      "Separate bounded active-request admission from idle connection headroom, reserving capacity for worker health checks and model releases.",
+      "Retry temporary shared-model release failures and keep payment pages readable during concurrent database writes.",
+      "Preserve filters and URL state when clicking the current sidebar page or home title again."
+    ]
+  },
+  {
     "version": "2.24.3",
     "date": "2026-11-09",
     "title": "Refresh daily counts after bidder assignment changes",

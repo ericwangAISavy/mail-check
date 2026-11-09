@@ -76,7 +76,10 @@ def test_server_pins_proxy_trust_and_removes_banner():
         options = serve.call_args.kwargs
         assert options['server_header'] is False
         assert options['forwarded_allow_ips'] == '127.0.0.1,::1'
-        assert options['limit_concurrency'] == 64
+        assert options['limit_concurrency'] == 256
+        admission = serve.call_args.args[0]
+        assert admission.max_requests == 64
+        assert admission.max_control_requests == 8
 
 
 def test_streaming_body_has_total_deadline(monkeypatch):

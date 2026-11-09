@@ -6,6 +6,8 @@ import sys
 
 import uvicorn
 
+from .admission import RequestAdmission
+
 log = logging.getLogger('uvicorn.error')
 
 
@@ -68,7 +70,10 @@ def run(app, **options):
     options.setdefault('proxy_headers', True)
     options.setdefault('forwarded_allow_ips', '127.0.0.1,::1')
     options.setdefault('server_header', False)
-    options.setdefault('limit_concurrency', 64)
+    # Uvicorn counts idle keep-alive sockets, so allow finite transport
+    # headroom while the ASGI wrapper independently bounds active work.
+    options.setdefault('limit_concurrency', 256)
+    app = RequestAdmission(app)
     options.setdefault('timeout_keep_alive', 5)
     if sys.platform != 'win32':
         return uvicorn.run(app, **options)

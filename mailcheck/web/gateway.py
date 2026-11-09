@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
@@ -25,6 +26,10 @@ from .auth import AuthStore, AuthFileError
 
 COOKIE='offerpath_session'
 HERE=Path(__file__).parent
+
+# Process-wide, lazily started and bounded independently of browser DB work.
+# The gateway has one serving loop; authentication must stay off that loop.
+_worker_control_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='offerpath-control')
 
 
 class _NoWorkerCookies(DefaultCookiePolicy):
@@ -184,7 +189,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if host.lower() not in hosts:return JSONResponse({'error':'Unrecognised Host header.'},403)
         path=request.url.path
         if path.startswith('/_internal/'):
-            wid=await asyncio.to_thread(pool.authenticate_worker,request.headers.get('x-offerpath-worker',''))
+            wid=await asyncio.get_running_loop().run_in_executor(
+                _worker_control_executor, pool.authenticate_worker, request.headers.get('x-offerpath-worker',''))
             if not wid:return JSONResponse({'error':'Internal access denied.'},403)
             request.state.worker=wid
             return await call_next(request)
@@ -223,7 +229,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         return response
 
     @app.get('/_internal/ping')
-    def ping():return {'ok':True}
+    async def ping():return {'ok':True}
 
     @app.post('/_internal/model/acquire')
     async def acquire(request:Request):

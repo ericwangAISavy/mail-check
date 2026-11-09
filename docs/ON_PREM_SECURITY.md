@@ -149,3 +149,28 @@ python -m pip install --upgrade --upgrade-strategy eager .
 Use trusted package indexes, retain a working environment backup for rollback,
 and rerun dependency audits periodically. Node development tools are not served
 by the production app; never expose the Vite or test-runner server through a tunnel.
+
+## Distinguishing a tunnel 502 from app overload
+
+A Cloudflare page showing browser/Cloudflare working and **Host error 502**
+identifies a failure on the origin side of the connection. It does not by itself
+identify a stopped app, a broken tunnel connection, or an application exception.
+At the time of a failure, run this on the app host (use `curl.exe` in Windows
+PowerShell), substituting your configured domain/port if different:
+
+```sh
+curl -i --max-time 10 -H "Host: app.offerpath.bid" -H "X-Forwarded-Proto: https" http://127.0.0.1:52400/api/auth/session
+```
+
+This public session check needs no password or cookie. Keep the origin bound to
+loopback. A local connection failure points to the app listener/process; retain
+the gateway terminal traceback and OS termination records. If this succeeds while
+the domain still returns 502, retain the same-time cloudflared error and compare
+its configured origin port and HTTP/HTTPS scheme. Retain the affected workspace's
+`offerpath-control/logs/<workspace_id>.log` too. Remove secrets before sharing.
+Do not expose worker ports or disable host/HTTPS validation to diagnose a tunnel.
+
+The default server now separately bounds active requests (64 ordinary + 8 short
+worker control calls) and transport/task headroom (256). Temporary active overload
+returns JSON 503 with `Retry-After`; it does not require restarting healthy workers.
+Capacity remains finite, and real host RAM/CPU/network limits still need monitoring.

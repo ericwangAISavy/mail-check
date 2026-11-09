@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.4 — 2026-11-09
+
+Improve availability under concurrent users and preserve active filters
+
+- Separate bounded active-request admission from idle connection headroom, reserving capacity for worker health checks and model releases.
+- Retry temporary shared-model release failures and keep payment pages readable during concurrent database writes.
+- Preserve filters and URL state when clicking the current sidebar page or home title again.
+
 ## 2.24.3 — 2026-11-09
 
 Refresh daily counts after bidder assignment changes

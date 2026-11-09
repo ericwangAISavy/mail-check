@@ -2,7 +2,7 @@ import { StrictMode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter } from "react-router-dom"
+import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom"
 import App from "./App"
 import { AppErrorBoundary } from "@/components/app-error-boundary"
 import { api } from "@/lib/api"
@@ -265,4 +265,48 @@ it('gives bidders the restricted inbox navigation without admin triage or accoun
  expect(screen.queryByRole('link',{name:'Triage'})).toBeNull()
  expect(screen.queryByRole('link',{name:'Accounts'})).toBeNull()
  expect(await screen.findByText('Info request messages for your assigned accounts.')).toBeTruthy()
+})
+
+function CurrentAddress() {
+ const l=useLocation();return <output data-testid="address">{l.pathname+l.search+l.hash}</output>
+}
+describe("same-page workspace navigation",()=>{
+ const mount=(entry:string,role:"admin"|"bidder"="admin")=>{
+  vi.spyOn(api,"status").mockResolvedValue(idle)
+  vi.mocked(api.session).mockResolvedValue({role,is_owner:role==="admin",managed:true,workspace_id:"test"})
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[entry]}><App/><CurrentAddress/></MemoryRouter></QueryClientProvider>)
+ }
+ it.each([["/","Triage"],["/dashboard","Dashboard"],["/interviews","Interview"],["/interview-processes","Interview pipeline"],["/sourcing","Job sourcing"],["/payments","Bidder management"],["/accounts","Accounts"],["/settings","Settings"],["/admin-management","Admin management"]])("preserves filters and hash on %s",async(path,label)=>{
+  const address=path+"?q=keep&account=2#results";mount(address)
+  fireEvent.click(await screen.findByRole("link",{name:label}))
+  expect(screen.getByTestId("address").textContent).toBe(address)
+ })
+ it("preserves home filters",async()=>{
+  mount("/?q=keep#results");fireEvent.click(await screen.findByRole("button",{name:"OfferPath home"}))
+  expect(screen.getByTestId("address").textContent).toBe("/?q=keep#results")
+ })
+ it("navigates to other pages without copying filters",async()=>{
+  mount("/?q=keep#results");fireEvent.click(await screen.findByRole("link",{name:"Accounts"}))
+  expect(screen.getByTestId("address").textContent).toBe("/accounts")
+ })
+ it.each([{ctrlKey:true},{metaKey:true},{shiftKey:true},{altKey:true},{button:1}])("allows browser modified clicks (%j)",async(modifiers)=>{
+  mount("/?q=keep#results");const link=await screen.findByRole("link",{name:"Triage"})
+  expect(fireEvent.click(link,modifiers)).toBe(true);expect(link.getAttribute("href")).toBe("/")
+  expect(screen.getByTestId("address").textContent).toBe("/?q=keep#results")
+ })
+ it.each([["/inbox","Inbox"],["/dashboard","OfferPath home"]])("preserves bidder filters on %s",async(path,label)=>{
+  mount(path+"?q=keep#results","bidder")
+  const control=await screen.findByRole(label==="Inbox"?"link":"button",{name:label})
+  fireEvent.click(control);expect(screen.getByTestId("address").textContent).toBe(path+"?q=keep#results")
+ })
+ it("preserves filters changed directly through browser history",async()=>{
+  window.history.replaceState(null,"","/");vi.spyOn(api,"status").mockResolvedValue(idle)
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><BrowserRouter><App/></BrowserRouter></QueryClientProvider>)
+  const link=await screen.findByRole("link",{name:"Triage"})
+  window.history.pushState(null,"","/?q=updated#results");fireEvent.click(link)
+  expect(window.location.search+window.location.hash).toBe("?q=updated#results")
+  window.history.replaceState(null,"","/")
+ })
 })

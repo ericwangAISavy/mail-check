@@ -581,6 +581,34 @@ def _live_assigned_accounts(conn):
         "AND (a.end_date IS NULL OR a.end_date>=?)", [*viewers,day,day])}
 
 
+_payment_refresh_lock = threading.Lock()
+
+
+def _refresh_payment_week(conn, start):
+    """Opportunistic matching must not queue page loads behind a writer."""
+    if not _payment_refresh_lock.acquire(blocking=False):
+        return
+    timeout = None
+    try:
+        timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        conn.execute("PRAGMA busy_timeout=0")
+        sourcing_verification.verify_all(conn, refresh_since=start,
+            refresh_until=start + timedelta(days=6), sample=False, week_only=True)
+    except sqlite3.OperationalError as exc:
+        code = getattr(exc, "sqlite_errorcode", 0) or 0
+        if (code & 255) not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise
+        # Existing persisted counts are readable in WAL mode. Normal checks
+        # or the explicit refresh action will retry matching later.
+        logging.getLogger(__name__).debug("Payment refresh deferred during database contention.")
+    finally:
+        try:
+            if timeout is not None:
+                conn.execute(f"PRAGMA busy_timeout={timeout}")
+        finally:
+            _payment_refresh_lock.release()
+
+
 def _resume_live_inbox(cfg):
     if not cfg.watch.auto_check or not cfg.is_llm_ready() or not _live_inbox.due():return False
     if not _job_lock.acquire(blocking=False):return False
@@ -786,7 +814,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return dict(row) if row else _err("Bidder not found.",404)
 
     @app.get("/_internal/ready")
-    def workspace_ready():
+    async def workspace_ready():
         return {"ok": True}
 
     @app.get("/login")
@@ -1001,8 +1029,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             read_only = request.state.role == "bidder"
             if read_only:conn.execute("PRAGMA query_only=ON")
             if not read_only:
-                sourcing_verification.verify_all(conn, refresh_since=start,
-                    refresh_until=start + timedelta(days=6), sample=False, week_only=True)
+                _refresh_payment_week(conn, start)
             viewer = request.state.bidder_id if request.state.role=='bidder' else None
             policy = payments.visibility(conn,viewer) if viewer else None
             scope = None if viewer and policy['other_work_visible'] else viewer

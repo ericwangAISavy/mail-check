@@ -1,7 +1,29 @@
 """Bound model concurrency across isolated workspace processes."""
 from functools import wraps
 import os
+import logging
+import time
 import httpx
+
+
+def _release_lease(client, gateway, token, lease):
+    # Release is idempotent, so retry the same lease after a lost response or
+    # transient admission failure. Never log credentials or replace a model error.
+    for attempt in range(3):
+        try:
+            result = client.post(gateway+'/_internal/model/release',
+                                 headers={'x-offerpath-worker': token},
+                                 json={'lease': lease}, timeout=5)
+            if result.is_success:
+                return
+            retry = result.status_code in (429, 500, 502, 503, 504)
+        except httpx.HTTPError:
+            retry = True
+        if not retry or attempt == 2:
+            break
+        time.sleep(0.2 * (attempt + 1))
+    logging.getLogger(__name__).warning(
+        'Could not release shared model lease; gateway expiry will recover capacity.')
 
 
 def shared_model_slot(operation):
@@ -19,6 +41,5 @@ def shared_model_slot(operation):
                 raise OllamaBusy('The shared model queue is unavailable. Try again shortly.',category='connect') from exc
             try:return operation(*args,**kwargs)
             finally:
-                try:client.post(gateway+'/_internal/model/release',headers={'x-offerpath-worker':token},json={'lease':lease},timeout=5)
-                except httpx.HTTPError:pass  # Gateway lease timeout recovers a crashed worker.
+                _release_lease(client,gateway,token,lease)
     return run

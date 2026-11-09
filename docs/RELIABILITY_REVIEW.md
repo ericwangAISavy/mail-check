@@ -87,3 +87,49 @@ three cancellation/error/revocation cases. Production compilation and Chromium
 checks passed, including startup recovery and initial password save/navigation.
 The complete frontend suite passed 424 tests across 47 files. Release metadata
 consistency checks passed.
+
+## Concurrent-user availability — version 2.24.4
+
+A real Uvicorn reproduction kept 63 completed HTTP connections idle with no
+active requests; the previous 64-connection guard rejected a new connection.
+The server now separates limits: up to 64 active ordinary requests, 8 short
+loopback worker control requests, and a finite Uvicorn transport/task ceiling
+of 256. Health checks and idempotent model releases have reserved active capacity;
+model acquisition remains in the ordinary lane. Worker authentication and the
+HTTP security boundary still validate every admitted control request. Gateway
+worker authentication uses a separate bounded four-thread executor, and trivial
+health handlers are asynchronous, so browser DB/thread backlogs cannot starve
+those control requests. A regression saturates the ordinary executor and checks
+that an authenticated heartbeat still completes. Saturating
+all 256 transport connections can still produce a controlled overload response.
+
+The real-server regression retains idle connections, fills the ordinary request
+budget, checks overload responses and reserved health/release requests, then
+confirms recovery after active requests finish. Model releases now retry the same
+lease up to three times after transient failures, with 5-second request timeouts
+and short backoff. Authentication failures are not retried. Exhaustion logs a
+warning and leaves the existing expiry fallback; it never replaces a model
+operation's original result/error.
+
+Payment-page reads previously tried to acquire a write transaction for matching.
+A separate writer reproduced a locked-database page failure. Automatic matching
+now attempts the lock without waiting, coalesces simultaneous in-process matching,
+and displays saved counts when matching is busy. Normal checks and explicit
+week refresh remain available; unrelated SQL errors still surface. Normal
+uncontended page matching continues to update newly registered links.
+
+Clicking the current sidebar title or home button also preserves query/hash state,
+including filters updated directly through browser history. Different-page and
+modified-click navigation retain their normal behavior.
+
+The supplied Cloudflare screenshot records a 502 host error at
+2026-11-09 21:12:26 UTC (15:12:26 Chicago). The load and database bugs above were
+reproduced locally; without that host's gateway/tunnel logs they cannot be claimed
+as the confirmed cause of that specific 502.
+
+Final 2.24.4 verification: 816 backend tests and 92 subtests passed; 444 frontend
+tests across 47 files passed; release consistency and production build passed.
+Chromium checks passed under production security headers for normal/blocked-storage
+startup, active-page/home filter preservation, stale-entry recovery and bounded
+missing-entry recovery. One existing Starlette/httpx dependency deprecation
+warning remains. These checks do not replace deployment or host/tunnel log review.
