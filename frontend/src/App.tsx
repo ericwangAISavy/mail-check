@@ -1,3 +1,4 @@
+import { readBrowserPreference, writeBrowserPreference } from "@/lib/browser-preferences"
 import { PageQueryBoundary } from "@/lib/page-state"
 import ReleaseHistory from "@/components/release-history"
 import ChangePassword from "@/components/change-password"
@@ -38,7 +39,7 @@ const sections = [
 ]
 
 function ThemeControl() {
-  const [theme, setTheme] = useState(() => localStorage.getItem("mailcheck.theme") || "dark")
+  const [theme, setTheme] = useState(() => readBrowserPreference("mailcheck.theme", "dark"))
   useEffect(() => {
     const root = document.documentElement
     const apply = () => {
@@ -54,7 +55,7 @@ function ThemeControl() {
   }, [theme])
   const rotate = () => {
     const next = theme === "system" ? "light" : theme === "light" ? "dark" : "system"
-    setTheme(next); localStorage.setItem("mailcheck.theme", next)
+    setTheme(next); writeBrowserPreference("mailcheck.theme", next)
   }
   const Icon = theme === "dark" ? Moon : theme === "light" ? Sun : Activity
   return <Button variant="ghost" size="icon" aria-label={`Color theme: ${theme}. Change theme`} title={`Theme: ${theme}`} onClick={rotate}><Icon size={18} /></Button>
@@ -139,7 +140,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             toast(`${label} · ${item.company || "Company unknown"}${item.start_at ? " · " + new Date(item.start_at).toLocaleString() : " · Needs review"}`, "info")
           }
           try {
-            const pref = localStorage.getItem("mailcheck.notify") === "on" && typeof Notification !== "undefined" && Notification.permission === "granted"
+            const pref = readBrowserPreference("mailcheck.notify") === "on" && typeof Notification !== "undefined" && Notification.permission === "granted"
             if (pref) {
               const pending = await request<{ items: { pk: number; title: string; who: string; summary: string; url: string }[] }>("/api/notifications")
               const shown: number[] = []
@@ -213,14 +214,14 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const admin = role === "admin"
   const canManageSettings = admin && (!session?.workspace_id || !!session.is_owner)
   const toast = useToast()
-  const [collapsed, setCollapsed] = useState(localStorage.getItem("mailcheck.sidebar") === "collapsed")
+  const [collapsed, setCollapsed] = useState(readBrowserPreference("mailcheck.sidebar") === "collapsed")
   const [mobileNav, setMobileNav] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   useEffect(() => { setMobileNav(false) }, [location.pathname])
   // The queue size in the tab title is visible from other tabs and the taskbar.
   useEffect(() => { document.title = bootstrap.counts.actionable > 0 ? `(${bootstrap.counts.actionable}) OfferPath` : "OfferPath" }, [bootstrap.counts.actionable])
-  const toggleSidebar = () => { const next = !collapsed; setCollapsed(next); localStorage.setItem("mailcheck.sidebar", next ? "collapsed" : "expanded") }
+  const toggleSidebar = () => { const next = !collapsed; setCollapsed(next); writeBrowserPreference("mailcheck.sidebar", next ? "collapsed" : "expanded") }
 
   return <div className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}

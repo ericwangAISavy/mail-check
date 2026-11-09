@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.23.1",
+    "date": "2026-11-08",
+    "title": "Recover frontend startup failures without a stuck loading screen",
+    "changes": [
+      "Use safe defaults when browser storage is unavailable so sign-in and workspace startup can continue.",
+      "Retry failed startup assets once with fresh HTML, then show a readable recovery action instead of an indefinite Starting OfferPath screen."
+    ]
+  },
+  {
     "version": "2.23.0",
     "date": "2026-11-08",
     "title": "Remember page filters and view preferences",

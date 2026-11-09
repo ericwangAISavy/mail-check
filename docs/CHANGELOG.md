@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.23.1 — 2026-11-08
+
+Recover frontend startup failures without a stuck loading screen
+
+- Use safe defaults when browser storage is unavailable so sign-in and workspace startup can continue.
+- Retry failed startup assets once with fresh HTML, then show a readable recovery action instead of an indefinite Starting OfferPath screen.
+
 ## 2.23.0 — 2026-11-08
 
 Remember page filters and view preferences
