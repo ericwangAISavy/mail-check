@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.24.5",
+    "date": "2026-11-09",
+    "title": "Clarify duplicate Windows startup and preserve launch flags",
+    "changes": [
+      "Detect an existing gateway before opening the dashboard, distinguish lock contention from file access failures, and avoid growing Windows lock files on failed starts.",
+      "Forward Windows start-script arguments and preserve its exit status when using domain and tunnel options."
+    ]
+  },
+  {
     "version": "2.24.4",
     "date": "2026-11-09",
     "title": "Improve availability under concurrent users and preserve active filters",

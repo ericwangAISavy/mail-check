@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.5 — 2026-11-09
+
+Clarify duplicate Windows startup and preserve launch flags
+
+- Detect an existing gateway before opening the dashboard, distinguish lock contention from file access failures, and avoid growing Windows lock files on failed starts.
+- Forward Windows start-script arguments and preserve its exit status when using domain and tunnel options.
+
 ## 2.24.4 — 2026-11-09
 
 Improve availability under concurrent users and preserve active filters

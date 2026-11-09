@@ -1,6 +1,7 @@
 """Bounded local workspace processes. Only the authenticated gateway faces LAN clients."""
 from __future__ import annotations
 import asyncio
+import errno
 from dataclasses import dataclass, field
 import os
 import json
@@ -25,6 +26,10 @@ def gateway_address(host: str, port: int) -> str:
     return f'http://{authority}:{port}'
 
 
+class InstanceAlreadyRunningError(RuntimeError):
+    """The singleton lock is held, distinct from an inaccessible lock file."""
+
+
 class InstanceLock:
     def __init__(self,path):self.path=Path(path);self.file=None
     def __enter__(self):
@@ -33,16 +38,31 @@ class InstanceLock:
         try:
             if os.name=='nt':
                 import msvcrt
-                self.file.seek(0);self.file.write(b' ');self.file.flush();self.file.seek(0)
-                msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
+                # Seed once, before locking byte zero. Repeated failed starts
+                # must neither append bytes nor write through another lock.
+                self.file.seek(0,os.SEEK_END)
+                if self.file.tell()==0:
+                    self.file.write(b' ');self.file.flush()
+                self.file.seek(0)
+                acquire=lambda:msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
             else:
                 import fcntl
-                fcntl.flock(self.file,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except (OSError,BlockingIOError):
-            self.file.close();raise RuntimeError('This OfferPath instance is already running.')
+                acquire=lambda:fcntl.flock(self.file.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+            try:
+                acquire()
+            except OSError as exc:
+                if exc.errno in (errno.EACCES,errno.EAGAIN,errno.EDEADLK):
+                    raise InstanceAlreadyRunningError(
+                        'OfferPath is already running for this data directory. '
+                        'Stop its existing terminal with Ctrl+C, then retry. '
+                        f'Lock: {self.path}') from None
+                raise
+        except BaseException:
+            self.file.close();self.file=None
+            raise
         return self
     def __exit__(self,*exc):
-        if self.file:self.file.close()
+        if self.file:self.file.close();self.file=None
 
 
 @dataclass

@@ -467,7 +467,20 @@ def web(
 
     from .web.app import create_app
 
-    from .workspace_workers import gateway_address
+    from .workspace_workers import gateway_address, InstanceLock, InstanceAlreadyRunningError
+    if not single_admin:
+        gateway_lock = cfgmod.control_dir()/'gateway.lock'
+        try:
+            # Fast preflight before opening the browser or initializing stores.
+            # Lifespan acquires the authoritative lock again for the whole run.
+            with InstanceLock(gateway_lock):
+                pass
+        except InstanceAlreadyRunningError as exc:
+            console.print(str(exc), style="red", markup=False)
+            raise typer.Exit(1)
+        except OSError:
+            console.print(f"Cannot access the gateway lock at {gateway_lock}. Check this data directory's permissions and disk access.", style="red", markup=False)
+            raise typer.Exit(1)
     url = gateway_address(host,port)
     browser_url = f"https://{allow_host[0]}" if tunnel else url
     console.print(f"Dashboard: [bold]{browser_url}[/bold]  (Ctrl+C to stop)")

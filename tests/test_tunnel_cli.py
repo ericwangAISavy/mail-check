@@ -57,3 +57,32 @@ def test_tunnel_rejects_unsafe_combinations(local_auth, extra):
         result = CliRunner().invoke(app, ['web','--no-open','--tunnel',*extra])
     assert result.exit_code != 0
     assert not serve.called
+
+
+def test_duplicate_gateway_is_reported_before_dashboard_or_browser_launch(local_auth):
+    from mailcheck import config
+    from mailcheck.workspace_workers import InstanceLock
+    local_auth.change_password('admin', 'strong-local-password')
+    with InstanceLock(config.control_dir()/'gateway.lock'), \
+            patch('mailcheck.web.server.run') as serve, \
+            patch('webbrowser.open') as browser, patch('threading.Timer') as timer:
+        result = CliRunner().invoke(app, ['web'])
+    assert result.exit_code == 1
+    assert 'already running' in result.output
+    assert 'Ctrl+C' in result.output
+    assert 'Dashboard:' not in result.output
+    assert not serve.called
+    assert not browser.called
+    assert not timer.called
+
+
+def test_inaccessible_gateway_lock_is_not_reported_as_duplicate(local_auth):
+    local_auth.change_password('admin', 'strong-local-password')
+    with patch('mailcheck.workspace_workers.InstanceLock.__enter__', side_effect=PermissionError('denied')), \
+            patch('mailcheck.web.server.run') as serve:
+        result = CliRunner().invoke(app, ['web','--no-open'])
+    assert result.exit_code == 1
+    assert 'Cannot access the gateway lock' in result.output
+    assert 'already running' not in result.output
+    assert 'Dashboard:' not in result.output
+    assert not serve.called

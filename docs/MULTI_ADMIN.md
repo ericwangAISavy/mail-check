@@ -164,3 +164,45 @@ Enable. Stored files are retained offline and remain included in installation
 backups; this action does not erase mail, application, or payment history from disk.
 The removed username may be used to create a new, empty workspace with a separate
 identity; it never reconnects to the retained data.
+
+## Windows: “OfferPath is already running” during startup
+
+The gateway holds an operating-system lock for the data directory throughout its
+lifetime. A second start is rejected even if it specifies another port. The mere
+presence of `gateway.lock` is normal: an unlocked file is reused after shutdown,
+and a process exit releases the OS lock. Do not delete the file to bypass a live
+instance or start workers manually.
+
+First stop the existing gateway with Ctrl+C in its original terminal and wait for
+shutdown. To identify an existing listener without changing anything:
+
+```powershell
+Get-NetTCPConnection -LocalPort 52400 -State Listen -ErrorAction SilentlyContinue |
+  Select-Object LocalAddress, LocalPort, OwningProcess
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -match '-m\s+mailcheck\s+web(\s|$)' } |
+  Select-Object ProcessId, ParentProcessId, CommandLine
+```
+
+If the original terminal is unavailable, verify the exact process is OfferPath's
+gateway before stopping that PID through Task Manager or `Stop-Process -Id PID`.
+Do not stop all Python processes; unrelated applications may use them. After the
+old gateway has stopped, rerun its original command with the same port, domain,
+workspace limit and other options. A Cloudflare deployment can pass options
+through the Windows script, for example:
+
+```powershell
+.\start.bat --tunnel --allow-host app.offerpath.bid --no-open
+```
+
+Keep any existing `--max-workspaces` or nondefault-port flags as well. The script
+runs from its own repository directory, forwards arguments and returns Python's
+exit status. Starting the script without tunnel/domain options still selects the
+ordinary local-only profile; it does not inherit another process's command line.
+
+From 2.24.5, a startup preflight reports an existing lock before advertising the
+Dashboard or opening a browser; the lifespan lock remains authoritative against
+simultaneous starts. Unrelated disk/permission errors are reported separately.
+Failed Windows starts do not append bytes to an existing lock file. Automated
+checks simulate Windows locking and exercise real POSIX singleton exclusion;
+native Windows launch/restart behavior still needs confirmation on the host.
