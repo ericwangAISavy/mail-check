@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.24.2",
+    "date": "2026-11-09",
+    "title": "Allow removal of previously paid account assignments",
+    "changes": [
+      "Admins can remove past or ongoing account assignments even when their dates include a recorded payment. Saved payment amounts and counts, emails, and job sheets remain intact."
+    ]
+  },
+  {
     "version": "2.24.1",
     "date": "2026-11-09",
     "title": "Close startup and session race conditions",

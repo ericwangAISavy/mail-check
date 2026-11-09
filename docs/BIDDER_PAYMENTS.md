@@ -18,8 +18,10 @@ Bidder writes are rejected by the server.
    to the date they actually started, including earlier dates when appropriate.
    Each assignment has **Edit** and **Remove** controls. Edit the account, first
    day, or optional last day; clear the last day to restore an ongoing rule.
-   Removal requires confirmation and changes attribution, without deleting emails.
-   Changes affecting a paid week are blocked; changes outside it remain editable.
+   Removal requires confirmation and changes live attribution, without deleting
+   emails, job sheets, or saved payment records. Past and ongoing assignments can
+   be removed even when they overlap paid weeks. Edits affecting a paid week are
+   blocked; edits outside it remain allowed.
    One account may be assigned to several bidders on the same day. Shared-account
    received replies are allocated per bidder using their checked links on the same
    account and day. Checked links stay with the bidder who owns the document. Overlapping
@@ -89,8 +91,9 @@ Emails already removed before this feature was installed cannot be recovered by 
 
 Payment records snapshot the reviewed checked-application count, final amount, date, and reference.
 The server rejects stale counts, repeat payments for the same bidder/week, and payment
-recording before a week ends. Assignment changes that would affect that bidder’s paid
-week are rejected. Later classifications and checked-link changes can update current totals but do not rewrite recorded payments;
+recording before a week ends. Assignment edits that would affect that bidder’s paid
+week are rejected; assignment removal is allowed and retains the recorded count
+and amount. Later classifications and checked-link changes can update current totals but do not rewrite recorded payments;
 the table flags any difference between the current count and paid count.
 
 Payment cells show only **before / after deductions**: gross calculated pay first, then net calculated pay in blue. For example, **$10.00 / $7.00** means $10 gross and $7 after daily deductions. Formula details appear only in the admin editor. This pair is independent of saved manual amounts and recorded payments. Click the blue amount on a completed week to open the payment editor; paid rows open the recorded-payment correction form. The form starts with the saved amount and note; **Use calculated amount** fills the current formula result. **Save changes** updates the amount, note, and application-count snapshot to the reviewed weekly total, while retaining the original payment date. Previous and new values are stored in an edit history. Concurrent edits and changed counts are rejected until the admin refreshes and reviews them. Rate changes never amend paid records automatically. Reports continue to use the saved paid or manual amount when one exists. There is no payment gateway or bank integration; these records describe payments made elsewhere.

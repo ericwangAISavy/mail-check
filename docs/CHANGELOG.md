@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.2 — 2026-11-09
+
+Allow removal of previously paid account assignments
+
+- Admins can remove past or ongoing account assignments even when their dates include a recorded payment. Saved payment amounts and counts, emails, and job sheets remain intact.
+
 ## 2.24.1 — 2026-11-09
 
 Close startup and session race conditions

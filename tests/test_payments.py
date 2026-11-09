@@ -186,6 +186,31 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM application_receipts').fetchone()[0],1)
         self.assertEqual(self.client.post(url+'/remove',json={}).status_code,404)
 
+    def test_remove_paid_week_assignments_preserves_settlements_emails_and_job_sheets(self):
+        self.assign()
+        self.assign(account=self.other, end=date(2026,10,14))
+        self.message("personal-receipt")
+        self.message("work-receipt", account=self.other)
+        self.add_checks(1, self.account, 2)
+        self.add_checks(1, self.other, 1)
+        response = self.client.post('/api/payments/bidders/1/paid', json={
+            "week":"2026-10-12", "expected_count":3, "amount":"125.50", "note":"Already transferred"})
+        self.assertEqual(response.status_code, 200, response.text)
+        saved_payment = self.report()["bidders"][0]["payment"]
+        preserved_tables = ('messages', 'application_receipts', 'native_books', 'native_tabs', 'native_rows', 'native_cells')
+        before = {table:self.conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] for table in preserved_tables}
+        assignments = self.conn.execute('SELECT id FROM bidder_assignments ORDER BY id').fetchall()
+        for assignment in assignments:
+            response = self.client.post(f'/api/payments/assignments/{assignment[0]}/remove', json={})
+            self.assertEqual(response.status_code, 200, response.text)
+        row = self.report()["bidders"][0]
+        self.assertEqual(row["assignments"], [])
+        self.assertEqual(row["total"], 0)
+        self.assertEqual(row["payment"], saved_payment)
+        self.assertEqual(row["payable_amount_cents"], 12550)
+        self.assertEqual(saved_payment["application_count"], 3)
+        self.assertEqual({table:self.conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] for table in preserved_tables}, before)
+
     def test_shared_account_creation_edit_and_unassigned_counts(self):
         self.assign(end=date(2026,10,14))
         response = self.client.post('/api/payments/bidders/2/assignments', json={
@@ -303,16 +328,17 @@ class PaymentTests(unittest.TestCase):
             self.assertEqual(self.client.post('/api/payments/assignments/1',json=body).status_code,400)
         self.assertEqual(self.conn.execute('SELECT end_date FROM bidder_assignments WHERE id=1').fetchone()[0],'2026-10-14')
 
-    def test_paid_weeks_block_remove_but_allow_edits_outside_paid_dates(self):
+    def test_paid_weeks_protect_edits_but_allow_assignment_removal(self):
         self.assign();self.message("one");self.add_checks(1, self.account, 1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={"week":"2026-10-12","expected_count":1,"amount":"10"}).status_code,200)
         url='/api/payments/assignments/1'
-        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,400)
         for body in ({"account_id":self.account,"start_date":"2026-10-13","end_date":None},
                      {"account_id":self.other,"start_date":"2026-10-12","end_date":None}):
             self.assertEqual(self.client.post(url,json=body).status_code,400)
         self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":"2026-10-18"}).status_code,200)
         self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":None}).status_code,200)
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,200)
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,404)
 
     def test_guest_cannot_edit_or_remove_assignments(self):
         self.assign()

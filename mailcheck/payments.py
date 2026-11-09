@@ -565,8 +565,9 @@ def edit_assignment(conn, assignment_id: int, body: AssignmentBody):
 
 
 def remove_assignment(conn, assignment_id: int):
-    old = assignment_row(conn, assignment_id)
-    protect_assignment_payments(conn, old, None)
+    assignment_row(conn, assignment_id)
+    # Settlements retain their own saved count and amount. Removing an
+    # assignment changes live attribution, never the recorded payment.
     conn.execute("DELETE FROM bidder_assignments WHERE id=?", (assignment_id,))
 
 
