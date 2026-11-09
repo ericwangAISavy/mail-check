@@ -2,12 +2,13 @@ import { afterEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { ToastProvider } from "@/components/common"
+import { PageStateProvider } from "@/lib/page-state"
 import InterviewCalendar from "./interview-calendar"
 import type { InterviewEvent } from "@/lib/types"
 const accounts=[{id:1,label:'personal',email:'me@example.test'},{id:2,label:'work',email:'work@example.test'}]
 const event=(id:number,label:string):InterviewEvent=>({id,account_labels:[label],company:label==='work'?'Work Company':'Personal Company',role:'Engineer',stage:'Technical Interview',calendar_uid:null,status:'Scheduled',display_status:'Scheduled',start_at:new Date(2026,9,15,10).toISOString(),end_at:new Date(2026,9,15,11).toISOString(),timezone:'UTC',meeting_platform:null,meeting_url:null,location:null,organizer_name:null,organizer_email:null,participants:[],notes:null,confidence:1,needs_review:false,review_reason:null,manual_fields:[],created_at:'2026-10-15T00:00:00Z',updated_at:'2026-10-15T00:00:00Z'})
 const clipboard=Object.getOwnPropertyDescriptor(navigator,'clipboard')
-afterEach(()=>{cleanup();localStorage.clear();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks();vi.useRealTimers()})
+afterEach(()=>{cleanup();localStorage.clear();sessionStorage.clear();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks();vi.useRealTimers()})
 function mount(){render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&account=work']}><ToastProvider><InterviewCalendar events={[event(1,'personal'),event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={<label>Account filter<input aria-label="Account filter"/></label>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)}
 it('opens real filters and partitions split calendars by source account',()=>{
  mount();expect(screen.queryByLabelText('Account filter')).toBeNull()
@@ -103,4 +104,15 @@ it('keeps the timezone usable and warns when the browser blocks saving',()=>{
  fireEvent.click(screen.getByRole('option',{name:'Asia/Tokyo'}))
  expect((screen.getByRole('combobox',{name:'Calendar timezone'}) as HTMLInputElement).value).toBe('Asia/Tokyo')
  expect(screen.getByText('Timezone changed for this visit. Your browser blocked saving it for future visits.')).toBeTruthy()
+})
+
+it('restores calendar filter and split controls after remount',()=>{
+ const draw=()=>render(<PageStateProvider scope="calendar-test"><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[]} accounts={accounts} account="" filterCount={0} filters={<input aria-label="Saved calendar filter"/>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></PageStateProvider>)
+ draw()
+ fireEvent.click(screen.getByRole('button',{name:'Filter'}))
+ fireEvent.click(screen.getByRole('button',{name:'Split view'}))
+ cleanup();draw()
+ expect(screen.getByLabelText('Saved calendar filter')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Split view'}).getAttribute('aria-pressed')).toBe('true')
+ expect(document.querySelectorAll('.outlook-account-calendar')).toHaveLength(2)
 })

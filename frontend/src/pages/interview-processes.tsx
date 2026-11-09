@@ -1,3 +1,4 @@
+import { isPageDate, usePageState } from "@/lib/page-state"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Link } from "react-router-dom"
@@ -20,10 +21,10 @@ type Preview = { milestone: ProcessMilestone; trigger: HTMLButtonElement; timing
 
 export default function InterviewProcessesPage() {
   const [companyName, setCompanyName] = useState("")
-  const [search, setSearch] = useState("")
-  const [showRemoved, setShowRemoved] = useState(false)
-  const [anchor, setAnchor] = useState(() => dateInput(new Date(Date.now())))
-  const [period, setPeriod] = useState<TimelinePeriod>("all")
+  const [search, setSearch] = usePageState("interview-processes", "search", "")
+  const [showRemoved, setShowRemoved] = usePageState("interview-processes", "showRemoved", false)
+  const [anchor, setAnchor] = usePageState("interview-processes", "anchor", () => dateInput(new Date(Date.now())), isPageDate)
+  const [period, setPeriod] = usePageState<TimelinePeriod>("interview-processes", "period", "all", value => periods.some(([period]) => period === value))
   const [active, setActive] = useState<Preview | null>(null)
   const [detail, setDetail] = useState<Pick<Preview, "milestone" | "trigger"> | null>(null)
   const suppressFocus = useRef(false)

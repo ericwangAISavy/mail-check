@@ -1,3 +1,4 @@
+import { PageStateProvider } from "@/lib/page-state"
 import {Children,isValidElement} from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -32,10 +33,11 @@ function History() {
   const navigate = useNavigate()
   return <><button onClick={() => navigate("/dashboard?q=from-history")}>Other URL</button><button onClick={() => navigate(-1)}>Back</button></>
 }
-function mount(path = "/dashboard", readOnly = false) {
+function mount(path = "/dashboard", readOnly = false, persist = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   clients.push(client)
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><ToastProvider><History /><DashboardPage bootstrap={bootstrap} readOnly={readOnly} /></ToastProvider></MemoryRouter></QueryClientProvider>)
+  const page = <QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><ToastProvider><History /><DashboardPage bootstrap={bootstrap} readOnly={readOnly} /></ToastProvider></MemoryRouter></QueryClientProvider>
+  return render(persist ? <PageStateProvider scope="dashboard-entry-test">{page}</PageStateProvider> : page)
 }
 async function lastParam(name: string, value: string | null) {
   await waitFor(() => {
@@ -207,4 +209,22 @@ it('shows only graphs and own account selector for bidders',async()=>{
  expect(api.accounts).not.toHaveBeenCalled()
  expect(screen.getByLabelText('Account')).toBeTruthy()
  expect(screen.getByText('Applications over time')).toBeTruthy()
+})
+
+it("opens explicit message links despite a saved collapse and still allows collapsing", async () => {
+  sessionStorage.clear()
+  try {
+    const key = 'offerpath.page-state.v1:' + JSON.stringify(["dashboard-entry-test", "dashboard", "explorerOpen"])
+    sessionStorage.setItem(key, "false")
+    mount("/dashboard?q=linked-message", false, true)
+    await screen.findByText("Messages collected")
+    const explorer = document.getElementById("message-explorer") as HTMLDetailsElement
+    await waitFor(() => expect(explorer.open).toBe(true))
+    explorer.open = false
+    fireEvent(explorer, new Event("toggle"))
+    await waitFor(() => expect(sessionStorage.getItem(key)).toBe("false"))
+    expect(explorer.open).toBe(false)
+  } finally {
+    sessionStorage.clear()
+  }
 })

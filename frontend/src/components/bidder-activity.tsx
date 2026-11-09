@@ -1,3 +1,4 @@
+import { isPageDate, usePageState } from "@/lib/page-state"
 import { useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Activity, ChevronLeft, ChevronRight } from "lucide-react"
@@ -33,15 +34,24 @@ export default function BidderActivity({ week, selected, onSelect,readOnly=false
     const timer = globalThis.setInterval(() => setNow(Date.now()), 1000)
     return () => globalThis.clearInterval(timer)
   }, [])
-  const [mode, setMode] = useState<"checks" | "days" | "confirmed">("confirmed")
-  const [display, setDisplay] = useState<"cumulative" | "interval">("cumulative")
+  const [mode, setMode] = usePageState<"checks" | "days" | "confirmed">("/payments", "activity-mode", "confirmed", value => ["checks", "days", "confirmed"].includes(value))
+  const [display, setDisplay] = usePageState<"cumulative" | "interval">("/payments", "activity-display", "cumulative", value => ["cumulative", "interval"].includes(value))
   const cumulative = display === "cumulative"
-  const [day, setDay] = useState("")
-  useEffect(() => {setDay("")}, [week])
-  const [selectedGroup, setGroup] = useState<"bidders" | "accounts">("bidders")
+  const [day, setDay] = usePageState("/payments", "activity-day", "", value => isPageDate(value, true))
+  const previousWeek = useRef(week)
+  useEffect(() => {
+    if (previousWeek.current !== week || day && (day < week || day > new Date(new Date(week + "T12:00:00Z").getTime() + 6 * 86400000).toISOString().slice(0, 10))) setDay("")
+    previousWeek.current = week
+  }, [week])
+  const [selectedGroup, setGroup] = usePageState<"bidders" | "accounts">("/payments", "activity-group", "bidders", value => ["bidders", "accounts"].includes(value))
   const group = allowAccounts ? selectedGroup : "bidders"
-  const [account, setAccount] = useState("")
-  useEffect(() => { setAccount(""); }, [week, selected])
+  const [account, setAccount] = usePageState("/payments", "activity-account", "", value => value === "" || /^[1-9]\d*$/.test(value))
+  const previousAccountContext = useRef(`${week}:${selected}`)
+  useEffect(() => {
+    const context = `${week}:${selected}`
+    if (previousAccountContext.current !== context) setAccount("")
+    previousAccountContext.current = context
+  }, [week, selected])
   const scope = group === "accounts" ? selected : ""
   const query = useQuery({ queryKey: ["payments", "activity", week, scope, day, visibilityKey], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: 30_000 })
   const data = query.data

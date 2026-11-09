@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { operationId } from "@/lib/operation-id";
+import { usePageState } from "@/lib/page-state";
 import {
   useCallback,
   useContext,
@@ -50,6 +51,18 @@ import SourcingImport from "./sourcing-import";
 import SourcingProgress, { useSourcingProgress } from "./sourcing-progress";
 import SourcingDays from "./sourcing-days";
 import { SheetGrid } from "./sourcing-grid";
+function restoredSheetView(value: string): SheetView {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return defaultView;
+    const view = parsed as Record<string, unknown>;
+    if (Object.keys(view).length !== 5 || typeof view.find !== "string" || typeof view.filter !== "string"
+      || typeof view.filterColumn !== "number" || !Number.isSafeInteger(view.filterColumn) || view.filterColumn < 0
+      || typeof view.sortColumn !== "number" || !Number.isSafeInteger(view.sortColumn) || view.sortColumn < 0
+      || typeof view.direction !== "string" || !["none", "asc", "desc"].includes(view.direction)) return defaultView;
+    return { find: view.find, filter: view.filter, filterColumn: view.filterColumn, sortColumn: view.sortColumn, direction: view.direction as SheetView["direction"] };
+  } catch { return defaultView; }
+}
 type History = { undo: Change[]; redo: Change[] };
 type StructureAction =
   | "insert_rows"
@@ -81,12 +94,17 @@ export default function SourcingEditor({
       rows: [1],
       columns: [0],
     }),
-    [view, setView] = useState<SheetView>(defaultView),
-    [showFilters, setShowFilters] = useState(false),
     [structureOpen, setStructureOpen] = useState<StructureAction | null>(null),
     [importOpen, setImportOpen] = useState(false),
     [importDirty, setImportDirty] = useState(false),
     [typing, setTyping] = useState(false);
+  const [savedView, setSavedView] = usePageState("/sourcing", `tab:${tab.id}:sheetView`, JSON.stringify(defaultView));
+  const view = useMemo(() => restoredSheetView(savedView), [savedView]);
+  const setView = useCallback((next: SheetView) => setSavedView(JSON.stringify({
+    find: next.find, filter: next.filter, filterColumn: next.filterColumn,
+    sortColumn: next.sortColumn, direction: next.direction,
+  })), [setSavedView]);
+  const [showFilters, setShowFilters] = usePageState("/sourcing", `tab:${tab.id}:showFilters`, false);
   const client = useQueryClient();
   const {progress,run:runJobOperation} = useSourcingProgress(tab.id,snapshot?.revision);
   const compactAfterPaste = useRef(false);

@@ -1,3 +1,4 @@
+import { usePageState } from "@/lib/page-state"
 import { BidderAccess } from "@/components/bidder-access"
 import { useEffect, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -13,7 +14,7 @@ type Report = { today: string; bidders: Bidder[]; accounts: { id: number; label:
 
 export default function BidderManagement({initiallyOpen=false,embedded=false}:{initiallyOpen?:boolean;embedded?:boolean}) {
   const [open, setOpen] = useState(() => embedded || initiallyOpen || window.location.hash === "#bidder-management")
-  const [expandedBidder, setExpandedBidder] = useState<number | null | undefined>(undefined)
+  const [expandedBidder, setExpandedBidder] = usePageState<number>("/accounts", "expanded-bidder", -1, value => Number.isSafeInteger(value) && value >= -2)
   const client = useQueryClient()
   const toast = useToast()
   const query = useQuery({ queryKey: ["bidder-management"], queryFn: () => request<Report>("/api/payments/management"), enabled: open })
@@ -30,7 +31,7 @@ export default function BidderManagement({initiallyOpen=false,embedded=false}:{i
       {access.error && <p role="alert" className="inline-error">Could not load bidder web access. <Button onClick={()=>void access.refetch()}>Try again</Button></p>}
       {mutation.error && <p role="alert" className="inline-error">{mutation.error.message}</p>}
       {data && <><Card className="payment-admin-card"><h2>Add bidder</h2><form className="payment-inline-form" onSubmit={async e => { e.preventDefault(); const form = e.currentTarget; const values = new FormData(form); try { await write("/api/payments/bidders", { name: values.get("name") }); form.reset() } catch { /* shown above */ } }}><label>Bidder name<input name="name" required maxLength={100} placeholder="e.g. Alex" /></label><Button disabled={mutation.isPending}><Plus size={16} />Add bidder</Button></form></Card>
-      {data.bidders.map(b => <BidderManager expanded={(expandedBidder === undefined ? data.bidders[0]?.id : expandedBidder) === b.id} onToggle={() => setExpandedBidder(current => (current === undefined ? data.bidders[0]?.id : current) === b.id ? null : b.id)} accessEnabled={!!access.data?.bidders.find(member=>member.bidder_id===b.id)?.enabled} accessReady={access.isSuccess} key={b.id} bidder={b} accounts={data.accounts} today={data.today} busy={mutation.isPending} write={write} />)}
+      {data.bidders.map(b => <BidderManager expanded={(expandedBidder === -1 ? data.bidders[0]?.id : expandedBidder) === b.id} onToggle={() => setExpandedBidder(current => (current === -1 ? data.bidders[0]?.id : current) === b.id ? -2 : b.id)} accessEnabled={!!access.data?.bidders.find(member=>member.bidder_id===b.id)?.enabled} accessReady={access.isSuccess} key={b.id} bidder={b} accounts={data.accounts} today={data.today} busy={mutation.isPending} write={write} />)}
     </>}
     </>
   return embedded ? <div className="payment-management bidder-management-content">{content}</div> : <details id="bidder-management" className="payment-management" open={open} onToggle={e => setOpen(e.currentTarget.open)}><summary>Manage bidders and account assignments</summary>{content}</details>

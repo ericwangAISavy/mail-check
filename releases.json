@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.23.0",
+    "date": "2026-11-08",
+    "title": "Remember page filters and view preferences",
+    "changes": [
+      "Restore each page's filters, search, dates and view choices when navigating away and returning, scoped to the signed-in user and workspace.",
+      "Use tab-session storage with safe defaults and an in-memory fallback; leave passwords and editing drafts unsaved."
+    ]
+  },
+  {
     "version": "2.22.1",
     "date": "2026-11-06",
     "title": "Improve bidder inbox refresh and check schedule",

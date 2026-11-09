@@ -1,3 +1,4 @@
+import { PageStateProvider } from "@/lib/page-state"
 import { OfferPathMark } from "@/components/offerpath-mark"
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -62,6 +63,7 @@ export function AuthGate({children}:{children:ReactNode}) {
   const session=useQuery({queryKey:["auth"],queryFn:api.session,retry:false,staleTime:0,refetchOnWindowFocus:true})
   const data=session.data
   const identity=data?.role==="bidder" && data.managed && data.workspace_id ? `bidder:${data.workspace_id}:${data.bidder_id}` : data?.role==="admin" ? `${data.user_id || "legacy"}:${data.workspace_id || "legacy"}:${Boolean(data.must_change_password)}` : "signed-out"
+  const pageScope=JSON.stringify([data?.workspace_id || "legacy",data?.user_id ?? data?.username ?? "legacy",data?.role,data?.bidder_id ?? null])
   const [activeIdentity,setActiveIdentity]=useState("")
   useEffect(()=>{
     if(session.isPending)return
@@ -115,7 +117,7 @@ export function AuthGate({children}:{children:ReactNode}) {
     finally{setBusy(false)}
   }
   if(session.isPending || activeIdentity!==identity)return <SignInViewport><div className="login-pending"><Loading label="Checking sign-in…"/></div></SignInViewport>
-  if((data?.role==="admin" || data?.role==="bidder" && data.managed && data.workspace_id) && !data.must_change_password)return <AuthContext.Provider value={{role:data.role,session:data,signOut}}>{children}</AuthContext.Provider>
+  if((data?.role==="admin" || data?.role==="bidder" && data.managed && data.workspace_id) && !data.must_change_password)return <AuthContext.Provider value={{role:data.role,session:data,signOut}}><PageStateProvider key={pageScope} scope={pageScope}>{children}</PageStateProvider></AuthContext.Provider>
   return <SignInViewport>
       <header className="login-brand-header">
         <div className="sign-in-brand" aria-label="OfferPath"><span className="sign-in-brand-icon"><OfferPathMark size={64}/></span><span className="sign-in-wordmark">Offer<span>Path</span></span></div>

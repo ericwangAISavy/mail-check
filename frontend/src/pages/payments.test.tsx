@@ -1,3 +1,4 @@
+import { PageStateProvider } from "@/lib/page-state"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -9,7 +10,7 @@ const clients: QueryClient[] = []
 const data = () => ({ payment_visible:true, week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
-function mount(readOnly = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>) }
+function mount(readOnly = false, persist = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); const page = <QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>; return render(persist ? <PageStateProvider scope="payments-remount-test">{page}</PageStateProvider> : page) }
 it("records an admin-entered amount with the reviewed week and count", async () => {
   mount()
   fireEvent.click(await screen.findByRole("button", { name: /Edit confirmed payment for Alex/ }))
@@ -489,4 +490,36 @@ it('distinguishes a saved coworker amount from a recorded payment',async()=>{
  expect(within(peer).getByText('Saved amount: $7.77 · Not recorded as paid')).toBeTruthy()
  expect(within(peer).queryByText(/Recorded paid:/)).toBeNull()
  expect(within(peer).queryByRole('button',{name:/Edit.*payment/})).toBeNull()
+})
+
+it("restores the selected week and bidder after returning to payments", async () => {
+  sessionStorage.clear()
+  try {
+    const first = mount(true, true)
+    fireEvent.change(await screen.findByRole("combobox", { name: "Bidder" }), { target: { value: "1" } })
+    fireEvent.click(screen.getByRole("button", { name: "Previous week" }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
+    first.unmount()
+    vi.mocked(request).mockClear()
+    mount(true, true)
+    expect((await screen.findByRole("combobox", { name: "Bidder" }) as HTMLSelectElement).value).toBe("1")
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
+  } finally {
+    sessionStorage.clear()
+  }
+})
+
+it("falls back from malformed persisted week and bidder values", async () => {
+  sessionStorage.clear()
+  try {
+    const key = (name: string) => 'offerpath.page-state.v1:' + JSON.stringify(["payments-remount-test", "payments", name])
+    sessionStorage.setItem(key("week"), JSON.stringify("2026-02-31"))
+    sessionStorage.setItem(key("selected"), JSON.stringify("not-a-bidder"))
+    mount(true, true)
+    expect((await screen.findByRole("combobox", { name: "Bidder" }) as HTMLSelectElement).value).toBe("")
+    expect(request).toHaveBeenCalledWith("/api/payments")
+    expect(request).not.toHaveBeenCalledWith("/api/payments?week=2026-02-31")
+  } finally {
+    sessionStorage.clear()
+  }
 })

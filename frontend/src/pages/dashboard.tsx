@@ -1,4 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react"
+import { usePageState } from "@/lib/page-state"
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import ApplicationActivityChart from "@/components/application-activity-chart"
@@ -23,8 +24,10 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
   useEffect(() => { setSearchInput(search.get("q") || "") }, [search])
   const deferredSearch = useDeferredValue(searchInput)
   const [reader, setReader] = useState<Message | null>(null)
-  const [advanced, setAdvanced] = useState(false)
-  const [explorerOpen, setExplorerOpen] = useState(() => ["q", "focus_date", "page"].some((key) => search.has(key)))
+  const [advanced, setAdvanced] = usePageState("dashboard", "advanced", false)
+  const [explorerOpen, setExplorerOpen] = usePageState("dashboard", "explorerOpen", () => ["q", "focus_date", "page"].some((key) => search.has(key)))
+  const openExplorerOnEntry = useRef(["q", "focus_date", "page"].some(key => search.has(key)))
+  useEffect(() => { if (openExplorerOnEntry.current) setExplorerOpen(true) }, [setExplorerOpen])
   const toast = useToast()
   const done = useDoneMutation(() => setReader(null))
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"

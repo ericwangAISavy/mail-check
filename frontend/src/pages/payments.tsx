@@ -1,3 +1,4 @@
+import { isPageDate, usePageState } from "@/lib/page-state"
 import { Fragment, useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowRight, Banknote, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Copy, RefreshCw, UsersRound } from "lucide-react"
@@ -86,8 +87,8 @@ function groupByAccount(bidders: Bidder[], start: string, end: string) {
 }
 
 export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean }) {
-  const [week, setWeek] = useState("")
-  const [selected, setSelected] = useState("")
+  const [week, setWeek] = usePageState("payments", "week", "", value => value === "" || isPageDate(value))
+  const [selected, setSelected] = usePageState("payments", "selected", "", value => value === "" || /^[1-9]\d*$/.test(value))
   const [expandedAccounts,setExpandedAccounts]=useState<Set<number>>(new Set())
   const [paying, setPaying] = useState<number | null>(null)
   const [paymentEditSession,setPaymentEditSession]=useState(0)

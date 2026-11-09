@@ -1,3 +1,4 @@
+import { isPageDate, usePageState } from "@/lib/page-state";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -36,9 +37,9 @@ export default function SourcingPage() {
   const { role } = useAuth(),
     admin = role === "admin";
   const [params, setParams] = useSearchParams(),
-    [bookId, setBookId] = useState(0),
+    [bookId, setBookId] = usePageState("/sourcing", "book", 0, value => Number.isSafeInteger(value) && value >= 0),
     [settings, setSettings] = useState(false),
-    [filtersOpen, setFiltersOpen] = useState(false),
+    [filtersOpen, setFiltersOpen] = usePageState("/sourcing", "filters-open", false),
     [dirty, setDirty] = useState(false);
   const index = useQuery({
     queryKey: ["sourcing-index"],
@@ -48,7 +49,7 @@ export default function SourcingPage() {
     refetchOnReconnect:admin,
   });
   const client = useQueryClient();
-  const [workDay, setWorkDay] = useState(chicagoDay);
+  const [workDay, setWorkDay] = usePageState("/sourcing", "work-day", chicagoDay, value => value === "undated" || isPageDate(value));
   const previousDirty = useRef(false);
   const updateDirty = useCallback((value: boolean) => {
     setDirty(value);
@@ -230,11 +231,12 @@ export default function SourcingPage() {
           )}
         </div>
       ) : tab && !admin ? (
-        <SourcingViewer key={tab.id} tab={tab} onDayChange={setWorkDay} highlightId={params.get("row_id")||undefined} highlightRow={params.has("row")?Number(params.get("row")):undefined}/>
+        <SourcingViewer key={tab.id} tab={tab} initialDay={workDay} onDayChange={setWorkDay} highlightId={params.get("row_id")||undefined} highlightRow={params.has("row")?Number(params.get("row")):undefined}/>
       ) : tab ? (
         <SourcingEditor
           key={tab.id}
           tab={tab}
+          initialDay={workDay}
           onDirty={updateDirty}
           onDayChange={setWorkDay}
           highlightId={params.get("row_id") || undefined}

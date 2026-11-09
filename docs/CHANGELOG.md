@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.23.0 — 2026-11-08
+
+Remember page filters and view preferences
+
+- Restore each page's filters, search, dates and view choices when navigating away and returning, scoped to the signed-in user and workspace.
+- Use tab-session storage with safe defaults and an in-memory fallback; leave passwords and editing drafts unsaved.
+
 ## 2.22.1 — 2026-11-06
 
 Improve bidder inbox refresh and check schedule

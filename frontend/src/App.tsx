@@ -1,3 +1,4 @@
+import { PageQueryBoundary } from "@/lib/page-state"
 import ReleaseHistory from "@/components/release-history"
 import ChangePassword from "@/components/change-password"
 import { OfferPathMark } from "@/components/offerpath-mark"
@@ -236,7 +237,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
       </header>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
       {admin && location.pathname !== "/admin-management" && location.pathname !== "/sourcing" && location.pathname !== "/settings" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
-      <main className="page-content"><Suspense fallback={<Loading />}><Routes>
+      <main className="page-content"><PageQueryBoundary><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/dashboard" replace />} />
         <Route path="/inbox" element={admin ? <Navigate to="/" replace /> : <TriagePage bootstrap={bootstrap} canManageSettings={false} bidderInbox />} />
@@ -251,7 +252,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
         <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/dashboard" replace />} />
-      </Routes></Suspense></main>
+      </Routes></Suspense></PageQueryBoundary></main>
       <footer className="app-footer"><span><span className="footer-dot" />{admin ? "Admin workspace" : "Bidder workspace"}</span><span>Unread stays unread. Always.</span></footer>
     </section>
   </div>

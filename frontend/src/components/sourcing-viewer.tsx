@@ -1,3 +1,4 @@
+import {usePageState} from "@/lib/page-state"
 import {useEffect,useRef,useState} from "react"
 import {useQuery} from "@tanstack/react-query"
 import {Copy} from "lucide-react"
@@ -9,7 +10,7 @@ import SourcingDays from "./sourcing-days"
 
 /** Deliberately separate from the editor: no mutation, draft or autosave hooks. */
 export default function SourcingViewer({tab,highlightId,highlightRow,initialDay,onDayChange}:{tab:Tab;highlightId?:string;highlightRow?:number;initialDay?:string;onDayChange?:(day:string)=>void}) {
- const [day,setDay]=useState(initialDay||chicagoDay()),[page,setPage]=useState(0)
+ const [day,setDay]=useState(initialDay||chicagoDay()),[page,setPage]=usePageState("/sourcing",`tab:${tab.id}:viewer-page`,0,value=>Number.isSafeInteger(value)&&value>=0)
  const [message,setMessage]=useState(""),[copying,setCopying]=useState(false)
  const resolved=useRef("")
  const query=useQuery({queryKey:["sourcing-viewer",tab.id],queryFn:()=>request<Snapshot>(`/api/sourcing/tabs/${tab.id}`),staleTime:Infinity,refetchOnWindowFocus:false,refetchOnReconnect:false})

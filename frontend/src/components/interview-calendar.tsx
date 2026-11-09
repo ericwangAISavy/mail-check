@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { usePageState } from "@/lib/page-state"
 import { useSearchParams } from "react-router-dom"
 import { CalendarCheck2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Circle, Columns2, Columns3, Download, Expand, Filter, Link, Minimize, PanelTop, Printer, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -43,7 +44,7 @@ export default function InterviewCalendar({events,accounts,account,filterCount,f
   const view:CalendarView = viewParam && Object.keys(labels).includes(viewParam) ? viewParam as CalendarView : "workweek"
   const date=useMemo(()=>parseDay(dayParam)||parseDay(today)!,[dayParam,today])
   const days=useMemo(()=>viewDays(date,view),[date,view])
-  const [filterOpen,setFilterOpen]=useState(false), [split,setSplit]=useState(false), [expanded,setExpanded]=useState(false)
+  const [filterOpen,setFilterOpen]=usePageState("/interviews","calendarFilterOpen",false), [split,setSplit]=usePageState("/interviews","calendarSplit",false), [expanded,setExpanded]=useState(false)
   const [shareOpen,setShareOpen]=useState(false), [dateOpen,setDateOpen]=useState(false)
   const shareRef=useRef<HTMLDivElement>(null), dateRef=useRef<HTMLDivElement>(null), calendarRef=useRef<HTMLElement>(null)
   useEffect(()=>{const timer=window.setInterval(()=>setNow(new Date()),60000);return()=>clearInterval(timer)},[])

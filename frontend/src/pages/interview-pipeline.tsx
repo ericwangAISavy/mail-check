@@ -1,3 +1,4 @@
+import { usePageState } from "@/lib/page-state"
 import { useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -36,7 +37,7 @@ function usePipelineWrite(){
 function ErrorMessage({error}:{error:unknown}) {return error?<p role="alert" className="inline-error">{error instanceof ApiError&&error.status===409?"This opportunity changed elsewhere. Reload its latest version, review your preserved draft, then save again.":error instanceof Error?error.message:"Could not complete this action."}</p>:null}
 
 export default function InterviewPipelinePage(){
- const write=usePipelineWrite();const client=useQueryClient();const [view,setView]=useState<string>("attention");const [q,setQ]=useState("");const [account,setAccount]=useState("");const [selected,setSelected]=useState<string|null>(null);const [creating,setCreating]=useState(false);const [review,setReview]=useState(false);const [activation,setActivation]=useState(false);const [activationError,setActivationError]=useState<unknown>(null);const [activating,setActivating]=useState(false)
+ const write=usePipelineWrite();const client=useQueryClient();const [view,setView]=usePageState<string>("interview-pipeline", "view", "attention", value => value === "archived" || filters.some(([id]) => id === value));const [q,setQ]=usePageState("interview-pipeline", "q", "");const [account,setAccount]=usePageState("interview-pipeline", "account", "");const [selected,setSelected]=useState<string|null>(null);const [creating,setCreating]=useState(false);const [review,setReview]=useState(false);const [activation,setActivation]=useState(false);const [activationError,setActivationError]=useState<unknown>(null);const [activating,setActivating]=useState(false)
  const params=new URLSearchParams({view,q});if(account)params.set("account_id",account)
  const query=useQuery({queryKey:["pipeline","list",view,q,account],queryFn:()=>request<Listing>(`/api/pipeline?${params}`)})
  const refresh=()=>client.invalidateQueries({queryKey:["pipeline"]})
