@@ -25,7 +25,7 @@ try {
   }
 } catch { /* Startup does not depend on optional URL cleanup. */ }
 
-const router = createBrowserRouter([{ path: "*", element: <App /> }])
+const router = createBrowserRouter([{ path: "*", element: <AppErrorBoundary><App /></AppErrorBoundary> }])
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } } })
 
 // Match the sign-in screen to the saved theme before the workspace mounts.

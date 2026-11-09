@@ -49,3 +49,19 @@ from **Recorded paid: $…** or **Not recorded as paid**. Saved manual amounts
 that differ from the current calculation are also shown without marking them paid. A recorded payment can differ
 from the current calculation; the recorded status does not imply the app transferred
 funds. Coworker payment notes are not shown.
+
+## Faster active Inbox checks
+
+With automatic mail checks enabled and the model configured, an open, visible
+bidder Inbox requests fresh stored results every 3 seconds. It also signals active
+Inbox demand to the server. The workspace shares one recent-mail check about every
+30 seconds across active bidders, using only currently assigned enabled accounts.
+Requests coalesce across tabs/bidders; closing or hiding the Inbox stops demand
+shortly afterward. Failed checks back off. Normal mail, calendar and sourcing work
+retain the shared job lock; a busy provider/model or running job can delay delivery.
+
+Live scans use a recent 10-minute overlap and preserve normal collection
+checkpoints and retention windows. They do not alter classification or email
+visibility. The existing Info request-only Inbox and account permissions remain.
+Automatic-check off remains off. **Refresh Inbox** reloads the view; it cannot
+bypass that setting or grant mailbox-management access.

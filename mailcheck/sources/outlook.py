@@ -191,8 +191,15 @@ class OutlookGraphSource:
                             raise SourceError("Microsoft Graph repeated a mail page; collection is incomplete. Retry the check.")
                         visited.add(url)
                         data=self._get(client,url,page_params)
-                        for item in data.get("value") or []:
-                            raw=_to_raw(item,folder)
+                        if not isinstance(data, dict) or not isinstance(data.get("value"), list):
+                            raise SourceError("Microsoft returned an invalid mail listing; collection is incomplete.")
+                        for item in data["value"]:
+                            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip():
+                                raise SourceError("Microsoft returned an invalid message identity; collection is incomplete.")
+                            try:
+                                raw=_to_raw(item,folder)
+                            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                                raise SourceError("Microsoft returned invalid message data; collection is incomplete.") from exc
                             if raw.message_id in seen:continue
                             seen.add(raw.message_id)
                             count+=1

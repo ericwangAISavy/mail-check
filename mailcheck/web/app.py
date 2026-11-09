@@ -24,6 +24,7 @@ from .. import config as cfgmod
 from .. import followups, db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
+from ..live_inbox import LiveInbox
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -92,6 +93,7 @@ _outlook_lock = threading.Lock()
 
 #: Wall-clock epoch seconds of the next automatic check, or None when auto is off.
 _sched: dict = {"next_due": None}
+_live_inbox = LiveInbox()
 _scheduler_started = threading.Event()
 
 
@@ -387,11 +389,21 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, backg
         finally:
             _job.update(running=False, at=datetime.now().strftime("%H:%M"),
                         stage_started=None, completion_id=_job["completion_id"] + 1)
-            if on_finish is not None:
-                on_finish()
-            _job_lock.release()
+            try:
+                if on_finish is not None:
+                    on_finish()
+            except Exception:
+                _job.update(ok=False, detail="Could not update the automatic schedule. Review Settings and try again.")
+                logging.getLogger(__name__).warning("Background job completion callback failed; check lock released.")
+            finally:
+                _job_lock.release()
 
-    threading.Thread(target=runner, daemon=True).start()
+    try:
+        threading.Thread(target=runner, daemon=True).start()
+    except Exception:
+        _job.update(running=False, ok=False, message=failed, stage_started=None)
+        _job_lock.release()
+        raise
 
 
 def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
@@ -555,6 +567,50 @@ def _resume_calendar_if_due(cfg):
     return False
 
 
+def _live_assigned_accounts(conn):
+    viewers = sorted(_live_inbox.active())
+    if not viewers:return set()
+    day = payments.today().isoformat()
+    marks = ','.join('?' for _ in viewers)
+    return {row[0] for row in conn.execute(
+        "SELECT DISTINCT a.account_id FROM bidder_assignments a "
+        "JOIN accounts m ON m.id=a.account_id AND m.enabled=1 "
+        "JOIN bidders b ON b.id=a.bidder_id AND b.removed_at IS NULL "
+        "WHERE a.bidder_id IN ("+marks+") AND a.start_date<=? "
+        "AND (a.end_date IS NULL OR a.end_date>=?)", [*viewers,day,day])}
+
+
+def _resume_live_inbox(cfg):
+    if not cfg.watch.auto_check or not cfg.is_llm_ready() or not _live_inbox.due():return False
+    if not _job_lock.acquire(blocking=False):return False
+    if not _live_inbox.reserve():
+        _job_lock.release()
+        return False
+    succeeded = [False]
+    def work():
+        current_cfg = cfgmod.load()
+        if not current_cfg.watch.auto_check or not current_cfg.is_llm_ready():return
+        with db.session() as conn:
+            accounts = _live_assigned_accounts(conn)
+            if not accounts:
+                _job.update(message="No active assigned Inbox accounts to refresh.")
+                return
+            result = check_once(conn, current_cfg, account_ids=accounts,
+                recent_since=datetime.now(timezone.utc)-timedelta(minutes=10),
+                status=lambda message: _job.update(message=message),
+                progress=lambda done,total: _job.update(message=f"Updating bidder Inbox… {done} of {total}"))
+        succeeded[0] = not result.errors
+        _job.update(message=f"Bidder Inbox refreshed: {result.fetched} recent messages, {result.classified} classified.",
+                    detail="\n".join(result.errors[:5]),ok=succeeded[0])
+    try:
+        _start_job(work, failed="Live Inbox refresh failed", verify_sourcing=False,
+                   background=True, on_finish=lambda: _live_inbox.finish(succeeded[0]))
+    except Exception:
+        _live_inbox.finish()
+        raise
+    return True
+
+
 def _scheduler() -> None:
     """Resume saved calendar work independently of the optional mail schedule."""
     while True:
@@ -571,6 +627,7 @@ def _scheduler() -> None:
                     _run_check(CheckBody(),include_calendar=True)
                     continue
                 if not _state()['has_accounts']:_reschedule(cfg)
+            if _resume_live_inbox(cfg):continue
             _resume_calendar_if_due(cfg)
         except Exception:
             _sched['next_due'] = None
@@ -1127,7 +1184,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.get("/api/triage", response_model=TriageResponse)
     def api_triage(request: Request, view: str = "queue", category: str | None = None,
-                   account: str | None = None, days: int = 30, q: str = Query(default="", max_length=200)):
+                   account: str | None = None, days: int = 30, q: str = Query(default="", max_length=200), live: bool = False):
         """Read the same bounded, body-free rows as the original console."""
         if view not in ("queue", "all", "completed"):
             return _err("Unknown mail view.")
@@ -1175,6 +1232,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         due = _sched["next_due"] if cfg.watch.auto_check else None
         schedule = {"automatic": cfg.watch.auto_check, "running": bool(_job["running"]),
                     "next_at": datetime.fromtimestamp(due, timezone.utc).isoformat() if due else None}
+        if viewer and live:
+            enabled = cfg.watch.auto_check and cfg.is_llm_ready() and bool(accounts)
+            if enabled:_live_inbox.heartbeat(viewer)
+            schedule['live'] = _live_inbox.snapshot(enabled)
         return {
             "check_schedule": schedule,
             "view": view,

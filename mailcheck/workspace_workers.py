@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 import os
 import json
+import logging
 from pathlib import Path
 import secrets
 import socket
@@ -181,6 +182,7 @@ class WorkerPool:
 
 def main():
     import argparse
+    import urllib.error
     import urllib.request
     from .web.app import create_app
     from .web.server import run
@@ -195,8 +197,16 @@ def main():
                 req=urllib.request.Request(os.environ['OFFERPATH_GATEWAY_URL']+'/_internal/ping',headers={'x-offerpath-worker':token})
                 with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=3) as response:
                     failures=0 if response.status==200 else failures+1
+            except urllib.error.HTTPError as exc:
+                # Uvicorn rejects requests before authentication when its
+                # concurrency limit is full. A reachable, overloaded gateway
+                # must not kill healthy workers and their in-flight jobs.
+                # Authentication failures still identify replaced workers.
+                failures=0 if exc.code==503 else failures+1
             except Exception:failures+=1
-            if failures>=3:os._exit(1)
+            if failures>=3:
+                logging.getLogger(__name__).warning("Stopping workspace worker after repeated gateway heartbeat failures.")
+                os._exit(1)
     from .maintenance import MaintenanceLock, lock_path
     with MaintenanceLock(lock_path()), InstanceLock(os.environ['OFFERPATH_WORKER_LOCK']):
         threading.Thread(target=parent_watch,daemon=True).start()

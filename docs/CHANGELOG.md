@@ -2,6 +2,16 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.0 — 2026-11-09
+
+Improve active bidder Inbox speed and server reliability
+
+- Check currently assigned mailboxes about every 30 seconds while bidder Inboxes are active, with faster visible-page refresh and unchanged access/classification rules.
+- Prevent healthy workspace workers from terminating during gateway overload and always release background job locks after completion or startup failures.
+- Reject malformed Outlook responses without advancing failed checkpoints; fix Interviews error retry to reload its list.
+- Avoid unnecessary Job sourcing writes during navigation; bound large sheet responses and keep CSV export independent of dense snapshots.
+- Show the app recovery screen for lazy page-load failures while navigating.
+
 ## 2.23.1 — 2026-11-08
 
 Recover frontend startup failures without a stuck loading screen

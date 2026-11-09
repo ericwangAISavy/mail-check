@@ -13,6 +13,14 @@ from datetime import date
 MAX_ROWS = 100_000
 MAX_COLUMNS = 101
 MAX_CELLS = 10_000
+MAX_SNAPSHOT_CELLS = 100_000
+MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
+
+
+class SnapshotTooLarge(ValueError):
+    """The full editor response would exceed its memory budget."""
+
+
 PROTECTION_BATCH_SIZE = 500
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sourcing_blocked_roles (
@@ -172,6 +180,14 @@ def snapshot(conn, tab):
 
 
 def _snapshot(conn, tab):
+    row_count = conn.execute("SELECT COUNT(*) FROM native_rows WHERE tab_id=?", (tab['id'],)).fetchone()[0]
+    column_count = conn.execute("SELECT COUNT(*) FROM native_columns WHERE tab_id=?", (tab['id'],)).fetchone()[0]
+    if (row_count + 1) * column_count > MAX_SNAPSHOT_CELLS:
+        raise SnapshotTooLarge("This sheet is too large to open safely. Export CSV to preserve your data, then split it into smaller sheets.")
+    text_bytes = conn.execute("""SELECT COALESCE(SUM(length(CAST(c.value AS BLOB)) + length(CAST(c.style AS BLOB))),0)
+        FROM native_cells c JOIN native_rows r ON r.id=c.row_id WHERE r.tab_id=?""", (tab['id'],)).fetchone()[0]
+    if text_bytes > MAX_SNAPSHOT_BYTES:
+        raise SnapshotTooLarge("This sheet contains too much text to open safely. Export CSV to preserve your data, then split it into smaller sheets.")
     tab = conn.execute("SELECT t.*,COALESCE(a.label,t.title) AS account_title FROM native_tabs t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tab["id"],)).fetchone()
     columns = [
         dict(c)

@@ -131,6 +131,8 @@ def install(app, frontend_page, secure_cookies):
                     return function(conn, tab)
             except FileExistsError as exc:
                 raise HTTPException(409, str(exc))
+            except sheets.SnapshotTooLarge as exc:
+                raise HTTPException(413, str(exc))
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
 
@@ -177,7 +179,13 @@ def install(app, frontend_page, secure_cookies):
             if viewer:conn.execute("PRAGMA query_only=ON")
             # Older bidders predate automatic workbook creation. Reconcile only
             # missing workbooks so the picker always represents active bidders.
-            if not viewer:
+            missing_books = not viewer and conn.execute(
+                "SELECT 1 FROM bidders p WHERE p.removed_at IS NULL "
+                "AND (? OR p.id=?) AND NOT EXISTS ("
+                "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id) LIMIT 1",
+                (is_admin, identity["bidder_id"]),
+            ).fetchone()
+            if missing_books:
                 conn.execute(
                     "INSERT OR IGNORE INTO native_books(bidder_id,title) "
                     "SELECT p.id,'Applications' FROM bidders p WHERE p.removed_at IS NULL "
@@ -298,7 +306,10 @@ def install(app, frontend_page, secure_cookies):
     def snapshot(tab_id: int, req: Request):
         with db.session() as conn:
             if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
-            return sheets.snapshot(conn, owned(conn, tab_id, req))
+            try:
+                return sheets.snapshot(conn, owned(conn, tab_id, req))
+            except sheets.SnapshotTooLarge as exc:
+                raise HTTPException(413, str(exc))
 
     @router.post("/api/sourcing/tabs/{tab_id}/save")
     def save(tab_id: int, body: Save, req: Request):
@@ -380,6 +391,8 @@ def install(app, frontend_page, secure_cookies):
             tab = owned(conn, tab_id, req)
             try:
                 content = sourcing_csv.export_rows(conn, tab, work_date=work_date)
+            except sheets.SnapshotTooLarge as exc:
+                raise HTTPException(413, str(exc))
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
             suffix = "" if work_date == "all" else "-" + work_date
@@ -402,7 +415,10 @@ def install(app, frontend_page, secure_cookies):
             ).fetchall()
             results = []
             for tab in tabs:
-                data = sheets.snapshot(conn, dict(tab))
+                try:
+                    data = sheets.snapshot(conn, dict(tab))
+                except sheets.SnapshotTooLarge as exc:
+                    raise HTTPException(413, str(exc))
                 fields = {
                     c["kind"]: i for i, c in enumerate(data["columns"]) if c["kind"]
                 }

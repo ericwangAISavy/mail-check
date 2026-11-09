@@ -92,7 +92,7 @@ beforeEach(() => {
   }))
 })
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe("triage interactions", () => {
   it("keeps rendering after completing the final message in the queue", async () => {
@@ -361,4 +361,84 @@ it('hides cached reader metadata when bidder access is rejected',async()=>{
  expect((await screen.findByRole('alert')).textContent).toContain('This message is unavailable')
  expect(screen.queryByText('Interview 1')).toBeNull()
  expect(screen.queryByText('Acme')).toBeNull()
+})
+
+it('refreshes bidder inbox through the scoped GET without starting a manual mail check', async () => {
+  renderPage(true)
+  const refresh = await screen.findByRole('button', { name: 'Refresh Inbox' })
+  const before = requests.filter(request => request.startsWith('GET /api/triage?')).length
+  fireEvent.click(refresh)
+  await waitFor(() => expect(requests.filter(request => request.startsWith('GET /api/triage?')).length).toBe(before + 1))
+  expect(requests.filter(request => request.includes('/api/triage?')).every(request => request.includes('category=info_request'))).toBe(true)
+  expect(requests.some(request => request.includes('/api/check'))).toBe(false)
+})
+
+it('polls visible bidder inbox every three seconds and refreshes immediately on visibility or focus', async () => {
+  vi.useFakeTimers()
+  renderPage(true)
+  await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+  const count = () => requests.filter(request => request.startsWith('GET /api/triage?')).length
+  try {
+    const before = count()
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(count()).toBe(before + 1)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    fireEvent(document, new Event('visibilitychange'))
+    const hiddenCount = count()
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+    expect(count()).toBe(hiddenCount)
+    fireEvent(window, new Event('focus'))
+    expect(count()).toBe(hiddenCount)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    await act(async () => { fireEvent(document, new Event('visibilitychange')) })
+    expect(count()).toBe(hiddenCount + 1)
+    await act(async () => { fireEvent(window, new Event('focus')) })
+    expect(count()).toBe(hiddenCount + 2)
+  } finally {
+    vi.useRealTimers()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  }
+})
+
+it('does not offer a bidder refresh button on admin triage', async () => {
+  renderPage()
+  await screen.findByText('Body for 1')
+  expect(screen.queryByRole('button', { name: 'Refresh Inbox' })).toBeNull()
+})
+
+it.each([
+  [true, false, false, 'Live inbox: checks for new mail about every 30 seconds'],
+  [true, true, false, 'Live inbox: checks for new mail about every 30 seconds; checking for new mail…'],
+  [true, false, true, 'Live inbox: checks for new mail about every 30 seconds; server is processing updates'],
+  [false, false, false, 'Automatic mail checks are off'],
+])('describes live inbox state (enabled=%s, fetching=%s, processing=%s)', async (enabled, running, processing, label) => {
+  const base = vi.mocked(fetch).getMockImplementation()!
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const res = await base(input, init)
+    if (!String(input).startsWith('/api/triage')) return res
+    const data = await res.json()
+    data.check_schedule = { automatic: enabled, running: processing, next_at: null,
+      live: { enabled, interval_seconds: 30, running, last_checked_at: null, next_at: null } }
+    return response(data)
+  })
+  renderPage(true)
+  expect(await screen.findByText(label)).toBeTruthy()
+  expect(requests.some(request => request.startsWith('GET /api/triage?') && request.includes('live=1'))).toBe(true)
+})
+
+it('waits for visibility before requesting a hidden bidder inbox', async () => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+  try {
+    renderPage(true)
+    await act(async () => { await Promise.resolve() })
+    expect(requests).toEqual([])
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    fireEvent(document, new Event('visibilitychange'))
+    await screen.findByText('Body for 1')
+    expect(requests.some(request => request.includes('live=1'))).toBe(true)
+    fireEvent.click(screen.getByRole('tab', { name: 'All mail' }))
+    expect(new URLSearchParams(window.location.search).has('live')).toBe(false)
+  } finally {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  }
 })
