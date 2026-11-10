@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.1 — 2026-11-10
+
+Recover stalled HTTP origins and keep gateway monitoring responsive
+
+- Move workspace discovery off the HTTP event loop and keep worker monitoring alive after transient storage errors.
+- The Windows start script now probes the local origin, recovers crashed or non-responsive child servers with bounded retries, and records recovery diagnostics.
+
 ## 2.27.0 — 2026-11-10
 
 Separate owner and admin workspace mail schedules

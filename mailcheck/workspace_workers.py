@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 import secrets
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -207,7 +208,14 @@ class WorkerPool:
     async def monitor(self):
         while True:
             await asyncio.sleep(5)
-            for workspace in self.store.enabled_workspaces():
+            try:
+                workspaces = await asyncio.to_thread(self.store.enabled_workspaces)
+            except (RuntimeError, OSError, ValueError, sqlite3.Error):
+                self.errors['_monitor'] = 'Workspace discovery is temporarily unavailable; retrying.'
+                logging.getLogger(__name__).exception('Workspace discovery failed; monitor will retry.')
+                continue
+            self.errors.pop('_monitor', None)
+            for workspace in workspaces:
                 try:await asyncio.to_thread(self.ensure,workspace)
                 except (RuntimeError,OSError,ValueError) as exc:self.errors[workspace["id"]]=str(exc) if isinstance(exc,RuntimeError) else "Workspace startup failed."
 

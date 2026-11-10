@@ -496,7 +496,7 @@ def web(
     else:
         from .web.gateway import create_gateway
         application=create_gateway(allowed_hosts=allow_host,secure_cookies=secure_cookies,max_workspaces=max_workspaces,gateway_url=url,tunnel_mode=tunnel)
-    run(application,host=host,port=port,log_level="warning")
+    run(application,host=host,port=port,log_level="warning",health_check=True)
 
 
 # ------------------------------------------------------------------------- config

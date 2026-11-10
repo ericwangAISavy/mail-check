@@ -11,6 +11,22 @@ from .admission import RequestAdmission
 log = logging.getLogger('uvicorn.error')
 
 
+class LocalOriginHealth:
+    """Direct loopback probe; forwarded/public traffic retains normal auth checks."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        peer = scope.get('client')
+        forwarded = any(key.lower() in (b'x-forwarded-for', b'forwarded') for key, _ in scope.get('headers', []))
+        if (scope['type'] == 'http' and scope.get('path') == '/_internal/origin-health'
+                and scope.get('method') in ('GET', 'HEAD') and peer
+                and peer[0] in ('127.0.0.1', '::1') and not forwarded):
+            from starlette.responses import Response
+            return await Response(status_code=204, headers={'X-OfferPath-Health':'1', 'Cache-Control':'no-store'})(scope, receive, send)
+        return await self.app(scope, receive, send)
+
+
 def windows_exception_handler(server, failures):
     def handle(loop, context):
         error = context.get('exception')
@@ -22,7 +38,7 @@ def windows_exception_handler(server, failures):
             loop.default_exception_handler(context)
             if not failures:
                 failures.append(error)
-                log.error('Windows HTTP listener failed; shutting down the server cleanly. Restart OfferPath after restoring network connectivity.')
+                log.error('Windows HTTP listener failed; shutting down cleanly so the foreground launcher can recover.')
             server.should_exit = True
             return
         callback = getattr(context.get('handle'), '_callback', None)
@@ -64,7 +80,7 @@ def windows_exception_handler(server, failures):
     return handle
 
 
-def run(app, **options):
+def run(app, *, health_check=False, **options):
     # Ignore environment-wide wildcard proxy trust. Only a same-machine proxy
     # may supply visitor addresses and the HTTPS scheme.
     options.setdefault('proxy_headers', True)
@@ -74,7 +90,10 @@ def run(app, **options):
     # headroom while the ASGI wrapper independently bounds active work.
     options.setdefault('limit_concurrency', 256)
     app = RequestAdmission(app)
+    if health_check:
+        app = LocalOriginHealth(app)
     options.setdefault('timeout_keep_alive', 5)
+    options.setdefault('timeout_graceful_shutdown', 15)
     if sys.platform != 'win32':
         return uvicorn.run(app, **options)
     # The previous forced Selector loop can repeatedly call accept() on a

@@ -13,7 +13,7 @@ def test_windows_uses_native_loop_for_serving():
         runner.assert_called_once_with(loop_factory=native)
         wrapped=config.call_args.args[0]
         assert wrapped.app is app
-        config.assert_called_once_with(wrapped,host='0.0.0.0',port=52400,log_level='warning',loop='asyncio',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5)
+        config.assert_called_once_with(wrapped,host='0.0.0.0',port=52400,log_level='warning',loop='asyncio',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15)
         runner.return_value.__enter__.return_value.run.assert_called_once_with('serve-coroutine')
 
 
@@ -23,7 +23,7 @@ def test_other_platforms_keep_uvicorn_startup():
         run(app,host='127.0.0.1',port=52400,log_level='warning')
         wrapped=start.call_args.args[0]
         assert wrapped.app is app
-        start.assert_called_once_with(wrapped,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5)
+        start.assert_called_once_with(wrapped,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15)
 
 
 def test_windows_does_not_hide_server_errors():
@@ -128,3 +128,30 @@ def test_native_listener_failure_is_raised_after_serve_cleanup():
         with pytest.raises(OSError,match='listener invalid'):
             run(object(),host='127.0.0.1',port=52400)
     assert cleaned==[True]
+
+
+def test_origin_health_check_is_local_only_and_does_not_wait_for_application():
+    import asyncio
+    import httpx
+    from mailcheck.web.server import LocalOriginHealth
+    async def busy(scope,receive,send):
+        raise AssertionError('Health check entered the busy application')
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=LocalOriginHealth(busy),client=('127.0.0.1',40000)),base_url='http://127.0.0.1') as client:
+            result=await client.get('/_internal/origin-health')
+            assert result.status_code==204
+            assert result.headers['x-offerpath-health']=='1'
+    asyncio.run(scenario())
+
+
+def test_remote_and_forwarded_health_checks_do_not_bypass_authentication():
+    import asyncio
+    import httpx
+    from starlette.responses import Response
+    from mailcheck.web.server import LocalOriginHealth
+    async def app(scope,receive,send):await Response(status_code=403)(scope,receive,send)
+    async def scenario():
+        for peer,headers in [(('203.0.113.1',1),{}),(('127.0.0.1',1),{'x-forwarded-for':'203.0.113.1'})]:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=LocalOriginHealth(app),client=peer),base_url='http://localhost') as client:
+                assert (await client.get('/_internal/origin-health',headers=headers)).status_code==403
+    asyncio.run(scenario())

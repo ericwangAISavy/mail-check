@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.1",
+    "date": "2026-11-10",
+    "title": "Recover stalled HTTP origins and keep gateway monitoring responsive",
+    "changes": [
+      "Move workspace discovery off the HTTP event loop and keep worker monitoring alive after transient storage errors.",
+      "The Windows start script now probes the local origin, recovers crashed or non-responsive child servers with bounded retries, and records recovery diagnostics."
+    ]
+  },
+  {
     "version": "2.27.0",
     "date": "2026-11-10",
     "title": "Separate owner and admin workspace mail schedules",
