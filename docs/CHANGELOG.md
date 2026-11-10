@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.16 — 2026-11-10
+
+Recover Triage reads after temporary Cloudflare connection failures
+
+- Retry temporary Triage connection failures with bounded backoff while retaining filters and cached mail; never replay outgoing actions.
+- Show safe Cloudflare error codes and request references for HTTP 530 so tunnel failures can be diagnosed accurately.
+
 ## 2.27.15 — 2026-11-10
 
 Recover missing startup styles and parse import wrappers safely

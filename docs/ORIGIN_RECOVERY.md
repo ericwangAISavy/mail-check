@@ -30,3 +30,11 @@ The control database uses SQLite WAL journaling so session reads can continue du
 Gateway page reads share a 25-second budget beginning before authentication. Session lookup has a five-second limit; temporary session-storage failures return HTTP 503 with `Retry-After` instead of masquerading as a sign-out or exposing database errors. The public login shell and static assets do not require session storage, but their protected APIs still authenticate normally. Dispatched writes are not subject to the page-read timeout.
 
 Each worker-readiness wait is bounded to 20 seconds. A still-initializing process remains available for subsequent readiness checks, with a separate two-minute hard startup limit. This allows startup migrations to finish without retaining a page request indefinitely. Original-workspace backup verification is serialized separately from heartbeat authentication so slow backup disk access cannot block other workers' heartbeats.
+
+## Cloudflare HTTP 530
+
+A 530 response is distinct from the app's local 503/504 worker errors. Inspect the failed request's response body for the Cloudflare error code and record its `CF-Ray` header and time. Code 1033 indicates Cloudflare cannot find a healthy tunnel connector; code 1016 indicates an origin DNS resolution failure. Use the actual code to select the remedy rather than assuming the Python process has crashed.
+
+For 1033, check that the intended cloudflared service is running, connected, and associated with this domain's tunnel. For 1016, check the domain's DNS and tunnel route in Cloudflare. Compare the local `http://127.0.0.1:52400/_internal/origin-health` health response with the public-domain failure at the same time. Keep the origin port private.
+
+The Triage client retries temporary read failures with a limited backoff budget, retaining filters and existing cached mail. It never retries email sends or other mutations as part of this recovery. Persistent 530 responses require fixing the tunnel/DNS issue; client retries cannot repair Cloudflare configuration.

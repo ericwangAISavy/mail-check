@@ -1,3 +1,4 @@
+import { useReadRecovery } from "@/lib/use-read-recovery"
 import { usePageState } from "@/lib/page-state"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type Ref } from "react"
 import { Link } from "react-router-dom"
@@ -109,6 +110,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === "visible")
   const normalized = useMemo(() => {const next=triageParams(params.toString());if(bidderInbox){next.set("category","info_request");next.set("live","1")};return next}, [params,bidderInbox])
   const query = useQuery({ queryKey: ["triage", normalized.toString(), bidderInbox ? "bidder" : "admin"], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous, enabled:!bidderInbox || pageVisible, refetchInterval:bidderInbox ? () => document.visibilityState === "visible" ? 3000 : false : false, refetchOnWindowFocus:!bidderInbox })
+  const recovery = useReadRecovery({scope:normalized.toString(),error:query.error,errorUpdatedAt:query.errorUpdatedAt,isFetching:query.isFetching,isSuccess:query.isSuccess,retry:query.refetch,enabled:!bidderInbox})
   useEffect(() => {
     if (!bidderInbox) return
     const refreshVisibleInbox = () => {
@@ -230,13 +232,14 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   }, [messages, selected, selectedMessage, done.isPending, selectMessage, clearOpen, queueBusy])
 
   if (query.isPending) return <div className="page-wrap"><Loading /></div>
-  if (query.error && (!data || bidderInbox && query.error instanceof ApiError && [401,403,404].includes(query.error.status))) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={14} />Try again</Button></div></div>
+  if (query.error && (!data || bidderInbox && query.error instanceof ApiError && [401,403,404].includes(query.error.status))) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void recovery.retryNow()} disabled={query.isFetching}><RefreshCw size={14} />Try again</Button>{recovery.scheduled && <p role="status">Reconnecting automatically shortly…</p>}</div></div>
   const waitingSetup = !bidderInbox && (!bootstrap.readiness.model || !bootstrap.readiness.accounts)
   const categories=bidderInbox?[{name:"info_request",label:"Info request",tier:"reply"}]:bootstrap.taxonomy
   const noMessages = !messages.length
   const activeFilters = (normalized.has("q") ? 1 : 0) + (normalized.has("account") ? 1 : 0) + (!bidderInbox && normalized.has("category") ? 1 : 0) + (normalized.get("days") !== "30" ? 1 : 0)
   const unclassifiedCount = data?.counts.unclassified ?? 0
   return <div className={`page-wrap triage-page${bidderInbox ? " bidder-inbox-page" : ""}`} onKeyDown={actKey}>
+    {!bidderInbox && query.error && <div role="status" className="inline-error">Mail updates are temporarily unavailable. Your saved mail is still visible. {query.error.message} <Button variant="outline" size="sm" disabled={query.isFetching} onClick={()=>void recovery.retryNow()}>Retry connection</Button>{recovery.scheduled && <p>Reconnecting automatically shortly…</p>}</div>}
     {!bidderInbox && params.get("followup")==="1" && <Button asChild variant="outline" size="sm"><Link to="/interview-processes"><ArrowLeft size={15}/>Back to interview processes</Link></Button>}
     <div className="triage-heading-row">
     <PageHeading title={bidderInbox ? "Inbox" : title || "Your triage"} description={bidderInbox ? "Info request messages for your assigned accounts." : data?.last_run || bootstrap.last_run || undefined} />

@@ -165,3 +165,9 @@ it("rejects a previous user's response after a same-workspace session handoff",a
   resolve(new Response(JSON.stringify({body_html:"Alice private message"}),{headers:{"Content-Type":"application/json"}}))
   await expect(pending).rejects.toThrow("Workspace changed")
 })
+it('includes safe Cloudflare diagnostics for 530 without exposing the proxy document',async()=>{
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('<html><span class="cf-error-code">1033</span>private diagnostic IP</html>',{status:530,headers:{'Content-Type':'text/html','cf-ray':'abc123-ORD'}})))
+ const error=await request('/api/triage').catch(error=>error)
+ if(!(error instanceof ApiError))throw new Error('Expected an API error')
+ expect(error.status).toBe(530);expect(error.message).toContain('code 1033');expect(error.message).toContain('Reference: abc123-ORD');expect(error.message).not.toContain('private diagnostic')
+})

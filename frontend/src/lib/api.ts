@@ -99,6 +99,13 @@ async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T
       return message ? `${field ? field + ": " : ""}${message}` : ""
     }).filter(Boolean).join("; ") : errorText(detail)
     const message = html||malformed?"":typeof value === "string"?errorText(value):errorText(value?.error)||errorText(validation)
+    if(response.status===530){
+      const source=typeof value==="string"?value:""
+      const code=source.match(/(?:error(?:\s+code)?\s*:?\s*|cf-error-code[^>]*>\s*)(1\d{3})\b/i)?.[1]
+      const ray=response.headers.get("cf-ray")||""
+      const reference=/^[a-z0-9-]{1,80}$/i.test(ray)?` Reference: ${ray}.`:""
+      throw new ApiError(`Cloudflare could not reach OfferPath (530${code?`; code ${code}`:""}). ${advice}${reference}`,530)
+    }
     throw new ApiError(message||(response.status>=500?unavailable(response.status):`The request could not be completed (${response.status}). ${advice}`),response.status)
   }
   if(html||malformed)throw new ApiError(`OfferPath returned an unexpected response. ${advice}`,502)
