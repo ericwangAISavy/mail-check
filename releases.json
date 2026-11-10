@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.27.13",
+    "date": "2026-11-10",
+    "title": "Keep blocked optional analytics from aborting startup",
+    "changes": [
+      "Ignore CSP-blocked Cloudflare analytics and unrelated extension scripts during startup, while retaining recovery for OfferPath files and reporting genuine app initialization errors."
+    ]
+  },
+  {
     "version": "2.27.12",
     "date": "2026-11-10",
     "title": "Fix stalled startup recovery and page reveal timing",

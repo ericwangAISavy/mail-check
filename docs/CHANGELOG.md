@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.13 — 2026-11-10
+
+Keep blocked optional analytics from aborting startup
+
+- Ignore CSP-blocked Cloudflare analytics and unrelated extension scripts during startup, while retaining recovery for OfferPath files and reporting genuine app initialization errors.
+
 ## 2.27.12 — 2026-11-10
 
 Fix stalled startup recovery and page reveal timing

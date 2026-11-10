@@ -1,4 +1,4 @@
-import source from "../../public/assets/startup-recovery-v3.js?raw";
+import source from "../../public/assets/startup-recovery-v4.js?raw";
 import { afterEach, expect, it, vi } from "vitest";
 afterEach(() => { document.getElementById('root')?.remove(); vi.runOnlyPendingTimers(); vi.useRealTimers(); });
 function boot(url = 'https://example.test/applications?view=all#saved') {
@@ -6,7 +6,7 @@ function boot(url = 'https://example.test/applications?view=all#saved') {
   document.body.innerHTML = '<div id="root"><main data-offerpath-startup role="status">Starting OfferPath</main></div>';
   const replace = vi.fn();
   new Function('window', 'document', 'location', source)(window, document, { href: url, replace });
-  const fail = () => { const script = window.document.createElement('script'); window.document.body.append(script); script.dispatchEvent(new window.Event('error')); };
+  const fail = () => { const script = window.document.createElement('script'); script.src='https://example.test/assets/index-test.js'; window.document.body.append(script); script.dispatchEvent(new window.Event('error')); };
   return { window, replace, fail };
 }
 it('retries a missing module once with fresh HTML and preserves route, query and hash', () => {
@@ -98,5 +98,33 @@ it('reveals a page that finishes after the slow-start warning without requiring 
   await Promise.resolve();vi.advanceTimersByTime(400);
   expect(root.hasAttribute('inert')).toBe(false);
   expect(document.querySelector('[data-offerpath-startup]')).toBeNull();
+  expect(replace).not.toHaveBeenCalled();
+});
+
+it('ignores Cloudflare analytics blocked by the content security policy', async () => {
+  const {replace}=boot('https://example.test/?_offerpath_boot=1');
+  const script=document.createElement('script');
+  script.src='https://static.cloudflareinsights.com/beacon.min.js/vce701823';
+  document.body.append(script);script.dispatchEvent(new Event('error'));
+  expect(replace).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-offerpath-startup][role="alert"]')).toBeNull();
+  document.getElementById('root')!.innerHTML='<main>Workspace ready</main>';
+  await Promise.resolve();vi.advanceTimersByTime(400);
+  expect(document.querySelector('[data-offerpath-startup]')).toBeNull();
+});
+it('does not reload for extension or third-party runtime errors during startup', () => {
+  const {replace}=boot();
+  window.dispatchEvent(new ErrorEvent('error',{message:'Extension failure',filename:'chrome-extension://some-extension/content.js'}));
+  window.dispatchEvent(new ErrorEvent('error',{message:'Analytics failure',filename:'https://static.cloudflareinsights.com/beacon.min.js'}));
+  const event=new Event('unhandledrejection');
+  Object.defineProperty(event,'reason',{value:new Error('Extension connection failed')});
+  window.dispatchEvent(event);
+  expect(replace).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-offerpath-startup][role="alert"]')).toBeNull();
+});
+it('still reports OfferPath runtime failures without automatically repeating broken code', () => {
+  const {replace}=boot();
+  window.dispatchEvent(new ErrorEvent('error',{message:'App initialization failed',filename:'https://example.test/assets/index-test.js'}));
+  expect(document.querySelector('[data-offerpath-startup][role="alert"]')?.textContent).toContain('could not start');
   expect(replace).not.toHaveBeenCalled();
 });
