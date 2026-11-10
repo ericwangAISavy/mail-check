@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.3",
+    "date": "2026-11-10",
+    "title": "Bound gateway authentication and startup waits",
+    "changes": [
+      "Include authentication in page-read deadlines, return retryable responses for session storage outages, and keep public sign-in assets independent of database availability.",
+      "Keep startup backup I/O away from worker heartbeat locks and enforce a wall-clock limit on readiness polling without interrupting dispatched writes."
+    ]
+  },
+  {
     "version": "2.27.2",
     "date": "2026-11-10",
     "title": "Deeper gateway and worker recovery fixes",

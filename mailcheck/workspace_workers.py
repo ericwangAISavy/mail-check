@@ -66,6 +66,10 @@ class InstanceLock:
         if self.file:self.file.close();self.file=None
 
 
+class WorkerStartupPending(RuntimeError):
+    pass
+
+
 @dataclass
 class Worker:
     workspace_id: str
@@ -76,14 +80,19 @@ class Worker:
     ready: bool = False
     started_at: float = field(default_factory=time.time)
     health_failures: int = 0
+    startup_at: float = field(default_factory=time.monotonic)
 
 
 class WorkerPool:
     def __init__(self,store,gateway_url,legacy_paths):
         self.store=store;self.gateway_url=gateway_url;self.legacy_paths=legacy_paths
         self.workers={};self.failures={};self.errors={};self.stopped=set();self.closing=False;self._lock=threading.RLock()
+        self._backup_lock=threading.Lock()
 
     def _backup(self):
+        with self._backup_lock:self._backup_unlocked()
+
+    def _backup_unlocked(self):
         folder=self.store.root/'rollback-original'
         if folder.exists():
             try:
@@ -101,6 +110,13 @@ class WorkerPool:
 
     def ensure(self,workspace):
         wid=workspace['id']
+        if wid=='legacy':
+            with self._lock:
+                if self.closing or wid in self.stopped:raise RuntimeError('Workspace is suspended or shutting down.')
+                current=self.workers.get(wid)
+                needs_backup=current is None or current.process.poll() is not None
+            # Backup disk I/O must not hold the heartbeat authentication lock.
+            if needs_backup:self._backup()
         with self._lock:
             if self.closing or wid in self.stopped:raise RuntimeError('Workspace is suspended or shutting down.')
             current=self.workers.get(wid)
@@ -114,27 +130,36 @@ class WorkerPool:
         # Concurrent first requests share the same process and independently
         # wait for readiness. No gateway event-loop thread holds this lock.
         try:
+            # Bound each page wait, but allow longer initialization/migrations.
+            deadline=time.monotonic()+20
             with httpx.Client(trust_env=False,timeout=1) as client:
                 for _ in range(100):
+                    remaining=min(deadline,worker.startup_at+120)-time.monotonic()
+                    if remaining<=0:break
                     with self._lock:
                         if self.workers.get(wid) is not worker or worker.process.poll() is not None:break
                         if worker.ready:return worker
                     try:
-                        if client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token}).status_code==200:
+                        if client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token},timeout=min(1,remaining)).status_code==200:
                             with self._lock:
                                 if self.workers.get(wid) is not worker:break
                                 worker.ready=True
                                 self.errors.pop(wid,None)
                                 return worker
                     except httpx.HTTPError:pass
-                    time.sleep(.1)
+                    time.sleep(min(.1,max(0,deadline-time.monotonic())))
             with self._lock:
-                if self.workers.get(wid) is worker and worker.ready and worker.process.poll() is None:return worker
+                if self.workers.get(wid) is worker and worker.process.poll() is None:
+                    if worker.ready:return worker
+                    if time.monotonic()<worker.startup_at+120:
+                        raise WorkerStartupPending('Workspace is still starting. Retry shortly.')
             stopped = self.stop(wid,suspended=False,expected=worker,only_unready=True)
             if not stopped:
                 with self._lock:
                     if self.workers.get(wid) is worker and worker.ready and worker.process.poll() is None:return worker
             raise RuntimeError('Workspace worker could not start. Check workspace health logs.')
+        except WorkerStartupPending:
+            raise
         except BaseException:
             # Do not terminate a replacement process started by another request.
             self.stop(wid,suspended=False,expected=worker,only_unready=True)
@@ -147,7 +172,6 @@ class WorkerPool:
         if recent and time.time()-recent[-1] < min(60,10*2**(len(recent)-1)):
             raise RuntimeError('Workspace restart is waiting for a short recovery period.')
         if len(self.workers)>=self.store.max_workspaces:raise RuntimeError('Worker capacity reached.')
-        if wid=='legacy':self._backup()
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
         token=secrets.token_urlsafe(48)

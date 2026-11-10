@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
@@ -28,6 +29,7 @@ from .auth import AuthStore, AuthFileError
 COOKIE='offerpath_session'
 HERE=Path(__file__).parent
 READ_REQUEST_TIMEOUT = 25.0
+AUTH_REQUEST_TIMEOUT = 5.0
 
 # Process-wide, lazily started and bounded independently of browser DB work.
 # The gateway has one serving loop; authentication must stay off that loop.
@@ -213,7 +215,15 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             origin=request.headers.get('origin')
             if (origin and origin!=f'{request.url.scheme}://{request.headers.get("host","")}') or request.headers.get('sec-fetch-site')=='cross-site':return JSONResponse({'error':'Cross-origin requests are not allowed.'},403)
         asset_request=path.startswith('/assets/')
-        try:identity=None if asset_request else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
+        public_file=asset_request or path.startswith('/static/') or path=='/login'
+        if request.method in ('GET','HEAD'):
+            request.state.read_deadline=asyncio.get_running_loop().time()+READ_REQUEST_TIMEOUT
+        try:
+            async with asyncio.timeout(AUTH_REQUEST_TIMEOUT):
+                identity=None if public_file else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
+        except (TimeoutError,sqlite3.Error) as exc:
+            logging.getLogger(__name__).warning('Session storage is busy or unavailable (%s); authentication request deferred.',type(exc).__name__,exc_info=isinstance(exc,sqlite3.Error))
+            return JSONResponse({'error':'Authentication is temporarily unavailable. Try again shortly.'},503,headers={'Retry-After':'1','Cache-Control':'no-store'})
         except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
         public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session') or path.startswith(('/assets/','/static/'))
@@ -233,7 +243,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         restricted_settings = path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)
-        try:response=await call_next(request)
+        try:
+            if request.method in ('GET','HEAD'):
+                async with asyncio.timeout_at(request.state.read_deadline):response=await call_next(request)
+            else:response=await call_next(request)
+        except TimeoutError:
+            response=JSONResponse({'error':'This page took too long to load. Try again shortly.'},504,headers={'Retry-After':'1'})
         except RevokedSession as exc:
             response=JSONResponse({"error":str(exc)},401)
         except (ValueError,PermissionError) as exc:
@@ -475,7 +490,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         try:
             # Complete before the browser's 30-second deadline. Slow reads
             # must not occupy the gateway's active budget for 660 seconds.
-            async with asyncio.timeout(READ_REQUEST_TIMEOUT):
+            deadline=getattr(request.state,'read_deadline',asyncio.get_running_loop().time()+READ_REQUEST_TIMEOUT)
+            async with asyncio.timeout_at(deadline):
                 return await proxy_request(path,request)
         except TimeoutError:
             raise HTTPException(504,'This page took too long to load. Try again shortly.',

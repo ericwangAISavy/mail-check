@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.3 — 2026-11-10
+
+Bound gateway authentication and startup waits
+
+- Include authentication in page-read deadlines, return retryable responses for session storage outages, and keep public sign-in assets independent of database availability.
+- Keep startup backup I/O away from worker heartbeat locks and enforce a wall-clock limit on readiness polling without interrupting dispatched writes.
+
 ## 2.27.2 — 2026-11-10
 
 Deeper gateway and worker recovery fixes

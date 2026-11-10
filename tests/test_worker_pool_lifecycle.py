@@ -140,7 +140,7 @@ def test_startup_cleanup_wait_does_not_block_other_worker_authentication(monkeyp
     from threading import Thread
     pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
     failed_process=Mock();failed_process.poll.return_value=None
-    failed=Worker('alice',1234,'failed',failed_process,Mock())
+    failed=Worker('alice',1234,'failed',failed_process,Mock(),startup_at=workspace_workers.time.monotonic()-121)
     healthy_process=Mock();healthy_process.poll.return_value=None
     healthy=Worker('bob',1235,'healthy',healthy_process,Mock(),ready=True)
     pool.workers={'alice':failed,'bob':healthy}
@@ -157,3 +157,55 @@ def test_startup_cleanup_wait_does_not_block_other_worker_authentication(monkeyp
     monkeypatch.setattr(workspace_workers.time,'sleep',lambda _:None)
     with pytest.raises(RuntimeError,match='could not start'):pool.ensure({'id':'alice'})
     healthy_process.terminate.assert_not_called()
+
+
+def test_worker_readiness_has_a_wall_clock_deadline(monkeypatch,tmp_path):
+    import time
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    process=Mock();process.poll.return_value=None
+    worker=Worker('alice',1234,'token',process,Mock(),startup_at=0);pool.workers['alice']=worker
+    clock=[0.];calls=[];status=[503]
+    class Client:
+        def __init__(self,**kwargs):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def get(self,*args,**kwargs):calls.append(True);clock[0]+=1;return SimpleNamespace(status_code=status[0])
+    monkeypatch.setattr(workspace_workers.httpx,'Client',Client)
+    monkeypatch.setattr(workspace_workers,'time',SimpleNamespace(time=time.time,monotonic=lambda:clock[0],sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds)))
+    with pytest.raises(RuntimeError,match='still starting|could not start'):pool.ensure({'id':'alice'})
+    assert clock[0]<=21,'Readiness waited long past the page request deadline'
+    process.terminate.assert_not_called()
+    status[0]=200
+    assert pool.ensure({'id':'alice'}) is worker
+    process.terminate.assert_not_called()
+
+
+def test_legacy_backup_does_not_block_other_worker_heartbeats(monkeypatch,tmp_path):
+    pool=WorkerPool(SimpleNamespace(root=tmp_path,max_workspaces=4),'',(tmp_path/'config',tmp_path/'db',tmp_path/'auth'))
+    process=Mock();process.poll.return_value=None
+    pool.workers['bob']=Worker('bob',1234,'healthy',process,Mock(),ready=True)
+    entered=Event();release=Event()
+    def backup():entered.set();assert release.wait(3)
+    monkeypatch.setattr(pool,'_backup',backup)
+    monkeypatch.setattr(workspace_workers.subprocess,'Popen',Mock(return_value=process))
+    client=MagicMock();client.__enter__.return_value=client;client.get.return_value=SimpleNamespace(status_code=200)
+    monkeypatch.setattr(workspace_workers.httpx,'Client',Mock(return_value=client))
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        starting=executor.submit(pool.ensure,{'id':'legacy','root':None})
+        assert entered.wait(2)
+        heartbeat=executor.submit(pool.authenticate_worker,'healthy')
+        try:assert heartbeat.result(timeout=.2)=='bob'
+        finally:release.set();starting.result(timeout=3)
+
+
+def test_worker_that_exceeds_hard_startup_limit_is_retired(monkeypatch,tmp_path):
+    import time
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    process=Mock();process.poll.return_value=None
+    worker=Worker('alice',1234,'token',process,Mock(),startup_at=time.monotonic()-121)
+    pool.workers['alice']=worker
+    client=MagicMock();client.__enter__.return_value=client
+    monkeypatch.setattr(workspace_workers.httpx,'Client',Mock(return_value=client))
+    with pytest.raises(RuntimeError,match='could not start'):pool.ensure({'id':'alice'})
+    process.terminate.assert_called_once()
+    assert 'alice' not in pool.workers
