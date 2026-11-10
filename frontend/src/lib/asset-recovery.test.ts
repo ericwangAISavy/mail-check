@@ -1,0 +1,37 @@
+import { afterEach, expect, it, vi } from 'vitest'
+afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();vi.resetModules();history.replaceState({},'', '/')})
+it('classifies module-loading failures without hiding ordinary code errors',async()=>{
+ const {isAssetLoadError}=await import('./asset-recovery')
+ expect(isAssetLoadError(new TypeError('Failed to fetch dynamically imported module: /assets/dashboard.js'))).toBe(true)
+ expect(isAssetLoadError(new TypeError('Cannot read properties of undefined'))).toBe(false)
+ expect(isAssetLoadError(new Error('Unable to preload CSS for /assets/style.css'))).toBe(true)
+})
+it('requires the actual app shell, not a successful proxy error page',async()=>{
+ const fetch=vi.fn().mockResolvedValueOnce(new Response('<html>Proxy error</html>',{headers:{'content-type':'text/html'}})).mockResolvedValueOnce(new Response('<div id="root"></div>',{headers:{'content-type':'text/html'}}))
+ vi.stubGlobal('fetch',fetch)
+ const {probeApplication}=await import('./asset-recovery')
+ expect(await probeApplication()).toBe(false);expect(await probeApplication()).toBe(true)
+ expect(fetch.mock.calls[0][1].cache).toBe('no-store')
+})
+it('does not automatically reload again when the retry marker is recent',async()=>{
+ history.replaceState({},'', '/dashboard?days=7&_offerpath_chunk_retry='+Date.now()+'#saved')
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch)
+ const {recoverPageAssets,clearAssetRecoveryMarker}=await import('./asset-recovery')
+ clearAssetRecoveryMarker()
+ expect(location.search).toBe('?days=7');expect(location.hash).toBe('#saved')
+ expect(await recoverPageAssets()).toBe('exhausted');expect(fetch).not.toHaveBeenCalled()
+})
+it('bounds automatic connection retries during an outage',async()=>{
+ vi.useFakeTimers();const fetch=vi.fn().mockImplementation(()=>Promise.resolve(new Response('Bad gateway',{status:502})))
+ vi.stubGlobal('fetch',fetch)
+ const {recoverPageAssets}=await import('./asset-recovery')
+ const result=recoverPageAssets();await vi.advanceTimersByTimeAsync(5000)
+ expect(await result).toBe('unavailable');expect(fetch).toHaveBeenCalledTimes(3)
+})
+it('stops retrying when the error boundary unmounts',async()=>{
+ vi.useFakeTimers();const fetch=vi.fn().mockResolvedValue(new Response('Bad gateway',{status:502}));vi.stubGlobal('fetch',fetch)
+ const {recoverPageAssets}=await import('./asset-recovery')
+ const controller=new AbortController(),result=recoverPageAssets({signal:controller.signal})
+ await vi.advanceTimersByTimeAsync(1);controller.abort();await vi.advanceTimersByTimeAsync(5000)
+ expect(await result).toBe('unavailable');expect(fetch).toHaveBeenCalledTimes(1)
+})

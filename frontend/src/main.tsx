@@ -1,3 +1,4 @@
+import { clearAssetRecoveryMarker } from "@/lib/asset-recovery"
 import { readBrowserPreference } from "@/lib/browser-preferences"
 import "@fontsource-variable/geist/wght.css"
 import "./index.css"
@@ -24,6 +25,8 @@ try {
     window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash)
   }
 } catch { /* Startup does not depend on optional URL cleanup. */ }
+
+clearAssetRecoveryMarker()
 
 const router = createBrowserRouter([{ path: "*", element: <AppErrorBoundary><App /></AppErrorBoundary> }])
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } } })

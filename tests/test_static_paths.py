@@ -107,3 +107,29 @@ def test_url_backslash_still_rejected_when_normalized_paths_are_allowed(tmp_path
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
                 assert (await client.get('/nested%5Cbundle.js')).status_code==404
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('pathsend',[False,True])
+def test_asset_removed_after_lookup_returns_clean_404(tmp_path,pathsend):
+    import asyncio
+    from fastapi import FastAPI
+    from mailcheck.web.static_files import PortableStaticFiles
+    asset=tmp_path/'bundle.js';asset.write_text('window.version = 1')
+    files=PortableStaticFiles(directory=tmp_path)
+    original=files.get_response
+    async def disappear(path,scope):
+        response=await original(path,scope)
+        asset.unlink()
+        return response
+    files.get_response=disappear
+    routed=FastAPI();routed.mount('/',files)
+    async def app(scope,receive,send):
+        if pathsend:scope={**scope,'extensions':{'http.response.pathsend':{}}}
+        await routed(scope,receive,send)
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+            response=await client.get('/bundle.js')
+            assert response.status_code==404
+            assert response.headers['cache-control']=='no-store'
+            assert response.headers['content-length']==str(len(response.content))
+    asyncio.run(scenario())

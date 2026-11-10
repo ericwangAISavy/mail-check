@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.9",
+    "date": "2026-11-10",
+    "title": "Recover failed page-module loads after outages and updates",
+    "changes": [
+      "Recover failed lazy-loaded page files with a bounded, connection-checked reload that preserves filters and deep links, plus a retry screen while the origin is unavailable.",
+      "Prevent truncated successful static responses when a hashed asset disappears during deployment; return a clean non-cacheable error instead."
+    ]
+  },
+  {
     "version": "2.27.8",
     "date": "2026-11-10",
     "title": "Preserve valid nested Windows static paths",

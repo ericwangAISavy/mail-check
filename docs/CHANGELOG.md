@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.9 — 2026-11-10
+
+Recover failed page-module loads after outages and updates
+
+- Recover failed lazy-loaded page files with a bounded, connection-checked reload that preserves filters and deep links, plus a retry screen while the origin is unavailable.
+- Prevent truncated successful static responses when a hashed asset disappears during deployment; return a clean non-cacheable error instead.
+
 ## 2.27.8 — 2026-11-10
 
 Preserve valid nested Windows static paths
