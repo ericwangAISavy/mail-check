@@ -18,7 +18,7 @@ from uuid import UUID
 from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from .static_files import PortableStaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
@@ -688,9 +688,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     install_pipeline(app)
     # Register after the local frontend helper is defined below.
     trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
-    app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+    app.mount("/static", PortableStaticFiles(directory=str(HERE / "static")), name="static")
     if (FRONTEND_DIST / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+        app.mount("/assets", PortableStaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
 
     def frontend_page():
         index = FRONTEND_DIST / "index.html"

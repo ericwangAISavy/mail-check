@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.7 — 2026-11-10
+
+Reject malformed Windows asset paths safely
+
+- Return HTTP 404 for invalid static-file URLs such as JavaScript stack locations instead of raising Windows invalid-filename exceptions, while preserving normal asset serving and genuine I/O diagnostics.
+
 ## 2.27.6 — 2026-11-10
 
 Harden clipboard parsing and job-link duplicate checks

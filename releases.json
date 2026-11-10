@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.27.7",
+    "date": "2026-11-10",
+    "title": "Reject malformed Windows asset paths safely",
+    "changes": [
+      "Return HTTP 404 for invalid static-file URLs such as JavaScript stack locations instead of raising Windows invalid-filename exceptions, while preserving normal asset serving and genuine I/O diagnostics."
+    ]
+  },
+  {
     "version": "2.27.6",
     "date": "2026-11-10",
     "title": "Harden clipboard parsing and job-link duplicate checks",

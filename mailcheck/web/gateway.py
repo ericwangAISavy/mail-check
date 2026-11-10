@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
+from .static_files import PortableStaticFiles
 from starlette.requests import ClientDisconnect
 from pydantic import BaseModel, Field
 
@@ -181,8 +181,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     internal_host=urlparse(gateway_url).hostname
     if internal_host:hosts.add(internal_host.lower())
     assets=HERE/'frontend_dist'/'assets'
-    if assets.is_dir():app.mount('/assets',StaticFiles(directory=assets),name='assets')
-    app.mount('/static',StaticFiles(directory=HERE/'static'),name='static')
+    if assets.is_dir():app.mount('/assets',PortableStaticFiles(directory=assets),name='assets')
+    app.mount('/static',PortableStaticFiles(directory=HERE/'static'),name='static')
 
     def page():
         return FileResponse(HERE/'frontend_dist'/'index.html',headers={'Cache-Control':'no-store'})
