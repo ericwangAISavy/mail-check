@@ -6,6 +6,7 @@ import type { InterviewEvent, InterviewSource } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Loading, useToast } from "@/components/common"
+import { InterviewJobMatches } from "@/components/interview-job-matches"
 import "@/pages/interviews.css"
 
 const stateClass = (event: InterviewEvent) => event.display_status.toLowerCase().replaceAll(" ","-")
@@ -74,6 +75,7 @@ export function InterviewDetails({id,stages,statuses,displayTimezone,onCloseAuto
         <div><dt>Location</dt><dd>{physicalLocation || (joinUrl ? "Online" : "Not provided")}</dd></div>
         {joinUrl && <div className="interview-location"><dt>Meeting link</dt><dd><a className="interview-meeting-link interview-explicit-link" href={joinUrl} target="_blank" rel="noopener noreferrer">{joinUrl}<ExternalLink size={14} aria-hidden="true"/></a></dd></div>}
       </dl>
+      <InterviewJobMatches id={id}/>
     </>}
     {editing && <div className="interview-dialog-maintenance"><Button variant="destructive" disabled={remove.isPending} onClick={()=>remove.mutate()}>{remove.isPending ? "Removing…" : "Remove from calendar"}</Button>
     <p className="form-hint">Removes this event from this app. Your connected calendar is unchanged.</p>

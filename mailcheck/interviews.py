@@ -483,6 +483,10 @@ def _save_calendar_booking(conn, account, booking, details, *, analysis_enabled)
         extraction_rank=3,
         sequence=0,revision_at=row["date_utc"] or row["fetched_at"])
     change = reconcile(conn,candidate,row)
+    conn.execute("""INSERT INTO interview_source_details(source_id,description)
+        SELECT id,? FROM interview_sources WHERE account_id=? AND external_message_id=?
+        ON CONFLICT(source_id) DO UPDATE SET description=excluded.description""",
+        ((booking.description or "")[:16000],account.id,booking.provider_id))
     conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present,interview_related)
         SELECT id,?,?,1,1 FROM interview_sources WHERE account_id=? AND external_message_id=?
         ON CONFLICT(source_id) DO UPDATE SET start_at=excluded.start_at,end_at=excluded.end_at,present=1,interview_related=1""",

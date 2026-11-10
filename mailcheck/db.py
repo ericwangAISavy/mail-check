@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 47
+SCHEMA_VERSION = 48
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS interview_sources (
     source_subject TEXT, source_sender TEXT, source_received_at TEXT,
     candidate_key TEXT NOT NULL DEFAULT '',
     UNIQUE(account_id, external_message_id, candidate_key)
+);
+CREATE TABLE IF NOT EXISTS interview_source_details (
+    source_id INTEGER PRIMARY KEY REFERENCES interview_sources(id) ON DELETE CASCADE,
+    description TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS interview_calendar_state (
     source_id INTEGER PRIMARY KEY REFERENCES interview_sources(id) ON DELETE CASCADE,

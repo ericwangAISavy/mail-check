@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.26.0 — 2026-11-09
+
+Calendar invitation job history matches
+
+- Calendar invitation details suggest matching historical job links and the bidder who recorded each application, with confidence and multiple candidates.
+
 ## 2.25.1 — 2026-11-09
 
 Make Queue retries and Undo notifications safe

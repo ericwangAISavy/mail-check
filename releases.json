@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.26.0",
+    "date": "2026-11-09",
+    "title": "Calendar invitation job history matches",
+    "changes": [
+      "Calendar invitation details suggest matching historical job links and the bidder who recorded each application, with confidence and multiple candidates."
+    ]
+  },
+  {
     "version": "2.25.1",
     "date": "2026-11-09",
     "title": "Make Queue retries and Undo notifications safe",

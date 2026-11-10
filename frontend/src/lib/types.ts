@@ -58,3 +58,11 @@ export type ProcessMilestone = {
 export type InterviewProcess = { follow_up?: {target_message_pk:number|null;status:"ready"|"sent"|"unavailable";sent_at:string|null}; id?: string; account_id?: number | null; account_emails?: string[]; organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }
 
 export type SentReply = {operation:string;body:string;mode:string;status:string;created_at:string;sent_at:string|null;recipients:string;error:string}
+
+export type InterviewJobMatch = {
+  row_id: string; tab_id: number; account_id: number; account_label: string
+  bidder_id: number; bidder_name: string; company: string; role: string; link: string
+  applied: boolean; application_date: string | null; work_date: string | null; archived: boolean
+  confidence: "strong" | "possible"; reasons: string[]
+}
+export type InterviewJobMatchesResponse = { matches: InterviewJobMatch[]; total: number; next_cursor: string | null }

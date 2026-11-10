@@ -973,6 +973,24 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def interview_sync(body: CheckBody | None = None):
         return api_check((body or CheckBody()).model_copy(update={"mode": "calendar"}))
 
+    @app.get("/api/interviews/{event_id}/job-matches")
+    def interview_job_matches(request: Request, event_id: int,
+                              cursor: str | None = Query(default=None, max_length=2048),
+                              limit: int = Query(default=25, ge=1, le=100)):
+        if request.state.role == "bidder":
+            return _err("Admin access required", 403)
+        from ..interview_job_matches import match_jobs
+        with db.session() as conn:
+            conn.execute("PRAGMA query_only=ON")
+            conn.execute("BEGIN")
+            row = conn.execute("SELECT * FROM interview_events WHERE id=?", (event_id,)).fetchone()
+            if not row:
+                return _err("Interview not found", 404)
+            try:
+                return match_jobs(conn, dict(row), interviews.event_sources(conn, event_id), cursor=cursor, limit=limit)
+            except ValueError as exc:
+                return _err(str(exc), 400)
+
     @app.get("/api/interviews/{event_id}")
     def interview_detail(event_id: int):
         with db.session() as conn:
