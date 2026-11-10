@@ -1,6 +1,6 @@
-import source from "../../public/assets/startup-recovery-v4.js?raw";
+import source from "../../public/assets/startup-recovery-v5.js?raw";
 import { afterEach, expect, it, vi } from "vitest";
-afterEach(() => { document.getElementById('root')?.remove(); vi.runOnlyPendingTimers(); vi.useRealTimers(); });
+afterEach(() => { document.getElementById('root')?.remove(); document.querySelectorAll('[data-test-style]').forEach(link=>link.remove()); vi.runOnlyPendingTimers(); vi.restoreAllMocks(); vi.useRealTimers(); });
 function boot(url = 'https://example.test/applications?view=all#saved') {
   vi.useFakeTimers();
   document.body.innerHTML = '<div id="root"><main data-offerpath-startup role="status">Starting OfferPath</main></div>';
@@ -127,4 +127,40 @@ it('still reports OfferPath runtime failures without automatically repeating bro
   window.dispatchEvent(new ErrorEvent('error',{message:'App initialization failed',filename:'https://example.test/assets/index-test.js'}));
   expect(document.querySelector('[data-offerpath-startup][role="alert"]')?.textContent).toContain('could not start');
   expect(replace).not.toHaveBeenCalled();
+});
+function mainStyle() {
+ const link=document.createElement('link');link.rel='stylesheet';link.href='https://example.test/assets/index-test.css';link.dataset.testStyle='1';document.head.append(link);return link
+}
+it('does not reveal an unstyled app when a required initial stylesheet is missing',async()=>{
+ const link=mainStyle();boot();document.getElementById('root')!.innerHTML='<main>Ready app</main>';
+ await Promise.resolve();vi.advanceTimersByTime(400);
+ expect(document.getElementById('root')!.hasAttribute('inert')).toBe(true);
+ expect(document.querySelector('[data-offerpath-startup]')).not.toBeNull();link.remove();
+});
+it('recovers a stylesheet failure even when it happened before the startup listener was installed',()=>{
+ const link=mainStyle();const {replace}=boot();window.dispatchEvent(new Event('load'));
+ expect(replace).toHaveBeenCalledTimes(1);link.remove();
+});
+it('stops automatic style recovery after one reload and gives a clear manual retry',()=>{
+ const link=mainStyle();const {replace}=boot('https://example.test/?_offerpath_boot=1');window.dispatchEvent(new Event('load'));
+ expect(replace).not.toHaveBeenCalled();
+ expect(document.querySelector('[role="alert"]')?.textContent).toContain('styles');link.remove();
+});
+it('waits for delayed styles, then reveals the styled page without reloading',async()=>{
+ const state=vi.spyOn(document,'readyState','get').mockReturnValue('loading');
+ const link=mainStyle();const {replace}=boot();
+ document.getElementById('root')!.innerHTML='<main>Ready app</main>';
+ await Promise.resolve();vi.advanceTimersByTime(400);
+ expect(document.getElementById('root')!.hasAttribute('inert')).toBe(true);
+ Object.defineProperty(link,'sheet',{value:{cssRules:[{}]},configurable:true});
+ link.dispatchEvent(new Event('load'));await Promise.resolve();vi.advanceTimersByTime(400);
+ expect(document.getElementById('root')!.hasAttribute('inert')).toBe(false);
+ expect(document.querySelector('[data-offerpath-startup]')).toBeNull();
+ expect(replace).not.toHaveBeenCalled();link.remove();state.mockRestore();
+});
+it('checks styles when the browser window-load event reports document as its target',()=>{
+ const state=vi.spyOn(document,'readyState','get').mockReturnValue('loading');
+ const link=mainStyle();const {replace}=boot();
+ const event=new Event('load');Object.defineProperty(event,'target',{value:document});window.dispatchEvent(event);
+ expect(replace).toHaveBeenCalledTimes(1);link.remove();state.mockRestore();
 });

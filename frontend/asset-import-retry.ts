@@ -8,18 +8,32 @@ export function assetImportRetry(): Plugin {
     apply: 'build',
     // Runtime changes must invalidate content hashes even though wrapping is
     // performed after Vite has resolved the dependency graph.
-    augmentChunkHash() { return assetImportRuntime },
+    augmentChunkHash() { return "ast-v1:" + assetImportRuntime },
     generateBundle: {
       order: 'post',
       handler(_options, bundle) {
         for (const file of Object.values(bundle)) {
           if (file.type !== 'chunk') continue
-          let changed = false
-          const code = file.code.replace(/\bimport\(\s*(["'])(\.\/[^"']+)\1\s*\)/g, (_match, quote: string, url: string) => {
-            changed = true
-            return `__offerpathImport(${quote}${url}${quote},import.meta.url)`
-          })
-          if (changed) file.code = `${assetImportRuntime}\n${code}`
+          const imports: {start: number; end: number; url: string}[] = []
+          const nodes: unknown[] = [this.parse(file.code)]
+          while (nodes.length) {
+            const value = nodes.pop()
+            if (!value || typeof value !== 'object') continue
+            if (Array.isArray(value)) { nodes.push(...value); continue }
+            const node = value as Record<string, unknown>
+            if (node.type === 'ImportExpression' && typeof node.start === 'number' && typeof node.end === 'number') {
+              const source = node.source as {type?: string; value?: unknown}
+              if (source?.type === 'Literal' && typeof source.value === 'string' && source.value.startsWith('./')) {
+                imports.push({start: node.start, end: node.end, url: source.value})
+              }
+            }
+            nodes.push(...Object.values(node))
+          }
+          let code = file.code
+          for (const item of imports.sort((a,b) => b.start-a.start)) {
+            code = code.slice(0,item.start) + `__offerpathImport(${JSON.stringify(item.url)},import.meta.url)` + code.slice(item.end)
+          }
+          if (imports.length) file.code = `${assetImportRuntime}\n${code}`
         }
       },
     },

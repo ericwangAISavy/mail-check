@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.15 — 2026-11-10
+
+Recover missing startup styles and parse import wrappers safely
+
+- Keep startup covered until required styles are loaded; recover stylesheet failures with one bounded reload and a clear manual retry.
+- Wrap only parsed JavaScript import expressions, preserving ordinary text and Vite's lazy CSS dependency graph.
+
 ## 2.27.14 — 2026-11-10
 
 Restore lazy page styles while retaining download retries
