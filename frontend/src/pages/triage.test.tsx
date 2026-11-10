@@ -73,6 +73,15 @@ beforeEach(() => {
         counts: { interview_invite: visible.length, unclassified }, accounts: [{ label: "Personal", enabled: true }],
         days: 30, selected_account: null, selected_category: null })
     }
+    if (url === "/api/messages/clear-queue/batch-1/undo") {
+      done.clear()
+      return response({ message: "Restored 2 messages.", count: 2 })
+    }
+    if (url === "/api/messages/clear-queue" && !failDone) {
+      const complete = () => { messages.forEach(message => done.add(message.pk)); return response({ ok: true, count: 2, operation: "batch-1", message: "Moved 2 messages to Completed." }) }
+      if (slowDone) return new Promise(resolve => { finishDone = () => { resolve(complete()) } })
+      return complete()
+    }
     if (url.startsWith("/api/messages/") && init?.method === "POST") {
       if (failDone) return response({ error: "Server rejected the change" }, 500)
       const pk = Number(url.match(/messages\/(\d+)/)?.[1])
@@ -441,4 +450,74 @@ it('waits for visibility before requesting a hidden bidder inbox', async () => {
   } finally {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
   }
+})
+
+
+describe("clear entire queue", () => {
+  it("requires confirmation and explains the workspace scope", async () => {
+    window.history.replaceState({}, "", "/?q=old&days=7")
+    renderPage()
+    fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+    expect(requests.some(request => request.includes("clear-queue"))).toBe(false)
+    expect(screen.getByRole("dialog").textContent).toMatch(/entire workspace Queue/i)
+    expect(screen.getByRole("dialog").textContent).toMatch(/outside.*filters/i)
+    expect(screen.getByRole("dialog").textContent).toMatch(/All mail.*Completed/)
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+  it("hides the action outside Queue and for bidder inboxes", async () => {
+    renderPage()
+    await screen.findByRole("button", { name: "Mark all as done" })
+    fireEvent.click(screen.getByRole("tab", { name: "All mail" }))
+    expect(screen.queryByRole("button", { name: "Mark all as done" })).toBeNull()
+    cleanup()
+    renderPage(true)
+    await screen.findByRole("button", { name: "Refresh Inbox" })
+    expect(screen.queryByRole("button", { name: "Mark all as done" })).toBeNull()
+  })
+  it("keeps a failed confirmation open without automatic retries", async () => {
+    failDone = true
+    renderPage()
+    fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+    fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+    expect((await screen.findByRole("alert")).textContent).toContain("Server rejected the change")
+    expect(screen.getByRole("dialog")).toBeTruthy()
+    expect(requests.filter(request => request.includes("POST /api/messages/clear-queue"))).toHaveLength(1)
+  })
+})
+
+
+it("clears with no request body and offers batch undo", async () => {
+  renderPage()
+  fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+  fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+  await screen.findByText("Moved 2 messages to Completed.")
+  expect(requests).toContain("POST /api/messages/clear-queue ")
+  expect(screen.queryByRole("dialog")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+  await screen.findByText("Restored 2 messages.")
+  expect(requests).toContain("POST /api/messages/clear-queue/batch-1/undo ")
+})
+
+it("keeps clearing available with no visible messages", async () => {
+  done = new Set([1, 2])
+  renderPage()
+  await screen.findByText("Your queue is clear")
+  expect(screen.getByRole("button", { name: "Mark all as done" })).toBeTruthy()
+})
+
+it("guards pending clear against closing and other message actions", async () => {
+  slowDone = true
+  renderPage()
+  fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+  fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+  expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole("button", { name: "Close" }))
+  fireEvent.keyDown(document, { key: "Escape" })
+  fireEvent.keyDown(document, { key: "z", ctrlKey: true })
+  fireEvent.keyDown(document.querySelector(".triage-page")!, { key: "e" })
+  expect(screen.getByRole("dialog")).toBeTruthy()
+  expect(requests.filter(request => request.startsWith("POST"))).toHaveLength(1)
+  await act(async () => { finishDone?.(); await Promise.resolve() })
+  await screen.findByText("Moved 2 messages to Completed.")
 })

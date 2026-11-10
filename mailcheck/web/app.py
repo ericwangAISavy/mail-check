@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
+from uuid import UUID
 
 from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, Query, Request
@@ -26,6 +27,7 @@ from .. import followups, db, replies, outgoing, outlook_auth, secrets, intervie
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
 from ..live_inbox import LiveInbox
+from .. import queue_actions
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -1514,28 +1516,37 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             "summary": summary,
         }
 
+    @app.post("/api/messages/clear-queue")
+    def api_clear_queue(request: Request):
+        if request.state.role != "admin":return _err("Admin access required.",403)
+        with db.session() as conn:
+            result = queue_actions.clear(conn)
+            summary = db.queue_counts(conn, since_iso=_default_since())
+        count = result['count']
+        return {"ok":True, **result, "summary":summary,
+                "message":f"Marked {count} queued messages as done." if count else "Your queue is already clear."}
+
+    @app.post("/api/messages/clear-queue/{operation}/undo")
+    def api_restore_queue(operation: UUID, request: Request):
+        if request.state.role != "admin":return _err("Admin access required.",403)
+        with db.session() as conn:
+            count = queue_actions.restore(conn,str(operation))
+            summary = db.queue_counts(conn,since_iso=_default_since())
+        return {"ok":True,"count":count,"summary":summary,
+                "message":f"Restored {count} messages." if count else "Nothing left to restore from this action."}
+
     @app.post("/api/messages/undo-last")
     def api_undo_last():
-        """Restore the most recently completed message.
-
-        The console undoes from its own in-page history, which is exact and
-        needs no round trip. This is the fallback for when that history is
-        gone — a finished check reloads the page — so that Ctrl+Z keeps
-        working rather than silently doing nothing.
-        """
+        """Restore the most recent completion, including a bulk action as a batch."""
         with db.session() as conn:
-            row = db.last_handled(conn)
+            row = queue_actions.undo_last(conn)
             if not row:
-                return {"ok": True, "pk": None, "message": "Nothing to undo."}
-            db.set_handled(conn, row["pk"], False)
+                return {"ok": True, "pk": None, "count":0,"message": "Nothing to undo."}
             summary = db.queue_counts(conn, since_iso=_default_since())
         subject = (row["subject"] or "").strip()
-        return {
-            "ok": True,
-            "pk": row["pk"],
-            "message": f"Restored “{subject[:60]}”." if subject else "Restored to the queue.",
-            "summary": summary,
-        }
+        message = (f"Restored {row['count']} messages." if row['bulk'] else
+                   f"Restored “{subject[:60]}”." if subject else "Restored to the queue.")
+        return {"ok":True,"pk":row['pk'],"count":row['count'],"message":message,"summary":summary}
 
     @app.get("/api/messages/{pk}/reader", response_class=HTMLResponse)
     def api_message_reader(request: Request, pk: int):

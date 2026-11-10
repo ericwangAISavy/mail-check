@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.25.0",
+    "date": "2026-11-09",
+    "title": "Clear the Queue in one bulk action",
+    "changes": [
+      "Add an admin Queue action to mark the entire workspace backlog as done, including messages beyond current filters and the loaded list, with confirmation.",
+      "Restore bulk completion as one Undo action while preserving later individual changes, existing completed messages, and future arrivals. Emails are not deleted and provider read status is unchanged."
+    ]
+  },
+  {
     "version": "2.24.7",
     "date": "2026-11-09",
     "title": "Fix account presets, backup listing and manual reply recovery",

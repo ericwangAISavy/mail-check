@@ -6,7 +6,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -123,6 +123,13 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE(account_id, message_id)
 );
 
+
+CREATE TABLE IF NOT EXISTS queue_clear_members (
+    message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    operation TEXT NOT NULL,
+    handled_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_queue_clear_operation ON queue_clear_members(operation);
 
 CREATE TABLE IF NOT EXISTS classifications (
     id              INTEGER PRIMARY KEY,
@@ -510,11 +517,34 @@ def mark_announced(conn: sqlite3.Connection, pks: list[int]) -> None:
     conn.commit()
 
 
+def _handled_now(conn: sqlite3.Connection) -> str:
+    """Order local completion actions even on coarse or adjusted system clocks.
+
+    Call only after acquiring the write transaction so concurrent actions cannot
+    reserve timestamps out of commit order.
+    """
+    stamp = _now()
+    latest = conn.execute("SELECT handled_at FROM messages WHERE handled_at IS NOT NULL ORDER BY handled_at DESC LIMIT 1").fetchone()
+    if latest:
+        try:
+            previous = datetime.fromisoformat(latest[0])
+            current = datetime.fromisoformat(stamp)
+            previous = previous.replace(tzinfo=previous.tzinfo or timezone.utc)
+            current = current.replace(tzinfo=current.tzinfo or timezone.utc)
+            if previous >= current:
+                return (previous.astimezone(timezone.utc) + timedelta(microseconds=1)).isoformat()
+        except (ValueError, TypeError, OverflowError):
+            pass  # Older malformed local timestamps must not prevent Done.
+    return stamp
+
+
 def set_handled(conn: sqlite3.Connection, pk: int, handled: bool) -> bool:
     """Mark Done / restore. Local only — no provider mailbox is touched."""
+    # A later single-message action supersedes its membership in a bulk Undo.
+    conn.execute("DELETE FROM queue_clear_members WHERE message_pk=?", (pk,))
     cur = conn.execute(
         "UPDATE messages SET handled_at = ? WHERE id = ?",
-        (_now() if handled else None, pk),
+        (_handled_now(conn) if handled else None, pk),
     )
     conn.commit()
     return cur.rowcount > 0

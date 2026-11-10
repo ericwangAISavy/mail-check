@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowUpRight, CalendarClock, Check, ChevronDown, Clock3, Fil
 import { EmailContent } from "@/components/email-content"
 import { api, triageParams } from "@/lib/api"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { CategoryBadge, EmptyState, Loading, PageHeading, modKey, useDoneMutation, useToast, useUndoShortcut } from "@/components/common"
 import type { Bootstrap, Message, TriageData } from "@/lib/types"
@@ -157,16 +158,49 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
     if (!messages.length) setSelected(null)
   }, [messages, selected, targetPk])
   const done = useDoneMutation(undefined,bidderInbox)
+  const [clearOpen, setClearOpen] = useState(false)
+  const [queueBusy, setQueueBusy] = useState(false)
+  const queueLock = useRef(false)
+  const [clearError, setClearError] = useState("")
+  const refreshMail = useCallback(() => Promise.all(["triage", "bootstrap", "dashboard", "reader"].map(key => queryClient.invalidateQueries({ queryKey: [key] }))), [queryClient])
+  const undoClear = async (operation: string) => {
+    if (queueLock.current || done.isPending) return
+    queueLock.current = true
+    setQueueBusy(true)
+    try {
+      const response = await api.post<{message:string;count:number}>(`/api/messages/clear-queue/${encodeURIComponent(operation)}/undo`)
+      await refreshMail()
+      toast(response.message || `Restored ${response.count} messages.`, "success")
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not undo.", "error") }
+    finally { queueLock.current = false; setQueueBusy(false) }
+  }
+  const clearQueue = async () => {
+    if (bidderInbox || view !== "queue" || queueLock.current || done.isPending) return
+    queueLock.current = true
+    setQueueBusy(true)
+    setClearError("")
+    try {
+      const response = await api.post<{message:string;count:number;operation:string|null}>("/api/messages/clear-queue")
+      await refreshMail()
+      setClearOpen(false)
+      toast(response.message || `Moved ${response.count} messages to Completed.`, "success", response.operation ? {label:"Undo",run:()=>void undoClear(response.operation!)} : undefined)
+    } catch (error) { setClearError(error instanceof Error ? error.message : "Could not clear the queue.") }
+    finally { queueLock.current = false; setQueueBusy(false) }
+  }
   const undo = useCallback(async () => {
+    if (queueLock.current || done.isPending || clearOpen) return
+    queueLock.current = true
+    setQueueBusy(true)
     try {
       const response = await api.post<{ message: string }>("/api/messages/undo-last")
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ["triage"] }), queryClient.invalidateQueries({ queryKey: ["bootstrap"] })])
+      await refreshMail()
       toast(response.message || "Restored to the queue.", "success")
     } catch (error) { toast(error instanceof Error ? error.message : "Nothing to undo.", "error") }
-  }, [queryClient, toast])
+    finally { queueLock.current = false; setQueueBusy(false) }
+  }, [refreshMail, toast, done.isPending, clearOpen])
   useUndoShortcut(() => { if(!bidderInbox)void undo() })
   const setDone = (message: Message) => {
-    if (done.isPending) return
+    if (done.isPending || queueLock.current || clearOpen) return
     const target = !message.handled_at
     const index = messages.findIndex((item) => item.pk === message.pk)
     const wasSelected = message.pk === selected
@@ -180,6 +214,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
 
   const actKey = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.target instanceof HTMLElement && event.target.closest("input, select, textarea, [contenteditable=true]")) return
+    if (clearOpen || queueBusy) return
     if (!messages.length || (event.ctrlKey || event.metaKey || event.altKey)) return
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
@@ -187,7 +222,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
       const next = index < 0 ? (event.key === "ArrowDown" ? 0 : messages.length - 1) : Math.max(0, Math.min(messages.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))
       selectMessage(messages[next].pk)
     } else if (event.key.toLowerCase() === "e" && selectedMessage && !done.isPending) setDone(selectedMessage)
-  }, [messages, selected, selectedMessage, done.isPending, selectMessage])
+  }, [messages, selected, selectedMessage, done.isPending, selectMessage, clearOpen, queueBusy])
 
   if (query.isPending) return <div className="page-wrap"><Loading /></div>
   if (query.error && (bidderInbox || !data)) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={14} />Try again</Button></div></div>
@@ -205,9 +240,9 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
     <div className="triage-heading-row">
     <PageHeading title={bidderInbox ? "Inbox" : title || "Your triage"} description={bidderInbox ? "Info request messages for your assigned accounts." : data?.last_run || bootstrap.last_run || undefined} />
     <div className="triage-bar"><div className="view-tabs" role="tablist" aria-label="Mail views">{(["queue", "all", "completed"] as const).map((key) => <button type="button" role="tab" aria-selected={view === key} className={view === key ? "selected" : ""} key={key} onClick={() => setFilter("view", key)}>{key === "queue" ? "Queue" : key === "all" ? "All mail" : "Completed"}{key === "queue" && data?.summary.actionable ? <span className="tab-count">{data.summary.actionable}</span> : null}</button>)}</div>
-      <div className="triage-tools">{bidderInbox && <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={14} className={query.isFetching ? "spin" : undefined} />Refresh Inbox</Button>}<Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>
+      <div className="triage-tools">{!bidderInbox && view === "queue" && <Button variant="outline" size="sm" disabled={done.isPending || queueBusy} onClick={() => { setClearError(""); setClearOpen(true) }}><Check size={14} />Mark all as done</Button>}{bidderInbox && <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={14} className={query.isFetching ? "spin" : undefined} />Refresh Inbox</Button>}<Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>
     {bidderInbox && <span role="status" className="form-hint">{liveStatus || checkTime}</span>}
-    {!bidderInbox && <Button className="triage-undo" variant="ghost" size="sm" onClick={undo} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>}
+    {!bidderInbox && <Button className="triage-undo" variant="ghost" size="sm" onClick={undo} disabled={done.isPending || queueBusy || clearOpen} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>}
     </div>
     {!bidderInbox && (view === "queue" || view === "all") && unclassifiedCount > 0 && bootstrap.readiness.model && <ReclassifyBanner count={unclassifiedCount} />}
     {filtersOpen && <div className="filter-panel"><form className="triage-text-search" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); setFilter("q", String(form.get("q") || "").trim()) }}><label>Search mail<input key={normalized.get("q") || ""} type="search" name="q" maxLength={200} defaultValue={normalized.get("q") || ""} placeholder="Subject, sender, company or message text" /></label><Button type="submit" variant="outline" size="sm">Search</Button></form><label>Mailbox<select value={normalized.get("account") || ""} onChange={(e) => setFilter("account", e.target.value)}><option value="">All mailboxes</option>{data?.accounts.map((account) => <option key={account.label} value={account.label}>{account.label}</option>)}</select></label><label>Category<select disabled={bidderInbox} value={normalized.get("category") || ""} onChange={(e) => setFilter("category", e.target.value)}>{!bidderInbox && <option value="">All categories</option>}{categories.filter((category) => bidderInbox || data?.counts[category.name]).map((category) => <option key={category.name} value={category.name}>{category.label} · {data?.counts[category.name]}</option>)}</select></label><label>Time range<select value={normalized.get("days") || "30"} onChange={(e) => setFilter("days", e.target.value)}><option value="0">Today</option><option value="1">Last 24 hours</option>{[2, 3, 7, 14, 30, 90].map((days) => <option key={days} value={days}>Last {days} days</option>)}</select></label>{(normalized.has("q") || normalized.has("account") || normalized.has("category") || normalized.get("days") !== "30") && <Button variant="ghost" size="sm" onClick={() => { const next = new URLSearchParams("view=" + view); history.pushState(null, "", `${window.location.pathname}?${next}`); setParams(next); window.dispatchEvent(new Event("offerpath:page-query-changed")) }}>Clear filters</Button>}</div>}
@@ -216,8 +251,9 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
         <span className="mail-row-top"><CategoryBadge message={message} />{message.deadline_display && <span className={`row-deadline ${/overdue|today/i.test(message.deadline_display) ? "deadline-urgent" : ""}`}><Clock3 size={12} />{message.deadline_display}</span>}<span className="row-date">{message.date_display}</span></span>
         <span className="mail-row-title">{message.company && message.role ? `${message.company} · ${message.role}` : message.company || message.role || message.from_name || message.from_addr}</span><span className="mail-account">{message.account_label}</span><span className="mail-row-summary">{message.summary || message.snippet || message.subject}</span>
       </button>)}</section>)}</div>
-      <Reader readOnly={bidderInbox} allowDone={bidderInbox} autoReply={Boolean(targetPk===selected&&params.get("reply")==="1")} message={selectedMessage} mobile={readerOpen} readerRef={readerRef} onBack={() => { setReaderOpen(false); focusSelection(selectedMessage?.pk ?? null, false) }} onDone={() => selectedMessage && setDone(selectedMessage)} busy={done.isPending} canRetry={bootstrap.readiness.model} />
+      <Reader readOnly={bidderInbox} allowDone={bidderInbox} autoReply={Boolean(targetPk===selected&&params.get("reply")==="1")} message={selectedMessage} mobile={readerOpen} readerRef={readerRef} onBack={() => { setReaderOpen(false); focusSelection(selectedMessage?.pk ?? null, false) }} onDone={() => selectedMessage && setDone(selectedMessage)} busy={done.isPending || queueBusy || clearOpen} canRetry={bootstrap.readiness.model} />
     </div>}
+    <Dialog open={clearOpen} onOpenChange={open => { if (!queueLock.current) setClearOpen(open) }}><DialogContent><DialogHeader><DialogTitle>Mark all Queue messages as done?</DialogTitle><DialogDescription>This marks the entire workspace Queue as done, including messages outside your current filters, date range, and loaded list. Emails stay in All mail and Completed. Nothing is deleted, and mailbox read/unread status stays unchanged.</DialogDescription></DialogHeader>{clearError && <p className="inline-error" role="alert">{clearError}</p>}<div className="dialog-footer"><Button variant="outline" disabled={queueBusy} onClick={() => setClearOpen(false)}>Cancel</Button><Button aria-label="Confirm mark all as done" disabled={queueBusy || done.isPending} onClick={() => void clearQueue()}>{queueBusy && <LoaderCircle size={14} className="spin" />}{queueBusy ? "Marking all as done…" : "Mark all as done"}</Button></div></DialogContent></Dialog>
     <div className="keyboard-note"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>E</kbd> done</span>{!bidderInbox && <span><kbd>{modKey}</kbd><kbd>Z</kbd> undo</span>}</div>
   </div>
 }

@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.25.0 — 2026-11-09
+
+Clear the Queue in one bulk action
+
+- Add an admin Queue action to mark the entire workspace backlog as done, including messages beyond current filters and the loaded list, with confirmation.
+- Restore bulk completion as one Undo action while preserving later individual changes, existing completed messages, and future arrivals. Emails are not deleted and provider read status is unchanged.
+
 ## 2.24.7 — 2026-11-09
 
 Fix account presets, backup listing and manual reply recovery
