@@ -1,4 +1,4 @@
-import source from "../../public/assets/startup-recovery-v2.js?raw";
+import source from "../../public/assets/startup-recovery-v3.js?raw";
 import { afterEach, expect, it, vi } from "vitest";
 afterEach(() => { document.getElementById('root')?.remove(); vi.runOnlyPendingTimers(); vi.useRealTimers(); });
 function boot(url = 'https://example.test/applications?view=all#saved') {
@@ -56,4 +56,47 @@ it('cancels reveal when another loading phase starts before the page settles', a
   root.innerHTML += '<div class="loading-state">Page query</div>'; await Promise.resolve(); vi.advanceTimersByTime(500);
   expect(root.hasAttribute('inert')).toBe(true);
   expect(document.querySelector('[data-offerpath-startup]')).not.toBeNull();
+});
+it('ignores HTML whitespace when deciding whether the app has mounted', async () => {
+  const {fail,replace}=boot();
+  document.getElementById('root')!.append(document.createTextNode('\n    \n'));
+  await Promise.resolve();fail();
+  expect(replace).toHaveBeenCalledTimes(1);
+});
+it('keeps a manual recovery available if React mounts but initial loading stalls', async () => {
+  const {replace}=boot();
+  document.getElementById('root')!.innerHTML='<div class="loading-state">Waiting for a page module</div>';
+  await Promise.resolve();vi.advanceTimersByTime(15000);
+  const alert=document.querySelector('[data-offerpath-startup][role="alert"]');
+  expect(alert?.textContent).toContain('taking longer');
+  alert!.querySelector('a')!.click();
+  expect(replace).toHaveBeenCalledTimes(1);
+});
+it('reveals the ready page when loading finishes through a class change', async () => {
+  boot();const root=document.getElementById('root')!;
+  root.innerHTML='<div class="loading-state">Dashboard</div>';
+  await Promise.resolve();root.firstElementChild!.className='ready';
+  await Promise.resolve();vi.advanceTimersByTime(400);
+  expect(root.hasAttribute('inert')).toBe(false);
+  expect(document.querySelector('[data-offerpath-startup]')).toBeNull();
+});
+it('does not postpone reveal indefinitely when a ready page updates frequently', async () => {
+  boot();const root=document.getElementById('root')!;
+  root.innerHTML='<main>Dashboard ready</main>';
+  await Promise.resolve();
+  for(let n=0;n<6;n++){
+    vi.advanceTimersByTime(70);root.firstElementChild!.textContent='Update '+n;await Promise.resolve();
+  }
+  expect(root.hasAttribute('inert')).toBe(false);
+});
+it('reveals a page that finishes after the slow-start warning without requiring a reload', async () => {
+  const {replace}=boot();const root=document.getElementById('root')!;
+  root.innerHTML='<div class="loading-state">Waiting</div>';
+  await Promise.resolve();vi.advanceTimersByTime(15000);
+  expect(document.querySelector('[data-offerpath-startup][role="alert"]')).not.toBeNull();
+  root.innerHTML='<main>Finally ready</main>';
+  await Promise.resolve();vi.advanceTimersByTime(400);
+  expect(root.hasAttribute('inert')).toBe(false);
+  expect(document.querySelector('[data-offerpath-startup]')).toBeNull();
+  expect(replace).not.toHaveBeenCalled();
 });

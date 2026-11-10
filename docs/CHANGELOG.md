@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.12 — 2026-11-10
+
+Fix stalled startup recovery and page reveal timing
+
+- Keep slow-start recovery available after React mounts, ignore HTML whitespace when checking startup, and reveal ready pages correctly after class changes or frequent live updates.
+
 ## 2.27.11 — 2026-11-10
 
 Retry transient page-file downloads before leaving the page

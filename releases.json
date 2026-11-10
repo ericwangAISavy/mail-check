@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.27.12",
+    "date": "2026-11-10",
+    "title": "Fix stalled startup recovery and page reveal timing",
+    "changes": [
+      "Keep slow-start recovery available after React mounts, ignore HTML whitespace when checking startup, and reveal ready pages correctly after class changes or frequent live updates."
+    ]
+  },
+  {
     "version": "2.27.11",
     "date": "2026-11-10",
     "title": "Retry transient page-file downloads before leaving the page",
