@@ -147,7 +147,7 @@ function parseDelimited(text: string, delimiter: string, strict = false) {
     } else value += char;
   }
   if (strict && quoted)
-    throw new Error("This CSV has an unclosed quoted cell.");
+    throw new Error(`This ${delimiter === "\t" ? "clipboard text" : "CSV"} has an unclosed quoted cell.`);
   if (value || row.length || !rows.length) {
     row.push(value);
     rows.push(row);
@@ -166,26 +166,21 @@ const singleLineClipboardRows = (rows: string[][]) => rows.map(row => row.map(si
 export function parseClipboardRows(text: string, html = ""): string[][] {
   if (text.length > 4 * 1024 * 1024 || html.length > 4 * 1024 * 1024)
     throw new Error("Clipboard data is too large. Paste a smaller selection.");
-  if (!/<table(?:\s|>)/i.test(html)) return singleLineClipboardRows(parseTSV(text));
+  if (!/<table(?:\s|>)/i.test(html)) return singleLineClipboardRows(parseDelimited(text, "\t", true));
   // Inert template content never enters the live document. Return text only.
   const template = document.createElement("template");
   template.innerHTML = html;
   const table = template.content.querySelector("table");
-  if (!table || !table.rows.length) return singleLineClipboardRows(parseTSV(text));
+  if (!table || !table.rows.length) return singleLineClipboardRows(parseDelimited(text, "\t", true));
   const sourceRows = Array.from(table.rows);
   const matrix: string[][] = [];
   let cells = 0;
   const cellText = (cell: HTMLTableCellElement) => {
-    const parts: string[] = [];
-    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: node => /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|IFRAME|OBJECT|EMBED|SVG|MATH)$/.test(node.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
-    });
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent || "");
-      else if (/^(BR|DIV|P|LI)$/.test(node.nodeName)) parts.push("\n");
-    }
-    return parts.join("").replace(/^\n+|\n+$/g, "");
+    const copy = cell.cloneNode(true) as HTMLTableCellElement;
+    copy.querySelectorAll("script,style,noscript,template,iframe,object,embed,svg,math,img,video,audio,source,link,meta").forEach(node => node.remove());
+    copy.querySelectorAll("br").forEach(node => node.replaceWith("\n"));
+    copy.querySelectorAll("div,p,li").forEach(node => { node.prepend("\n"); node.append("\n"); });
+    return copy.textContent || "";
   };
   sourceRows.forEach((source, r) => {
     const row = matrix[r] ||= [];

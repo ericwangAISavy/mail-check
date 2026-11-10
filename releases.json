@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.6",
+    "date": "2026-11-10",
+    "title": "Harden clipboard parsing and job-link duplicate checks",
+    "changes": [
+      "Preserve word boundaries in copied HTML blocks and reject incomplete quoted clipboard cells without changing the sheet.",
+      "Preserve repeated URL parameter value order so distinct links are not incorrectly filtered as duplicates."
+    ]
+  },
+  {
     "version": "2.27.5",
     "date": "2026-11-10",
     "title": "Remove embedded line breaks from pasted job fields",

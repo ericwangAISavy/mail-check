@@ -123,3 +123,9 @@ it('bounds merged table expansion',()=>{
 it('removes cell-internal line breaks from quoted spreadsheet text without merging rows',()=>{
  expect(parseClipboardRows('"Sem-Sol\n"\t"Software\r\nEngineer"\t"https://jobs.test/new\n/123"\r\nAcme\tEngineer\thttps://jobs.test/news')).toEqual([['Sem-Sol','Software Engineer','https://jobs.test/new/123'],['Acme','Engineer','https://jobs.test/news']])
 })
+it('keeps word boundaries after copied HTML blocks',()=>{
+ expect(parseClipboardRows('', '<table><tr><td><div>Acme</div>Labs</td><td><p>Software</p><span>Engineer</span></td><td>https://jobs.test/new</td></tr></table>')).toEqual([['Acme Labs','Software Engineer','https://jobs.test/new']])
+})
+it('rejects an unfinished quoted clipboard cell instead of consuming later rows',()=>{
+ expect(()=>parseClipboardRows('"Acme\nEngineer\thttps://jobs.test/1\nBeta\tEngineer\thttps://jobs.test/2')).toThrow(/unclosed quoted cell/)
+})

@@ -250,3 +250,10 @@ it('reports oversized rich clipboard data without changing the sheet',()=>{
  expect(alert).toHaveBeenCalledWith('Paste up to 10,000 cells at a time.')
  expect(change).not.toHaveBeenCalled();expect(append).not.toHaveBeenCalled()
 })
+it('leaves the sheet unchanged when quoted clipboard text is incomplete',()=>{
+ const change=vi.fn(),append=vi.fn(),alert=vi.spyOn(window,'alert').mockImplementation(()=>{})
+ render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change} onAppendRows={append}/> )
+ fireEvent.paste(screen.getByRole('grid'),{clipboardData:{getData:(type:string)=>type==='text/html'?'':'"Acme\nEngineer\thttps://jobs.test/1\nBeta\tEngineer\thttps://jobs.test/2'}})
+ expect(alert).toHaveBeenCalledWith('This clipboard text has an unclosed quoted cell.')
+ expect(change).not.toHaveBeenCalled();expect(append).not.toHaveBeenCalled()
+})

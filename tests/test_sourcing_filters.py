@@ -183,6 +183,13 @@ class IncomingFilterTests(unittest.TestCase):
             self.assertEqual(filters.roles(upgraded,self.account_id),[])
 
 
+    def test_distinct_repeated_query_order_keeps_both_job_rows(self):
+        result=self.add([['Acme','Engineer','https://jobs.test/app?step=a&step=b'],
+                         ['Acme','Engineer','https://jobs.test/app?step=b&step=a']])
+        self.assertEqual(result['filtered']['duplicates'],0)
+        self.assertEqual(len(self.jobs()),2)
+
+
 def test_job_cell_newline_cleanup_preserves_url_paths_and_custom_notes():
     from mailcheck.sourcing_filters import normalize_job_cell
     assert normalize_job_cell('Sem-Sol\r\n','company')=='Sem-Sol'
@@ -190,3 +197,8 @@ def test_job_cell_newline_cleanup_preserves_url_paths_and_custom_notes():
     assert normalize_job_cell('https://jobs.test/news\n/123','link')=='https://jobs.test/news/123'
     assert normalize_job_cell('https://jobs.test/news','link')=='https://jobs.test/news'
     assert normalize_job_cell('one\ntwo',None)=='one\ntwo'
+
+
+def test_link_keys_preserve_repeated_parameter_value_order():
+    assert filters.link_key('https://jobs.test/app?step=a&step=b') != filters.link_key('https://jobs.test/app?step=b&step=a')
+    assert filters.link_key('https://jobs.test/app?z=1&step=a&step=b') == filters.link_key('https://jobs.test/app?step=a&step=b&z=1')

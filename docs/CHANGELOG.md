@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.6 — 2026-11-10
+
+Harden clipboard parsing and job-link duplicate checks
+
+- Preserve word boundaries in copied HTML blocks and reject incomplete quoted clipboard cells without changing the sheet.
+- Preserve repeated URL parameter value order so distinct links are not incorrectly filtered as duplicates.
+
 ## 2.27.5 — 2026-11-10
 
 Remove embedded line breaks from pasted job fields

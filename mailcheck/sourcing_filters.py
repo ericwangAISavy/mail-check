@@ -20,8 +20,8 @@ def link_key(value):
     try:
         url=urlsplit(value)
         if url.scheme.lower() not in ('http','https') or not url.hostname:return value
-        query=sorted((k,v) for k,v in parse_qsl(url.query,keep_blank_values=True)
-                     if not k.lower().startswith('utm_') and k.lower() not in ('jr_id','gclid','fbclid'))
+        query=sorted(((k,v) for k,v in parse_qsl(url.query,keep_blank_values=True)
+                     if not k.lower().startswith('utm_') and k.lower() not in ('jr_id','gclid','fbclid')),key=lambda pair:pair[0])
         return urlunsplit(('https',url.netloc.lower(),url.path.rstrip('/'),urlencode(query),url.fragment))
     except ValueError:return value
 
