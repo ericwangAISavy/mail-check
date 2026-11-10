@@ -39,6 +39,8 @@ class ControlStore:
         self._attempts={}
         self._presence={}  # Ephemeral browser activity; never business data.
         with self.connect() as conn:
+            # Session readers must remain available while admin writes commit.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
             if 'removed_at' not in {r[1] for r in conn.execute('PRAGMA table_info(users)')}:
                 conn.execute('ALTER TABLE users ADD COLUMN removed_at REAL')

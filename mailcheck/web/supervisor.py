@@ -36,7 +36,9 @@ def origin_state(host, port):
 
 def stop(process):
     if process.poll() is not None:return
-    process.terminate()
+    try:process.terminate()
+    except OSError:
+        if process.poll() is None:raise
     try:process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         process.kill();process.wait(timeout=5)

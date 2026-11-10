@@ -22,3 +22,7 @@ The direct health probe should return HTTP 204 with `X-OfferPath-Health: 1`. It 
 Cloudflared must run on the same machine for this loopback target. If it runs in a container or another machine, its `127.0.0.1` refers to that environment and requires an appropriate route instead. Keep the origin port private; opening it publicly is not a remedy.
 
 The application cannot verify or repair an external tunnel's ingress configuration from this repository. Correlate local probe results and cloudflared errors at the same time as the client 502 before attributing the incident to a particular layer.
+
+Workspace workers also receive authenticated local health checks during gateway monitoring. Three consecutive failures retire only the affected worker; the existing restart budget limits repeated recovery. HTTP 503 admission responses count as reachable so overload alone does not restart a worker. Network probes and process shutdown waits run outside the shared worker lock, keeping other workers' heartbeat authentication available.
+
+The control database uses SQLite WAL journaling so session reads can continue during admin transactions. Each request still reads committed authorization state, including password resets and access revocation. Backups must include a live database through SQLite's backup API; copying only `control.db` while the server runs can omit committed WAL data. OfferPath's built-in backups already use SQLite snapshots.

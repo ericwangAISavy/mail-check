@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.2",
+    "date": "2026-11-10",
+    "title": "Deeper gateway and worker recovery fixes",
+    "changes": [
+      "Keep session reads available during control writes and recover unresponsive workspace listeners without restarting healthy or overloaded workers.",
+      "Avoid heartbeat lock contention during worker cleanup, preserve replacement workers, and complete shutdown cleanup after background errors."
+    ]
+  },
+  {
     "version": "2.27.1",
     "date": "2026-11-10",
     "title": "Recover stalled HTTP origins and keep gateway monitoring responsive",

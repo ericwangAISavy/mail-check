@@ -1,6 +1,7 @@
 """Network-facing multi-workspace gateway; business APIs execute in isolated workers."""
 from __future__ import annotations
 import asyncio
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
@@ -153,14 +154,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             backups=asyncio.create_task(backup_loop()) if start_workers else None
             try:yield
             finally:
-                if backups:
-                    backups.cancel()
-                    with suppress(asyncio.CancelledError):await backups
-                if monitor:
-                    monitor.cancel()
-                    with suppress(asyncio.CancelledError):await monitor
-                recovery.cancel()
-                with suppress(asyncio.CancelledError):await recovery
+                for task in (backups,monitor,recovery):
+                    if task is None:continue
+                    task.cancel()
+                    try:await task
+                    except asyncio.CancelledError:pass
+                    except Exception:logging.getLogger(__name__).exception('Background gateway task failed; continuing shutdown cleanup.')
                 try:
                     client=worker_clients.pop(loop,None)
                     if client is not None:

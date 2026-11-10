@@ -75,6 +75,7 @@ class Worker:
     log: object
     ready: bool = False
     started_at: float = field(default_factory=time.time)
+    health_failures: int = 0
 
 
 class WorkerPool:
@@ -129,12 +130,14 @@ class WorkerPool:
                     time.sleep(.1)
             with self._lock:
                 if self.workers.get(wid) is worker and worker.ready and worker.process.poll() is None:return worker
-                if self.workers.get(wid) is worker:self.stop(wid,suspended=False)
+            stopped = self.stop(wid,suspended=False,expected=worker,only_unready=True)
+            if not stopped:
+                with self._lock:
+                    if self.workers.get(wid) is worker and worker.ready and worker.process.poll() is None:return worker
             raise RuntimeError('Workspace worker could not start. Check workspace health logs.')
         except BaseException:
             # Do not terminate a replacement process started by another request.
-            with self._lock:
-                if self.workers.get(wid) is worker and not worker.ready:self.stop(wid,suspended=False)
+            self.stop(wid,suspended=False,expected=worker,only_unready=True)
             raise
 
     def _spawn(self,workspace):
@@ -178,15 +181,43 @@ class WorkerPool:
                 if wid not in self.stopped and secrets.compare_digest(worker.token,token) and worker.process.poll() is None:return wid
         return None
 
-    def stop(self,wid,*,suspended=True):
+    def check_health(self,wid):
         with self._lock:
+            worker=self.workers.get(wid)
+            if self.closing or not worker or not worker.ready or worker.process.poll() is not None:return
+        try:
+            with httpx.Client(trust_env=False,timeout=2) as client:
+                status=client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token}).status_code
+            reachable=status in (200,503)
+        except httpx.HTTPError:
+            reachable=False
+        with self._lock:
+            if self.workers.get(wid) is not worker or self.closing:return
+            worker.health_failures=0 if reachable else worker.health_failures+1
+            failed=worker.health_failures>=3
+        if failed:
+            logging.getLogger(__name__).warning('Workspace %s stopped responding to three local health checks; recovering its worker.',wid)
+            self.errors[wid]='Workspace listener stopped responding; restarting.'
+            self.stop(wid,suspended=False,expected=worker)
+
+    def stop(self,wid,*,suspended=True,expected=None,only_unready=False):
+        with self._lock:
+            worker=self.workers.get(wid)
+            if expected is not None and worker is not expected:return False
+            if only_unready and worker and worker.ready:return False
             if suspended:self.stopped.add(wid)
             worker=self.workers.pop(wid,None)
         if worker:
-            worker.process.terminate()
-            try:worker.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:worker.process.kill();worker.process.wait(timeout=5)
-            worker.log.close()
+            try:
+                if worker.process.poll() is None:
+                    try:worker.process.terminate()
+                    except OSError:
+                        if worker.process.poll() is None:raise
+                try:worker.process.wait(timeout=10)
+                except subprocess.TimeoutExpired:worker.process.kill();worker.process.wait(timeout=5)
+            finally:worker.log.close()
+            return True
+        return False
 
     def enable(self,wid):
         with self._lock:self.stopped.discard(wid);self.failures.pop(wid,None)
@@ -203,7 +234,9 @@ class WorkerPool:
         with self._lock:
             self.closing=True
             ids=list(self.workers)
-        for wid in ids:self.stop(wid)
+        for wid in ids:
+            try:self.stop(wid)
+            except Exception:logging.getLogger(__name__).exception('Worker %s cleanup failed; continuing other worker cleanup.',wid)
 
     async def monitor(self):
         while True:
@@ -216,7 +249,9 @@ class WorkerPool:
                 continue
             self.errors.pop('_monitor', None)
             for workspace in workspaces:
-                try:await asyncio.to_thread(self.ensure,workspace)
+                try:
+                    await asyncio.to_thread(self.check_health,workspace['id'])
+                    await asyncio.to_thread(self.ensure,workspace)
                 except (RuntimeError,OSError,ValueError) as exc:self.errors[workspace["id"]]=str(exc) if isinstance(exc,RuntimeError) else "Workspace startup failed."
 
 

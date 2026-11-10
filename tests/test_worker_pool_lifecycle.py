@@ -86,3 +86,74 @@ def test_readiness_response_after_suspension_does_not_return_stopped_worker(monk
     assert not worker.ready
     assert 'alice' not in pool.workers
     process.terminate.assert_called_once()
+
+
+def test_unresponsive_ready_worker_is_removed_after_three_failed_probes(monkeypatch,tmp_path):
+    import httpx
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    process=Mock();process.poll.return_value=None
+    worker=Worker('alice',1234,'token',process,Mock(),ready=True)
+    pool.workers['alice']=worker
+    client=MagicMock();client.__enter__.return_value=client
+    client.get.side_effect=httpx.ConnectError('listener unavailable')
+    monkeypatch.setattr(workspace_workers.httpx,'Client',Mock(return_value=client))
+    pool.check_health('alice');pool.check_health('alice')
+    process.terminate.assert_not_called()
+    pool.check_health('alice')
+    assert 'alice' not in pool.workers
+    process.terminate.assert_called_once()
+    assert 'alice' not in pool.stopped
+
+
+def test_overloaded_worker_stays_running_and_resets_health_failures(monkeypatch,tmp_path):
+    import httpx
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    process=Mock();process.poll.return_value=None
+    worker=Worker('alice',1234,'token',process,Mock(),ready=True)
+    pool.workers['alice']=worker
+    client=MagicMock();client.__enter__.return_value=client
+    client.get.side_effect=[httpx.ConnectError('offline'),SimpleNamespace(status_code=503),httpx.ConnectError('offline'),httpx.ConnectError('offline')]
+    monkeypatch.setattr(workspace_workers.httpx,'Client',Mock(return_value=client))
+    for _ in range(4):pool.check_health('alice')
+    process.terminate.assert_not_called()
+
+
+def test_expected_stop_does_not_kill_a_replacement_worker(tmp_path):
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    old=Worker('alice',1,'old',Mock(),Mock())
+    new=Worker('alice',2,'new',Mock(),Mock())
+    pool.workers['alice']=new
+    pool.stop('alice',suspended=False,expected=old)
+    assert pool.workers['alice'] is new
+    new.process.terminate.assert_not_called()
+
+
+def test_failed_worker_shutdown_does_not_skip_other_workers(tmp_path):
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    pool.workers={'alice':Mock(),'bob':Mock()}
+    pool.stop=Mock(side_effect=[OSError('first process failed to stop'),None])
+    pool.close()
+    assert pool.stop.call_count==2
+
+
+def test_startup_cleanup_wait_does_not_block_other_worker_authentication(monkeypatch,tmp_path):
+    from threading import Thread
+    pool=WorkerPool(SimpleNamespace(root=tmp_path),'',())
+    failed_process=Mock();failed_process.poll.return_value=None
+    failed=Worker('alice',1234,'failed',failed_process,Mock())
+    healthy_process=Mock();healthy_process.poll.return_value=None
+    healthy=Worker('bob',1235,'healthy',healthy_process,Mock(),ready=True)
+    pool.workers={'alice':failed,'bob':healthy}
+    authenticated=Event()
+    def wait(timeout):
+        def authenticate():
+            if pool.authenticate_worker('healthy')=='bob':authenticated.set()
+        Thread(target=authenticate,daemon=True).start()
+        assert authenticated.wait(.3), 'Stopping one worker held the lock needed by other worker heartbeats'
+    failed_process.wait.side_effect=wait
+    client=MagicMock();client.__enter__.return_value=client
+    client.get.return_value=SimpleNamespace(status_code=503)
+    monkeypatch.setattr(workspace_workers.httpx,'Client',Mock(return_value=client))
+    monkeypatch.setattr(workspace_workers.time,'sleep',lambda _:None)
+    with pytest.raises(RuntimeError,match='could not start'):pool.ensure({'id':'alice'})
+    healthy_process.terminate.assert_not_called()

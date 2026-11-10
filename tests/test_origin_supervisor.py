@@ -53,3 +53,10 @@ def test_unready_startup_has_a_deadline_and_is_not_restarted():
     process=Process([None])
     result,spawn=run_processes([process],['unavailable']*30)
     assert result==1 and process.terminated and spawn.call_count==1
+
+
+def test_process_exit_between_poll_and_terminate_is_harmless():
+    process=Mock();process.poll.side_effect=[None,0]
+    process.terminate.side_effect=ProcessLookupError('already exited')
+    supervisor.stop(process)
+    process.kill.assert_not_called()

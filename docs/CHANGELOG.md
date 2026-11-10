@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.2 — 2026-11-10
+
+Deeper gateway and worker recovery fixes
+
+- Keep session reads available during control writes and recover unresponsive workspace listeners without restarting healthy or overloaded workers.
+- Avoid heartbeat lock contention during worker cleanup, preserve replacement workers, and complete shutdown cleanup after background errors.
+
 ## 2.27.1 — 2026-11-10
 
 Recover stalled HTTP origins and keep gateway monitoring responsive
