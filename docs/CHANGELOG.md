@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.26.2 — 2026-11-10
+
+Bidder Inbox live refresh reliability
+
+- Show the next live Inbox check time and countdown, successful freshness, failure retries and disabled reasons in a responsive status panel.
+- Keep loaded Inbox messages during temporary outages, preserve access-revocation protection, correct fixed-category filter counts and reset reader position when switching messages.
+
 ## 2.26.1 — 2026-11-09
 
 Invitation matching review fixes

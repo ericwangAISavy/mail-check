@@ -132,3 +132,16 @@ button { color: inherit; }
 .triage-text-search input { width:100%; min-width:0; min-height:34px; padding:0 10px; border:1px solid var(--input); border-radius:9px; color:var(--foreground); background:var(--card); }
 
 .dashboard-layout.graphs-only { grid-template-columns: minmax(0,1fr); }
+
+/* Keep the bidder schedule readable without squeezing the mail controls. */
+.bidder-inbox-page .triage-heading-row { flex-wrap: wrap; align-items: flex-start; gap: 10px 18px; }
+.bidder-inbox-page .triage-bar { flex: 1 1 600px; min-width: 0; flex-wrap: wrap; gap: 10px; }
+.bidder-inbox-page .triage-tools { flex-wrap: wrap; }
+.inbox-live-status { display: flex; flex-wrap: wrap; gap: 3px 20px; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--muted-foreground); font-size: 13px; }
+.inbox-live-status p { margin: 0; overflow-wrap: anywhere; }
+.inbox-live-status [role=status] { flex-basis: 100%; color: var(--foreground); }
+.inbox-live-status time { font-variant-numeric: tabular-nums; }
+.inbox-live-status .inbox-live-hint { flex-basis: 100%; font-size: 12px; }
+.inbox-live-warning { color: var(--warning); }
+.inbox-update-error { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+@media (max-width:700px) { .bidder-inbox-page .triage-bar { flex-basis: 100%; } .bidder-inbox-page .triage-tools { flex-basis: 100%; } }

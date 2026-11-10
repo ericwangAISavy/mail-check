@@ -1292,9 +1292,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         schedule = {"automatic": cfg.watch.auto_check, "running": bool(_job["running"]),
                     "next_at": datetime.fromtimestamp(due, timezone.utc).isoformat() if due else None}
         if viewer and live:
-            enabled = cfg.watch.auto_check and cfg.is_llm_ready() and bool(accounts)
+            reason = ('Automatic mail checks are off.' if not cfg.watch.auto_check else
+                      'No active assigned mailboxes.' if not accounts else
+                      'The mail classification model is not configured.' if not cfg.is_llm_ready() else None)
+            enabled = reason is None
             if enabled:_live_inbox.heartbeat(viewer)
-            schedule['live'] = _live_inbox.snapshot(enabled)
+            schedule['live'] = _live_inbox.snapshot(enabled, reason)
         return {
             "check_schedule": schedule,
             "view": view,

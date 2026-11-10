@@ -560,3 +560,68 @@ it("guards pending clear against closing and other message actions", async () =>
   await act(async () => { finishDone?.(); await Promise.resolve() })
   await screen.findByText("Moved 2 messages to Completed.")
 })
+
+it('does not count the fixed bidder category as a removable filter', async () => {
+ renderPage(true)
+ await screen.findByRole('button',{name:'Refresh Inbox'})
+ fireEvent.click(screen.getByRole('button',{name:'Filters'}))
+ expect(screen.queryByRole('button',{name:'Clear filters'})).toBeNull()
+ expect(screen.queryByLabelText('1 active')).toBeNull()
+})
+
+it('shows the actual next live check time supplied by the server', async () => {
+ const base=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async(input,init)=>{
+  const res=await base(input,init)
+  if(!String(input).startsWith('/api/triage'))return res
+  const data=await res.json()
+  data.check_schedule={automatic:true,running:false,next_at:null,live:{enabled:true,running:false,interval_seconds:30,last_checked_at:null,next_at:new Date(Date.now()+30000).toISOString()}}
+  return response(data)
+ })
+ renderPage(true)
+ expect(await screen.findByText(/Next live check:/)).toBeTruthy()
+})
+
+it('keeps the bidder inbox open after a temporary refresh failure', async () => {
+ renderPage(true)
+ await screen.findByText('Body for 1')
+ const base=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation((input,init)=>String(input).startsWith('/api/triage')?response({error:'Temporary outage'},502):base(input,init))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh Inbox'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('Inbox updates are temporarily unavailable')
+ expect(screen.getByText('Body for 1')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Refresh Inbox'})).toBeTruthy()
+})
+
+it('hides cached bidder mail when a refresh revokes access', async () => {
+ renderPage(true)
+ await screen.findByText('Body for 1')
+ const base=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation((input,init)=>String(input).startsWith('/api/triage')?response({error:'Access revoked'},403):base(input,init))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh Inbox'}))
+ await screen.findByText(/Could not load triage/)
+ expect(screen.queryByText('Body for 1')).toBeNull()
+ expect(screen.queryByRole('option')).toBeNull()
+})
+
+it('keeps a loaded bidder message readable during a temporary reader outage', async () => {
+ vi.useFakeTimers()
+ renderWithReader(messages[0],true)
+ await act(async()=>{await vi.advanceTimersByTimeAsync(20)})
+ expect(screen.getByText('Body for 1')).toBeTruthy()
+ vi.mocked(fetch).mockImplementation(()=>response({error:'Temporary outage'},502))
+ await act(async()=>{await vi.advanceTimersByTimeAsync(10000)})
+ expect(screen.getByText('Body for 1')).toBeTruthy()
+ expect(screen.getByRole('alert').textContent).toContain('Showing the last loaded copy')
+ expect(screen.getByRole('button',{name:'Retry message'})).toBeTruthy()
+})
+
+it('lets a bidder return to the list when the selected message becomes unavailable',async()=>{
+ vi.mocked(fetch).mockImplementation(()=>response({error:'No such message.'},404))
+ const back=vi.fn(),client=new QueryClient({defaultOptions:{queries:{retry:false}}})
+ render(<QueryClientProvider client={client}><ToastProvider><Reader message={messages[0]} mobile readOnly onBack={back} onDone={()=>undefined} busy={false}/></ToastProvider></QueryClientProvider>)
+ await screen.findByRole('alert')
+ fireEvent.click(screen.getByRole('button',{name:'All messages'}))
+ expect(back).toHaveBeenCalledOnce()
+ expect(screen.queryByText('Interview 1')).toBeNull()
+})

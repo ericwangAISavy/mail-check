@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.26.2",
+    "date": "2026-11-10",
+    "title": "Bidder Inbox live refresh reliability",
+    "changes": [
+      "Show the next live Inbox check time and countdown, successful freshness, failure retries and disabled reasons in a responsive status panel.",
+      "Keep loaded Inbox messages during temporary outages, preserve access-revocation protection, correct fixed-category filter counts and reset reader position when switching messages."
+    ]
+  },
+  {
     "version": "2.26.1",
     "date": "2026-11-09",
     "title": "Invitation matching review fixes",

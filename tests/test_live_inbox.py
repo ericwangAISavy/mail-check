@@ -86,3 +86,31 @@ def test_fast_job_only_fetches_current_assigned_accounts(workspace,monkeypatch):
             assert check.call_args.kwargs['account_ids']=={account}
             assert check.call_args.kwargs['recent_since'].tzinfo is not None
         finally:jobs[0][1]();web._job_lock.release()
+
+
+def test_live_status_reports_failed_attempt_then_success():
+    tracker=LiveInbox();tracker.heartbeat(1)
+    assert tracker.snapshot(True)['last_check_ok'] is None
+    assert tracker.reserve()
+    assert tracker.snapshot(True)['last_attempt_at']
+    tracker.finish(False)
+    assert tracker.snapshot(True)['last_check_ok'] is False
+    with patch('mailcheck.live_inbox.time.monotonic',return_value=10**12):
+        tracker.heartbeat(1)
+        assert tracker.reserve()
+        tracker.finish(True)
+        assert tracker.snapshot(True)['last_check_ok'] is True
+
+
+def test_disabled_live_status_explains_missing_assignments(workspace,monkeypatch):
+    from tests.web_client import TestClient,sign_in_bidder
+    conn,account=workspace
+    cfg=Config();cfg.watch.auto_check=True;cfg.llm.base_url='http://model.test'
+    monkeypatch.setattr(web,'_live_inbox',LiveInbox())
+    monkeypatch.setattr(web,'_resume_live_inbox',lambda cfg:False)
+    with TestClient(web.create_app()) as client,patch.object(web.cfgmod,'load',return_value=cfg):
+        sign_in_bidder(client)
+        conn.execute('DELETE FROM bidder_assignments');conn.commit()
+        live=client.get('/api/triage?live=1').json()['check_schedule']['live']
+        assert live['enabled'] is False
+        assert live['disabled_reason']=='No active assigned mailboxes.'
