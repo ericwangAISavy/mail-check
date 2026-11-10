@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.4 — 2026-11-10
+
+Keep pasted job rows aligned
+
+- Preserve spreadsheet HTML cell boundaries when pasting wrapped or multiline company names, roles and job links, with TSV fallback and bounded text-only parsing.
+
 ## 2.27.3 — 2026-11-10
 
 Bound gateway authentication and startup waits

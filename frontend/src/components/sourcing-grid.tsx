@@ -13,7 +13,7 @@ import {
   defaultView,
   mergeChanges,
   normalStyle,
-  parseTSV,
+  parseClipboardRows,
   serializeTSV,
   visibleRows,
   type Change,
@@ -373,8 +373,14 @@ export function SheetGrid({
         onCellPaste={({ row, column }, event) => {
           event.preventDefault();
           if (disabled || checkedRows.has(row.id)) return row;
-          const matrix = parseTSV(event.clipboardData.getData("text/plain")).filter(values => values.some(value => value.trim())),
-            start = indices.get(row.id) ?? 0;
+          let matrix: string[][];
+          try {
+            matrix = parseClipboardRows(event.clipboardData.getData("text/plain"), event.clipboardData.getData("text/html")).filter(values => values.some(value => value.trim()));
+          } catch (error) {
+            window.alert(error instanceof Error ? error.message : "Could not read the copied rows. Try copying them again.");
+            return row;
+          }
+          const start = indices.get(row.id) ?? 0;
           if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {
             window.alert("Paste up to 10,000 cells at a time.");
             return row;

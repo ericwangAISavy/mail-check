@@ -235,3 +235,18 @@ it("preserves the original anchor when extending selection with Shift-click", ()
   fireEvent.mouseUp(document);
   expect(selection.mock.lastCall![0].rows).toEqual([1,2,3]);
 });
+
+it('pastes HTML table rows without splitting a wrapped company from its job link',()=>{
+ const data=snapshot();data.rows[1]=data.rows[1].map(()=>cell(''))
+ const append=vi.fn()
+ render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onAppendRows={append}/> )
+ fireEvent.paste(screen.getByRole('grid'),{clipboardData:{getData:(type:string)=>type==='text/html'?'<table><tr><td>Sem-Sol<br></td><td>Engineer</td><td>https://jobs.test/1</td></tr><tr><td>Acme</td><td>Engineer</td><td>https://jobs.test/2</td></tr></table>':'Sem-Sol\n\tEngineer\thttps://jobs.test/1\nAcme\tEngineer\thttps://jobs.test/2'}})
+ expect(append).toHaveBeenCalledWith([['Sem-Sol','Engineer','https://jobs.test/1'],['Acme','Engineer','https://jobs.test/2']])
+})
+it('reports oversized rich clipboard data without changing the sheet',()=>{
+ const change=vi.fn(),append=vi.fn(),alert=vi.spyOn(window,'alert').mockImplementation(()=>{})
+ render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change} onAppendRows={append}/> )
+ fireEvent.paste(screen.getByRole('grid'),{clipboardData:{getData:(type:string)=>type==='text/html'?'<table><tr>'+Array(11).fill('<td colspan="1000">x</td>').join('')+'</tr></table>':'x'}})
+ expect(alert).toHaveBeenCalledWith('Paste up to 10,000 cells at a time.')
+ expect(change).not.toHaveBeenCalled();expect(append).not.toHaveBeenCalled()
+})

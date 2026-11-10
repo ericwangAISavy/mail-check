@@ -157,6 +157,54 @@ function parseDelimited(text: string, delimiter: string, strict = false) {
 export function parseTSV(text: string) {
   return parseDelimited(text, "\t");
 }
+/** Prefer copied table cell boundaries over ambiguous rendered plain text. */
+export function parseClipboardRows(text: string, html = ""): string[][] {
+  if (text.length > 4 * 1024 * 1024 || html.length > 4 * 1024 * 1024)
+    throw new Error("Clipboard data is too large. Paste a smaller selection.");
+  if (!/<table(?:\s|>)/i.test(html)) return parseTSV(text);
+  // Inert template content never enters the live document. Return text only.
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const table = template.content.querySelector("table");
+  if (!table || !table.rows.length) return parseTSV(text);
+  const sourceRows = Array.from(table.rows);
+  const matrix: string[][] = [];
+  let cells = 0;
+  const cellText = (cell: HTMLTableCellElement) => {
+    const parts: string[] = [];
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: node => /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|IFRAME|OBJECT|EMBED|SVG|MATH)$/.test(node.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent || "");
+      else if (/^(BR|DIV|P|LI)$/.test(node.nodeName)) parts.push("\n");
+    }
+    return parts.join("").replace(/^\n+|\n+$/g, "");
+  };
+  sourceRows.forEach((source, r) => {
+    const row = matrix[r] ||= [];
+    let col = 0;
+    for (const cell of Array.from(source.cells)) {
+      while (row[col] !== undefined) col++;
+      const height = Math.min(cell.rowSpan || sourceRows.length - r, sourceRows.length - r);
+      const width = cell.colSpan;
+      if (col + width > 10000 || cells + height * width > 10000)
+        throw new Error("Paste up to 10,000 cells at a time.");
+      const value = cellText(cell);
+      for (let dr = 0; dr < height; dr++) {
+        const target = matrix[r + dr] ||= [];
+        for (let dc = 0; dc < width; dc++) {
+          if (target[col + dc] !== undefined) throw new Error("This table has overlapping merged cells. Copy an unmerged selection instead.");
+          target[col + dc] = dr === 0 && dc === 0 ? value : "";
+          cells++;
+        }
+      }
+      col += width;
+    }
+  });
+  return matrix.map(row => Array.from({ length: row.length }, (_, i) => row[i] ?? ""));
+}
 export function parseCSV(text: string) {
   return parseDelimited(text.replace(/^\uFEFF/, ""), ",", true);
 }
