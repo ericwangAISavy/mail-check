@@ -166,3 +166,22 @@ def test_shared_generic_role_with_conflicting_specialty_is_possible():
 def test_generic_software_role_does_not_conflict_with_specialty():
     c=fixture();add(c,'a',role='Software Engineer')
     assert match(c)['matches'][0]['confidence']=='strong'
+
+
+def test_matched_link_keeps_original_destination_query_order_and_tracking():
+    c=fixture()
+    original='https://jobs.example.com/42?z=2&step=b&step=a&notit=1&utm_source=mail#apply'
+    add(c,'a',link=original)
+    assert match(c)['matches'][0]['link']==original
+
+
+def test_repeated_query_value_order_is_not_treated_as_identical_url():
+    from mailcheck.interview_job_matches import match_jobs
+    c=fixture();add(c,'a',company='Other',role='Other',link='https://jobs.example.com/42?step=b&step=a')
+    result=match_jobs(c, {}, [{'account_id':1,'source_subject':'https://jobs.example.com/42?step=a&step=b'}])
+    assert result['total']==0
+
+
+def test_extreme_date_does_not_crash_matching():
+    c=fixture();add(c,'a',day='0001-01-01T00:00:00Z')
+    assert match(c)['total']==1

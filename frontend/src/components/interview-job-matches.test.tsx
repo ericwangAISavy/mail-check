@@ -39,3 +39,13 @@ it("preserves matches after pagination failure and retries the cursor",async()=>
  fireEvent.click(screen.getByRole("button",{name:"Retry loading more job matches"}));await waitFor(()=>expect(screen.getAllByRole("link")).toHaveLength(2))
  expect(fetchMatches.mock.calls[2][0]).toBe('/api/interviews/42/job-matches?limit=25&cursor=next+%26+more')
 })
+it("keeps loaded matches and reports a failed refresh",async()=>{
+ fetchMatches.mockResolvedValueOnce({matches:[match(1)],total:1,next_cursor:null}).mockRejectedValueOnce(new Error("Offline"))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
+ render(<QueryClientProvider client={client}><InterviewJobMatches id={42}/></QueryClientProvider>)
+ await screen.findByRole("link")
+ await client.invalidateQueries({queryKey:["interviews","job-matches",42]})
+ expect((await screen.findByRole("alert")).textContent).toContain("Could not refresh job matches")
+ expect(screen.getAllByRole("link")).toHaveLength(1)
+ expect(screen.getByRole("button",{name:"Retry job matches"})).toBeTruthy()
+})

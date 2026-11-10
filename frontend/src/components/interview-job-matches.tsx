@@ -25,6 +25,7 @@ export function InterviewJobMatches({ id }: { id: number }) {
     <h3>Possible job matches</h3>
     <p className="form-hint">Best-effort suggestions from saved jobs. A match is not proof that this invitation relates to an application.</p>
     {query.isPending ? <p role="status">Loading job matches…</p> : query.isError && !query.data ? <div><p role="alert" className="inline-error">Could not load job matches. {query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Retry job matches</Button></div> : <>
+      {query.isRefetchError && !query.isFetchNextPageError && <div><p role="alert" className="inline-error">Could not refresh job matches. Your loaded matches are still shown.</p><Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry job matches</Button></div>}
       {!matches.length && <p>No possible job matches found.</p>}
       <ul className="interview-job-match-list">{matches.map(match => {
         const url = safeJobUrl(match.link)

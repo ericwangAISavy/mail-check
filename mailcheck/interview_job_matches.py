@@ -44,7 +44,7 @@ def _safe_url(value):
             return None
         _ = p.port
         query = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if not k.lower().startswith('utm_') and k.lower() not in ('gclid', 'fbclid')]
-        return urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path or '/', urlencode(sorted(query)), p.fragment))
+        return urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path or '/', urlencode(sorted(query, key=lambda pair: pair[0])), p.fragment))
     except ValueError:
         return None
 
@@ -53,7 +53,7 @@ def _date(value):
     try:
         stamp = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
         return (stamp.replace(tzinfo=_ZONE) if stamp.tzinfo is None else stamp).astimezone(_ZONE).date()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
@@ -97,7 +97,8 @@ def _evidence(conn, event, source):
     text = '\n'.join(chunks)[:32768]
     urls = {u for raw in _URL.findall(text) if (u := _safe_url(raw.rstrip('.,);]')))}
     dates = [_date(datetime.now(timezone.utc).isoformat()), _date(event.get('start_at')), _date(source.get('source_received_at'))]
-    return {'text': _normal(text), 'urls': urls, 'cutoff': min(d for d in dates if d)}
+    normalized = _normal(text)
+    return {'text': normalized, 'tokens': frozenset(normalized.split()), 'urls': urls, 'cutoff': min(d for d in dates if d)}
 
 
 def match_jobs(conn, event: dict, sources: list[dict], *, cursor: str | None = None, limit: int = 25) -> dict:
@@ -156,7 +157,7 @@ def match_jobs(conn, event: dict, sources: list[dict], *, cursor: str | None = N
         for evidence in scoped[row['account_id']]:
             explicit = link in evidence['urls']
             phrase = bool(candidate_company and len(candidate_company) >= 3 and (' '+candidate_company+' ') in (' '+evidence['text']+' '))
-            text_role = bool(candidate_role & set(evidence['text'].split()))
+            text_role = bool(candidate_role & evidence['tokens'])
             meaningful_company = candidate_company and candidate_company not in _GENERIC_COMPANY
             company_evidence = meaningful_company and (exact_company or phrase or (fuzzy and role_match))
             if not (explicit or (company_evidence and (not role or role_match or text_role))):
@@ -188,7 +189,7 @@ def match_jobs(conn, event: dict, sources: list[dict], *, cursor: str | None = N
             score = (100 if explicit else 70 if exact_company else 55 if phrase else 45) + (10 if role_match else 0)
             rank = (score, int(applied), day.isoformat() if day else '', row['row_id'])
             item = {k: row[k] for k in ('row_id','tab_id','account_id','account_label','bidder_id','bidder_name','company','role','work_date')}
-            item.update(company=row['company'] or '', role=row['role'] or '', link=link, applied=applied,
+            item.update(company=row['company'] or '', role=row['role'] or '', link=str(row['link']).strip(), applied=applied,
                         application_date=day.isoformat() if day else None, archived=bool(row['archived']),
                         confidence='strong' if strong else 'possible', reasons=reasons)
             if best is None or rank > best[0]:

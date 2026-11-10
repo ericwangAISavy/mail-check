@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.26.1 — 2026-11-09
+
+Invitation matching review fixes
+
+- Preserve saved job destinations, avoid false URL matches with repeated parameters, handle invalid dates safely, and expose refresh failures without losing loaded matches.
+
 ## 2.26.0 — 2026-11-09
 
 Calendar invitation job history matches

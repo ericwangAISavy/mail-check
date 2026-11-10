@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.26.1",
+    "date": "2026-11-09",
+    "title": "Invitation matching review fixes",
+    "changes": [
+      "Preserve saved job destinations, avoid false URL matches with repeated parameters, handle invalid dates safely, and expose refresh failures without losing loaded matches."
+    ]
+  },
+  {
     "version": "2.26.0",
     "date": "2026-11-09",
     "title": "Calendar invitation job history matches",
