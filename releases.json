@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.27.11",
+    "date": "2026-11-10",
+    "title": "Retry transient page-file downloads before leaving the page",
+    "changes": [
+      "Retry failed lazy page imports twice using fresh request URLs before showing recovery, while preserving the current page and filters. Code errors still fail immediately."
+    ]
+  },
+  {
     "version": "2.27.10",
     "date": "2026-11-10",
     "title": "Keep startup smooth with one consistent loading screen",

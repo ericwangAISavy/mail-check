@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.11 — 2026-11-10
+
+Retry transient page-file downloads before leaving the page
+
+- Retry failed lazy page imports twice using fresh request URLs before showing recovery, while preserving the current page and filters. Code errors still fail immediately.
+
 ## 2.27.10 — 2026-11-10
 
 Keep startup smooth with one consistent loading screen
