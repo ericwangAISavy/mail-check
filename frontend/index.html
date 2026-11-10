@@ -6,16 +6,22 @@
     <meta name="theme-color" content="#06151e" />
     <meta name="description" content="OfferPath — Every application, a step forward. Manage applications, email, interviews and your team." />
     <link rel="icon" type="image/svg+xml" href="/src/assets/offerpath.svg" />
+    <link rel="stylesheet" href="/assets/startup-screen-v1.css" />
     <title>OfferPath</title>
   </head>
   <body>
     <div id="root">
-      <main data-offerpath-startup role="status" aria-live="polite" style="max-width:32rem;margin:18vh auto;padding:2rem;background:#fff;color:#172b35;border:1px solid #a8bbc2;border-radius:12px;font:16px/1.6 system-ui,sans-serif">
-        <strong>Starting OfferPath…</strong>
-        <p>If the workspace doesn’t open, <a href="" style="color:#075985;text-decoration:underline">reload this page</a>.</p>
+      <main data-offerpath-startup class="offerpath-startup" role="status" aria-live="polite" aria-label="Opening OfferPath">
+        <div class="startup-content">
+          <img class="startup-mark" src="/src/assets/offerpath.svg" width="72" height="72" alt="" />
+          <strong class="startup-brand">Offer<span>Path</span></strong>
+          <p class="startup-caption">Every application, a step forward.</p>
+          <div class="startup-track" aria-hidden="true"><span></span></div>
+          <p class="startup-label">Preparing your workspace</p>
+        </div>
       </main>
     </div>
-    <script src="/assets/startup-recovery-v1.js"></script>
+    <script src="/assets/startup-recovery-v2.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

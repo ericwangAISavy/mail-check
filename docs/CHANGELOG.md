@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.10 — 2026-11-10
+
+Keep startup smooth with one consistent loading screen
+
+- Use a single branded startup screen through sign-in checks, workspace loading and the initial page, with a gentle reveal and reduced-motion support.
+
 ## 2.27.9 — 2026-11-10
 
 Recover failed page-module loads after outages and updates

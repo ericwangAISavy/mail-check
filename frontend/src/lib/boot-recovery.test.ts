@@ -1,4 +1,4 @@
-import source from "../../public/assets/startup-recovery-v1.js?raw";
+import source from "../../public/assets/startup-recovery-v2.js?raw";
 import { afterEach, expect, it, vi } from "vitest";
 afterEach(() => { document.getElementById('root')?.remove(); vi.runOnlyPendingTimers(); vi.useRealTimers(); });
 function boot(url = 'https://example.test/applications?view=all#saved') {
@@ -31,4 +31,29 @@ it('stops recovery as soon as React replaces the startup marker', async () => {
 it('offers a manual retry after 15 seconds without an automatic reload loop', () => {
   const { window, replace } = boot(); vi.advanceTimersByTime(15000);
   expect(window.document.querySelector('[role="alert"]')!.textContent).toContain('taking longer'); expect(window.document.querySelector('[role="alert"] a')).not.toBeNull(); vi.advanceTimersByTime(60000); expect(replace).not.toHaveBeenCalled();
+});
+it('keeps one curtain through intermediate loaders and reveals only the ready page', async () => {
+  boot();
+  const root = document.getElementById('root')!;
+  const curtain = document.querySelector('[data-offerpath-startup]')!;
+  expect(curtain.parentElement).toBe(document.body);
+  expect(root.hasAttribute('inert')).toBe(true);
+  for (const html of ['<div class="login-pending">Sign in</div>', '<div class="loading-state">Workspace</div>', '<nav>Navigation</nav><div class="loading-state">Dashboard</div>']) {
+    root.innerHTML = html;
+    await Promise.resolve(); vi.advanceTimersByTime(300);
+    expect(curtain.isConnected).toBe(true);
+    expect(root.hasAttribute('inert')).toBe(true);
+  }
+  root.innerHTML = '<main>Dashboard ready</main>';
+  await Promise.resolve(); vi.advanceTimersByTime(180);
+  expect(root.hasAttribute('inert')).toBe(false);
+  vi.advanceTimersByTime(220);
+  expect(curtain.isConnected).toBe(false);
+});
+it('cancels reveal when another loading phase starts before the page settles', async () => {
+  boot(); const root = document.getElementById('root')!;
+  root.innerHTML = '<nav>Shell</nav>'; await Promise.resolve(); vi.advanceTimersByTime(100);
+  root.innerHTML += '<div class="loading-state">Page query</div>'; await Promise.resolve(); vi.advanceTimersByTime(500);
+  expect(root.hasAttribute('inert')).toBe(true);
+  expect(document.querySelector('[data-offerpath-startup]')).not.toBeNull();
 });
