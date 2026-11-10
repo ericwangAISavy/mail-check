@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.8",
+    "date": "2026-11-10",
+    "title": "Preserve valid nested Windows static paths",
+    "changes": [
+      "Allow Windows-normalized filesystem separators for valid nested assets while continuing to reject malformed URL separators.",
+      "Reject reserved Windows device filenames and trailing-dot/space aliases before static-file lookup."
+    ]
+  },
+  {
     "version": "2.27.7",
     "date": "2026-11-10",
     "title": "Reject malformed Windows asset paths safely",

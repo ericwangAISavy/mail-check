@@ -63,3 +63,47 @@ def test_valid_assets_keep_cache_head_and_range_behavior(system):
         assert part.content==response.content[:10]
         cached=client.get('/assets/startup-recovery-v1.js',headers={'if-none-match':response.headers['etag']})
         assert cached.status_code==304
+
+
+def test_windows_normalized_nested_asset_path_is_served(tmp_path):
+    import asyncio
+    from fastapi import FastAPI
+    from mailcheck.web.static_files import PortableStaticFiles
+    asset=tmp_path/'nested.js';asset.write_text('window.loaded = true')
+    files=PortableStaticFiles(directory=tmp_path)
+    app=FastAPI();app.mount('/',files)
+    async def scenario():
+        with patch.object(files,'get_path',return_value='nested\\bundle.js'),patch.object(files,'lookup_path',return_value=(str(asset),asset.stat())) as lookup:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+                result=await client.get('/nested/bundle.js')
+                assert result.status_code==200
+                assert result.text=='window.loaded = true'
+            lookup.assert_called_once_with('nested\\bundle.js')
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('name',['NUL','con.txt','COM1.js','LPT9','CONIN$','COM¹','file.js.','file.js '])
+def test_windows_device_and_alias_names_are_rejected_before_lookup(tmp_path,name):
+    import asyncio
+    from fastapi import FastAPI
+    from mailcheck.web.static_files import PortableStaticFiles
+    files=PortableStaticFiles(directory=tmp_path)
+    app=FastAPI();app.mount('/',files)
+    async def scenario():
+        with patch.object(files,'lookup_path',side_effect=AssertionError('Unsafe name reached filesystem')):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+                assert (await client.get('/'+name)).status_code==404
+    asyncio.run(scenario())
+
+
+def test_url_backslash_still_rejected_when_normalized_paths_are_allowed(tmp_path):
+    import asyncio
+    from fastapi import FastAPI
+    from mailcheck.web.static_files import PortableStaticFiles
+    files=PortableStaticFiles(directory=tmp_path)
+    app=FastAPI();app.mount('/',files)
+    async def scenario():
+        with patch.object(files,'lookup_path',side_effect=AssertionError('URL backslash reached filesystem')):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+                assert (await client.get('/nested%5Cbundle.js')).status_code==404
+    asyncio.run(scenario())

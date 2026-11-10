@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.8 — 2026-11-10
+
+Preserve valid nested Windows static paths
+
+- Allow Windows-normalized filesystem separators for valid nested assets while continuing to reject malformed URL separators.
+- Reject reserved Windows device filenames and trailing-dot/space aliases before static-file lookup.
+
 ## 2.27.7 — 2026-11-10
 
 Reject malformed Windows asset paths safely
