@@ -210,6 +210,7 @@ class SettingsBody(BaseModel):
     lookback_days: int | None = None
     retain_days: int | None = None
     interval_minutes: int | None = None
+    other_interval_minutes: int | None = None
     privacy_ack: bool | None = None
 
 
@@ -2012,6 +2013,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             data["check"]["retain_days"] = body.retain_days
         if body.interval_minutes is not None:
             data["watch"]["interval_minutes"] = body.interval_minutes
+        if body.other_interval_minutes is not None:
+            data["watch"]["other_interval_minutes"] = body.other_interval_minutes
         if body.auto_check is not None:
             data["watch"]["auto_check"] = body.auto_check
         if body.outlook_client_id is not None:

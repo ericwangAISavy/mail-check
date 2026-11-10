@@ -30,7 +30,7 @@ export type Bootstrap = {
 export type Settings = {
   llm: { base_url: string; batch_size: number; max_body_chars: number; timeout_seconds: number; classification_deadline_seconds: number; concurrency: number; num_ctx: number; think: boolean; keep_alive: string }
   check: { mode?: "lookback" | "since_last"; lookback_days: number; retain_days: number }
-  watch: { interval_minutes: number; auto_check: boolean }
+  watch: { interval_minutes: number; other_interval_minutes?: number; auto_check: boolean }
   outlook: { client_id: string }; privacy_ack: boolean
 }
 export type ApiResult<T> = T

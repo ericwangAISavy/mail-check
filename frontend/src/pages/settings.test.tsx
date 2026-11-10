@@ -71,3 +71,32 @@ it("saves the selected check range and retains fallback days",async()=>{
  fireEvent.click(screen.getAllByRole("button",{name:"Save changes"})[0])
  await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/settings",expect.objectContaining({check_mode:"since_last",lookback_days:2})))
 })
+
+it('saves separate owner and other-admin check intervals',async()=>{
+ const post=vi.spyOn(api,'post').mockResolvedValue({message:'Settings saved.'})
+ mount()
+ const owner=await screen.findByLabelText('Owner check interval · minutes',{exact:false})
+ const others=screen.getByLabelText('Other admins check interval · minutes',{exact:false})
+ fireEvent.change(owner,{target:{value:'2'}})
+ fireEvent.change(others,{target:{value:'5'}})
+ fireEvent.click(screen.getAllByRole('button',{name:'Save changes'})[0])
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/api/settings',expect.objectContaining({interval_minutes:2,other_interval_minutes:5})))
+ expect(screen.getByText(/Fast live checks for active bidder Inboxes/)).toBeTruthy()
+})
+
+it('prevents saving an invalid check interval',async()=>{
+ mount()
+ const owner=await screen.findByLabelText('Owner check interval · minutes',{exact:false})
+ fireEvent.change(owner,{target:{value:'0'}})
+ expect((screen.getAllByRole('button',{name:'Save changes'})[0] as HTMLButtonElement).disabled).toBe(true)
+ expect(screen.getByRole('alert').textContent).toContain('whole number')
+})
+
+it('applies quick intervals independently',async()=>{
+ mount()
+ await screen.findByLabelText('Owner check interval · minutes',{exact:false})
+ fireEvent.click(screen.getByRole('button',{name:'1 min'}))
+ fireEvent.click(screen.getByRole('button',{name:'5 min'}))
+ expect((screen.getByLabelText('Owner check interval · minutes',{exact:false}) as HTMLInputElement).value).toBe('1')
+ expect((screen.getByLabelText('Other admins check interval · minutes',{exact:false}) as HTMLInputElement).value).toBe('5')
+})

@@ -165,9 +165,10 @@ class CheckConfig(BaseModel):
 
 
 class WatchConfig(BaseModel):
-    interval_minutes: int = Field(default=10, ge=1, le=1440)
+    interval_minutes: int = Field(default=2, ge=1, le=1440)
+    other_interval_minutes: int = Field(default=10, ge=1, le=1440)
     auto_check: bool = False
-    """Let the web console run checks on the interval by itself.
+    """Let the running server check mail automatically.
 
     Off by default: opening a page should never start spending tokens without
     the user asking for it.
@@ -245,7 +246,12 @@ def load() -> Config:
     from .workspaces import workspace_root
     workspace_root()  # Invalid worker contexts must never fall back to owner paths.
     shared=os.environ.get("OFFERPATH_SHARED_CONFIG_PATH")
-    return Config.model_validate(_read_toml(Path(shared) if shared else config_path()))
+    cfg = Config.model_validate(_read_toml(Path(shared) if shared else config_path()))
+    # Only non-owner workers receive this path. Resolve their effective interval
+    # on each load without changing the owner file or the cached raw settings.
+    if shared:
+        cfg.watch.interval_minutes = cfg.watch.other_interval_minutes
+    return cfg
 
 
 #: Serializes writes within this process — the web console's request-handling

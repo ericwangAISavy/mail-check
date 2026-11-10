@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.0 — 2026-11-10
+
+Separate owner and admin workspace mail schedules
+
+- Configure independent automatic mail-check intervals for the owner’s workspace and other admin workspaces, with quick choices, validation and clear live Inbox guidance.
+
 ## 2.26.2 — 2026-11-10
 
 Bidder Inbox live refresh reliability

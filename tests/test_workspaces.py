@@ -69,3 +69,40 @@ def test_managed_workspace_inherits_owner_settings_without_writing_them(tmp_path
         shared.write_text('[llm]\nbase_url="http://new-owner-model:11434"\n')
         assert config.load().llm.base_url=='http://new-owner-model:11434'
         assert config.db_path()==root/'data'/'mailcheck.db'
+
+
+def test_workspace_check_intervals_are_independent_and_reload_shared_changes(tmp_path):
+    wid='c'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[watch]\ninterval_minutes=2\nother_interval_minutes=10\nauto_check=true\n')
+    with patch.dict('os.environ',{'OFFERPATH_SHARED_CONFIG_PATH':str(shared),'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid}):
+        member=config.load()
+        assert member.watch.interval_minutes==10
+        member.watch.interval_minutes=99
+        assert config.load().watch.interval_minutes==10
+        shared.write_text('[watch]\ninterval_minutes=1\nother_interval_minutes=5\nauto_check=true\n')
+        assert config.load().watch.interval_minutes==5
+    with patch.dict('os.environ',{},clear=True),patch.object(config,'config_path',return_value=shared):
+        assert config.load().watch.interval_minutes==1
+        assert config.load().watch.other_interval_minutes==5
+
+
+def test_existing_owner_interval_is_preserved_and_other_workspaces_default_to_ten(tmp_path):
+    wid='d'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[watch]\ninterval_minutes=2\n')
+    with patch.dict('os.environ',{'OFFERPATH_SHARED_CONFIG_PATH':str(shared),'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid}):
+        assert config.load().watch.interval_minutes==10
+    with patch.dict('os.environ',{},clear=True),patch.object(config,'config_path',return_value=shared):
+        assert config.load().watch.interval_minutes==2
+
+
+def test_worker_schedule_uses_effective_interval_in_seconds(tmp_path):
+    from mailcheck.web import app as web
+    wid='e'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[watch]\ninterval_minutes=2\nother_interval_minutes=10\nauto_check=true\n')
+    with patch.dict(web._sched,{'next_due':None}),patch.object(web.time,'time',return_value=100):
+        with patch.dict('os.environ',{'OFFERPATH_SHARED_CONFIG_PATH':str(shared),'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid}):
+            web._reschedule(config.load())
+            assert web._sched['next_due']==700
+        with patch.dict('os.environ',{},clear=True),patch.object(config,'config_path',return_value=shared):
+            web._reschedule(config.load())
+            assert web._sched['next_due']==220

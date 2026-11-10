@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.27.0",
+    "date": "2026-11-10",
+    "title": "Separate owner and admin workspace mail schedules",
+    "changes": [
+      "Configure independent automatic mail-check intervals for the owner’s workspace and other admin workspaces, with quick choices, validation and clear live Inbox guidance."
+    ]
+  },
+  {
     "version": "2.26.2",
     "date": "2026-11-10",
     "title": "Bidder Inbox live refresh reliability",

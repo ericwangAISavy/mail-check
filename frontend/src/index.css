@@ -145,3 +145,15 @@ button { color: inherit; }
 .inbox-live-warning { color: var(--warning); }
 .inbox-update-error { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 @media (max-width:700px) { .bidder-inbox-page .triage-bar { flex-basis: 100%; } .bidder-inbox-page .triage-tools { flex-basis: 100%; } }
+
+.workspace-check-settings { margin: 18px 0; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.workspace-check-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.workspace-check-card { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); }
+.workspace-check-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--primary); }
+.workspace-check-title h3 { margin: 0; color: var(--foreground); font-size: 15px; font-weight: 650; }
+.workspace-check-title>span { margin-left: auto; padding: 3px 8px; border-radius: 20px; color: var(--primary); background: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+.workspace-check-card>p { margin: 10px 0 16px; color: var(--muted-foreground); font-size: 13px; }
+.workspace-check-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.workspace-check-presets small { color: var(--muted-foreground); font-size: 12px; }
+.workspace-check-live-note { margin: 12px 0 0; }
+@media (max-width:1050px) { .workspace-check-grid { grid-template-columns: minmax(0,1fr); } }
