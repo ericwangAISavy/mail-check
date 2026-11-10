@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.14 — 2026-11-10
+
+Restore lazy page styles while retaining download retries
+
+- Preserve Vite's CSS and preload dependency graph when applying page-file retries, restoring calendar, dashboard, sourcing and pipeline layouts.
+
 ## 2.27.13 — 2026-11-10
 
 Keep blocked optional analytics from aborting startup

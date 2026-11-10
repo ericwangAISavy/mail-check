@@ -1,18 +1,27 @@
 import type { Plugin } from 'vite'
 
-// Rollup supplies the final hashed URL here, avoiding runtime guesses about
-// which page or shared dependency failed. Keep native imports in development.
+// Preserve native imports through Vite's dependency analysis so lazy CSS and
+// shared preload dependencies remain attached. Wrap only the final imports.
 export function assetImportRetry(): Plugin {
   return {
     name: 'offerpath-asset-import-retry',
     apply: 'build',
-    renderDynamicImport({ targetModuleId }) {
-      if (!targetModuleId) return null
-      return { left: '__offerpathImport(', right: ',import.meta.url)' }
-    },
-    renderChunk(code) {
-      if (!code.includes('__offerpathImport(')) return null
-      return { code: `${assetImportRuntime}\n${code}`, map: null }
+    // Runtime changes must invalidate content hashes even though wrapping is
+    // performed after Vite has resolved the dependency graph.
+    augmentChunkHash() { return assetImportRuntime },
+    generateBundle: {
+      order: 'post',
+      handler(_options, bundle) {
+        for (const file of Object.values(bundle)) {
+          if (file.type !== 'chunk') continue
+          let changed = false
+          const code = file.code.replace(/\bimport\(\s*(["'])(\.\/[^"']+)\1\s*\)/g, (_match, quote: string, url: string) => {
+            changed = true
+            return `__offerpathImport(${quote}${url}${quote},import.meta.url)`
+          })
+          if (changed) file.code = `${assetImportRuntime}\n${code}`
+        }
+      },
     },
   }
 }

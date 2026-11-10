@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.27.14",
+    "date": "2026-11-10",
+    "title": "Restore lazy page styles while retaining download retries",
+    "changes": [
+      "Preserve Vite's CSS and preload dependency graph when applying page-file retries, restoring calendar, dashboard, sourcing and pipeline layouts."
+    ]
+  },
+  {
     "version": "2.27.13",
     "date": "2026-11-10",
     "title": "Keep blocked optional analytics from aborting startup",
