@@ -284,3 +284,16 @@ def test_backup_and_restore_flush_regular_files_through_writable_handles(install
     destination=BackupLayout(tmp_path/'new/config/config.toml',tmp_path/'new/data/mailcheck.db',tmp_path/'new/config/offerpath-control')
     monkeypatch.setenv('OFFERPATH_MAINTENANCE_LOCK',str(tmp_path/'new.lock'))
     restore_archive(archive,destination)
+
+
+@pytest.mark.parametrize('manifest',[None,[],True])
+def test_backup_status_skips_archives_with_invalid_manifest_shape(installation,manifest):
+    import threading
+    from mailcheck.backup_manager import BackupManager
+    manager=BackupManager(installation,threading.RLock())
+    valid=manager.create()['name']
+    invalid=manager.folder/'manual-20200101T000000Z-00000000.zip'
+    with zipfile.ZipFile(invalid,'w') as archive:
+        archive.writestr('manifest.json',json.dumps(manifest))
+    assert [entry['name'] for entry in manager.status()['archives']]==[valid]
+    assert invalid.is_file()

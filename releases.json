@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.24.7",
+    "date": "2026-11-09",
+    "title": "Fix account presets, backup listing and manual reply recovery",
+    "changes": [
+      "Clear stale automatic IMAP server details immediately when changing mailbox addresses, while preserving subsequent manual edits.",
+      "Keep the backup list usable when an archive contains a malformed manifest, preserving the archive file.",
+      "Handle malformed Outlook reply metadata without leaving unsent requests stuck or weakening uncertain-delivery protection."
+    ]
+  },
+  {
     "version": "2.24.6",
     "date": "2026-11-09",
     "title": "Speed up page loading and recover from temporary outages",

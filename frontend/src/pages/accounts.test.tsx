@@ -143,3 +143,36 @@ it('orders provider, bidder management, and visibility panels beneath connected 
  expect(management.compareDocumentPosition(visibility)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
  expect(screen.getByRole('navigation',{name:'Account sections'})).toBeTruthy()
 })
+
+it("clears the previous provider server when a new address has no preset", async () => {
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(json({ preset: url.includes("gmail") ? { host: "imap.gmail.com", port: 993, note: "Gmail" } : null }))))
+  mount(); fireEvent.click(await screen.findByRole("button", { name: "Connect mailbox" }))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@gmail.com" } })
+  await waitFor(() => expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("imap.gmail.com"))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@custom.example" } })
+  await screen.findByText("Add your provider’s IMAP hostname below.")
+  expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("")
+})
+
+it("preserves a manual server when the provider lookup has no preset", async () => {
+  let finish!: (value: Response) => void
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve })))
+  mount(); fireEvent.click(await screen.findByRole("button", { name: "Connect mailbox" }))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@custom.example" } })
+  await waitFor(() => expect(finish).toBeTypeOf("function"))
+  fireEvent.change(screen.getByLabelText("IMAP host"), { target: { value: "imap.custom.example" } })
+  fireEvent.change(screen.getByLabelText("Port"), { target: { value: "1993" } })
+  await act(async () => finish(json({ preset: null })))
+  expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("imap.custom.example")
+  expect((screen.getByLabelText("Port") as HTMLInputElement).value).toBe("1993")
+})
+
+it.each(["me@custom.example", "me"])("clears the previous provider server immediately when the address changes to %s", async email => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ preset: { host: "imap.gmail.com", port: 1993, note: "Gmail" } })))
+  mount(); fireEvent.click(await screen.findByRole("button", { name: "Connect mailbox" }))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@gmail.com" } })
+  await waitFor(() => expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("imap.gmail.com"))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: email } })
+  expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("")
+  expect((screen.getByLabelText("Port") as HTMLInputElement).value).toBe("993")
+})

@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.7 — 2026-11-09
+
+Fix account presets, backup listing and manual reply recovery
+
+- Clear stale automatic IMAP server details immediately when changing mailbox addresses, while preserving subsequent manual edits.
+- Keep the backup list usable when an archive contains a malformed manifest, preserving the archive file.
+- Handle malformed Outlook reply metadata without leaving unsent requests stuck or weakening uncertain-delivery protection.
+
 ## 2.24.6 — 2026-11-09
 
 Speed up page loading and recover from temporary outages

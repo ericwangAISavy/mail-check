@@ -178,3 +178,38 @@ Chromium under production security headers verified initial 502 recovery and
 background 502 recovery while retaining the exact search input DOM node and its
 unsaved value, plus startup recovery and active-page filter preservation. The
 existing Starlette/httpx dependency deprecation and Vite chunk-size warning remain.
+
+## Broader functional review — version 2.24.7
+
+This pass covered account setup, backup status/archive handling, manual email
+replies, page/form state, and payment/deduction integrity beyond loading.
+
+- Changing from a known IMAP provider to an unsupported provider retained the
+  previous server. The email-change handler now clears the old host/port/note
+  immediately, including incomplete email input, and a no-preset result clears
+  automatic details. Server settings entered manually after the change remain
+  protected from delayed lookup results. Browser verification exercised this
+  flow in the compiled production UI without creating an account or sending mail.
+- A ZIP with a correctly named archive but a null/list/bool manifest crashed
+  BackupManager.status with TypeError, hiding every archive. Listing now skips
+  that malformed manifest while preserving its file. Restore validation and
+  retention behavior are unchanged. Backup unit/API fixtures verified the fix.
+- Malformed Outlook reply metadata caused unhandled attribute/type errors before
+  any send and left the operation in preparing state. Message/list identifiers,
+  recipient shapes/addresses and subject values used for replies are now checked.
+  A malformed response returns a controlled provider error and records the unsent
+  request as failed, allowing explicit retry of the same operation after healthy
+  metadata returns. Regression cases prove no send occurs on those failures and
+  that retry succeeds; accepted/uncertain delivery remains protected from resend.
+  This does not retroactively declare older stuck/uncertain deliveries unsent.
+
+The financial audit found no material reproducible defect in rounding, amount/date
+validation, daily-deduction eligibility, saved overrides/paid snapshots, revision
+checks or serialized writes. Focused payment suites passed 61 backend and 5
+payout-report frontend tests; no payment calculation or history changes were made.
+
+Final 2.24.7 verification: 836 backend tests and 98 subtests passed; 451 frontend
+tests across 47 files passed; production build, release consistency and Chromium
+account-setup checks passed. Existing dependency deprecation/chunk-size warnings
+remain. Tests use disposable archives, databases and mocked provider responses;
+no real mailbox was connected, no email sent, and no production records changed.

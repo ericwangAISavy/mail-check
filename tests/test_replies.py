@@ -52,6 +52,35 @@ class ReplyTests(TestCase):
         changed=self.payload(); changed['body']='Different'
         self.assertEqual(self.client.post(url,json=changed).status_code,409)
 
+    def test_malformed_outlook_metadata_does_not_wedge_a_reply_before_sending(self):
+        import json
+        from uuid import uuid4
+        valid = {'id':'id/with+chars','internetMessageId':'<original@test>',
+                 'subject':'Interview','from':{'emailAddress':{'address':'hr@example.test'}}}
+        good_transport = self.transport
+        malformed = [None, [], {**valid,'id':42},
+                     {**valid,'replyTo':['invalid-recipient']},
+                     {**valid,'from':{'emailAddress':['invalid-address']}},
+                     {**valid,'subject':['invalid-subject']}]
+        for value in malformed:
+            with self.subTest(metadata=value):
+                requests = []
+                def response(request):
+                    requests.append(request)
+                    return httpx.Response(200, content=json.dumps(value), headers={'Content-Type':'application/json'})
+                self.transport = httpx.MockTransport(response)
+                payload = {**self.payload(), 'operation':str(uuid4()), 'mark_done':False}
+                with patch.object(self.client._transport,'raise_server_exceptions',False):
+                    result = self.client.post(f'/api/messages/{self.pk}/reply',json=payload)
+                self.assertEqual(result.status_code,502,result.text)
+                self.assertFalse(any(request.method=='POST' for request in requests))
+                row = self.conn.execute('SELECT status FROM mail_replies WHERE operation=?',(payload['operation'],)).fetchone()
+                self.assertEqual(row['status'],'failed')
+                self.assertIsNone(db.get_message(self.conn,self.pk)['handled_at'])
+                self.transport = good_transport
+                retried = self.client.post(f'/api/messages/{self.pk}/reply',json=payload)
+                self.assertEqual(retried.status_code,200,retried.text)
+
     def test_transport_timeout_is_not_retried_and_does_not_mark_done(self):
         def fail(request):
             if request.method=='POST': raise httpx.ReadTimeout('timeout',request=request)

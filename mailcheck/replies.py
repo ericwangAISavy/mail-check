@@ -68,15 +68,21 @@ def metadata(client,row):
             original=row['message_id'].replace("'","''")
             response=client.get(f'{GRAPH}/me/messages',params={'$filter':f"internetMessageId eq '{original}'",'$select':fields,'$top':2})
             check_response(response)
-            matches=response.json().get('value',[])
+            payload=response.json()
+            if not isinstance(payload,dict) or not isinstance(payload.get('value'),list):
+                raise ValueError('Invalid message listing')
+            matches=payload['value']
             if len(matches)!=1: raise ReplyError('The original message could not be found in this mailbox. Refresh mail and try again.',404)
             item=matches[0]
         else:
             check_response(response)
             item=response.json()
+        if not isinstance(item,dict):
+            raise ValueError('Invalid message metadata')
     except (httpx.TransportError,ValueError) as exc:
         raise ReplyError('Could not load the original message from Microsoft. Your reply has not been sent.',502) from exc
-    if not item.get('id'): raise ReplyError('Microsoft returned no message identifier.',502)
+    if not isinstance(item.get('id'),str) or not item['id'].strip():
+        raise ReplyError('Microsoft returned no valid message identifier.',502)
     if not row['message_id'].startswith('<graph-') and item.get('internetMessageId')!=row['message_id']:
         raise ReplyError('The stored message no longer matches the mailbox message. Refresh mail before replying.',409)
     return item
@@ -86,7 +92,23 @@ def check_response(response):
     if response.status_code>=400: raise ReplyError(f'Microsoft rejected the request (HTTP {response.status_code}). No reply was sent.',502)
 
 def addresses(values):
-    return list(dict.fromkeys(a['emailAddress']['address'] for a in values or [] if (a.get('emailAddress') or {}).get('address')))
+    if values is None:return []
+    if not isinstance(values,list):
+        raise ReplyError('The original message has invalid recipient metadata. No reply was sent.',502)
+    result=[]
+    for item in values:
+        if not isinstance(item,dict):
+            raise ReplyError('The original message has invalid recipient metadata. No reply was sent.',502)
+        email=item.get('emailAddress')
+        if email is None:continue
+        if not isinstance(email,dict):
+            raise ReplyError('The original message has invalid recipient metadata. No reply was sent.',502)
+        address=email.get('address')
+        if address is None or address=='':continue
+        if not isinstance(address,str) or '\r' in address or '\n' in address:
+            raise ReplyError('The original message has invalid recipient metadata. No reply was sent.',502)
+        result.append(address)
+    return list(dict.fromkeys(result))
 
 def envelope(row,item,mode):
     to=addresses(item.get('replyTo')) or addresses([item.get('from') or {}])
@@ -98,6 +120,8 @@ def envelope(row,item,mode):
     to=list({a.casefold():a for a in to if a.casefold()!=own}.values())
     cc=list({a.casefold():a for a in cc if a.casefold()!=own and a.casefold() not in {b.casefold() for b in to}}.values())
     subject=item.get('subject') or '(no subject)'
+    if not isinstance(subject,str):
+        raise ReplyError('The original message has invalid subject metadata. No reply was sent.',502)
     return {'from':row['account_email'],'to':to,'cc':cc,'subject':subject if subject.lower().startswith('re:') else 'Re: '+subject}
 
 def context(conn,pk,mode='reply'):
