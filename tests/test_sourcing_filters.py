@@ -181,3 +181,12 @@ class IncomingFilterTests(unittest.TestCase):
         with db.session(self.path) as upgraded:
             self.assertEqual(filters.companies(upgraded),['Keep Co'])
             self.assertEqual(filters.roles(upgraded,self.account_id),[])
+
+
+def test_job_cell_newline_cleanup_preserves_url_paths_and_custom_notes():
+    from mailcheck.sourcing_filters import normalize_job_cell
+    assert normalize_job_cell('Sem-Sol\r\n','company')=='Sem-Sol'
+    assert normalize_job_cell('Software\nEngineer','role')=='Software Engineer'
+    assert normalize_job_cell('https://jobs.test/news\n/123','link')=='https://jobs.test/news/123'
+    assert normalize_job_cell('https://jobs.test/news','link')=='https://jobs.test/news'
+    assert normalize_job_cell('one\ntwo',None)=='one\ntwo'

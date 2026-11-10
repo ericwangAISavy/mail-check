@@ -434,6 +434,9 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                 if not isinstance(value, str) or len(value) > 50_000:
                     raise ValueError("A cell can contain up to 50,000 text characters.")
                 kind = conn.execute("SELECT kind FROM native_columns WHERE id=?", (column_id,)).fetchone()[0]
+                if change.get("value") is not None:
+                    from .sourcing_filters import normalize_job_cell
+                    value = normalize_job_cell(value,kind)
                 if kind == "check" and value not in ("", "true", "false"):
                     raise ValueError("Check cells must be checked or unchecked.")
                 if kind == "check" and cell and cell["value"] == "true" and value != "true":

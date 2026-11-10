@@ -157,16 +157,21 @@ function parseDelimited(text: string, delimiter: string, strict = false) {
 export function parseTSV(text: string) {
   return parseDelimited(text, "\t");
 }
+function singleLineClipboardCell(value: string) {
+  if (!/[\r\n\u2028\u2029]/.test(value)) return value;
+  return value.replace(/[ \t]*[\r\n\u2028\u2029]+[ \t]*/g, /^\s*https?:\/\//i.test(value) ? "" : " ").trim();
+}
+const singleLineClipboardRows = (rows: string[][]) => rows.map(row => row.map(singleLineClipboardCell));
 /** Prefer copied table cell boundaries over ambiguous rendered plain text. */
 export function parseClipboardRows(text: string, html = ""): string[][] {
   if (text.length > 4 * 1024 * 1024 || html.length > 4 * 1024 * 1024)
     throw new Error("Clipboard data is too large. Paste a smaller selection.");
-  if (!/<table(?:\s|>)/i.test(html)) return parseTSV(text);
+  if (!/<table(?:\s|>)/i.test(html)) return singleLineClipboardRows(parseTSV(text));
   // Inert template content never enters the live document. Return text only.
   const template = document.createElement("template");
   template.innerHTML = html;
   const table = template.content.querySelector("table");
-  if (!table || !table.rows.length) return parseTSV(text);
+  if (!table || !table.rows.length) return singleLineClipboardRows(parseTSV(text));
   const sourceRows = Array.from(table.rows);
   const matrix: string[][] = [];
   let cells = 0;
@@ -203,7 +208,7 @@ export function parseClipboardRows(text: string, html = ""): string[][] {
       col += width;
     }
   });
-  return matrix.map(row => Array.from({ length: row.length }, (_, i) => row[i] ?? ""));
+  return singleLineClipboardRows(matrix.map(row => Array.from({ length: row.length }, (_, i) => row[i] ?? "")));
 }
 export function parseCSV(text: string) {
   return parseDelimited(text.replace(/^\uFEFF/, ""), ",", true);

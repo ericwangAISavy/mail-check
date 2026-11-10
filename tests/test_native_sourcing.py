@@ -619,3 +619,20 @@ class NativeSheetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 structure(self.conn,self.tab(),'rename-'+column['id'],before['revision'],{'action':'rename_column','column_id':column['id'],'title':'Changed'})
         self.assertEqual(self.snapshot(),before)
+
+    def test_appended_job_fields_are_single_line(self):
+        base=self.snapshot()
+        result=self.native.append(self.conn,self.tab(),'newline-append',base['revision'],[
+            ['Sem-Sol\n','Software\r\nEngineer','https://jobs.test/new\n/123'],
+            ['Acme','Engineer','https://jobs.test/news'],
+        ])
+        rows=[row for row in result['rows'][1:] if row[0]['value']]
+        self.assertEqual([[cell['value'] for cell in row[:3]] for row in rows],[
+            ['Sem-Sol','Software Engineer','https://jobs.test/new/123'],['Acme','Engineer','https://jobs.test/news']])
+
+    def test_saved_job_fields_are_single_line(self):
+        base=self.snapshot()
+        result=self.native.save(self.conn,self.tab(),'newline-save',[
+            self.change('Sem-Sol\n',0,1,base),self.change('Software\nEngineer',1,1,base),
+            self.change('https://jobs.test/new\r\n/123',2,1,base)])
+        self.assertEqual([cell['value'] for cell in result['rows'][1][:3]],['Sem-Sol','Software Engineer','https://jobs.test/new/123'])

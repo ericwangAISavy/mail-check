@@ -105,8 +105,8 @@ it('keeps wrapped company text in the same job row using clipboard table boundar
  const html='<table><tr><td><div>Sem-Sol</div></td><td>Software Engineer</td><td>https://jobs.test/1</td></tr><tr><td>Captivation Software<br></td><td>Engineer</td><td>https://jobs.test/2</td></tr></table>'
  expect(parseClipboardRows(plain,html)).toEqual([['Sem-Sol','Software Engineer','https://jobs.test/1'],['Captivation Software','Engineer','https://jobs.test/2']])
 })
-it('preserves multiline cells, empty cells and Unicode in copied tables',()=>{
- expect(parseClipboardRows('', '<table><tr><td>Acme<br>Labs</td><td></td><td>日本語</td></tr></table>')).toEqual([['Acme\nLabs','','日本語']])
+it('flattens embedded cell line breaks while keeping empty cells and Unicode',()=>{
+ expect(parseClipboardRows('', '<table><tr><td>Acme<br>Labs</td><td></td><td>日本語</td></tr></table>')).toEqual([['Acme Labs','','日本語']])
 })
 it('preserves merged-cell positions instead of shifting job columns',()=>{
  expect(parseClipboardRows('', '<table><tr><td rowspan="2">Acme</td><td>Engineer</td><td>https://jobs.test/1</td></tr><tr><td>Designer</td><td>https://jobs.test/2</td></tr></table>')).toEqual([['Acme','Engineer','https://jobs.test/1'],['','Designer','https://jobs.test/2']])
@@ -119,4 +119,7 @@ it('extracts text only and ignores executable or embedded clipboard markup',()=>
 })
 it('bounds merged table expansion',()=>{
  expect(()=>parseClipboardRows('', '<table><tr>'+Array(11).fill('<td colspan="1000">x</td>').join('')+'</tr></table>')).toThrow('10,000 cells')
+})
+it('removes cell-internal line breaks from quoted spreadsheet text without merging rows',()=>{
+ expect(parseClipboardRows('"Sem-Sol\n"\t"Software\r\nEngineer"\t"https://jobs.test/new\n/123"\r\nAcme\tEngineer\thttps://jobs.test/news')).toEqual([['Sem-Sol','Software Engineer','https://jobs.test/new/123'],['Acme','Engineer','https://jobs.test/news']])
 })

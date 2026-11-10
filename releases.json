@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.27.5",
+    "date": "2026-11-10",
+    "title": "Remove embedded line breaks from pasted job fields",
+    "changes": [
+      "Automatically flatten cell-internal line breaks in pasted company names and roles and rejoin wrapped job URLs, while preserving spreadsheet row boundaries.",
+      "Apply the same cleanup to saved and imported job fields before validation and filtering."
+    ]
+  },
+  {
     "version": "2.27.4",
     "date": "2026-11-10",
     "title": "Keep pasted job rows aligned",

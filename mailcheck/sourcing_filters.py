@@ -5,6 +5,12 @@ import unicodedata
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 
+def normalize_job_cell(value,kind):
+    """Flatten cell-internal line breaks after row/column parsing, never before."""
+    if kind not in ('company','role','link') or not re.search(r'[\r\n\u2028\u2029]',value):return value
+    return re.sub(r'[ \t]*[\r\n\u2028\u2029]+[ \t]*','' if kind=='link' else ' ',value).strip()
+
+
 def company_key(value):
     return ''.join(c for c in value.casefold() if c.isalnum())
 

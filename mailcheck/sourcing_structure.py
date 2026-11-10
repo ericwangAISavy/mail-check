@@ -160,7 +160,7 @@ def structure(conn, tab, operation, revision, command):
 
 def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
     columns = conn.execute(
-        "SELECT id FROM native_columns WHERE tab_id=? ORDER BY position,id",
+        "SELECT id,kind FROM native_columns WHERE tab_id=? ORDER BY position,id",
         (tab["id"],),
     ).fetchall()
     if (
@@ -175,6 +175,8 @@ def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
         for value in row
     ):
         raise ValueError("Each cell must be text with at most 50,000 characters.")
+    from .sourcing_filters import normalize_job_cell
+    rows = [[normalize_job_cell(value,columns[c]["kind"]) for c,value in enumerate(row)] for row in rows]
     rows = [row for row in rows if any(value.strip() for value in row)]
     if not rows:
         sheets.compact_blank_rows(conn, tab["id"])
