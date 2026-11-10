@@ -475,6 +475,44 @@ describe("clear entire queue", () => {
     await screen.findByRole("button", { name: "Refresh Inbox" })
     expect(screen.queryByRole("button", { name: "Mark all as done" })).toBeNull()
   })
+  it("reuses the operation after a lost response, then replaces it after success or cancel", async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!
+    let loseResponse = true
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const result = await base(input, init)
+      if (String(input) === "/api/messages/clear-queue" && loseResponse) {
+        loseResponse = false
+        throw new Error("Response lost")
+      }
+      return result
+    })
+    renderPage()
+    const open = async () => fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+    const confirm = () => fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+    const calls = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/messages/clear-queue")
+    const operation = (index: number) => JSON.parse(String(calls()[index][1]?.body)).operation
+    await open()
+    confirm()
+    await screen.findByRole("alert")
+    expect(calls()).toHaveLength(1)
+    const first = operation(0)
+    expect(first).toMatch(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i)
+    confirm()
+    await screen.findByText("Moved 2 messages to Completed.")
+    expect(calls()).toHaveLength(2)
+    expect(operation(1)).toBe(first)
+    failDone = true
+    await open()
+    confirm()
+    await screen.findByRole("alert")
+    expect(operation(2)).not.toBe(first)
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    await open()
+    confirm()
+    await screen.findByRole("alert")
+    expect(calls()).toHaveLength(4)
+    expect(operation(3)).not.toBe(operation(2))
+  })
   it("keeps a failed confirmation open without automatic retries", async () => {
     failDone = true
     renderPage()
@@ -487,12 +525,13 @@ describe("clear entire queue", () => {
 })
 
 
-it("clears with no request body and offers batch undo", async () => {
+it("clears with an operation identifier and offers batch undo", async () => {
   renderPage()
   fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
   fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
   await screen.findByText("Moved 2 messages to Completed.")
-  expect(requests).toContain("POST /api/messages/clear-queue ")
+  const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input) === "/api/messages/clear-queue")!
+  expect(JSON.parse(String(call[1]?.body))).toEqual({ operation: expect.any(String) })
   expect(screen.queryByRole("dialog")).toBeNull()
   fireEvent.click(screen.getByRole("button", { name: "Undo" }))
   await screen.findByText("Restored 2 messages.")

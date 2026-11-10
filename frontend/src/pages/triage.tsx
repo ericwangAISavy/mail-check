@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowUpRight, CalendarClock, Check, ChevronDown, Clock3, Filter, LoaderCircle, RefreshCw, Reply, RotateCcw, Sparkles } from "lucide-react"
 import { EmailContent } from "@/components/email-content"
 import { api, triageParams } from "@/lib/api"
+import { operationId } from "@/lib/operation-id"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
@@ -159,6 +160,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   }, [messages, selected, targetPk])
   const done = useDoneMutation(undefined,bidderInbox)
   const [clearOpen, setClearOpen] = useState(false)
+  const clearOperation = useRef<string | null>(null)
   const [queueBusy, setQueueBusy] = useState(false)
   const queueLock = useRef(false)
   const [clearError, setClearError] = useState("")
@@ -175,12 +177,12 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
     finally { queueLock.current = false; setQueueBusy(false) }
   }
   const clearQueue = async () => {
-    if (bidderInbox || view !== "queue" || queueLock.current || done.isPending) return
+    if (bidderInbox || view !== "queue" || !clearOperation.current || queueLock.current || done.isPending) return
     queueLock.current = true
     setQueueBusy(true)
     setClearError("")
     try {
-      const response = await api.post<{message:string;count:number;operation:string|null}>("/api/messages/clear-queue")
+      const response = await api.post<{message:string;count:number;operation:string|null}>("/api/messages/clear-queue", { operation: clearOperation.current })
       await refreshMail()
       setClearOpen(false)
       toast(response.message || `Moved ${response.count} messages to Completed.`, "success", response.operation ? {label:"Undo",run:()=>void undoClear(response.operation!)} : undefined)
@@ -240,7 +242,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
     <div className="triage-heading-row">
     <PageHeading title={bidderInbox ? "Inbox" : title || "Your triage"} description={bidderInbox ? "Info request messages for your assigned accounts." : data?.last_run || bootstrap.last_run || undefined} />
     <div className="triage-bar"><div className="view-tabs" role="tablist" aria-label="Mail views">{(["queue", "all", "completed"] as const).map((key) => <button type="button" role="tab" aria-selected={view === key} className={view === key ? "selected" : ""} key={key} onClick={() => setFilter("view", key)}>{key === "queue" ? "Queue" : key === "all" ? "All mail" : "Completed"}{key === "queue" && data?.summary.actionable ? <span className="tab-count">{data.summary.actionable}</span> : null}</button>)}</div>
-      <div className="triage-tools">{!bidderInbox && view === "queue" && <Button variant="outline" size="sm" disabled={done.isPending || queueBusy} onClick={() => { setClearError(""); setClearOpen(true) }}><Check size={14} />Mark all as done</Button>}{bidderInbox && <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={14} className={query.isFetching ? "spin" : undefined} />Refresh Inbox</Button>}<Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>
+      <div className="triage-tools">{!bidderInbox && view === "queue" && <Button variant="outline" size="sm" disabled={done.isPending || queueBusy} onClick={() => { clearOperation.current = operationId(); setClearError(""); setClearOpen(true) }}><Check size={14} />Mark all as done</Button>}{bidderInbox && <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={14} className={query.isFetching ? "spin" : undefined} />Refresh Inbox</Button>}<Button variant="outline" size="sm" className={filtersOpen ? "tool-active" : ""} onClick={() => setFiltersOpen((current) => !current)}><Filter size={14} />Filters{activeFilters > 0 && <span className="tab-count" aria-label={`${activeFilters} active`}>{activeFilters}</span>}<ChevronDown size={13} /></Button><span className="list-count">{data?.total.toLocaleString()} messages</span></div></div>
     {bidderInbox && <span role="status" className="form-hint">{liveStatus || checkTime}</span>}
     {!bidderInbox && <Button className="triage-undo" variant="ghost" size="sm" onClick={undo} disabled={done.isPending || queueBusy || clearOpen} title="Undo the most recent Done action"><RotateCcw size={15} />Undo <kbd>{modKey}+Z</kbd></Button>}
     </div>

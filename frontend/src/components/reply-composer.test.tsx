@@ -4,7 +4,7 @@ import {QueryClient, QueryClientProvider} from "@tanstack/react-query"
 import {ToastProvider} from "@/components/common"
 import {api, request, getWorkspaceIdentity} from "@/lib/api"
 import ReplyComposer from "./reply-composer"
-vi.mock("@/lib/api",() => ({api:{post:vi.fn(),reader:vi.fn()},ApiError:class ApiError extends Error{},request:vi.fn(),getWorkspaceIdentity:vi.fn()}))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(),api:{post:vi.fn(),reader:vi.fn()},ApiError:class ApiError extends Error{},request:vi.fn(),getWorkspaceIdentity:vi.fn()}))
 vi.mock("./outlook-dialog",()=>({default:()=>null}))
 const clients: QueryClient[]=[]
 afterEach(()=>{cleanup();clients.forEach(c=>c.clear());clients.length=0;localStorage.clear();vi.resetAllMocks()})

@@ -18,10 +18,14 @@ def _write(conn):
         raise
 
 
-def clear(conn):
+def clear(conn, operation=None):
     categories = [c.name for c in CATEGORIES if is_queue_category(c.name)]
-    operation = str(uuid4())
+    operation = str(operation or uuid4())
     with _write(conn):
+        previous = conn.execute('SELECT message_count FROM queue_clear_operations WHERE operation=?', (operation,)).fetchone()
+        if previous is not None:
+            count = previous['message_count']
+            return {'count':count, 'operation':operation if count else None, 'replayed':True}
         stamp = db._handled_now(conn)
         cursor = conn.execute('''INSERT OR REPLACE INTO queue_clear_members(message_pk,operation,handled_at)
             SELECT m.id,?,? FROM messages m JOIN accounts a ON a.id=m.account_id
@@ -31,7 +35,9 @@ def clear(conn):
         if count:
             conn.execute('''UPDATE messages SET handled_at=? WHERE id IN
                 (SELECT message_pk FROM queue_clear_members WHERE operation=?)''', (stamp, operation))
-    return {'count':count, 'operation':operation if count else None}
+        conn.execute('INSERT INTO queue_clear_operations(operation,message_count,created_at) VALUES(?,?,?)',
+                     (operation,count,stamp))
+    return {'count':count, 'operation':operation if count else None, 'replayed':False}
 
 
 def restore(conn, operation):

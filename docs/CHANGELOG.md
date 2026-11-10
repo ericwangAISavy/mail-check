@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.25.1 — 2026-11-09
+
+Make Queue retries and Undo notifications safe
+
+- Reuse a durable confirmation ID for bulk Queue retries so a lost response cannot clear newly arrived mail or reapply an undone action.
+- Discard notifications and Undo actions from previous workspaces or sessions, including delayed completion callbacks.
+
 ## 2.25.0 — 2026-11-09
 
 Clear the Queue in one bulk action

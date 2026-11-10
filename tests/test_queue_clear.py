@@ -129,3 +129,60 @@ class QueueClearTests(TestCase):
             self.assertEqual(db.last_handled(self.conn)['pk'],second)
             self.assertEqual(self.client.post('/api/messages/undo-last').json()['pk'],second)
             self.assertEqual(self.client.post('/api/messages/undo-last').json()['pk'],first)
+
+    def test_retry_of_confirmed_operation_does_not_clear_new_arrivals_or_reapply_after_undo(self):
+        operation = '11111111-1111-4111-8111-111111111111'
+        first = self.add('first')
+        response = self.client.post('/api/messages/clear-queue',json={'operation':operation})
+        self.assertEqual(response.status_code,200,response.text)
+        later = self.add('later')
+        retried = self.client.post('/api/messages/clear-queue',json={'operation':operation})
+        self.assertEqual(retried.json()['count'],1)
+        self.assertEqual(retried.json()['operation'],response.json()['operation'])
+        self.assertTrue(retried.json()['replayed'])
+        self.assertIsNone(db.get_message(self.conn,later)['handled_at'])
+        self.client.post(f'/api/messages/clear-queue/{operation}/undo')
+        repeated = self.client.post('/api/messages/clear-queue',json={'operation':operation})
+        self.assertTrue(repeated.json()['replayed'])
+        for pk in (first,later):self.assertIsNone(db.get_message(self.conn,pk)['handled_at'])
+
+    def test_retry_of_empty_clear_does_not_capture_future_queue(self):
+        operation = '22222222-2222-4222-8222-222222222222'
+        response = self.client.post('/api/messages/clear-queue',json={'operation':operation})
+        self.assertEqual(response.json()['count'],0)
+        later = self.add('future')
+        retried = self.client.post('/api/messages/clear-queue',json={'operation':operation})
+        self.assertEqual(retried.json()['count'],0)
+        self.assertTrue(retried.json()['replayed'])
+        self.assertIsNone(db.get_message(self.conn,later)['handled_at'])
+
+    def test_schema_upgrade_retains_legacy_batch_replay_protection(self):
+        from mailcheck import queue_actions
+        self.add('legacy-batch')
+        result = queue_actions.clear(self.conn)
+        later = self.add('later')
+        self.conn.execute('DROP TABLE queue_clear_operations')
+        self.conn.execute('PRAGMA user_version=46')
+        self.conn.commit()
+        upgraded = db.connect(self.path)
+        try:
+            retried = queue_actions.clear(upgraded,result['operation'])
+            self.assertTrue(retried['replayed'])
+            self.assertEqual(retried['count'],1)
+            self.assertIsNone(db.get_message(upgraded,later)['handled_at'])
+        finally:
+            upgraded.close()
+
+    def test_concurrent_confirmations_of_same_operation_apply_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from mailcheck import queue_actions
+        self.add('concurrent')
+        operation = '33333333-3333-4333-8333-333333333333'
+        def confirm(_):
+            with db.session(self.path) as conn:
+                return queue_actions.clear(conn,operation)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(confirm,range(2)))
+        self.assertEqual([result['count'] for result in results],[1,1])
+        self.assertEqual(sorted(result['replayed'] for result in results),[False,True])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM queue_clear_operations').fetchone()[0],1)

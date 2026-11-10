@@ -4,12 +4,22 @@ export type Session = {role: "admin" | "bidder" | null; bidder_id?: number; bidd
 let workspaceId: string | undefined
 let sessionIdentity: string | undefined
 let identityRevision = 0
+const identityListeners = new Set<() => void>()
 export function setWorkspaceIdentity(id?: string, identity?: string) {
-  if (workspaceId !== id || sessionIdentity !== identity) identityRevision++
+  const changed = workspaceId !== id || sessionIdentity !== identity
   workspaceId = id
   sessionIdentity = identity
+  if (changed) {
+    identityRevision++
+    identityListeners.forEach((listener) => listener())
+  }
 }
 export function getWorkspaceIdentity() {return workspaceId}
+export function getWorkspaceIdentityRevision() { return identityRevision }
+export function subscribeWorkspaceIdentity(listener: () => void) {
+  identityListeners.add(listener)
+  return () => { identityListeners.delete(listener) }
+}
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message) }

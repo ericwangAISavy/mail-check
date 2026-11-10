@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import InterviewProcessesPage from "./interview-processes"
 
-vi.mock("@/lib/api", () => ({ request: vi.fn() }))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(), request: vi.fn() }))
 const clients: QueryClient[] = []
 const milestone = (id: string, day: number, reason: string | null = null) => ({ id, kind: id.startsWith("message") ? "message" : "event", occurred_at: `2026-10-${day}T15:30:00Z`, title: id.startsWith("message") ? "Choose a time" : "Technical interview", summary: "Recruiter asks for your availability.", status: "Scheduled", sender: "hr@appian.com", account_labels: ["Work"], href: id.startsWith("message") ? null : "/interviews?event=1", assignment_reason: reason, organization_domains: reason ? ["appian.com", "rava.com"] : ["appian.com"] })
 const report = () => ({ processes: [

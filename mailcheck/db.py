@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 46
+SCHEMA_VERSION = 47
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -130,6 +130,14 @@ CREATE TABLE IF NOT EXISTS queue_clear_members (
     handled_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_queue_clear_operation ON queue_clear_members(operation);
+CREATE TABLE IF NOT EXISTS queue_clear_operations (
+    operation TEXT PRIMARY KEY NOT NULL,
+    message_count INTEGER NOT NULL CHECK(message_count>=0),
+    created_at TEXT NOT NULL
+);
+INSERT OR IGNORE INTO queue_clear_operations(operation,message_count,created_at)
+    SELECT operation,COUNT(*),MAX(handled_at) FROM queue_clear_members GROUP BY operation;
+
 
 CREATE TABLE IF NOT EXISTS classifications (
     id              INTEGER PRIMARY KEY,

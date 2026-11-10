@@ -1,22 +1,28 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react"
 import { Check, CircleAlert, LoaderCircle, RotateCcw, Search, X } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { api, request } from "@/lib/api"
+import { api, request, getWorkspaceIdentityRevision, subscribeWorkspaceIdentity } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import type { Message } from "@/lib/types"
 
-type Toast = { id: number; text: string; kind: "success" | "error" | "info"; action?: { label: string; run: () => void } }
+type Toast = { id: number; revision: number; text: string; kind: "success" | "error" | "info"; action?: { label: string; run: () => void } }
 const ToastContext = createContext<(text: string, kind?: Toast["kind"], action?: Toast["action"]) => void>(() => undefined)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([])
+  const revision = useSyncExternalStore(subscribeWorkspaceIdentity, getWorkspaceIdentityRevision)
+  useEffect(() => { setItems((current) => current.filter((item) => item.revision === revision)) }, [revision])
   const toast = useCallback((text: string, kind: Toast["kind"] = "info", action?: Toast["action"]) => {
+    const revision = getWorkspaceIdentityRevision()
     const id = Date.now() + Math.random()
-    setItems((current) => [...current, { id, text, kind, action }])
+    const guardedAction = action && { ...action, run: () => {
+      if (revision === getWorkspaceIdentityRevision()) action.run()
+    } }
+    setItems((current) => [...current, { id, revision, text, kind, action: guardedAction }])
   }, [])
   const dismiss = useCallback((id: number) => setItems((current) => current.filter((item) => item.id !== id)), [])
-  return <ToastContext.Provider value={toast}>{children}<div className="toast-stack" aria-live="polite">{items.map((item) => <ToastView key={item.id} item={item} onDismiss={dismiss} />)}</div></ToastContext.Provider>
+  return <ToastContext.Provider value={toast}>{children}<div className="toast-stack" aria-live="polite">{items.filter((item) => item.revision === revision).map((item) => <ToastView key={item.id} item={item} onDismiss={dismiss} />)}</div></ToastContext.Provider>
 }
 
 /** One toast. The timer pauses while it is hovered or focused so it cannot vanish
@@ -35,7 +41,15 @@ function ToastView({ item, onDismiss }: { item: Toast; onDismiss: (id: number) =
     <button type="button" className="toast-dismiss" aria-label="Dismiss notification" onClick={() => onDismiss(item.id)}><X size={14} /></button>
   </div>
 }
-export function useToast() { return useContext(ToastContext) }
+export function useToast() {
+  const toast = useContext(ToastContext)
+  const revision = useSyncExternalStore(subscribeWorkspaceIdentity, getWorkspaceIdentityRevision)
+  // Capture the caller's identity so delayed mutation callbacks cannot publish
+  // notifications (or actions) into a later session, even in the same workspace.
+  return useCallback((...args: Parameters<typeof toast>) => {
+    if (revision === getWorkspaceIdentityRevision()) toast(...args)
+  }, [toast, revision])
+}
 
 /** The platform's shortcut modifier, so hints match the keys that work. */
 export const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl"

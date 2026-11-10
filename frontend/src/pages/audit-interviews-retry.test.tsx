@@ -6,7 +6,7 @@ import { ToastProvider } from "@/components/common"
 import { api, request } from "@/lib/api"
 import type { Bootstrap, InterviewEvent } from "@/lib/types"
 import InterviewsPage from "./interviews"
-vi.mock("@/lib/api",()=>({request:vi.fn(),api:{status:vi.fn(),startCheck:vi.fn(),post:vi.fn(),reader:vi.fn()}}))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(),request:vi.fn(),api:{status:vi.fn(),startCheck:vi.fn(),post:vi.fn(),reader:vi.fn()}}))
 const bootstrap:Bootstrap={readiness:{model:true,accounts:true,privacy_ack:true,outlook:true},counts:{},taxonomy:[],presets:[],last_run:"",account_count:2}
 const event=():InterviewEvent=>({id:1,calendar_uid:"uid",company:"Acme",role:"Engineer",stage:"Technical Interview",status:"Scheduled",display_status:"Scheduled",start_at:new Date(new Date().setHours(23,0,0,0)).toISOString(),end_at:new Date(new Date().setHours(23,45,0,0)).toISOString(),timezone:"UTC",meeting_platform:"Zoom",meeting_url:"https://zoom.us/j/123",location:null,organizer_name:"Recruiter",organizer_email:"recruiter@acme.test",participants:[],notes:null,confidence:.98,needs_review:false,review_reason:null,manual_fields:[],created_at:new Date().toISOString(),updated_at:new Date().toISOString()})
 const clients:QueryClient[]=[]

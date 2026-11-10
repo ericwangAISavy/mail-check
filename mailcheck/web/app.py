@@ -112,6 +112,11 @@ def _reschedule(cfg=None) -> None:
 # ------------------------------------------------------------------ request bodies
 
 
+class QueueClearBody(BaseModel):
+    model_config = {"extra":"forbid"}
+    operation: UUID | None = None
+
+
 class LoginBody(BaseModel):
     username: str = Field(default="owner", max_length=192)
     role: Literal["admin", "bidder"]
@@ -1517,14 +1522,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         }
 
     @app.post("/api/messages/clear-queue")
-    def api_clear_queue(request: Request):
+    def api_clear_queue(request: Request, body: QueueClearBody | None = None):
         if request.state.role != "admin":return _err("Admin access required.",403)
         with db.session() as conn:
-            result = queue_actions.clear(conn)
+            result = queue_actions.clear(conn,str(body.operation) if body and body.operation else None)
             summary = db.queue_counts(conn, since_iso=_default_since())
         count = result['count']
         return {"ok":True, **result, "summary":summary,
-                "message":f"Marked {count} queued messages as done." if count else "Your queue is already clear."}
+                "message":("This Queue action was already processed. No additional messages were changed." if result['replayed'] else
+                           f"Marked {count} queued messages as done." if count else "Your queue is already clear.")}
 
     @app.post("/api/messages/clear-queue/{operation}/undo")
     def api_restore_queue(operation: UUID, request: Request):

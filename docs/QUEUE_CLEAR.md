@@ -37,3 +37,27 @@ manual overrides, repeated Undo, clock ordering and bidder restrictions. All 457
 frontend tests passed, production build passed, and Chromium verified confirm,
 cancel, bulk clear, empty Queue and scoped batch Undo under production security
 headers with synthetic mailbox data. Existing dependency/chunk-size warnings remain.
+
+## Retry and session safety (2.25.1)
+
+Each new confirmation gets a UUID. Retrying that confirmation after a connection
+error reuses its UUID; concurrent or later duplicate requests return the original
+result without clearing new arrivals. This also applies to an initially empty
+Queue and remains true after the original batch is undone. Cancelling or opening
+a new confirmation creates a new action. Writes are never retried automatically.
+
+Schema 47 adds a small operation-result record, independent of message retention,
+so the same confirmation cannot be reapplied after its members are restored or
+pruned. Surviving schema-46 batches are backfilled during upgrade. Older clients
+without an operation ID retain their original endpoint compatibility; refresh the
+browser after deploying to receive the retry-safe confirmation UI.
+
+Notifications are scoped to the session identity revision. Workspace switches,
+account changes, logout and re-login discard prior notifications; retained old
+buttons and delayed callbacks cannot run an action in a newer session.
+
+Verification: 848 backend tests and 98 subtests, 461 frontend tests, production build
+and Chromium replay/workspace-switch checks passed. The browser test simulated an
+accepted clear whose response was lost, checked reuse of the confirmation UUID,
+confirmed a newly arrived message remained queued, and verified the old Undo was
+removed after a workspace change. Existing dependency/chunk-size warnings remain.

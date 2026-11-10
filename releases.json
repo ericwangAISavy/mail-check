@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.25.1",
+    "date": "2026-11-09",
+    "title": "Make Queue retries and Undo notifications safe",
+    "changes": [
+      "Reuse a durable confirmation ID for bulk Queue retries so a lost response cannot clear newly arrived mail or reapply an undone action.",
+      "Discard notifications and Undo actions from previous workspaces or sessions, including delayed completion callbacks."
+    ]
+  },
+  {
     "version": "2.25.0",
     "date": "2026-11-09",
     "title": "Clear the Queue in one bulk action",
