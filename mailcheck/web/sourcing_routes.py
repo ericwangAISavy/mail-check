@@ -414,47 +414,25 @@ def install(app, frontend_page, secure_cookies):
                 (identity["role"] == "admin", identity["bidder_id"], account, account),
             ).fetchall()
             results = []
+            words = q.casefold().split()
+            if not words:
+                return {"results": [], "cached": False, "incomplete": False}
             for tab in tabs:
+                title = conn.execute(
+                    "SELECT COALESCE(a.label,t.title) FROM native_tabs t "
+                    "LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tab['id'],)
+                ).fetchone()[0]
+                context = ' '.join([tab['name'], title, tab['account_label']])
                 try:
-                    data = sheets.snapshot(conn, dict(tab))
+                    for match in sheets.search_rows(conn, dict(tab), words, context):
+                        if len(results) < 500:
+                            results.append({
+                                **match, "tab_id": tab['id'], "bidder": tab['name'],
+                                "profile": title, "account_id": tab['account_id'],
+                                "refreshed_at": tab['updated_at'],
+                            })
                 except sheets.SnapshotTooLarge as exc:
                     raise HTTPException(413, str(exc))
-                fields = {
-                    c["kind"]: i for i, c in enumerate(data["columns"]) if c["kind"]
-                }
-                for i, row in enumerate(data["rows"][1:], 1):
-                    values = [
-                        row[fields[k]]["value"] if k in fields else ""
-                        for k in ("company", "role", "link")
-                    ]
-                    haystack = " ".join(
-                        [
-                            *(str(c["value"]) for c in row),
-                            tab["name"],
-                            data["title"],
-                            tab["account_label"],
-                        ]
-                    ).casefold()
-                    if (
-                        q.strip()
-                        and any(str(c["value"]) for c in row)
-                        and all(word in haystack for word in q.casefold().split())
-                    ):
-                        results.append(
-                            {
-                                "tab_id": tab["id"],
-                                "bidder": tab["name"],
-                                "profile": data["title"],
-                                "account_id": tab["account_id"],
-                                "row": i,
-                                "row_id": data["row_ids"][i],
-                                "work_date": data["row_dates"][i],
-                                "company": values[0],
-                                "role": values[1],
-                                "link": values[2],
-                                "refreshed_at": tab["updated_at"],
-                            }
-                        )
             return {"results": results[:500], "cached": False, "incomplete": False}
 
     app.include_router(router)

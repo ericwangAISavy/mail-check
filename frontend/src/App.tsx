@@ -271,11 +271,12 @@ function UnknownRoute() {
   return <div className="page-wrap"><PageHeading title="That page moved" /><Card className="recovery-card"><p>Return to your triage workspace to continue.</p><Button onClick={() => navigate("/")}>Back to triage</Button></Card></div>
 }
 
-function Recovery({ message }: { message: string }) {
+function Recovery({ message, retry, retrying }: { message: string; retry: () => void; retrying: boolean }) {
+  const configurationError = /^The saved configuration at /i.test(message)
   const {session}=useAuth()
   const canManageSettings=!session?.workspace_id || !!session.is_owner
   const navigate = useNavigate()
-  return <main className="recovery-page"><div className="brand-mark"><OfferPathMark size={30} /></div><p className="eyebrow">SAFE RECOVERY</p><h1>Check your local settings</h1><p className="recovery-description">This saved configuration needs an update before OfferPath can open. Your mailbox and local mail are unchanged.</p><Card className="recovery-card"><pre>{message}</pre>{canManageSettings ? <Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button> : <p>Ask the owner to review the shared Settings.</p>}</Card><p className="muted">Credentials are never included in this recovery message.</p></main>
+  return <main className="recovery-page"><div className="brand-mark"><OfferPathMark size={30} /></div><p className="eyebrow">SAFE RECOVERY</p><h1>{configurationError ? "Check your local settings" : "Workspace temporarily unavailable"}</h1><p className="recovery-description">{configurationError ? "This saved configuration needs an update before OfferPath can open. Your mailbox and local mail are unchanged." : "OfferPath could not load your workspace. Try connecting again shortly."}</p><Card className="recovery-card"><pre>{message}</pre><Button onClick={retry} disabled={retrying}>Retry connection</Button>{canManageSettings ? <Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button> : <p>Ask the owner to review the shared Settings.</p>}</Card><p className="muted">Credentials are never included in this recovery message.</p></main>
 }
 
 function ReadyApp() {
@@ -283,11 +284,13 @@ function ReadyApp() {
   const controlPage = path === "/admin-management"
   const {role,session}=useAuth()
   const settingsRecovery=path==="/settings"&&role==="admin"&&(!session?.workspace_id||!!session.is_owner)
-  const { data, isPending, error } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false, refetchInterval: 60_000, enabled: !controlPage })
+  const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false, refetchInterval: 60_000, enabled: !controlPage })
   if (controlPage || settingsRecovery) return <Workspace bootstrap={settingsRecovery && data ? data : {readiness:{model:false,accounts:false,privacy_ack:true,outlook:false},counts:{},taxonomy:[],presets:[],last_run:"",account_count:0}} />
   if (isPending) return <Loading />
-  if (error) return <Recovery message={error.message} />
-  return <Workspace bootstrap={data!} />
+  if (!data && error) return <Recovery message={error.message} retry={() => void refetch()} retrying={isFetching} />
+  // Keep the workspace at a stable position so refresh failures cannot discard
+  // page state or unsaved input. A failed background read still has usable data.
+  return <><Workspace bootstrap={data!} />{error && <div role="status" className="fixed bottom-4 right-4 z-50 max-w-md rounded-xl border border-border bg-card p-4 shadow-lg"><p>Workspace updates are temporarily unavailable. Your current workspace is still open.</p><Button onClick={() => void refetch()} disabled={isFetching}>Retry connection</Button></div>}</>
 }
 
 export default function App() { return <ToastProvider><AuthGate><ReadyApp /></AuthGate></ToastProvider> }

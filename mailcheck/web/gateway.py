@@ -26,6 +26,7 @@ from .auth import AuthStore, AuthFileError
 
 COOKIE='offerpath_session'
 HERE=Path(__file__).parent
+READ_REQUEST_TIMEOUT = 25.0
 
 # Process-wide, lazily started and bounded independently of browser DB work.
 # The gateway has one serving loop; authentication must stay off that loop.
@@ -89,6 +90,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     model_slots=asyncio.Semaphore(1)
     leases={}
     worker_clients={}
+    pending_workers={}
 
     def new_worker_client():
         return httpx.AsyncClient(trust_env=False, timeout=660,
@@ -112,6 +114,20 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # Evaluate the SQLite lookup in the same thread as worker readiness;
         # passing store.workspace(...) as a to_thread argument blocks the loop.
         return pool.ensure(store.workspace(wid))
+
+    async def ready_workspace(wid):
+        # Coalesce startup waits in the serving loop. A cancelled browser read
+        # must not cancel readiness shared by other users or the scheduler.
+        key=(asyncio.get_running_loop(),wid)
+        task=pending_workers.get(key)
+        if task is None or task.done():
+            task=asyncio.create_task(asyncio.to_thread(ensure_workspace,wid))
+            pending_workers[key]=task
+            def finished(done):
+                if pending_workers.get(key) is done:pending_workers.pop(key,None)
+                if not done.cancelled():done.exception()
+            task.add_done_callback(finished)
+        return await asyncio.shield(task)
 
     async def recover_leases():
         while True:
@@ -310,7 +326,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     async def apply_bidder_password(bidder_id:int,body:BidderPassword,request:Request):
         identity=request.state.identity
         try:
-            worker=await asyncio.to_thread(ensure_workspace,identity['workspace_id'])
+            worker=await ready_workspace(identity['workspace_id'])
             async with worker_http_client() as client:
                 result=await client.get(f'http://127.0.0.1:{worker.port}/_internal/bidders/{bidder_id}',
                     headers={'x-offerpath-worker':worker.token})
@@ -395,7 +411,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     @app.api_route('/api/admin/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH'])
     def missing_admin(path:str,request:Request):owner(request);raise HTTPException(404,'Not found.')
 
-    async def proxy_impl(path:str,request:Request):
+    async def proxy_request(path:str,request:Request):
         if not path.startswith('api/'):
             return page()
         from urllib.parse import unquote
@@ -409,12 +425,16 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         target='legacy' if global_settings else identity['workspace_id']
         body=await request.body()
         if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
-        try:worker=await asyncio.to_thread(ensure_workspace,target)
+        try:worker=await ready_workspace(target)
         except (RuntimeError,OSError,ValueError):raise HTTPException(503,'This workspace worker is unavailable. Contact the owner or retry later.')
         # Revalidate after potentially slow body reads and worker startup.
         # A reset, suspension, logout or workspace switch may have completed
         # since the initial middleware check.
-        await asyncio.to_thread(bidder_access.validate_dispatch if identity['role']=='bidder' else store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+        if identity['role']=='bidder':
+            await asyncio.to_thread(bidder_access.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+        else:
+            await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'],
+                                    read_only=request.method in ('GET','HEAD'))
         headers={'x-offerpath-worker':worker.token}
         if identity['role']=='bidder':
             headers['x-offerpath-viewer']='bidder'
@@ -440,7 +460,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             async def notify(workspace):
                 if workspace['id']=='legacy':return
                 try:
-                    member=await asyncio.to_thread(pool.ensure,workspace)
+                    member=await ready_workspace(workspace['id'])
                     async with worker_http_client() as client:
                         await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token},timeout=5)
                 except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
@@ -449,6 +469,18 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
         return Response(result.content,status_code=result.status_code,headers=response_headers)
+
+    async def proxy_impl(path:str,request:Request):
+        if request.method not in ('GET','HEAD'):
+            return await proxy_request(path,request)
+        try:
+            # Complete before the browser's 30-second deadline. Slow reads
+            # must not occupy the gateway's active budget for 660 seconds.
+            async with asyncio.timeout(READ_REQUEST_TIMEOUT):
+                return await proxy_request(path,request)
+        except TimeoutError:
+            raise HTTPException(504,'This page took too long to load. Try again shortly.',
+                                headers={'Retry-After':'1'})
 
     @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
     async def proxy(path:str,request:Request):

@@ -26,6 +26,22 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_search_does_not_materialize_editor_snapshots(self):
+        from unittest.mock import patch
+        base = self.snapshot()
+        row = base['row_ids'][3]
+        self.conn.execute("INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)",
+                          (row, base['columns'][0]['id'], 'Straße Acme'))
+        self.conn.commit()
+        with patch.object(self.native, 'snapshot', side_effect=AssertionError('dense editor snapshot')):
+            response = self.client.get('/api/sourcing/search?q=STRASSE')
+        self.assertEqual(response.status_code, 200, response.text)
+        matches = response.json()['results']
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]['row'], 3)
+        self.assertEqual(matches[0]['row_id'], row)
+        self.assertEqual(matches[0]['company'], 'Straße Acme')
+
     def test_index_backfills_existing_bidders_without_replacing_workbooks(self):
         before = self.snapshot()
         result = self.client.get("/api/sourcing")

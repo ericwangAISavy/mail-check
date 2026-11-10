@@ -92,9 +92,11 @@ class ControlStore:
         if owner and not identity['is_owner']:raise PermissionError('Owner access required.')
         return identity
 
-    def validate_dispatch(self,token,workspace):
+    def validate_dispatch(self,token,workspace,*,read_only=False):
         with self.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+            # Read dispatch needs a consistent snapshot, but no writer slot.
+            # Mutating dispatch retains serialization with session revocation.
+            conn.execute('BEGIN' if read_only else 'BEGIN IMMEDIATE')
             identity=self.require_session(conn,token,workspace=workspace)
             if identity['must_change_password']:raise RevokedSession('Change your temporary password before continuing.')
             return identity

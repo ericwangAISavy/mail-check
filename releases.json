@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.24.6",
+    "date": "2026-11-09",
+    "title": "Speed up page loading and recover from temporary outages",
+    "changes": [
+      "Keep open workspaces and unsaved input during temporary refresh failures, with an explicit connection retry.",
+      "Avoid write-lock waits for admin page reads, share concurrent workspace-startup waits, and bound page-read processing without retrying writes.",
+      "Search sparse job-sheet values without building full styled editor snapshots, reducing search time and memory use."
+    ]
+  },
+  {
     "version": "2.24.5",
     "date": "2026-11-09",
     "title": "Clarify duplicate Windows startup and preserve launch flags",

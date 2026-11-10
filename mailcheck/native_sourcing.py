@@ -179,7 +179,7 @@ def snapshot(conn, tab):
         conn.rollback()
 
 
-def _snapshot(conn, tab):
+def _check_snapshot_budget(conn, tab):
     row_count = conn.execute("SELECT COUNT(*) FROM native_rows WHERE tab_id=?", (tab['id'],)).fetchone()[0]
     column_count = conn.execute("SELECT COUNT(*) FROM native_columns WHERE tab_id=?", (tab['id'],)).fetchone()[0]
     if (row_count + 1) * column_count > MAX_SNAPSHOT_CELLS:
@@ -188,6 +188,10 @@ def _snapshot(conn, tab):
         FROM native_cells c JOIN native_rows r ON r.id=c.row_id WHERE r.tab_id=?""", (tab['id'],)).fetchone()[0]
     if text_bytes > MAX_SNAPSHOT_BYTES:
         raise SnapshotTooLarge("This sheet contains too much text to open safely. Export CSV to preserve your data, then split it into smaller sheets.")
+
+
+def _snapshot(conn, tab):
+    _check_snapshot_budget(conn, tab)
     tab = conn.execute("SELECT t.*,COALESCE(a.label,t.title) AS account_title FROM native_tabs t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tab["id"],)).fetchone()
     columns = [
         dict(c)
@@ -267,6 +271,40 @@ def _snapshot(conn, tab):
             "gridProperties": {"rowCount": len(rows), "columnCount": len(columns)}
         },
     }
+
+
+def search_rows(conn, tab, words, context=""):
+    """Search sparse values without allocating the editor's dense styled grid."""
+    from itertools import groupby
+
+    own_transaction = not conn.in_transaction
+    if own_transaction:
+        conn.execute("BEGIN")
+    try:
+        _check_snapshot_budget(conn, tab)
+        records = conn.execute(
+            "SELECT r.id,r.work_date,c.value,col.kind FROM native_rows r "
+            "LEFT JOIN native_cells c ON c.row_id=r.id "
+            "LEFT JOIN native_columns col ON col.id=c.column_id "
+            "WHERE r.tab_id=? ORDER BY r.position,r.id,col.position,col.id",
+            (tab['id'],),
+        )
+        for number, (row_id, cells) in enumerate(groupby(records, key=lambda c: c['id']), 1):
+            values = list(cells)
+            text = [cell['value'] or '' for cell in values]
+            if not any(text):
+                continue
+            haystack = ' '.join([*text, context]).casefold()
+            if not all(word in haystack for word in words):
+                continue
+            fields = {cell['kind']: cell['value'] for cell in values if cell['kind']}
+            yield {
+                'row': number, 'row_id': row_id, 'work_date': values[0]['work_date'],
+                **{kind: fields.get(kind, '') for kind in ('company', 'role', 'link')},
+            }
+    finally:
+        if own_transaction:
+            conn.rollback()
 
 
 def fingerprint(payload):

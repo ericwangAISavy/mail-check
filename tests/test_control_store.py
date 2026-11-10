@@ -130,3 +130,53 @@ def test_suspended_admin_workspace_can_be_removed(store):
     store.update_admin(store.owner_token,user['id'],enabled=False)
     assert store.remove_admin(store.owner_token,user['id'],'alice')==user['workspace_id']
     assert [u['username'] for u in store.list_admins()]==['owner']
+
+
+def test_read_dispatch_does_not_wait_for_control_writer(store):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        with store.connect() as writer:
+            writer.execute('BEGIN IMMEDIATE')
+            reads=[pool.submit(store.validate_dispatch,store.owner_token,'legacy',read_only=True) for _ in range(4)]
+            assert all(future.result(timeout=2)['is_owner'] for future in reads)
+
+
+def test_read_dispatch_checks_revocation_workspace_and_temporary_password(store):
+    from mailcheck.control_store import RevokedSession
+
+    token=store.login('owner','original-owner-pass','dispatch')
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(token,'wrong-workspace',read_only=True)
+    store.logout(token)
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(token,'legacy',read_only=True)
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    temporary=store.login('alice','temporary-pass-123','dispatch')
+    with pytest.raises(RevokedSession,match='temporary password'):
+        store.validate_dispatch(temporary,wid,read_only=True)
+    changed=store.change_password(temporary,'alice-final-pass-123')
+    assert store.validate_dispatch(changed,wid,read_only=True)['workspace_id']==wid
+    user=next(user for user in store.list_admins() if user['username']=='alice')
+    store.update_admin(store.owner_token,user['id'],password='alice-reset-pass-123')
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(changed,wid,read_only=True)
+    reset=store.login('alice','alice-reset-pass-123','reset')
+    changed=store.change_password(reset,'alice-after-reset-pass-123')
+    store.update_admin(store.owner_token,user['id'],enabled=False)
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(changed,wid,read_only=True)
+
+
+def test_read_dispatch_rejects_completed_owner_switch_and_password_change(store):
+    from mailcheck.control_store import RevokedSession
+
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    original=store.login('owner','original-owner-pass','switch')
+    switched=store.switch(original,wid)
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(original,'legacy',read_only=True)
+    assert store.validate_dispatch(switched,wid,read_only=True)['is_owner']
+    store.legacy_auth.change_password('admin','updated-owner-pass')
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(switched,wid,read_only=True)

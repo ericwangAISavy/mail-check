@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.24.6 — 2026-11-09
+
+Speed up page loading and recover from temporary outages
+
+- Keep open workspaces and unsaved input during temporary refresh failures, with an explicit connection retry.
+- Avoid write-lock waits for admin page reads, share concurrent workspace-startup waits, and bound page-read processing without retrying writes.
+- Search sparse job-sheet values without building full styled editor snapshots, reducing search time and memory use.
+
 ## 2.24.5 — 2026-11-09
 
 Clarify duplicate Windows startup and preserve launch flags

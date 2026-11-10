@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom"
 import App from "./App"
 import { AppErrorBoundary } from "@/components/app-error-boundary"
-import { api } from "@/lib/api"
+import { api, ApiError } from "@/lib/api"
 
 type Status = Awaited<ReturnType<typeof api.status>>
 const idle: Status = { running: false, auto: false, next_in: null, completion_id: 1, message: "", detail: "", ok: true, stage_elapsed: null }
@@ -309,4 +309,51 @@ describe("same-page workspace navigation",()=>{
   expect(window.location.search+window.location.hash).toBe("?q=updated#results")
   window.history.replaceState(null,"","/")
  })
+})
+
+
+describe("bootstrap outage recovery", () => {
+  const mount = () => {
+    vi.spyOn(api, "status").mockResolvedValue(idle)
+    const client = new QueryClient({defaultOptions:{queries:{retry:false}}})
+    clients.push(client)
+    render(<QueryClientProvider client={client}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>)
+    return client
+  }
+  it("keeps mounted workspace input during a failed refresh and retry", async () => {
+    const client = mount()
+    await screen.findByText("Your queue is clear")
+    fireEvent.click(screen.getByRole("button", {name:"Filters"}))
+    const input = screen.getByLabelText("Search mail")
+    fireEvent.change(input, {target:{value:"unsaved search"}})
+    vi.mocked(api.bootstrap).mockRejectedValue(new ApiError("Temporary gateway outage",502))
+    await act(async () => {await client.refetchQueries({queryKey:["bootstrap"]})})
+    await waitFor(() => expect(screen.getByLabelText("Search mail")).toBe(input))
+    expect(input).toHaveProperty("value","unsaved search")
+    expect(screen.queryByText("Check your local settings")).toBeNull()
+    let finish!: (value: Awaited<ReturnType<typeof api.bootstrap>>) => void
+    const bootstrap=client.getQueryData<Awaited<ReturnType<typeof api.bootstrap>>>(["bootstrap"])!
+    vi.mocked(api.bootstrap).mockImplementation(() => new Promise(resolve => {finish=resolve}))
+    fireEvent.click(screen.getByRole("button",{name:"Retry connection"}))
+    await waitFor(() => expect(screen.getByRole("button",{name:"Retry connection"})).toHaveProperty("disabled",true))
+    await act(async () => {finish(bootstrap)})
+    await waitFor(() => expect(screen.queryByRole("button",{name:"Retry connection"})).toBeNull())
+    expect(screen.getByLabelText("Search mail")).toBe(input)
+  })
+  it("offers retry for initial network outage without blaming configuration", async () => {
+    const bootstrap=vi.mocked(api.bootstrap).getMockImplementation()!
+    vi.mocked(api.bootstrap).mockRejectedValue(new ApiError("Could not connect to OfferPath.",0))
+    mount()
+    await screen.findByRole("heading",{name:"Workspace temporarily unavailable"})
+    expect(screen.queryByText("Check your local settings")).toBeNull()
+    vi.mocked(api.bootstrap).mockImplementation(bootstrap)
+    fireEvent.click(screen.getByRole("button",{name:"Retry connection"}))
+    await screen.findByText("Your queue is clear")
+  })
+  it("keeps configuration recovery for invalid saved configuration", async () => {
+    vi.mocked(api.bootstrap).mockRejectedValue(new ApiError("The saved configuration at config.toml needs updating.",503))
+    mount()
+    await screen.findByRole("heading",{name:"Check your local settings"})
+    expect(screen.getByRole("button",{name:"Try settings"})).toBeTruthy()
+  })
 })

@@ -133,3 +133,48 @@ Chromium checks passed under production security headers for normal/blocked-stor
 startup, active-page/home filter preservation, stale-entry recovery and bounded
 missing-entry recovery. One existing Starlette/httpx dependency deprecation
 warning remains. These checks do not replace deployment or host/tunnel log review.
+
+## Loading and search follow-up — version 2.24.6
+
+Reproduced problems and corrections:
+
+- Every proxied admin GET acquired the control database's writer slot. Read
+  dispatch now validates against a consistent read transaction; mutations retain
+  the previous write transaction. No identity cache, WAL migration or permission
+  bypass was introduced. Completed logout, reset, suspension and workspace switch
+  still reject old sessions. With a writer held for 600 ms, four read validations
+  finished in about 4 ms each instead of waiting 635–933 ms.
+- Concurrent page requests independently waited for the same worker startup in
+  executor threads. They now share one in-flight readiness task per serving loop
+  and workspace. Cancelling one caller does not cancel other callers' startup.
+  Completed tasks are removed, so readiness/errors are not cached across requests.
+- Gateway reads could continue for up to the worker transport's 660-second timeout
+  after the browser's 30-second deadline. GET/HEAD proxy processing now has a
+  25-second overall deadline and returns 504 with Retry-After when exceeded.
+  Mutations retain existing completion semantics and are never retried here.
+  A synchronous worker database operation already dispatched may still finish;
+  timing out its gateway read does not undo or terminate its database transaction.
+- Search built a dense styled editor grid for every searched sheet. Search now
+  streams sparse values, retaining ownership/date/row metadata and size guards.
+  It avoids empty-query sheet scans and caps retained results at 500. On a synthetic
+  900-row/100-column fixture with 900 populated cells and identical 900 matches,
+  the root verification run measured 0.7201 s / 31,786,066 peak allocated bytes for
+  dense snapshot search versus 0.0235 s / 353,526 bytes for sparse search, using
+  time.perf_counter and tracemalloc. These are local microbenchmark results, not
+  guaranteed production latency or whole-process memory measurements.
+- A failed bootstrap refresh replaced a cached workspace with configuration
+  recovery and discarded component state. Cached workspaces now remain mounted
+  during temporary refresh errors with a single in-flight manual retry. Initial
+  transport failures get connection recovery; explicit saved-configuration errors
+  retain Settings recovery. This does not keep data across an identity change.
+
+The host's remaining loading/502 reports still need correlation with its deployed
+version, gateway/tunnel logs and available CPU/RAM. These fixes address reproduced
+application bottlenecks; they do not establish the cause of every production 502.
+
+Final 2.24.6 verification: 832 backend tests and 92 subtests passed; 447 frontend
+tests across 47 files passed; production build and release consistency passed.
+Chromium under production security headers verified initial 502 recovery and
+background 502 recovery while retaining the exact search input DOM node and its
+unsaved value, plus startup recovery and active-page filter preservation. The
+existing Starlette/httpx dependency deprecation and Vite chunk-size warning remain.

@@ -110,3 +110,38 @@ def test_oversized_import_rolls_back_rows_columns_revision_and_operation(sheet, 
     assert tuple(conn.execute('SELECT (SELECT COUNT(*) FROM native_rows), (SELECT COUNT(*) FROM native_columns), (SELECT COUNT(*) FROM native_operations)').fetchone()) == counts
     assert str(conn.execute('SELECT revision FROM native_tabs WHERE id=?', (tab['id'],)).fetchone()[0]) == before['revision']
     assert sourcing_csv.export_rows(conn, tab) == original_csv
+
+
+def test_sparse_search_preserves_row_numbers_unicode_and_custom_columns(sheet):
+    conn, tab = sheet
+    columns = conn.execute('SELECT id FROM native_columns WHERE tab_id=? ORDER BY position,id', (tab['id'],)).fetchall()
+    rows = conn.execute('SELECT id FROM native_rows WHERE tab_id=? ORDER BY position,id', (tab['id'],)).fetchall()
+    conn.execute('INSERT INTO native_columns(id,tab_id,position,title) VALUES(?,?,4,?)', ('custom',tab['id'],'Notes'))
+    conn.execute('INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)', (rows[2][0],columns[0][0],'Straße Acme'))
+    conn.execute('INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)', (rows[2][0],'custom','Remote'))
+    conn.commit()
+    found = list(sheets.search_rows(conn, tab, ['strasse', 'remote']))
+    assert len(found) == 1
+    assert found[0]['row'] == 3
+    assert found[0]['row_id'] == rows[2][0]
+    assert found[0]['company'] == 'Straße Acme'
+    assert found[0]['role'] == ''
+
+
+def test_sparse_search_preserves_editor_size_guards(sheet, monkeypatch):
+    conn, tab = sheet
+    monkeypatch.setattr(sheets, 'MAX_SNAPSHOT_CELLS', 1)
+    with pytest.raises(sheets.SnapshotTooLarge):
+        list(sheets.search_rows(conn, tab, ['anything']))
+    assert not conn.in_transaction
+
+
+def test_sparse_search_metadata_matches_only_nonempty_rows(sheet):
+    conn, tab = sheet
+    row = conn.execute('SELECT id FROM native_rows WHERE tab_id=? LIMIT 1', (tab['id'],)).fetchone()[0]
+    col = conn.execute('SELECT id FROM native_columns WHERE tab_id=? LIMIT 1', (tab['id'],)).fetchone()[0]
+    conn.execute('INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)', (row,col,'Job'))
+    conn.commit()
+    found = list(sheets.search_rows(conn, tab, ['bidder', 'profile'], 'Bidder Profile'))
+    assert [match['row_id'] for match in found] == [row]
+    assert not conn.in_transaction
