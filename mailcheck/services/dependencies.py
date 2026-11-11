@@ -17,9 +17,8 @@ async def probe_postgres(settings):
 
 async def probe_broker(settings):
     try:
-        import aio_pika
-        conn=await aio_pika.connect(host=settings.broker_host,port=settings.broker_port,
-                                   login=f'{settings.role}_events',password=settings.broker_password,virtualhost='offerpath',timeout=2)
+        from .broker import connect
+        conn=await connect(settings)
         async with conn:
             channel=await conn.channel()
             await channel.declare_queue(QUEUES[settings.role],passive=True)

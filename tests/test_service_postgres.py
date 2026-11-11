@@ -22,7 +22,7 @@ def test_migrations_are_repeatable_and_runtime_cannot_create_or_cross_databases(
     settings=service()
     db.migrate_domain(settings);db.migrate_domain(settings)
     with psycopg.connect(**settings.db_kwargs(),autocommit=True) as conn:
-        assert conn.execute('SELECT version FROM schema_migrations ORDER BY version').fetchall()==[(1,),(2,)]
+        assert conn.execute('SELECT version FROM schema_migrations ORDER BY version').fetchall()==[(1,),(2,),(3,)]
         with pytest.raises(psycopg.errors.InsufficientPrivilege):conn.execute('CREATE TABLE forbidden(id int)')
     wrong=settings.db_kwargs();wrong['dbname']='offerpath_mail'
     with pytest.raises(psycopg.OperationalError):psycopg.connect(**wrong)
@@ -92,4 +92,32 @@ def test_journal_can_join_the_consumers_business_transaction():
                         await journal.append(workspace,uuid4(),'a','mail.changed',{},connection=conn)
                         raise RuntimeError('business projection failed')
             assert await journal.barrier(workspace)==0
+    asyncio.run(scenario())
+
+
+def test_outbox_does_not_hold_a_connection_while_publishing_and_retains_failures():
+    from psycopg_pool import AsyncConnectionPool
+    from psycopg.types.json import Jsonb
+    module=importlib.import_module('mailcheck.services.outbox')
+    async def scenario():
+        async with AsyncConnectionPool(kwargs=service().db_kwargs(),min_size=0,max_size=1,open=False,timeout=.3) as pool:
+            event=uuid4()
+            async with pool.connection() as conn:
+                await conn.execute('INSERT INTO outbox(event_id,routing_key,payload) VALUES(%s,%s,%s)',(event,'core.workspace.test.v1',Jsonb({'event_id':str(event)})))
+            async def publish(key,payload):
+                async with pool.connection() as conn:assert (await (await conn.execute('SELECT 1')).fetchone())==(1,)
+                raise RuntimeError('broker unavailable')
+            result=await module.OutboxDispatcher(pool,publish).run_once()
+            assert result['failed']>=1
+            async with pool.connection() as conn:
+                row=await (await conn.execute('SELECT published_at,lease_token,attempts FROM outbox WHERE event_id=%s',(event,))).fetchone()
+                assert row==(None,None,1)
+                await conn.execute('DELETE FROM outbox WHERE event_id=%s',(event,))
+            async def confirmed(key,payload):return True
+            async with pool.connection() as conn:await conn.execute('INSERT INTO outbox(event_id,routing_key,payload) VALUES(%s,%s,%s)',(event,'core.workspace.test.v1',Jsonb({'event_id':str(event)})))
+            result=await module.OutboxDispatcher(pool,confirmed).run_once()
+            assert result['published']>=1
+            async with pool.connection() as conn:
+                assert (await (await conn.execute('SELECT published_at IS NOT NULL FROM outbox WHERE event_id=%s',(event,))).fetchone())[0]
+                await conn.execute('DELETE FROM outbox WHERE event_id=%s',(event,))
     asyncio.run(scenario())
