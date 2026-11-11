@@ -1,0 +1,2097 @@
+{
+  "routes": [
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "dashboard",
+      "path": "/",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "workspace_bidder",
+      "path": "/_internal/bidders/{bidder_id}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "workspace_ready",
+      "path": "/_internal/ready",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "shared_settings_updated",
+      "path": "/_internal/settings-updated",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "accounts_page",
+      "path": "/accounts",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_accounts",
+      "path": "/api/accounts",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_add_account",
+      "path": "/api/accounts",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_delete_account",
+      "path": "/api/accounts/{label}/delete",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "outgoing_settings",
+      "path": "/api/accounts/{label}/outgoing",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "save_outgoing_settings",
+      "path": "/api/accounts/{label}/outgoing",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_reconnect_imap",
+      "path": "/api/accounts/{label}/reconnect",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_test_account",
+      "path": "/api/accounts/{label}/test",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_toggle_account",
+      "path": "/api/accounts/{label}/toggle",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "assistant_followups",
+      "path": "/api/agent/followups",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_assistant_followup",
+      "path": "/api/agent/followups/{item_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_applications_today",
+      "path": "/api/applications/today",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "admin_names",
+      "path": "/api/auth/admins",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "bidder_names",
+      "path": "/api/auth/bidders",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "bidder_password",
+      "path": "/api/auth/bidders/{bidder_id}/password",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "auth_login",
+      "path": "/api/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "auth_logout",
+      "path": "/api/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "auth_password",
+      "path": "/api/auth/password",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "own_password",
+      "path": "/api/auth/password/self",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "auth_session",
+      "path": "/api/auth/session",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_autocheck",
+      "path": "/api/autocheck",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_bootstrap",
+      "path": "/api/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_check",
+      "path": "/api/check",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_dashboard",
+      "path": "/api/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "dashboard_accounts",
+      "path": "/api/dashboard/accounts",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_interview_processes",
+      "path": "/api/interview-processes",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_process_create",
+      "path": "/api/interview-processes",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_process_pin",
+      "path": "/api/interview-processes/pin",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_process_remove",
+      "path": "/api/interview-processes/remove",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_interviews",
+      "path": "/api/interviews",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "calendar_analysis_progress",
+      "path": "/api/interviews/analysis",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "retry_calendar_analysis",
+      "path": "/api/interviews/analysis/retry",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_scan_status",
+      "path": "/api/interviews/scan",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_scan",
+      "path": "/api/interviews/scan",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_sync",
+      "path": "/api/interviews/sync",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_detail",
+      "path": "/api/interviews/{event_id}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_update",
+      "path": "/api/interviews/{event_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_job_matches",
+      "path": "/api/interviews/{event_id}/job-matches",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "interview_remove",
+      "path": "/api/interviews/{event_id}/remove",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_clear_queue",
+      "path": "/api/messages/clear-queue",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_restore_queue",
+      "path": "/api/messages/clear-queue/{operation}/undo",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_undo_last",
+      "path": "/api/messages/undo-last",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_message",
+      "path": "/api/messages/{pk}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_message_body",
+      "path": "/api/messages/{pk}/body",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_set_handled",
+      "path": "/api/messages/{pk}/handled",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_message_reader",
+      "path": "/api/messages/{pk}/reader",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "reply_context",
+      "path": "/api/messages/{pk}/reply",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "send_reply",
+      "path": "/api/messages/{pk}/reply",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_notifications",
+      "path": "/api/notifications",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_notifications_ack",
+      "path": "/api/notifications/ack",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_outlook_cancel",
+      "path": "/api/outlook/cancel",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_outlook_start",
+      "path": "/api/outlook/start",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_outlook_status",
+      "path": "/api/outlook/status",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "payment_report",
+      "path": "/api/payments",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "bidder_activity",
+      "path": "/api/payments/activity",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "edit_bidder_assignment",
+      "path": "/api/payments/assignments/{assignment_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "end_assignment",
+      "path": "/api/payments/assignments/{assignment_id}/end",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "remove_bidder_assignment",
+      "path": "/api/payments/assignments/{assignment_id}/remove",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "create_bidder",
+      "path": "/api/payments/bidders",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_bidder",
+      "path": "/api/payments/bidders/{bidder_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_bidder_amount",
+      "path": "/api/payments/bidders/{bidder_id}/amount",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "assign_bidder",
+      "path": "/api/payments/bidders/{bidder_id}/assignments",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "pay_bidder",
+      "path": "/api/payments/bidders/{bidder_id}/paid",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "edit_paid_bidder",
+      "path": "/api/payments/bidders/{bidder_id}/paid/edit",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_bidder_rate",
+      "path": "/api/payments/bidders/{bidder_id}/rate",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "remove_bidder",
+      "path": "/api/payments/bidders/{bidder_id}/remove",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_bidder_visibility",
+      "path": "/api/payments/bidders/{bidder_id}/visibility",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_bidder_wallet",
+      "path": "/api/payments/bidders/{bidder_id}/wallet",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "update_deduction_rule",
+      "path": "/api/payments/deduction-rule",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "bidder_management_settings",
+      "path": "/api/payments/management",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "refresh_application_metrics",
+      "path": "/api/payments/refresh",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "bidder_visibility_options",
+      "path": "/api/payments/visibility",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_preset",
+      "path": "/api/preset",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_reclassify",
+      "path": "/api/reclassify",
+      "methods": [
+        "POST"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_add_rule",
+      "path": "/api/rules",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_delete_rule",
+      "path": "/api/rules/{index}/delete",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_settings",
+      "path": "/api/settings",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_settings",
+      "path": "/api/settings",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_settings_model",
+      "path": "/api/settings/model",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_settings_test",
+      "path": "/api/settings/test",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_status",
+      "path": "/api/status",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "api_triage",
+      "path": "/api/triage",
+      "methods": [
+        "GET"
+      ],
+      "owner": "mail",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "analytics_dashboard",
+      "path": "/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "followups_page",
+      "path": "/followups",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "bidder_inbox_page",
+      "path": "/inbox",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "login_page",
+      "path": "/login",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "payments_page",
+      "path": "/payments",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "settings_page",
+      "path": "/settings",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "frontend_route",
+      "path": "/{path:path}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "edge",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/backup_routes.py",
+      "handler": "status",
+      "path": "/api/admin/backups",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/backup_routes.py",
+      "handler": "create",
+      "path": "/api/admin/backups/create",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/backup_routes.py",
+      "handler": "download_ticket",
+      "path": "/api/admin/backups/download-ticket/{name}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/backup_routes.py",
+      "handler": "download",
+      "path": "/api/admin/backups/download/{name}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/backup_routes.py",
+      "handler": "native_download",
+      "path": "/api/admin/backups/file/{name}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/backup_routes.py",
+      "handler": "settings",
+      "path": "/api/admin/backups/settings",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "acquire",
+      "path": "/_internal/model/acquire",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "release",
+      "path": "/_internal/model/release",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "ping",
+      "path": "/_internal/ping",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "audit",
+      "path": "/api/admin/audit",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "switch",
+      "path": "/api/admin/switch",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "admins",
+      "path": "/api/admin/users",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "create_admin",
+      "path": "/api/admin/users",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "update_admin",
+      "path": "/api/admin/users/{user_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "remove_admin",
+      "path": "/api/admin/users/{user_id}/remove",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "missing_admin",
+      "path": "/api/admin/{path:path}",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH",
+        "POST",
+        "PUT"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "admin_directory",
+      "path": "/api/auth/admins",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "bidder_directory",
+      "path": "/api/auth/bidders",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "managed_bidders",
+      "path": "/api/auth/bidders/manage",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "bidder_password",
+      "path": "/api/auth/bidders/{bidder_id}/password",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "login",
+      "path": "/api/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "logout",
+      "path": "/api/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "change_password",
+      "path": "/api/auth/password",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "admin_presence",
+      "path": "/api/auth/presence",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "session",
+      "path": "/api/auth/session",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "missing_auth",
+      "path": "/api/auth/{path:path}",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH",
+        "POST",
+        "PUT"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "proxy",
+      "path": "/{path:path}",
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "listing",
+      "path": "",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "create",
+      "path": "",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "activate",
+      "path": "/activate",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "review",
+      "path": "/review",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "decide",
+      "path": "/review",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "detail",
+      "path": "/{identity}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "edit",
+      "path": "/{identity}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "attendance",
+      "path": "/{identity}/attendance",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "contact",
+      "path": "/{identity}/contact",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "evidence",
+      "path": "/{identity}/evidence",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "merge",
+      "path": "/{identity}/merge",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "note",
+      "path": "/{identity}/notes",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "split",
+      "path": "/{identity}/split",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "task",
+      "path": "/{identity}/tasks",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "edit_task",
+      "path": "/{identity}/tasks/{task_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "index",
+      "path": "/api/sourcing",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "create_book",
+      "path": "/api/sourcing/books",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "create_tab",
+      "path": "/api/sourcing/books/{book_id}/tabs",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "filters",
+      "path": "/api/sourcing/filters",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "save_filters",
+      "path": "/api/sourcing/filters",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "role_filters",
+      "path": "/api/sourcing/role-filters",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "save_role_filters",
+      "path": "/api/sourcing/role-filters/{account_id}",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "search",
+      "path": "/api/sourcing/search",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "snapshot",
+      "path": "/api/sourcing/tabs/{tab_id}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "append",
+      "path": "/api/sourcing/tabs/{tab_id}/append",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "archive",
+      "path": "/api/sourcing/tabs/{tab_id}/archive",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "delete_tab",
+      "path": "/api/sourcing/tabs/{tab_id}/delete",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "export_csv",
+      "path": "/api/sourcing/tabs/{tab_id}/export",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "import_csv",
+      "path": "/api/sourcing/tabs/{tab_id}/import",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "operation_progress",
+      "path": "/api/sourcing/tabs/{tab_id}/progress/{operation}",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "save",
+      "path": "/api/sourcing/tabs/{tab_id}/save",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "structure",
+      "path": "/api/sourcing/tabs/{tab_id}/structure",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "verify",
+      "path": "/api/sourcing/tabs/{tab_id}/verify",
+      "methods": [
+        "POST"
+      ],
+      "owner": "core",
+      "status": "pending"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "page",
+      "path": "/sourcing",
+      "methods": [
+        "GET"
+      ],
+      "owner": "core",
+      "status": "pending"
+    }
+  ],
+  "tables": [
+    {
+      "name": "accounts",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "agent_drafts",
+      "sources": [
+        "mailcheck/assistant.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "agent_followup_state",
+      "sources": [
+        "mailcheck/followups.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "agent_preferences",
+      "sources": [
+        "mailcheck/assistant.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "application_receipts",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "audit",
+      "sources": [
+        "mailcheck/control_store.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "bidder_assignments",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "bidder_logins",
+      "sources": [
+        "mailcheck/bidder_access.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "bidder_payment_amounts",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "bidder_payment_edits",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "bidder_payments",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "bidder_sessions",
+      "sources": [
+        "mailcheck/bidder_access.py"
+      ],
+      "owner": "core",
+      "disposition": "invalidate_sessions"
+    },
+    {
+      "name": "bidders",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "calendar_analyses",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "intelligence",
+      "disposition": "preserve"
+    },
+    {
+      "name": "calendar_analysis_tasks",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "intelligence",
+      "disposition": "preserve"
+    },
+    {
+      "name": "calendar_analysis_worker",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "intelligence",
+      "disposition": "preserve"
+    },
+    {
+      "name": "classifications",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_account_process_state",
+      "sources": [
+        "mailcheck/interview_processes.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_calendar_state",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_event_removals",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_events",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_manual_processes",
+      "sources": [
+        "mailcheck/interview_processes.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_process_pins",
+      "sources": [
+        "mailcheck/interview_processes.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_process_removals",
+      "sources": [
+        "mailcheck/interview_processes.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_scans",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "intelligence",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_source_details",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "interview_sources",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "mail_checkpoints",
+      "sources": [
+        "mailcheck/mail_checkpoints.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "mail_outgoing",
+      "sources": [
+        "mailcheck/outgoing.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "mail_replies",
+      "sources": [
+        "mailcheck/replies.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "messages",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "native_books",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "native_cells",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "native_columns",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "native_operations",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "native_rows",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "native_tabs",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "payment_deduction_rule",
+      "sources": [
+        "mailcheck/payments.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_attendance",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_contacts",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_history",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_links",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_operations",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_opportunities",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_review_decisions",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_settings",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_sync_state",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "pipeline_tasks",
+      "sources": [
+        "mailcheck/interview_pipeline.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "queue_clear_members",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "queue_clear_operations",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "runs",
+      "sources": [
+        "mailcheck/db.py"
+      ],
+      "owner": "mail",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sessions",
+      "sources": [
+        "mailcheck/control_store.py"
+      ],
+      "owner": "core",
+      "disposition": "invalidate_sessions"
+    },
+    {
+      "name": "sourcing_activity_meta",
+      "sources": [
+        "mailcheck/sourcing_activity.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_activity_runs",
+      "sources": [
+        "mailcheck/sourcing_activity.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_activity_samples",
+      "sources": [
+        "mailcheck/sourcing_activity.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_blocked_companies",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_blocked_roles",
+      "sources": [
+        "mailcheck/native_sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_books",
+      "sources": [
+        "mailcheck/sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_check_activity",
+      "sources": [
+        "mailcheck/sourcing_activity.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_operations",
+      "sources": [
+        "mailcheck/sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "sourcing_tabs",
+      "sources": [
+        "mailcheck/sourcing.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "users",
+      "sources": [
+        "mailcheck/control_store.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    },
+    {
+      "name": "workspaces",
+      "sources": [
+        "mailcheck/control_store.py"
+      ],
+      "owner": "core",
+      "disposition": "preserve"
+    }
+  ],
+  "manual_registration_review": [
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "registration",
+      "expression": "app.mount('/static', PortableStaticFiles(directory=str(HERE / 'static')), name='static')"
+    },
+    {
+      "source": "mailcheck/web/app.py",
+      "handler": "registration",
+      "expression": "app.mount('/assets', PortableStaticFiles(directory=str(FRONTEND_DIST / 'assets')), name='assets')"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "registration",
+      "expression": "app.mount('/static', PortableStaticFiles(directory=HERE / 'static'), name='static')"
+    },
+    {
+      "source": "mailcheck/web/gateway.py",
+      "handler": "registration",
+      "expression": "app.mount('/assets', PortableStaticFiles(directory=assets), name='assets')"
+    },
+    {
+      "source": "mailcheck/web/pipeline_routes.py",
+      "handler": "registration",
+      "expression": "app.include_router(router)"
+    },
+    {
+      "source": "mailcheck/web/sourcing_routes.py",
+      "handler": "registration",
+      "expression": "app.include_router(router)"
+    }
+  ],
+  "business_ready": false
+}

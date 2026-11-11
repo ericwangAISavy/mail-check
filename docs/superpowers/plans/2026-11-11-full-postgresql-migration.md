@@ -31,7 +31,7 @@
 
 ## Scope inventory
 
-Initial source inspection found 126 HTTP route declarations and 151 SQLite-specific references. The work includes the existing `web/gateway.py`, `web/app.py`, `web/sourcing_routes.py`, `control_store.py`, `db.py`, payment/sourcing/calendar/pipeline modules and backup/auth/provider modules. This is a business implementation and data migration, not a launcher/configuration change.
+The static census found 154 literal route declarations, 63 literal persisted table definitions and six mount/router registrations requiring runtime review, alongside 151 SQLite-specific references. These counts are a coverage baseline, not a complete runtime API inventory. The work includes the existing `web/gateway.py`, `web/app.py`, `web/sourcing_routes.py`, `control_store.py`, `db.py`, payment/sourcing/calendar/pipeline modules and backup/auth/provider modules. This is a business implementation and data migration, not a launcher/configuration change.
 
 ### Task 1: Freeze browser contracts and legacy schema ownership
 
