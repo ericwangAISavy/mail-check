@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from .settings import ROLES,ServiceSettings
+from .bootstrap import InitializationError
 
 
 def main():
@@ -39,6 +40,9 @@ def main():
                 print(json.dumps(result));return 1
         print(json.dumps(result,indent=2))
         return 0
+    except InitializationError as exc:
+        print(json.dumps({'ok':False,'code':exc.code,'error':str(exc),'hint':exc.hint,'type':type(exc).__name__}))
+        return 1
     except Exception as exc:
         # Drivers may include credential-bearing connection URLs in tracebacks.
         print(json.dumps({'ok':False,'error':'Service operation failed; no credentials were changed automatically.','type':type(exc).__name__}))

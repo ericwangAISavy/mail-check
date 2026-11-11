@@ -48,3 +48,62 @@ def test_outdated_topology_requires_an_explicit_upgrade(tmp_path,monkeypatch):
     root=tmp_path/'stack';module.initialize(root)
     monkeypatch.setattr(module,'TOPOLOGY_VERSION',999)
     with pytest.raises(ValueError):module.initialize(root)
+
+
+def test_empty_state_directory_in_a_path_with_spaces_can_be_initialized(tmp_path):
+    module=importlib.import_module('mailcheck.services.bootstrap')
+    root=tmp_path/'smoke Test- mail-check'/'.local'
+    root.mkdir(parents=True)
+    assert module.initialize(root)=='created'
+    before={p.name:p.read_bytes() for p in (root/'secrets').iterdir()}
+    assert module.initialize(root)=='existing'
+    assert before=={p.name:p.read_bytes() for p in (root/'secrets').iterdir()}
+
+
+def test_init_reports_missing_manifest_without_exposing_or_overwriting_existing_data(tmp_path,monkeypatch,capsys):
+    import sys
+    from mailcheck.services import manage
+    root=tmp_path/'state';root.mkdir()
+    valuable=root/'saved-credential';valuable.write_text('private-secret-must-not-be-printed')
+    monkeypatch.setattr(sys,'argv',['manage','init','--state-dir',str(root)])
+    assert manage.main()==1
+    report=json.loads(capsys.readouterr().out)
+    assert report['code']=='state_manifest_missing'
+    assert report['hint']
+    assert 'private-secret-must-not-be-printed' not in json.dumps(report)
+    assert valuable.read_text()=='private-secret-must-not-be-printed'
+
+
+def test_init_identifies_changed_state_without_rotating_credentials(tmp_path,monkeypatch,capsys):
+    import sys
+    from mailcheck.services import manage
+    module=importlib.import_module('mailcheck.services.bootstrap')
+    root=tmp_path/'state';module.initialize(root)
+    credential=root/'secrets/core_db_password';credential.write_text('z'*43)
+    before={p.name:p.read_bytes() for p in (root/'secrets').iterdir()}
+    monkeypatch.setattr(sys,'argv',['manage','init','--state-dir',str(root)])
+    assert manage.main()==1
+    report=json.loads(capsys.readouterr().out)
+    assert report['code']=='state_files_changed'
+    assert 'z'*43 not in json.dumps(report)
+    assert before=={p.name:p.read_bytes() for p in (root/'secrets').iterdir()}
+
+
+@pytest.mark.parametrize('damage,code',[
+    ('manifest','state_manifest_invalid'),
+    ('file','state_files_missing'),
+    ('path','state_not_directory'),
+])
+def test_init_diagnostics_distinguish_invalid_state_without_removing_it(tmp_path,damage,code):
+    module=importlib.import_module('mailcheck.services.bootstrap')
+    root=tmp_path/'state'
+    if damage=='path':root.write_text('preserve this file')
+    else:
+        module.initialize(root)
+        if damage=='manifest':(root/'manifest.json').write_text('{broken json')
+        else:(root/'secrets/core_db_password').unlink()
+    before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()} if root.is_dir() else root.read_bytes()
+    with pytest.raises(module.InitializationError) as error:module.initialize(root)
+    assert error.value.code==code
+    after={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()} if root.is_dir() else root.read_bytes()
+    assert before==after

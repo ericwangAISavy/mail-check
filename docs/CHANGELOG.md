@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.28.2 — 2026-11-11
+
+Fix service initialization and expose safe recovery diagnostics
+
+- Allow first-time service initialization in an existing empty state folder, including repository paths containing spaces.
+- Report specific nonsecret recovery diagnostics for incomplete or changed state while preserving existing credentials; add native Windows launcher smoke coverage.
+
 ## 2.28.1 — 2026-11-11
 
 Harden service readiness and deployment checks

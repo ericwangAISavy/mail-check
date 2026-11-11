@@ -17,8 +17,17 @@ try {
     $env:OFFERPATH_SERVICE_STATE_DIR = $stateDir
     $composeArgs = @('compose', '-f', $composeFile)
     if ($Action -in @('Init','Up')) {
-        & $pythonExe -m mailcheck.services.manage init --state-dir $stateDir
-        if ($LASTEXITCODE -ne 0) { throw 'Initialization failed; existing credentials were not overwritten.' }
+        $initOutput = & $pythonExe -m mailcheck.services.manage init --state-dir $stateDir
+        $initExitCode = $LASTEXITCODE
+        $initOutput | ForEach-Object { Write-Host $_ }
+        if ($initExitCode -ne 0) {
+            try { $initReport = ($initOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+            catch { $initReport = $null }
+            if ($initReport.code) {
+                throw "Initialization failed [$($initReport.code)]. $($initReport.error) $($initReport.hint)"
+            }
+            throw 'Initialization failed; existing credentials were not overwritten.'
+        }
         # Restrict local files before Docker reads them. No credentials in arguments.
         $principal = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
         $protectedPaths = @($stateDir, (Join-Path $stateDir 'secrets'), (Join-Path $stateDir 'manifest.json'))

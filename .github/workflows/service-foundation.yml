@@ -41,3 +41,39 @@ jobs:
       - run: python -m pytest tests/test_service*.py -q
       - if: always()
         run: docker compose down --volumes
+
+  windows-bootstrap:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mail check smoke
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mail check smoke
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Initialize and validate an empty scaffold with a spaced repository path
+        run: |
+          New-Item -ItemType Directory -Force deployment/microservices/.local | Out-Null
+          ./tools/microservices.ps1 Init
+          $before = (Get-FileHash deployment/microservices/.local/manifest.json).Hash
+          ./tools/microservices.ps1 Init
+          $after = (Get-FileHash deployment/microservices/.local/manifest.json).Hash
+          if ($before -ne $after) { throw 'Reinitialization changed existing service state.' }
+      - name: Preserve populated state and report a specific recovery error
+        run: |
+          $manifest = 'deployment/microservices/.local/manifest.json'
+          Move-Item $manifest "$manifest.backup"
+          try {
+            try {
+              ./tools/microservices.ps1 Init
+              throw 'Expected initialization to reject missing manifest.'
+            } catch {
+              if ($_.Exception.Message -notmatch 'state_manifest_missing') { throw }
+            }
+          } finally { Move-Item "$manifest.backup" $manifest }
+          ./tools/microservices.ps1 Init

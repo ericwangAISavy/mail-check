@@ -33,6 +33,12 @@ The doctor reports OS/CPU, Docker allocation, a bounded local model snapshot and
 
 A Windows cold boot without interactive login, Docker recovery and real peak-model-memory/load tests remain mandatory before production use. Docker health checks report health; they do not automatically restart an otherwise running unhealthy process. Process exits follow the Compose restart policy. Do not use automatic Windows login or Docker socket mounts as a recovery workaround.
 
+## Initialization diagnostics
+
+`Init` safely initializes a missing or completely empty `.local` directory. Re-running it preserves and validates an existing installation. Repository paths containing spaces are supported.
+
+If initialization fails, the JSON output includes a specific `code`, explanation and recovery `hint`. A populated directory without `manifest.json` reports `state_manifest_missing`; changed files report `state_files_changed`. Restore the matching state backup rather than deleting `.local` or generating new passwords for existing database/broker volumes. Never paste credential files into chat or logs.
+
 ## Linux/development equivalent
 
 ```sh
