@@ -41,6 +41,8 @@ flowchart LR
   Dispatcher[Service-owned dispatch tasks inside domain runtimes] --> MQ[(RabbitMQ: durable jobs and events)]
   MQ --> Collector[Mail collection worker]
   Collector --> Providers
+  Providers -. IDLE or validated webhook hints .-> Collector
+  Core -. authenticated SSE updates .-> User
   Collector --> PG
   MQ --> Intelligence[Intelligence worker: one inference at a time]
   Intelligence --> Model[Existing local AI model]
@@ -54,8 +56,8 @@ Mail API and collector are two runtime roles of the same mail service and share 
 
 | Domain | Responsibilities | Authoritative data |
 | --- | --- | --- |
-| Core service | Authentication and revocation, owners/admins/bidders, workspaces, assignments, job sourcing, payment rules and ledgers, dashboard and pipeline workflows, notification delivery; browser-facing API | core database: identity, tenant membership, sourcing, payment history, pipeline decisions, audit, recipient notification records; local mail-derived projections for reporting |
-| Mail service | Provider credentials and OAuth refresh, mailbox cursors, incremental collection, normalized/original messages, queue Done/Undo, reply sending, raw calendar collection, authorized inbox reads | mail database: accounts and encrypted credentials, messages, action state, provider cursors, send ledger, raw calendar events |
+| Core service | Authentication and revocation, owners/admins/bidders, workspaces, assignments, job sourcing, payment rules and ledgers, dashboard and pipeline workflows, notification delivery; browser-facing API | core database: identity, tenant membership, sourcing, payment history, pipeline decisions, audit, recipient notification records and a minimal live client-event journal; local mail-derived projections for reporting |
+| Mail service | Provider credentials and OAuth refresh, mailbox cursors, incremental collection, normalized/original messages, queue Done/Undo, reply sending, raw calendar collection, live provider watches and authorized inbox reads | mail database: accounts and encrypted credentials, messages, action state, provider cursors, send ledger, raw calendar events |
 | Intelligence service | Existing classification pipeline and model cache, calendar interpretation and job-link matching; background inference only | intelligence database: versioned results, cache entries, attempts and review state; results published as events |
 
 One PostgreSQL instance initially hosts three logical databases with separate application roles. A service cannot query or write another service's tables. Internal HTTP and versioned events connect domains. No cross-database foreign keys or distributed SQL transactions. Service-owned projection tables can contain copies of relevant facts; their source, revision and lag must be explicit.
@@ -71,7 +73,7 @@ Proposed versioned internal contracts must replace today's direct joins across m
 - Mail publishes a job with source ID, input revision and a source-retention lease. Intelligence fetches an immutable, bounded input through `GET /internal/v1/messages/{id}/snapshots/{revision}` or the equivalent calendar snapshot endpoint, authenticated as the Intelligence service and scoped to the eligible workspace/account.
 - Core supplies authorized historical sourcing candidates and bidder attribution through `GET /internal/v1/sourcing/candidates`, with account, application-date bounds, pagination and a snapshot revision. Intelligence never queries Core's tables directly.
 - Intelligence persists the accepted input snapshot and versions before acknowledging the job, then emits `classification.completed.v1`, `calendar.analysis.completed.v1` or `job-match.completed.v1`, including input revision, result revision and model/prompt versions.
-- Mail consumes classification results into its inbox view; Core consumes the applicable classification/matching facts into reporting and pipeline suggestions. Consumers reject stale input revisions and preserve authoritative manual corrections.
+- Mail validates classification results against current input revisions/manual overrides, commits accepted inbox state and emits authoritative classified-message facts. Core derives inbox/report/payment projections and related alerts from these Mail-accepted facts, never directly from an unaccepted Intelligence completion. Direct matching/calendar evidence is a versioned suggestion for the owning domain to validate; it cannot overwrite authoritative manual corrections.
 
 Rolling mail retention must not delete inputs still needed by queued work. Mail pins the required source revision until Intelligence durably accepts its bounded snapshot; Intelligence then owns retention of that copy until completion/review expiry. Pending outboxes and broker outages must not create dangling ID-only jobs. Leases and snapshot lifetimes are bounded: an expired/administratively deleted input produces an explicit cancelled/needs-review state, not an invented result or endless retry. Deletion and privacy workflows must include pinned copies and snapshots. The migration must preserve existing retention behavior outside these explicitly tracked in-flight inputs.
 
@@ -119,11 +121,19 @@ Display projection/sync freshness. A new deployment must not quietly change paid
 
 Keep raw calendar events owned by Mail and interpreted evidence owned by Intelligence; Core owns confirmed pipeline decisions and their audit history. Classification or matching updates cannot overwrite manually confirmed corrections.
 
+## Live mailbox updates
+
+Live collection is a server responsibility, shared per account rather than initiated by each browser. Mail uses provider change hints where available (Graph subscriptions or IMAP IDLE), durable incremental cursors and a polling/reconciliation fallback. It commits new mail and its outbox before publishing an update; Intelligence runs independently afterward.
+
+Core reuses the notification module's authenticated SSE transport for minimal data-change events, with durable replay and current account/role authorization. Data invalidation events and human notifications remain separate records/policies. React refreshes affected queries without resetting filters, selection, scroll or drafts. Unclassified mail does not automatically become a receipt or gain bidder visibility.
+
+The provider-specific design, safeguards, timing targets and migration tests are specified in [Live mailbox collection and browser updates](REALTIME_MAIL_UPDATES.md). This extends the existing three-service/resource budget; it adds no fourth service or cloud messaging dependency. New live-update settings must clearly distinguish server collection from browser delivery and historical/full checks.
+
 ## Notification delivery: begin inside Core
 
 Decision: use a separately bounded notification module in Core, not a fourth business service in the initial deployment. At 10–50 concurrent users on a 16 GB PC, a separate process/database adds operating cost without a measured scaling benefit. Give the module a stable contract and repository boundary so it can be extracted later if its workload or ownership warrants it.
 
-- Core consumes relevant Mail/Intelligence events and commits recipient-scoped notification rows plus its consumed-event record in one Core transaction. Uniqueness on source event, recipient and notification kind makes redelivery harmless. RabbitMQ acknowledgement follows the commit.
+- Core consumes authoritative Mail facts and Core-accepted workflow decisions, then commits recipient-scoped notification rows plus its consumed-event record in one Core transaction. Uniqueness on source event, recipient and notification kind makes redelivery harmless. RabbitMQ acknowledgement follows the commit.
 - Core owns notification permissions and read/unread state. A message's Done state, provider read flag and notification read state are distinct; opening or acknowledging a notification must not mark the real mailbox read.
 - Start with the current supported alert types. Job-application verification alerts must use the existing restricted bidder eligibility and fast collection path, not wait for model inference or expose unrelated account-login/reset codes. Alert previews contain no verification code or sensitive message body. Suppress popup storms from historical imports; use an explicit backfill/summary policy rather than treating old messages as new arrivals.
 - Preserve the existing same-origin notification list/ack routes during migration. Add an authenticated SSE stream for incremental in-app delivery and a separate explicit read-state operation. SSE events contain a notification ID, cursor and minimal event metadata; fetch private content through the normal authorized API.
@@ -215,4 +225,4 @@ Do not promise zero downtime or automatic lossless rollback after arbitrary new 
 
 ## Implementation sequence
 
-Deliver in reviewable phases: phase-zero host/runtime feasibility; deployment skeleton and contracts; Core/PostgreSQL persistence and importer; Mail extraction and credential migration; durable scheduling/outboxes; Intelligence extraction; then end-to-end rehearsal and production cutover. Each phase needs a working local result and explicit validation. This document does not deploy containers, alter current data or constitute a completed migration.
+Deliver in reviewable phases: phase-zero host/runtime feasibility; deployment skeleton and contracts; Core/PostgreSQL persistence and importer; Mail extraction and credential migration; durable scheduling/outboxes; Intelligence extraction; live mailbox change delivery and browser streaming; then end-to-end rehearsal and production cutover. Each phase needs a working local result and explicit validation. This document does not deploy containers, alter current data or constitute a completed migration.
