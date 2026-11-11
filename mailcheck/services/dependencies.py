@@ -1,7 +1,12 @@
 """Short independent probes; no dependency failure can block liveness."""
 import asyncio
 
-QUEUES={'core':'core.live.v1','mail':'mail.results.v1','intelligence':'intelligence.jobs.v1'}
+from .broker import BINDINGS
+
+# Probe every owned consumer group; a missing backfill/collection queue must
+# never be hidden by the main live queue still being available.
+QUEUES={role:tuple(name for name in BINDINGS if name.startswith(role+'.'))
+        for role in ('core','mail','intelligence')}
 
 
 async def probe_postgres(settings):
@@ -21,7 +26,8 @@ async def probe_broker(settings):
         conn=await connect(settings)
         async with conn:
             channel=await conn.channel()
-            await channel.declare_queue(QUEUES[settings.role],passive=True)
+            for name in QUEUES[settings.role]:
+                await channel.declare_queue(name,passive=True)
         return True
     except Exception:return False
 

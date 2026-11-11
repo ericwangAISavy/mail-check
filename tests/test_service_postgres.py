@@ -156,3 +156,17 @@ def test_outbox_rejects_payload_identity_mismatch():
             finally:
                 async with pool.connection() as conn:await conn.execute('DELETE FROM outbox WHERE event_id=%s',(event,))
     asyncio.run(scenario())
+
+
+def test_provisioning_rejects_replication_privilege():
+    import psycopg
+    from mailcheck.services.provision import provision_domains
+    from mailcheck.services.settings import read_secret
+    settings=service()
+    admin={**settings.db_kwargs(),'dbname':'postgres','user':'postgres','password':read_secret(settings.secret_dir,'postgres_admin_password')}
+    with psycopg.connect(**admin,autocommit=True) as conn:
+        conn.execute('ALTER ROLE core_app REPLICATION')
+        try:
+            with pytest.raises(ValueError,match='unsafe attributes'):
+                provision_domains(settings.secret_dir,settings.postgres_host,settings.postgres_port)
+        finally:conn.execute('ALTER ROLE core_app NOREPLICATION')

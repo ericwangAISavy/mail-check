@@ -57,3 +57,32 @@ def test_real_broker_fanout_topic_isolation_and_unroutable_errors():
                 await exchange.publish(aio_pika.Message(b'{}'),routing_key='core.workspace.spoof.v1',mandatory=True)
             with pytest.raises(ChannelAccessRefused):await underlay.closing
     asyncio.run(scenario())
+
+
+@pytest.mark.skipif(not os.environ.get('OFFERPATH_TEST_STACK'),reason='requires isolated integration stack')
+def test_broker_readiness_detects_a_missing_secondary_owned_queue(monkeypatch):
+    from mailcheck.services import dependencies
+    from mailcheck.services.settings import ServiceSettings
+    module=importlib.import_module('mailcheck.services.broker')
+    cfg=json.loads(Path(os.environ['OFFERPATH_TEST_STACK']).read_text())
+    settings=ServiceSettings.load('core',{'OFFERPATH_SECRET_DIR':cfg['secrets'],'RABBITMQ_HOST':cfg['host'],'RABBITMQ_PORT':str(cfg['broker_port'])})
+    # Disposable queues exercise real AMQP failures without deleting stack work.
+    prefix='core.probe.'+uuid4().hex
+    primary,secondary=prefix+'.live',prefix+'.backfill'
+    assert set(dependencies.QUEUES['core'])=={name for name in module.BINDINGS if name.startswith('core.')}
+    monkeypatch.setitem(dependencies.QUEUES,'core',(primary,secondary))
+    async def scenario():
+        async with await module.connect(settings) as conn:
+            channel=await conn.channel()
+            first=await channel.declare_queue(primary)
+            second=await channel.declare_queue(secondary)
+            try:
+                assert await dependencies.probe_broker(settings) is True
+                await second.delete()
+                assert await dependencies.probe_broker(settings) is False
+                second=await channel.declare_queue(secondary)
+                assert await dependencies.probe_broker(settings) is True
+            finally:
+                await first.delete()
+                await second.delete(if_unused=False,if_empty=False)
+    asyncio.run(scenario())

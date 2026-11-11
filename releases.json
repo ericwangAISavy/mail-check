@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.28.1",
+    "date": "2026-11-11",
+    "title": "Harden service readiness and deployment checks",
+    "changes": [
+      "Check all service-owned broker queues before reporting infrastructure readiness and reject unsafe database replication privileges.",
+      "Restrict local model diagnostics to validated server roots without redirects, and run real database/broker regression checks in service CI."
+    ]
+  },
+  {
     "version": "2.28.0",
     "date": "2026-11-11",
     "title": "Single-host service foundation",

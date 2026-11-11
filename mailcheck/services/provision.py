@@ -12,7 +12,7 @@ def provision_domains(folder,host='postgres',port=5432):
             for role in ROLES:
                 owner=f'{role}_owner';app=f'{role}_app';migrator=f'{role}_migrator';database=f'offerpath_{role}'
                 for name,password in [(owner,None),(app,read_secret(folder,f'{role}_db_password')),(migrator,read_secret(folder,f'{role}_migration_password'))]:
-                    existing=root.execute('SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolbypassrls FROM pg_roles WHERE rolname=%s',(name,)).fetchone()
+                    existing=root.execute('SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolbypassrls,rolreplication FROM pg_roles WHERE rolname=%s',(name,)).fetchone()
                     if existing:
                         if existing[0]!=(password is not None) or any(existing[1:]):raise ValueError('Existing service role has unsafe attributes')
                     elif password is None:root.execute(sql.SQL('CREATE ROLE {} NOLOGIN').format(sql.Identifier(name)))

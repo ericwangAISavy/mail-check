@@ -1,7 +1,7 @@
 name: Service foundation
 on:
   pull_request:
-    paths: ['mailcheck/services/**', 'deployment/microservices/**', 'tests/test_service*', '.github/workflows/service-foundation.yml', 'pyproject.toml']
+    paths: ['mailcheck/services/**', 'deployment/microservices/**', 'tests/test_service*', 'tools/microservices.ps1', '.github/workflows/service-foundation.yml', 'pyproject.toml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 20
     env:
       COMPOSE_PROJECT_NAME: offerpath-foundation-ci
-      COMPOSE_FILE: deployment/microservices/compose.yaml
+      COMPOSE_FILE: deployment/microservices/compose.yaml:deployment/microservices/compose.test.yaml
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,10 +22,22 @@ jobs:
           echo "OFFERPATH_CONTAINER_UID=$(id -u)" >> "$GITHUB_ENV"
           echo "OFFERPATH_CONTAINER_GID=$(id -g)" >> "$GITHUB_ENV"
           python -m mailcheck.services.manage init
-      - run: python -m pytest tests/test_service_foundation.py tests/test_service_bootstrap.py tests/test_service_smoke.py tests/test_service_deployment.py -q
+      - run: python -m pytest tests/test_service*.py -q
       - run: docker compose up --build -d --wait --wait-timeout 180
       - run: |
           docker compose --profile tools run --rm verify
           python -m mailcheck.services.verify_stack
+      - name: Verify real database and broker contracts
+        run: |
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          state = Path('deployment/microservices/.local').resolve()
+          config = state / 'test-stack.json'
+          config.write_text(json.dumps({'host': '127.0.0.1', 'postgres_port': 55432, 'broker_port': 55672, 'secrets': str(state / 'secrets')}))
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              stream.write(f'OFFERPATH_TEST_STACK={config}\n')
+          PYTHON
+      - run: python -m pytest tests/test_service*.py -q
       - if: always()
         run: docker compose down --volumes

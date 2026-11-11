@@ -5,7 +5,7 @@ import os
 import platform
 import subprocess
 from urllib.parse import urlparse
-from urllib.request import Request,build_opener,ProxyHandler
+from urllib.request import Request,build_opener,ProxyHandler,HTTPRedirectHandler
 
 
 def _run(args):
@@ -20,16 +20,21 @@ def _json_command(run,args):
     except (ValueError,TypeError):return None
 
 
+class _NoModelRedirect(HTTPRedirectHandler):
+    def redirect_request(self,*args,**kwargs):
+        return None
+
+
 def _model_snapshot(url):
     parsed=urlparse(url)
-    if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:raise ValueError('Model URL must be a private server root')
+    if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ('','/') or (parsed.port is not None and not 1<=parsed.port<=65535):raise ValueError('Model URL must be a private server root')
     host=parsed.hostname
     if host not in ('localhost','host.docker.internal'):
         try:address=ipaddress.ip_address(host)
         except ValueError:raise ValueError('Model host must be a local/private address') from None
         if not (address.is_private or address.is_loopback) or address.is_link_local or address.is_unspecified or address.is_multicast:raise ValueError('Model host must be a local/private address')
     request=Request(url.rstrip('/')+'/api/ps')
-    with build_opener(ProxyHandler({})).open(request,timeout=2) as response:
+    with build_opener(ProxyHandler({}),_NoModelRedirect()).open(request,timeout=2) as response:
         body=response.read(1048577)
         if len(body)>1048576:raise ValueError('Model response too large')
         data=json.loads(body)

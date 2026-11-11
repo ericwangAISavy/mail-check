@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.28.1 — 2026-11-11
+
+Harden service readiness and deployment checks
+
+- Check all service-owned broker queues before reporting infrastructure readiness and reject unsafe database replication privileges.
+- Restrict local model diagnostics to validated server roots without redirects, and run real database/broker regression checks in service CI.
+
 ## 2.28.0 — 2026-11-11
 
 Single-host service foundation

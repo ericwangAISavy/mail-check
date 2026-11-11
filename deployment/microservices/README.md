@@ -29,7 +29,7 @@ Install Docker Desktop with Linux containers/WSL2 and confirm `docker compose ve
 
 `Down` removes only this Compose project's containers/network, keeping its named volumes and local state. Never run `down --volumes` on an installation containing data as an upgrade step. `start.bat` continues to run the existing app separately.
 
-The doctor reports OS/CPU, Docker allocation, a bounded local model snapshot and **unverified** capacity/cold-boot gates. It is read-only and never certifies model peak RAM or unattended startup from a single snapshot. Use `-ModelUrl http://192.168.1.10:11434` only for an existing private model server. No prompts, tokens or model settings are changed.
+The doctor reports OS/CPU, Docker allocation, a bounded local model snapshot and **unverified** capacity/cold-boot gates. It is read-only and never certifies model peak RAM or unattended startup from a single snapshot. Use `-ModelUrl http://192.168.1.10:11434` only for an existing private model server. No prompts, tokens or model settings are changed. The diagnostic accepts only a private server root and refuses redirects to keep requests within the validated endpoint.
 
 A Windows cold boot without interactive login, Docker recovery and real peak-model-memory/load tests remain mandatory before production use. Docker health checks report health; they do not automatically restart an otherwise running unhealthy process. Process exits follow the Compose restart policy. Do not use automatic Windows login or Docker socket mounts as a recovery workaround.
 
@@ -52,7 +52,7 @@ Role provisioning is a one-shot job with admin credentials. Migrations run in a 
 
 - `GET /platform/live`: edge liveness (204).
 - `GET /platform/core/live`: Core liveness, independent of dependencies.
-- `GET /platform/{core,mail,intelligence}/dependencies`: connectivity/schema/owned-queue probes; 200 or sanitized 503.
+- `GET /platform/{core,mail,intelligence}/dependencies`: connectivity/schema/all-owned-queue probes; 200 or sanitized 503.
 - Any business path, including `/api/bootstrap`: explicit 503 migration state.
 
 The edge resolves backend container names dynamically, avoiding permanent stale addresses after replacement. Dependency probes have short deadlines. Do not confuse dependency readiness with complete queue-binding/tenant/business correctness; the integration suite and future domain contracts cover those separately.
@@ -65,7 +65,7 @@ Ordinary tests run without PostgreSQL/RabbitMQ or optional client packages. To r
 OFFERPATH_TEST_STACK=/absolute/path/to/disposable-stack.json python -m pytest tests/test_service_postgres.py tests/test_service_broker.py -q
 ```
 
-Tests verify migrations, runtime DDL denial/cross-domain isolation, reverse transaction ordering, replay retention, duplicate identity, atomic consumer rollback, outbox acknowledgement/retry, broker fanout/topic isolation and unroutable publication. The deployment test checks loopback port/secret isolation from the rendered Compose configuration. The service-foundation CI workflow builds and starts the isolated stack, then verifies actual edge and dependency responses.
+Tests verify migrations, runtime DDL denial/cross-domain isolation, rejection of elevated replication privileges, missing secondary consumer queues, reverse transaction ordering, replay retention, duplicate identity, atomic consumer rollback, outbox acknowledgement/retry, broker fanout/topic isolation and unroutable publication. The deployment test checks loopback port/secret isolation from the rendered Compose configuration. The service-foundation CI workflow builds and starts the isolated stack, verifies actual edge/dependency responses, and runs the real database/broker contracts. Its `compose.test.yaml` override publishes database/broker ports on loopback for disposable integration tests only; never include that override in a production startup.
 
 Image builds keep TLS verification enabled. A corporate/session build CA can be supplied as an optional BuildKit secret named `proxy_ca`; it is mounted only for pip, not copied into image layers. The default deployment does not require this override.
 
