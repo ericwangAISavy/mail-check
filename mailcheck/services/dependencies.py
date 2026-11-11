@@ -1,0 +1,31 @@
+"""Short independent probes; no dependency failure can block liveness."""
+import asyncio
+
+QUEUES={'core':'core.live.v1','mail':'mail.results.v1','intelligence':'intelligence.jobs.v1'}
+
+
+async def probe_postgres(settings):
+    try:
+        import psycopg
+        async with await psycopg.AsyncConnection.connect(**settings.db_kwargs()) as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1')
+                return (await cursor.fetchone())==(1,)
+    except Exception:return False
+
+
+async def probe_broker(settings):
+    try:
+        import aio_pika
+        conn=await aio_pika.connect(host=settings.broker_host,port=settings.broker_port,
+                                   login=f'{settings.role}_events',password=settings.broker_password,virtualhost='offerpath',timeout=2)
+        async with conn:
+            channel=await conn.channel()
+            await channel.declare_queue(QUEUES[settings.role],passive=True)
+        return True
+    except Exception:return False
+
+
+async def probe_dependencies(settings):
+    database,broker=await asyncio.gather(probe_postgres(settings),probe_broker(settings))
+    return {'postgres':database,'rabbitmq':broker}

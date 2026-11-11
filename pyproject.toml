@@ -26,6 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+services = ["psycopg[binary,pool]>=3.2,<4", "aio-pika>=9.5,<10"]
 
 [project.scripts]
 mail-check = "mailcheck.cli:main"
@@ -39,3 +40,5 @@ include = ["mailcheck*"]
 
 [tool.setuptools.package-data]
 "mailcheck.web" = ["templates/*.html", "static/*", "frontend_dist/*", "frontend_dist/assets/*"]
+
+"mailcheck.services" = ["migrations/*.sql"]
