@@ -37,7 +37,7 @@
 
 ### Task 2: PostgreSQL ownership, migrations and event journal
 
-**Files:** Create mailcheck/services/{database,journal}.py, migrations/*.sql, deployment/microservices/postgres-init.sh; tests/test_service_postgres.py.
+**Files:** Create mailcheck/services/{database,journal}.py, migrations/*.sql, mailcheck/services/provision.py; tests/test_service_postgres.py.
 **Interfaces:** migrate_domain(connection); Journal.append(workspace_id,event_id,account_id,kind,payload), barrier(workspace_id), replay(workspace_id,after,limit); runtime role has DML only.
 - [ ] Write failure-first integration tests against isolated temporary PostgreSQL databases.
 - [ ] Add transactional versioned migrations, owner/runtime separation, per-workspace head locking and unique source-event deduplication.

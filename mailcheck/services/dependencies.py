@@ -7,10 +7,11 @@ QUEUES={'core':'core.live.v1','mail':'mail.results.v1','intelligence':'intellige
 async def probe_postgres(settings):
     try:
         import psycopg
+        from .database import expected_schema_version
         async with await psycopg.AsyncConnection.connect(**settings.db_kwargs()) as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1')
-                return (await cursor.fetchone())==(1,)
+                return (await cursor.fetchone())==(expected_schema_version(settings.role),)
     except Exception:return False
 
 
