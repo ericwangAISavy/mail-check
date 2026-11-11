@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.27.17 — 2026-11-10
+
+Bound local worker connects and recover dropped page-read sockets
+
+- Prevent stalled local worker connects from occupying gateway capacity for minutes, and expire idle connections before workers close them.
+- Recover a dropped GET/HEAD worker connection once within the page deadline, revalidating sessions and never replaying writes or slow reads.
+- Log sanitized worker connection failures and Cloudflare request references for origin/tunnel diagnosis.
+
 ## 2.27.16 — 2026-11-10
 
 Recover Triage reads after temporary Cloudflare connection failures

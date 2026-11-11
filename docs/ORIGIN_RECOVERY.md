@@ -38,3 +38,9 @@ A 530 response is distinct from the app's local 503/504 worker errors. Inspect t
 For 1033, check that the intended cloudflared service is running, connected, and associated with this domain's tunnel. For 1016, check the domain's DNS and tunnel route in Cloudflare. Compare the local `http://127.0.0.1:52400/_internal/origin-health` health response with the public-domain failure at the same time. Keep the origin port private.
 
 The Triage client retries temporary read failures with a limited backoff budget, retaining filters and existing cached mail. It never retries email sends or other mutations as part of this recovery. Persistent 530 responses require fixing the tunnel/DNS issue; client retries cannot repair Cloudflare configuration.
+
+## Gateway-to-worker transport recovery
+
+Local worker connections have a two-second connect timeout; long dispatched writes retain their existing read timeout. Idle pooled sockets expire after four seconds, before the worker's five-second keep-alive timeout. GET/HEAD requests get at most one fresh attempt after a connection reset or premature socket closure, within the original 25-second page deadline and after session revalidation. Writes are never replayed. Read timeouts and explicit worker error responses do not trigger this retry, avoiding duplicate slow work during overload.
+
+A persistent worker transport failure returns a complete, non-cacheable 503 response with `Retry-After: 1`, and the gateway terminal records the workspace, method, exception type and sanitized Cloudflare Ray ID when present. Tokens, mail contents and query strings are not logged. These local transport failures are distinct from a Cloudflare-generated 502 when the tunnel cannot reach the gateway itself.

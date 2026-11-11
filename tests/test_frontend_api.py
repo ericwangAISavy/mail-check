@@ -118,8 +118,14 @@ class FrontendApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-store", response.headers.get("cache-control", ""))
-        self.assertIn("Starting OfferPath", response.text)
-        self.assertIn("reload this page", response.text)
+        import re
+        self.assertIn("Preparing your workspace", response.text)
+        self.assertIn("data-offerpath-startup", response.text)
+        startup = re.search(r'src="(/assets/startup-recovery-v\d+\.js)"', response.text)
+        self.assertIsNotNone(startup)
+        recovery = self.client.get(startup.group(1))
+        self.assertEqual(recovery.status_code, 200)
+        self.assertIn("Try loading OfferPath again", recovery.text)
 
     def test_check_routes_select_mail_or_calendar_and_share_lock(self):
         with patch.object(web_app, "_state", return_value={"has_accounts": True, "llm_ready": True}), \

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -123,6 +123,8 @@ def test_ordinary_pipeline_uses_latest_label_across_prompt_versions(tmp_path, mo
     from mailcheck.models import Classification
     from mailcheck.config import Config
     msg = message('Receipt', 'Application received.')
+    # This tests cache reuse, not retention; keep the fixture inside the window.
+    msg.date_utc = datetime.now(timezone.utc)
     with db.session(tmp_path / 'pipeline.db') as conn:
         msg.account_id = db.add_account(conn, label='synthetic', email='test@example.test')
         pk = db.upsert_message(conn, msg)

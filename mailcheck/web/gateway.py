@@ -30,6 +30,8 @@ COOKIE='offerpath_session'
 HERE=Path(__file__).parent
 READ_REQUEST_TIMEOUT = 25.0
 AUTH_REQUEST_TIMEOUT = 5.0
+WORKER_CONNECT_TIMEOUT = 2.0
+RETRYABLE_READ_TRANSPORT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError)
 
 # Process-wide, lazily started and bounded independently of browser DB work.
 # The gateway has one serving loop; authentication must stay off that loop.
@@ -96,9 +98,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     pending_workers={}
 
     def new_worker_client():
-        return httpx.AsyncClient(trust_env=False, timeout=660,
+        # Connects are local; preserve long dispatched writes without allowing
+        # a dead listener to tie up the gateway for eleven minutes. Expire idle
+        # sockets before the worker's five-second HTTP keep-alive timeout.
+        return httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(660, connect=WORKER_CONNECT_TIMEOUT, pool=2),
             cookies=CookieJar(policy=_NoWorkerCookies()),
-            limits=httpx.Limits(max_connections=None, max_keepalive_connections=64, keepalive_expiry=30))
+            limits=httpx.Limits(max_connections=None, max_keepalive_connections=64, keepalive_expiry=4))
 
     @asynccontextmanager
     async def worker_http_client():
@@ -444,21 +449,39 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # Revalidate after potentially slow body reads and worker startup.
         # A reset, suspension, logout or workspace switch may have completed
         # since the initial middleware check.
-        if identity['role']=='bidder':
-            await asyncio.to_thread(bidder_access.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
-        else:
-            await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'],
-                                    read_only=request.method in ('GET','HEAD'))
+        async def validate_dispatch():
+            if identity['role']=='bidder':
+                await asyncio.to_thread(bidder_access.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+            else:
+                await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'],
+                                        read_only=request.method in ('GET','HEAD'))
+        await validate_dispatch()
         headers={'x-offerpath-worker':worker.token}
         if identity['role']=='bidder':
             headers['x-offerpath-viewer']='bidder'
             headers['x-offerpath-bidder']=str(identity['bidder_id'])
         for name in ('accept','content-type'):
             if name in request.headers:headers[name]=request.headers[name]
-        try:
-            async with worker_http_client() as client:
-                result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
-        except httpx.HTTPError:raise HTTPException(503,'Workspace connection interrupted. Reload before retrying an email send.')
+        safe_read=request.method in ('GET','HEAD')
+        async with worker_http_client() as client:
+            for attempt in range(2 if safe_read else 1):
+                if attempt:
+                    # A reused HTTP/1 socket can close between the pool's
+                    # liveness check and the next read. The failed connection
+                    # is discarded by HTTPX; retry once, within the same read
+                    # deadline, and revalidate a possibly revoked session.
+                    await asyncio.sleep(.05)
+                    await validate_dispatch()
+                try:
+                    result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
+                    break
+                except httpx.HTTPError as exc:
+                    if safe_read and attempt==0 and isinstance(exc,RETRYABLE_READ_TRANSPORT_ERRORS):continue
+                    ray=request.headers.get('cf-ray','')
+                    safe_ray=ray if len(ray)<=80 and all(c.isascii() and (c.isalnum() or c=='-') for c in ray) else ''
+                    logging.getLogger(__name__).warning('Workspace connection failed: workspace=%s method=%s error=%s ray=%s',target,request.method,type(exc).__name__,safe_ray or 'unavailable')
+                    advice='Try again shortly.' if safe_read else 'Check whether your action completed before retrying.'
+                    raise HTTPException(503,f'Workspace connection interrupted. {advice}',headers={'Retry-After':'1'}) from exc
         if identity['role']=='admin' and result.is_success and request.method=='POST':
             import re
             match=re.fullmatch(r'api/payments/bidders/([0-9]+)(/remove)?',path)
