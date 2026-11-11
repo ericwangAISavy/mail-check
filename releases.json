@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.28.0",
+    "date": "2026-11-11",
+    "title": "Single-host service foundation",
+    "changes": [
+      "Add an opt-in isolated Core, Mail and Intelligence service foundation with PostgreSQL, RabbitMQ and local deployment tooling.",
+      "Preserve the existing application while business migration, live browser updates and Windows capacity validation remain pending."
+    ]
+  },
+  {
     "version": "2.27.17",
     "date": "2026-11-10",
     "title": "Bound local worker connects and recover dropped page-read sockets",

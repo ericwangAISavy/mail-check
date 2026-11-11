@@ -1,7 +1,7 @@
 import argparse
+import os
 import uvicorn
 from .settings import ServiceSettings,ROLES
-from .app import create_service_app
 
 
 def main():
@@ -11,7 +11,8 @@ def main():
     args=parser.parse_args()
     try:settings=ServiceSettings.load(args.role)
     except ValueError as exc:parser.exit(2,f'{exc}\n')
-    uvicorn.run(create_service_app(settings),host='0.0.0.0',port=args.port,access_log=False,server_header=False,
+    os.environ['OFFERPATH_SERVICE_ROLE']=settings.role
+    uvicorn.run('mailcheck.services.entry:app',workers=2 if settings.role=='core' else 1,host='0.0.0.0',port=args.port,access_log=False,server_header=False,
                 timeout_keep_alive=5,timeout_graceful_shutdown=10)
 
 

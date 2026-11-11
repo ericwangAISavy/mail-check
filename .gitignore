@@ -13,3 +13,6 @@ frontend/node_modules/
 .pip-cache/
 
 .superpowers/
+
+# Local service credentials and host reports
+.local/

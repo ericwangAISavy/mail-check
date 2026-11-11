@@ -1,0 +1,153 @@
+name: offerpath-foundation
+
+x-runtime: &runtime
+  restart: unless-stopped
+  read_only: true
+  user: '${OFFERPATH_CONTAINER_UID:-1000}:${OFFERPATH_CONTAINER_GID:-1000}'
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+  networks: [api, data]
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+    rabbitmq: {condition: service_healthy}
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:8000/health/live',timeout=2).close()"]
+    interval: 15s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
+  logging:
+    driver: json-file
+    options: {max-size: 5m, max-file: '3'}
+
+x-management: &management
+  build: {context: ../.., dockerfile: deployment/microservices/Dockerfile, target: management}
+  image: offerpath/management-foundation:${OFFERPATH_IMAGE_TAG:-local}
+  read_only: true
+  user: '${OFFERPATH_CONTAINER_UID:-1000}:${OFFERPATH_CONTAINER_GID:-1000}'
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+  networks: [data]
+  mem_limit: 256m
+  cpus: 1.0
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment: {POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password}
+    secrets: [postgres_admin_password]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [data]
+    mem_limit: 1g
+    cpus: 2.0
+    security_opt: [no-new-privileges:true]
+    command: [postgres, -c, shared_buffers=256MB, -c, max_connections=60, -c, work_mem=4MB, -c, max_parallel_workers=2, -c, max_parallel_workers_per_gather=1, -c, log_min_error_statement=panic, -c, log_parameter_max_length_on_error=0]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -h 127.0.0.1 -U postgres -d postgres]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  rabbitmq:
+    build: {context: ../.., dockerfile: deployment/microservices/Dockerfile, target: broker}
+    image: offerpath/broker-foundation:${OFFERPATH_IMAGE_TAG:-local}
+    hostname: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2 +SDcpu 1 +SDio 1'
+      RABBITMQ_CTL_ERL_ARGS: '+S 1:1 +SDcpu 1 +SDio 1'
+    secrets: [rabbitmq_definitions]
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    networks: [data]
+    mem_limit: 512m
+    cpus: 1.0
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  provision:
+    <<: *management
+    command: [provision]
+    depends_on: {postgres: {condition: service_healthy}}
+    secrets: [postgres_admin_password, core_db_password, mail_db_password, intelligence_db_password, core_migration_password, mail_migration_password, intelligence_migration_password]
+  migrate:
+    <<: *management
+    command: [migrate]
+    depends_on: {provision: {condition: service_completed_successfully}}
+    secrets: &migration_secrets [core_db_password, mail_db_password, intelligence_db_password, core_migration_password, mail_migration_password, intelligence_migration_password, core_broker_password, mail_broker_password, intelligence_broker_password]
+  core:
+    <<: *runtime
+    build: {context: ../.., dockerfile: deployment/microservices/Dockerfile, target: core}
+    image: offerpath/core-foundation:${OFFERPATH_IMAGE_TAG:-local}
+    secrets: [core_db_password, core_broker_password]
+    mem_limit: 768m
+    cpus: 2.0
+  mail:
+    <<: *runtime
+    build: {context: ../.., dockerfile: deployment/microservices/Dockerfile, target: mail}
+    image: offerpath/mail-foundation:${OFFERPATH_IMAGE_TAG:-local}
+    secrets: [mail_db_password, mail_broker_password]
+    networks: [api, data, outbound]
+    mem_limit: 384m
+    cpus: 1.0
+  intelligence:
+    <<: *runtime
+    build: {context: ../.., dockerfile: deployment/microservices/Dockerfile, target: intelligence}
+    image: offerpath/intelligence-foundation:${OFFERPATH_IMAGE_TAG:-local}
+    secrets: [intelligence_db_password, intelligence_broker_password]
+    networks: [api, data, outbound]
+    mem_limit: 256m
+    cpus: 1.0
+  edge:
+    build: {context: ../.., dockerfile: deployment/microservices/Dockerfile, target: edge}
+    image: offerpath/edge-foundation:${OFFERPATH_IMAGE_TAG:-local}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    ports: ['127.0.0.1:52500:8080']
+    networks: [api, ingress]
+    depends_on: {core: {condition: service_healthy}, mail: {condition: service_healthy}, intelligence: {condition: service_healthy}}
+    mem_limit: 64m
+    cpus: 0.5
+    healthcheck:
+      test: [CMD, wget, -Y, 'off', -q, -O, /dev/null, 'http://127.0.0.1:8080/platform/live']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  verify:
+    <<: *management
+    profiles: [tools]
+    command: [verify]
+    depends_on: {core: {condition: service_healthy}}
+    secrets: [core_db_password, mail_db_password, intelligence_db_password, core_broker_password, mail_broker_password, intelligence_broker_password]
+
+networks:
+  ingress: {}
+  api: {internal: true}
+  data: {internal: true}
+  outbound: {}
+volumes:
+  postgres_data: {}
+  rabbitmq_data: {}
+secrets:
+  postgres_admin_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/postgres_admin_password'}
+  core_db_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/core_db_password'}
+  core_broker_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/core_broker_password'}
+  core_migration_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/core_migration_password'}
+  mail_db_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/mail_db_password'}
+  mail_broker_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/mail_broker_password'}
+  mail_migration_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/mail_migration_password'}
+  intelligence_db_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/intelligence_db_password'}
+  intelligence_broker_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/intelligence_broker_password'}
+  intelligence_migration_password: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/intelligence_migration_password'}
+  rabbitmq_definitions: {file: '${OFFERPATH_SERVICE_STATE_DIR:-./.local}/secrets/rabbitmq_definitions'}

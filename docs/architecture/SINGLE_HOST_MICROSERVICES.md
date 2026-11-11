@@ -1,6 +1,6 @@
 # OfferPath: microservices on one Windows 11 server
 
-Status: proposed architecture; no production migration or runtime change implemented.
+Status: isolated service foundation implemented in v2.28.0; business migration and production cutover remain pending. See [foundation setup](../../deployment/microservices/README.md).
 
 Baseline: v2.27.17, commit c4d13eb. Work branch: feature/major-update-v2.27.17.
 

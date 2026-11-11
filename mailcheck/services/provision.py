@@ -17,6 +17,11 @@ def provision_domains(folder,host='postgres',port=5432):
                         if existing[0]!=(password is not None) or any(existing[1:]):raise ValueError('Existing service role has unsafe attributes')
                     elif password is None:root.execute(sql.SQL('CREATE ROLE {} NOLOGIN').format(sql.Identifier(name)))
                     else:root.execute(sql.SQL('CREATE ROLE {} LOGIN PASSWORD {}').format(sql.Identifier(name),sql.Literal(password)))
+                for name in (owner, app, migrator):
+                    memberships=root.execute('SELECT parent.rolname FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE member.rolname=%s',(name,)).fetchall()
+                    allowed={owner} if name==migrator else set()
+                    if any(parent not in allowed for (parent,) in memberships):
+                        raise ValueError('Existing service role has unsafe membership')
                 root.execute(sql.SQL('GRANT {} TO {}').format(sql.Identifier(owner),sql.Identifier(migrator)))
                 existing=root.execute('SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=%s',(database,)).fetchone()
                 if existing and existing[0]!=owner:raise ValueError('Existing database has a different owner')

@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.28.0 — 2026-11-11
+
+Single-host service foundation
+
+- Add an opt-in isolated Core, Mail and Intelligence service foundation with PostgreSQL, RabbitMQ and local deployment tooling.
+- Preserve the existing application while business migration, live browser updates and Windows capacity validation remain pending.
+
 ## 2.27.17 — 2026-11-10
 
 Bound local worker connects and recover dropped page-read sockets

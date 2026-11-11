@@ -1,6 +1,6 @@
 """Fenced, bounded outbox delivery; no DB connection is held during broker I/O."""
 import asyncio
-from uuid import uuid4
+from uuid import UUID, uuid4
 from psycopg.rows import dict_row
 
 
@@ -23,6 +23,8 @@ class OutboxDispatcher:
         result={'claimed':len(records),'published':0,'failed':0}
         for record in records:
             try:
+                if UUID(str(record['payload'].get('event_id'))) != record['event_id']:
+                    raise ValueError('Outbox event identity mismatch')
                 async with asyncio.timeout(3):confirmed=await self.publish(record['routing_key'],record['payload'])
                 if confirmed is not True:raise RuntimeError('Broker did not confirm publication')
             except Exception:

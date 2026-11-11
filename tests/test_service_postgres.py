@@ -121,3 +121,38 @@ def test_outbox_does_not_hold_a_connection_while_publishing_and_retains_failures
                 assert (await (await conn.execute('SELECT published_at IS NOT NULL FROM outbox WHERE event_id=%s',(event,))).fetchone())[0]
                 await conn.execute('DELETE FROM outbox WHERE event_id=%s',(event,))
     asyncio.run(scenario())
+
+
+def test_provisioning_rejects_unexpected_role_memberships():
+    import psycopg
+    from mailcheck.services.provision import provision_domains
+    from mailcheck.services.settings import read_secret
+    settings=service()
+    admin={**settings.db_kwargs(),'dbname':'postgres','user':'postgres','password':read_secret(settings.secret_dir,'postgres_admin_password')}
+    with psycopg.connect(**admin,autocommit=True) as conn:
+        conn.execute('GRANT core_owner TO core_app')
+        try:
+            with pytest.raises(ValueError,match='membership'):
+                provision_domains(settings.secret_dir,settings.postgres_host,settings.postgres_port)
+        finally:
+            conn.execute('REVOKE core_owner FROM core_app')
+
+
+def test_outbox_rejects_payload_identity_mismatch():
+    from psycopg_pool import AsyncConnectionPool
+    from psycopg.types.json import Jsonb
+    from mailcheck.services.outbox import OutboxDispatcher
+    async def scenario():
+        async with AsyncConnectionPool(kwargs=service().db_kwargs(),min_size=0,max_size=1,open=False) as pool:
+            event=uuid4();published=[]
+            async with pool.connection() as conn:
+                await conn.execute('INSERT INTO outbox(event_id,routing_key,payload) VALUES(%s,%s,%s)',(event,'core.workspace.test.v1',Jsonb({'event_id':str(uuid4())})))
+            async def publish(key,payload):published.append(payload);return True
+            try:
+                result=await OutboxDispatcher(pool,publish).run_once()
+                assert result['failed']>=1 and not published
+                async with pool.connection() as conn:
+                    assert (await (await conn.execute('SELECT published_at FROM outbox WHERE event_id=%s',(event,))).fetchone())==(None,)
+            finally:
+                async with pool.connection() as conn:await conn.execute('DELETE FROM outbox WHERE event_id=%s',(event,))
+    asyncio.run(scenario())
