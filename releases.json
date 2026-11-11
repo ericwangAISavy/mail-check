@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.28.3",
+    "date": "2026-11-11",
+    "title": "Repair Windows service-state access before validation",
+    "changes": [
+      "Repair owner access to existing Windows manifests and credential files before validation, preserving their contents.",
+      "Use explicit Windows ACLs instead of POSIX chmod for generated state, report filesystem operation/error codes safely, and test empty-ACL recovery on Windows Python 3.12 and 3.15."
+    ]
+  },
+  {
     "version": "2.28.2",
     "date": "2026-11-11",
     "title": "Fix service initialization and expose safe recovery diagnostics",

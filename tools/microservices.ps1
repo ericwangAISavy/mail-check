@@ -10,6 +10,34 @@ $composeFile = Join-Path $repoRoot 'deployment\microservices\compose.yaml'
 $stateDir = Join-Path $repoRoot 'deployment\microservices\.local'
 $pythonExe = Join-Path $repoRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path $pythonExe)) { $pythonExe = (Get-Command python -ErrorAction Stop).Source }
+# Repair owner access before Python validates existing state. An empty file DACL
+# permits its owner to fix the ACL but prevents reading the manifest itself.
+function Protect-ServicePath([System.IO.FileSystemInfo]$Item) {
+    if ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw 'Service state cannot contain symbolic links or junctions.'
+    }
+    $rights = if ($Item -is [System.IO.DirectoryInfo]) { '(OI)(CI)F' } else { 'F' }
+    $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $aclTool = Join-Path $env:SystemRoot 'System32\icacls.exe'
+    & $aclTool $Item.FullName /L /inheritance:r /grant:r "*${sid}:$rights" "*S-1-5-18:$rights" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not configure service-state access. Run Init using the account that owns these files.'
+    }
+}
+
+function Protect-ServiceState {
+    if (-not (Test-Path -LiteralPath $stateDir)) { return }
+    Protect-ServicePath (Get-Item -Force -LiteralPath $stateDir)
+    $entries = @(Get-ChildItem -Force -LiteralPath $stateDir)
+    foreach ($entry in $entries) {
+        if ($entry.Name -in @('manifest.json','secrets')) { Protect-ServicePath $entry }
+    }
+    $secretDir = Join-Path $stateDir 'secrets'
+    if (Test-Path -LiteralPath $secretDir -PathType Container) {
+        Get-ChildItem -Force -File -LiteralPath $secretDir | ForEach-Object { Protect-ServicePath $_ }
+    }
+}
+
 $previousState = $env:OFFERPATH_SERVICE_STATE_DIR
 Push-Location $repoRoot
 try {
@@ -17,6 +45,7 @@ try {
     $env:OFFERPATH_SERVICE_STATE_DIR = $stateDir
     $composeArgs = @('compose', '-f', $composeFile)
     if ($Action -in @('Init','Up')) {
+        Protect-ServiceState
         $initOutput = & $pythonExe -m mailcheck.services.manage init --state-dir $stateDir
         $initExitCode = $LASTEXITCODE
         $initOutput | ForEach-Object { Write-Host $_ }
@@ -28,14 +57,8 @@ try {
             }
             throw 'Initialization failed; existing credentials were not overwritten.'
         }
-        # Restrict local files before Docker reads them. No credentials in arguments.
-        $principal = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $protectedPaths = @($stateDir, (Join-Path $stateDir 'secrets'), (Join-Path $stateDir 'manifest.json'))
-        $protectedPaths += @(Get-ChildItem (Join-Path $stateDir 'secrets') -File | ForEach-Object FullName)
-        foreach ($protectedPath in $protectedPaths) {
-            & icacls.exe $protectedPath /inheritance:r /grant:r "${principal}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw 'Could not restrict the local service state ACL.' }
-        }
+        # Apply the same policy to any files created by initialization.
+        Protect-ServiceState
     }
     switch ($Action) {
         'Up' { & docker @composeArgs up --build --detach --wait --wait-timeout 180; if ($LASTEXITCODE -ne 0) { throw 'Foundation startup failed.' } }

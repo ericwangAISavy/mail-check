@@ -41,7 +41,7 @@ def main():
         print(json.dumps(result,indent=2))
         return 0
     except InitializationError as exc:
-        print(json.dumps({'ok':False,'code':exc.code,'error':str(exc),'hint':exc.hint,'type':type(exc).__name__}))
+        print(json.dumps({'ok':False,'code':exc.code,'error':str(exc),'hint':exc.hint,'details':exc.details,'type':type(exc).__name__}))
         return 1
     except Exception as exc:
         # Drivers may include credential-bearing connection URLs in tracebacks.

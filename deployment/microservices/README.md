@@ -37,7 +37,9 @@ A Windows cold boot without interactive login, Docker recovery and real peak-mod
 
 `Init` safely initializes a missing or completely empty `.local` directory. Re-running it preserves and validates an existing installation. Repository paths containing spaces are supported.
 
-If initialization fails, the JSON output includes a specific `code`, explanation and recovery `hint`. A populated directory without `manifest.json` reports `state_manifest_missing`; changed files report `state_files_changed`. Restore the matching state backup rather than deleting `.local` or generating new passwords for existing database/broker volumes. Never paste credential files into chat or logs.
+On Windows, the launcher repairs owner/SYSTEM access before reading existing state and applies explicit ACLs to newly generated files. It does not change file ownership or credential contents. Empty file ACLs can otherwise prevent reading a manifest even when its parent folder grants Full Control.
+
+If initialization fails, the JSON output includes a specific `code`, explanation and recovery `hint`. Filesystem failures also report the operation and numeric OS error codes without file contents or credential values. A populated directory without `manifest.json` reports `state_manifest_missing`; changed files report `state_files_changed`. Restore the matching state backup rather than deleting `.local` or generating new passwords for existing database/broker volumes. Never paste credential files into chat or logs.
 
 ## Linux/development equivalent
 

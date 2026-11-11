@@ -107,3 +107,39 @@ def test_init_diagnostics_distinguish_invalid_state_without_removing_it(tmp_path
     assert error.value.code==code
     after={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()} if root.is_dir() else root.read_bytes()
     assert before==after
+
+
+def test_unreadable_state_reports_operation_and_numeric_os_error_without_paths(tmp_path,monkeypatch,capsys):
+    import sys
+    from mailcheck.services import manage
+    module=importlib.import_module('mailcheck.services.bootstrap')
+    root=tmp_path/'state';module.initialize(root)
+    manifest=root/'manifest.json'
+    original=Path.read_text
+    def deny_manifest(path,*args,**kwargs):
+        if path==manifest:raise PermissionError(13,'private OS diagnostic',str(manifest))
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(Path,'read_text',deny_manifest)
+    monkeypatch.setattr(sys,'argv',['manage','init','--state-dir',str(root)])
+    assert manage.main()==1
+    output=capsys.readouterr().out;report=json.loads(output)
+    assert report['details']['operation']=='read_manifest'
+    assert report['details']['errno']==13
+    assert 'private OS diagnostic' not in output and str(root) not in output
+
+
+def test_windows_private_file_setup_uses_acl_without_posix_chmod(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    module=importlib.import_module('mailcheck.services.bootstrap')
+    path=tmp_path/'private-file';path.write_bytes(b'preserve-private-data')
+    commands=[]
+    def run(command,**kwargs):commands.append(command);return SimpleNamespace(returncode=0)
+    def chmod(*args,**kwargs):raise AssertionError('POSIX chmod must not be used for Windows secrets')
+    monkeypatch.setattr(module.os,'name','nt')
+    monkeypatch.setattr(Path,'chmod',chmod)
+    import subprocess
+    monkeypatch.setattr(subprocess,'run',run)
+    module._secure_path(path)
+    assert path.read_bytes()==b'preserve-private-data'
+    assert len(commands)==1 and str(path) in commands[0]
+    assert '*S-1-3-4:F' in commands[0] and '*S-1-5-18:F' in commands[0]

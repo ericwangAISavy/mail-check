@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.28.3 — 2026-11-11
+
+Repair Windows service-state access before validation
+
+- Repair owner access to existing Windows manifests and credential files before validation, preserving their contents.
+- Use explicit Windows ACLs instead of POSIX chmod for generated state, report filesystem operation/error codes safely, and test empty-ACL recovery on Windows Python 3.12 and 3.15.
+
 ## 2.28.2 — 2026-11-11
 
 Fix service initialization and expose safe recovery diagnostics

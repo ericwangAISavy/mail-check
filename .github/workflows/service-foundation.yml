@@ -45,6 +45,9 @@ jobs:
   windows-bootstrap:
     runs-on: windows-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        python: ['3.12', '3.15']
     defaults:
       run:
         working-directory: mail check smoke
@@ -55,7 +58,7 @@ jobs:
           path: mail check smoke
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
       - name: Initialize and validate an empty scaffold with a spaced repository path
         run: |
           New-Item -ItemType Directory -Force deployment/microservices/.local | Out-Null
@@ -77,3 +80,21 @@ jobs:
             }
           } finally { Move-Item "$manifest.backup" $manifest }
           ./tools/microservices.ps1 Init
+      - name: Repair empty manifest and secret file ACLs without changing credentials
+        run: |
+          $paths = @('deployment/microservices/.local/manifest.json')
+          $paths += @(Get-ChildItem deployment/microservices/.local/secrets -File | ForEach-Object FullName)
+          $before = @{}
+          foreach ($path in $paths) {
+            $before[$path] = (Get-FileHash -LiteralPath $path).Hash
+            $acl = Get-Acl -LiteralPath $path
+            $acl.SetAccessRuleProtection($true, $false)
+            foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($rule) }
+            Set-Acl -LiteralPath $path -AclObject $acl
+          }
+          ./tools/microservices.ps1 Init
+          foreach ($path in $paths) {
+            if ((Get-FileHash -LiteralPath $path).Hash -ne $before[$path]) {
+              throw 'Permission repair changed credential or manifest contents.'
+            }
+          }
