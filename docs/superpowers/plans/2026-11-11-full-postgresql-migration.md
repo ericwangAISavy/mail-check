@@ -2,17 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the existing application with a working Docker application that imports the complete legacy backup, preserves all supported workflows and stores authoritative business data in service-owned PostgreSQL databases.
+**Goal:** Replace the existing application with a working native Windows microservice application that imports the complete legacy backup, preserves all supported workflows and stores authoritative business data in service-owned PostgreSQL databases.
 
 **Architecture:** Retain the approved Core/Mail/Intelligence boundaries and existing browser API contract. Core owns identity/business data and explicitly versioned Mail projections; Mail owns accounts, credentials, messages and provider operations; Intelligence owns inference jobs/results. Services communicate through authenticated internal contracts and durable events, never cross-database SQL.
 
-**Tech Stack:** Python/FastAPI, PostgreSQL 17, RabbitMQ 4.1, React, Docker Compose on Windows 11/WSL2.
+**Tech Stack:** Python/FastAPI, PostgreSQL 17, RabbitMQ 4.1, React, separate Windows services/processes, native PostgreSQL/RabbitMQ (supported Erlang/OTP), and a native static/reverse-proxy edge. Docker is optional tooling, not a runtime prerequisite.
 
 **Spec:** `docs/architecture/SINGLE_HOST_MICROSERVICES.md`, `docs/architecture/REALTIME_MAIL_UPDATES.md`.
 
 ## Global Constraints
 
 - User selected **Full PostgreSQL migration**, not a staged SQLite production release.
+- Deployment decision updated November 12, 2026: **no Docker or WSL dependency** for the working application. Core, Mail and Intelligence run as native Windows services/processes; PostgreSQL and RabbitMQ are installed directly on Windows. Existing Docker foundation files remain optional and do not satisfy native acceptance gates.
 - Preserve accounts, passwords, OAuth connections where exportable, workspace isolation, bidder permissions, sourcing history, classifications, assignments and recorded payments.
 - Preserve the existing AI model and its classification behavior initially.
 - One Windows 11/i5-12400/16 GB server; target 50 concurrent users; capacity remains a measured acceptance gate.
@@ -90,7 +91,7 @@ The static census found 154 literal route declarations, 63 literal persisted tab
 **Files:** `mailcheck/services/mail/{app,authorization,credentials,accounts,inbox,replies,collector,scheduler,provider_watches}.py`; reuse provider adapters through explicit credential/input interfaces.
 **Interfaces:** Core calls scoped internal Mail APIs; Mail independently checks assertions. Provider operations use domain-owned durable jobs/outboxes and per-account leases.
 
-- [ ] Implement encrypted Mail-owned credential storage with a separately mounted key, reconnect flows and explicit imported-account status. Never mount Windows keyring stores into containers.
+- [ ] Implement encrypted Mail-owned credential storage with a separate Windows ACL-protected key file, reconnect flows and explicit imported-account status. Do not assume service accounts can access the interactive user's Windows keyring; explicitly migrate or reconnect credentials.
 - [ ] Preserve inbox filters, message/body access, Done/Undo/mark-all-done, account management and manual replies. Replay-safe reply submission has a send ledger and uncertain-send handling.
 - [ ] Move provider collection/checkpoints/retention into Mail; preserve classification/receipt semantics and source retention leases for inference jobs.
 - [ ] Implement bounded live collection, owner/other workspace checking intervals, provider hint validation and reconnect/backoff. Test provider failures and concurrent same-account checks.
@@ -106,22 +107,23 @@ The static census found 154 literal route declarations, 63 literal persisted tab
 - [ ] Preserve calendar analysis and invitation-to-sourcing/bidder suggestions through authorized Core candidate APIs.
 - [ ] Test model outage, redelivery, stale source/result revisions, manual overrides, deleted inputs and bounded retry/review states; commit accepted-fact flow.
 
-### Task 8: Live browser updates and full Docker entrypoint
+### Task 8: Live browser updates and full native Windows entrypoint
 
-**Files:** Core SSE endpoints/notification dispatcher, frontend API/event adapters as necessary, edge configuration and Windows launcher readiness.
+**Files:** Core SSE endpoints/notification dispatcher, frontend API/event adapters as necessary; `deployment/native-windows/{Caddyfile,runtime.example.json,README.md}`; `mailcheck/services/native_runtime.py`; `tools/microservices-native.ps1`.
 **Interfaces:** Bootstrap snapshot barrier and durable journal replay use commit-ordered cursors. Authorization changes terminate scoped streams; streams do not hold database connections.
 
 - [ ] Connect real React pages to the migrated API contracts. Preserve saved page filters and a single coherent startup/loading screen.
 - [ ] Implement authenticated SSE with bounded buffers, replay/resync, reconnect backoff and cross-process delivery; refresh relevant page queries on committed changes.
 - [ ] Serve complete versioned static assets at the edge with old-chunk retention and atomic HTML activation; test deployment during open tabs.
-- [ ] Make the Docker URL serve the real application. Keep `business_ready=false` until complete parity/import validation; never expose internal service or database routes publicly.
+- [ ] Implement native startup/shutdown/status with explicit loopback listeners, dependency probes, bounded process recovery, rotated logs and protected service-account configuration. Native startup must not call Docker/Compose/WSL; reject conflicting ports without killing unrelated processes.
+- [ ] Make the native Windows edge URL serve the real application. Keep `business_ready=false` until complete parity/import validation; never expose internal service or database routes publicly.
 
 ### Task 9: Acceptance, recovery and production cutover
 
 **Files:** End-to-end browser/load/recovery tests; `docs/architecture/MIGRATION_ACCEPTANCE.md`; explicit import/cutover/rollback management commands.
 
-- [ ] Run all legacy backend/frontend regressions and all migrated parity scenarios using the imported multi-workspace fixture through the Docker edge.
-- [ ] Verify each page and mutation, session revocation, provider/code-email updates, exact data counts/payment totals and absence of native SQLite/source-path dependencies in runtime containers.
+- [ ] Run all legacy backend/frontend regressions and all migrated parity scenarios using the imported multi-workspace fixture through the native Windows edge.
+- [ ] Verify each page and mutation, session revocation, provider/code-email updates, exact data counts/payment totals and absence of runtime SQLite/source-path dependencies and Docker/WSL requirements in native service processes.
 - [ ] Kill/restart each service and dependency during work; verify recovery, no duplicate durable effects and no blind resend. Rehearse failed import and rollback.
 - [ ] Measure target-host peak model memory, 50-user latency/resource usage and unattended Windows cold boot. Report failures honestly and fix them before migration readiness.
 - [ ] Produce a reviewable real-backup import validation report and rollback artifact. Ask for cutover approval only after the complete release is built and tested; then switch the optional tunnel only when authorized.

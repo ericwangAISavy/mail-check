@@ -2,7 +2,7 @@
 
 Status: proposed extension to the single-host microservice design. Live collection/SSE integration is not implemented in v2.28.0; its isolated service foundation is available, while the existing application remains in use.
 
-Target: one Windows 11/i5-12400/16 GB server, 10–50 concurrent users, existing local AI model, optional Cloudflare Tunnel. This extends [the main architecture](SINGLE_HOST_MICROSERVICES.md).
+Target: one Windows 11/i5-12400/16 GB server, 10–50 concurrent users, existing local AI model, optional Cloudflare Tunnel. Services will run natively on Windows; Docker/WSL is not a runtime prerequisite. This extends [the main architecture](SINGLE_HOST_MICROSERVICES.md).
 
 ## Required behavior
 

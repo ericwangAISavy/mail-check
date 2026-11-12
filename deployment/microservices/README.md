@@ -1,4 +1,6 @@
-# Opt-in microservice foundation
+# Optional Docker microservice foundation
+
+**Deployment decision (November 12, 2026):** The working application now targets native Windows services without Docker/WSL. This document describes the existing optional Docker foundation only. The native launcher and full business migration are not implemented yet; follow the [current migration plan](../../docs/superpowers/plans/2026-11-11-full-postgresql-migration.md).
 
 This is the first implementation phase of the [architecture](../../docs/architecture/SINGLE_HOST_MICROSERVICES.md). It is **not a completed migration**. Authentication, business APIs, provider collection, Intelligence job execution and browser SSE are still supplied by the existing application until subsequent phases implement and validate their contracts. No current account/database/credential is imported or modified here.
 

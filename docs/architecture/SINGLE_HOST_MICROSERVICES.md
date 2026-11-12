@@ -1,6 +1,6 @@
 # OfferPath: microservices on one Windows 11 server
 
-Status: isolated service foundation implemented in v2.28.0; business migration and production cutover remain pending. See [foundation setup](../../deployment/microservices/README.md).
+Status: native Windows deployment selected November 12, 2026. Full PostgreSQL business migration, native service launchers and production cutover remain pending. The v2.28.x Docker foundation is optional tooling, not the chosen production runtime. See the [full migration plan](../superpowers/plans/2026-11-11-full-postgresql-migration.md).
 
 Baseline: v2.27.17, commit c4d13eb. Work branch: feature/major-update-v2.27.17.
 
@@ -14,11 +14,11 @@ Baseline: v2.27.17, commit c4d13eb. Work branch: feature/major-update-v2.27.17.
 - Preserve accounts, passwords, OAuth connections, workspace isolation, bidder permissions, sourcing history, classifications, assignments and recorded payments.
 - Preserve a tested rollback path. A Git branch alone is not a data rollback plan.
 
-This is a small set of independently deployable business services, not a service per screen or user. One physical server remains a single point of failure. Containers can isolate workload failures; they cannot provide high availability through a host power failure, disk failure or Windows reboot. Capacity is a benchmark target, not a guarantee based on CPU specifications alone.
+This is a small set of independently deployable business services, not a service per screen or user. One physical server remains a single point of failure. Separate service processes can isolate workload failures; they cannot provide high availability through a host power failure, disk failure or Windows reboot. Capacity is a benchmark target, not a guarantee based on CPU specifications alone.
 
 ## Chosen approach and alternatives
 
-Recommended: three business domains, a static edge, PostgreSQL and RabbitMQ, deployed with Docker Compose using Linux containers under Docker Desktop/WSL2. Keep the repository unified but give each service an independent entry point, image, schema migrations, database credentials, health checks and test suite.
+Selected: three business domains, a static edge, PostgreSQL and RabbitMQ running directly on Windows 11 without Docker or WSL. Keep the repository unified but give each service an independent entry point, Windows service/process configuration, schema migrations, database credentials, health checks and test suite. Install PostgreSQL and RabbitMQ with a supported Erlang/OTP runtime directly on Windows. The existing Compose foundation is retained only as optional development tooling.
 
 Alternatives considered:
 
@@ -160,15 +160,15 @@ Decision: use a separately bounded notification module in Core, not a fourth bus
 - Keep long-lived SSE connections in a separate admission budget from ordinary API requests. Initially allow at most two streams per authenticated user across replicas using expiring claims, and 60 streams per API process; validate these budgets for 50 users plus normal page requests. Streaming lifetime is exempt from the ordinary short API deadline, while idle/heartbeat limits and revocation still apply. Browser tabs should share one connection where feasible. Edge buffering/compression settings must support streaming and heartbeats, with idle timeout behavior tested both locally and through the optional tunnel.
 - Browser Notification API popups remain opt-in and best effort while the app is open. Use a short server-side delivery claim plus acknowledgement to reduce duplicate popups across tabs/processes. Failed popup creation is not acknowledged as successful; displayed-popup acknowledgement is separate from the user's read state. Exactly-once desktop display cannot be guaranteed after a browser crash. In-app delivery remains usable if desktop permission is denied.
 
-No external notification provider, notification database, extra container, or always-running browser push service is needed initially. Closed-browser/mobile push is outside the initial scope and must not be promised by an SSE design. Extract the notification module only after measurement shows it needs independent capacity or operational ownership; preserve its contracts and migrate its owned tables then.
+No external notification provider, notification database, extra service process, or always-running browser push service is needed initially. Closed-browser/mobile push is outside the initial scope and must not be promised by an SSE design. Extract the notification module only after measurement shows it needs independent capacity or operational ownership; preserve its contracts and migrate its owned tables then.
 
 ## Resource budget for the actual 16 GB host
 
-Use Linux containers under Docker Desktop/WSL2. Keep PostgreSQL and broker data in Docker named volumes on the Linux filesystem; do not bind-mount live database data into an ordinary NTFS project folder.
+Run native Windows processes/services under dedicated service identities. Store PostgreSQL and RabbitMQ data in their supported local Windows data directories with restricted ACLs, separately from source checkouts. Do not put live database or broker state in a cloud-synced project folder. Use native PostgreSQL/RabbitMQ backup and recovery tools.
 
-Initial maximum memory budgets to validate, not measured requirements:
+Initial memory working-budget targets to validate, not measurements or automatically enforced Windows limits:
 
-| Runtime | Starting count | Memory ceiling |
+| Runtime | Starting count | Memory budget target |
 | --- | --- | --- |
 | Core API | 2 web processes | 768 MiB total |
 | Mail API | 1 process | 384 MiB |
@@ -179,26 +179,26 @@ Initial maximum memory budgets to validate, not measured requirements:
 | RabbitMQ | 1 | 512 MiB |
 | Edge | 1 | 64 MiB |
 
-These ceilings total about 3.6 GiB, before WSL/container overhead. Start with a 5 GiB WSL memory limit and up to eight logical CPUs for Docker, then measure. Leave the remaining host memory for Windows, the existing model and headroom. Resource-limit support must be verified in the chosen Compose/Desktop versions rather than assumed from YAML alone.
+These provisional budgets total about 3.6 GiB, excluding Windows and the model. Docker/WSL overhead is absent, but native process memory must still be measured. Leave explicit headroom for Windows, the existing model, filesystem cache and peak workload. Compose memory/CPU settings do not apply to native processes; any Windows Job Object or service-wrapper limits require implementation and verification.
 
-Retain the existing model placement initially. If it already runs on Windows, expose it only to the private container-to-host path with firewall rules; container localhost does not refer to Windows localhost. No public model port. Do not silently move its weights into the limited WSL memory budget.
+Retain the existing model placement initially. Same-host services use a loopback model endpoint where possible; an existing private model server remains private and firewalled. No public model port. Do not move model weights or change classification settings as an implicit consequence of the deployment change.
 
-Measure the current model's peak RAM and CPU during realistic batches. If Windows plus the model cannot fit comfortably alongside the approximately 5 GiB container allocation, reduce model context/batch load only with classification-quality validation, or increase host RAM. Keeping the exact existing model and serving 50 users on 16 GB cannot be guaranteed before this measurement. AI concurrency remains one, with CPU priority/limits preventing inference from monopolizing interactive capacity.
+Measure the current model's peak RAM and CPU during realistic batches. If Windows plus the model cannot fit comfortably alongside the measured native service workload, reduce model context/batch load only with classification-quality validation, or increase host RAM. Keeping the exact existing model and serving 50 users on 16 GB cannot be guaranteed before this measurement. AI concurrency remains one, with CPU priority/limits preventing inference from monopolizing interactive capacity.
 
-Use PostgreSQL shared_buffers around 256 MiB initially and conservative per-query memory. Keep all application pools plus maintenance connections below a reserved connection budget, initially 40 of a 60-connection limit. Do not allocate a large pool independently to every process. A starting allocation is Core 2 x 8 pooled connections plus 2 shared LISTEN connections, Mail API 6, collection worker 6, Intelligence 2, and up to 6 maintenance/migration connections: 38 total. Domain dispatchers use these existing pools; SSE streams do not add dedicated connections. Release short authorization/replay sessions before awaiting clients. Verify peak PostgreSQL process/query memory under this allocation against its 1 GiB container ceiling; reduce pools/query concurrency if needed rather than assuming configured ceilings prove memory safety.
+Use PostgreSQL shared_buffers around 256 MiB initially and conservative per-query memory. Keep all application pools plus maintenance connections below a reserved connection budget, initially 40 of a 60-connection limit. Do not allocate a large pool independently to every process. A starting allocation is Core 2 x 8 pooled connections plus 2 shared LISTEN connections, Mail API 6, collection worker 6, Intelligence 2, and up to 6 maintenance/migration connections: 38 total. Domain dispatchers use these existing pools; SSE streams do not add dedicated connections. Release short authorization/replay sessions before awaiting clients. Verify peak PostgreSQL process/query memory under this allocation against its provisional 1 GiB working budget; reduce pools/query concurrency if needed rather than assuming configured ceilings prove memory safety.
 
 RabbitMQ messages should be small, with bounded queues and disk alarms. Broker memory pressure pauses publishing; accepted outbox work remains durable in PostgreSQL. Disk-space monitoring and retention must cover the database, mailbox content, broker, model and logs.
 
 ## Phase zero: mandatory feasibility gates
 
-Before committing to the production runtime or implementing a data cutover, measure idle and peak Windows/model memory with the actual loaded model and its current context/batch settings. Reproduce a collection/classification burst alongside the proposed container memory budget. The existing configuration permits an 8,192-token context; an unknown model size means 16 GB fit remains unproven. Record measured peaks and explicit headroom, not just configured limits.
+Before committing to the production runtime or implementing a data cutover, measure idle and peak Windows/model memory with the actual loaded model and its current context/batch settings. Reproduce a collection/classification burst alongside the proposed native service workload. The existing configuration permits an 8,192-token context; an unknown model size means 16 GB fit remains unproven. Record measured peaks and explicit headroom, not just configured limits.
 
-Unattended Windows startup is a go/no-go gate. Rehearse a cold reboot without interactive login, automatic service startup and recovery after a failed container. Docker Desktop/WSL2 is the initial candidate, but user-logon autostart alone does not meet this gate. Document the exact verified mechanism under a dedicated account. If Desktop cannot satisfy it, evaluate a separately managed WSL2 Docker Engine with Windows startup supervision in an isolated deployment spike; do not enable automatic Windows login or put passwords in scripts as a workaround. If neither meets the operational requirement, resolve that deployment constraint before production migration.
+Unattended Windows startup is a go/no-go gate. Run the application through a Windows service supervisor with dedicated identities, bounded restart/backoff and graceful shutdown of child processes; the exact wrapper/supervisor must be implemented and tested. Rehearse a cold reboot without interactive login and recovery after an individual service fails. A foreground PowerShell session or user-logon startup task is not proof of unattended availability. Do not enable automatic Windows login or put passwords in scripts as a workaround.
 
 ## Windows operation and external access
 
-- Compose owns service start order, restart policies, health checks, image versions and named volumes. A healthy API is not restarted solely because the model or a mail provider is unavailable.
-- Test a cold Windows boot, locked session and logged-out operation. Docker Desktop's normal user-logon startup is not proof of unattended server availability. The final operating procedure must establish and verify the required startup behavior on this PC.
+- Native Windows service management owns start order, restart/backoff, health probes, versioned application paths and protected data directories. A healthy API is not restarted solely because the model or a mail provider is unavailable.
+- Test a cold Windows boot, locked session and logged-out operation. Successful foreground startup is not proof of unattended server availability. The final operating procedure must establish and verify the required startup behavior on this PC.
 - Configure no sleep/hibernation during service hours, controlled update/reboot windows and protected power where available. Avoid automatic restart storms with bounded health/recovery rules.
 - Local access goes through the same edge as remote access. Cloudflare Tunnel, if enabled, forwards to one stable edge listener, not rotating Python worker ports. Only trust forwarded headers from that connector.
 - Publish the edge only to the interfaces needed for LAN/VPN or the local tunnel connector. Do not publish database, broker management, application-service or model ports to the LAN/internet.
@@ -209,7 +209,7 @@ Unattended Windows startup is a go/no-go gate. Rehearse a cold reboot without in
 
 Use least-privilege service roles and separate migration roles. Enforce workspace scoping in every domain query; composite uniqueness must include workspace identity where appropriate. Test owner switching, bidder read-only access, expired sessions and cross-workspace entity IDs.
 
-Mailbox secrets are encrypted at rest; the master key is outside the database and source repository, mounted only where needed. Docker Compose file secrets are protected files, not an independent secret vault. Apply Windows ACLs and protect any WSL-visible paths. Back up recovery keys separately from database backups.
+Mailbox secrets are encrypted at rest; the master key is outside the database and source repository, readable only by the service identities that need it. Use protected local key files and Windows ACLs; native service-account permissions must be verified, not inferred from the interactive owner account. Back up recovery keys separately from database backups.
 
 Emit structured logs with request/job correlation IDs, service name, operation, latency and outcome. Keep mail bodies, passwords, OAuth tokens and cookies out of logs. Propagate sanitized Cloudflare Ray IDs for remote correlation. Rotate logs on disk. Include service readiness, mailbox lag, inference backlog, outbox lag, provider throttling, disk usage and database pool usage in an owner-only status view.
 
@@ -218,10 +218,10 @@ Back up all service databases at a coordinated migration/job checkpoint, along w
 ## Migration and rollback
 
 1. Inventory existing workspaces, database versions, credentials, provider IDs, assignments, payment ledgers and model settings. Capture current performance and error baselines.
-2. Create a reproducible Compose deployment and build artifacts without replacing production. Implement readiness, restricted networking and local diagnosis first.
+2. Create a reproducible native Windows deployment and versioned build artifacts without replacing production. Implement readiness, restricted networking and local diagnosis first.
 3. Define stable internal contracts and PostgreSQL migrations. Extract persistence interfaces from sqlite3-dependent code without changing business semantics; do not pretend the SQL dialect can be replaced with a connection-string edit.
 4. Build an offline SQLite-to-PostgreSQL importer. Import existing owner/admin/bidder password records with their salt, hash, algorithm parameters, revocation versions and forced-change flags. Plan one fresh sign-in at cutover rather than silently trusting legacy cookies in the new identity service. Preserve every legacy ID using a mapping keyed by workspace plus legacy ID; IDs from separate SQLite files can collide. Preserve provider/message uniqueness, UTC timestamps, Chicago reporting boundaries and historical monetary values.
-5. Migrate Windows Credential Manager secrets through an explicitly local, privileged export/import tool into encrypted Mail storage. Containers cannot read the host's keyring automatically. If a credential cannot be exported safely, reconnect that mailbox through OAuth; never save plaintext exports in the repository or logs.
+5. Migrate Windows Credential Manager secrets through an explicitly local, privileged export/import tool into encrypted Mail storage. A dedicated Windows service identity must not silently reuse the interactive user's keyring. If a credential cannot be exported safely, reconnect that mailbox through OAuth; never save plaintext exports in the repository or logs.
 6. Import a consistent backup into a shadow environment. Compare row counts, foreign-key integrity, role access, queue state, application totals, assignments, deductions and recorded payments. Replay stored examples without sending real mail or double-polling production accounts.
 7. Introduce Mail and Intelligence behind compatible routes and contracts. Validate projection freshness and idempotency. Move long-running work out of request handlers.
 8. Run realistic load and failure tests on the actual PC. Approve capacity and rollback before cutover.
@@ -243,4 +243,4 @@ Do not promise zero downtime or automatic lossless rollback after arbitrary new 
 
 ## Implementation sequence
 
-Deliver in reviewable phases: phase-zero host/runtime feasibility; deployment skeleton and contracts; Core/PostgreSQL persistence and importer; Mail extraction and credential migration; durable scheduling/outboxes; Intelligence extraction; live mailbox change delivery and browser streaming; then end-to-end rehearsal and production cutover. Each phase needs a working local result and explicit validation. This document does not deploy containers, alter current data or constitute a completed migration.
+Deliver in reviewable phases: phase-zero host/runtime feasibility; deployment skeleton and contracts; Core/PostgreSQL persistence and importer; Mail extraction and credential migration; durable scheduling/outboxes; Intelligence extraction; live mailbox change delivery and browser streaming; then end-to-end rehearsal and production cutover. Each phase needs a working local result and explicit validation. This document does not install Windows services, alter current data or constitute a completed migration.

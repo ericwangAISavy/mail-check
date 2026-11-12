@@ -1,6 +1,6 @@
 # Full migration parity baseline
 
-The user selected full PostgreSQL migration before cutover. The current production application remains the legacy implementation. This document does not authorize cutover or indicate that business APIs have been ported.
+The user selected full PostgreSQL migration before cutover, deployed natively on Windows without a Docker/WSL prerequisite (updated November 12, 2026). The current production application remains the legacy implementation. This document does not authorize cutover or indicate that business APIs have been ported.
 
 ## Coverage evidence
 
