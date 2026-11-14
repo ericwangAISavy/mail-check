@@ -171,3 +171,23 @@ it('includes safe Cloudflare diagnostics for 530 without exposing the proxy docu
  if(!(error instanceof ApiError))throw new Error('Expected an API error')
  expect(error.status).toBe(530);expect(error.message).toContain('code 1033');expect(error.message).toContain('Reference: abc123-ORD');expect(error.message).not.toContain('private diagnostic')
 })
+
+it.each([401, 409])("does not publish session events from a canceled response that arrives late (%s)", async (status) => {
+  const controller = new AbortController()
+  let finish!: (response: Response) => void
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve })))
+  const expired = vi.fn()
+  window.addEventListener("mailcheck:unauthorized", expired)
+  window.addEventListener("offerpath:workspace-changed", expired)
+  try {
+    const pending = request("/api/messages/1", { signal: controller.signal })
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    controller.abort()
+    finish(new Response('{"workspace_changed":true}', { status, headers: { "content-type": "application/json" } }))
+    await rejected
+    expect(expired).not.toHaveBeenCalled()
+  } finally {
+    window.removeEventListener("mailcheck:unauthorized", expired)
+    window.removeEventListener("offerpath:workspace-changed", expired)
+  }
+})

@@ -28,7 +28,7 @@ def calculate(bookings, *, now=None,zone='America/Chicago',days=5,duration=30,bu
         if item.cancelled or item.show_as.casefold()=='free':continue
         start=_utc(item.start)
         if item.end is None:
-            if windows[0][0]<=start<windows[-1][1]:raise ValueError('A calendar event has no reliable end time. Correct it before sharing availability.')
+            if windows[0][0]-timedelta(minutes=buffer)<=start<windows[-1][1]:raise ValueError('A calendar event has no reliable end time. Correct it before sharing availability.')
             continue
         end=_utc(item.end)
         if end<=start:raise ValueError('A calendar event has an invalid end time. Correct it before sharing availability.')

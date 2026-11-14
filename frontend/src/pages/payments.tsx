@@ -102,7 +102,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const [copying,setCopying]=useState(false)
   const client = useQueryClient()
   const toast = useToast()
-  const query = useQuery({ queryKey: ["payments", week], queryFn: () => request<Report>(`/api/payments${week ? `?week=${week}` : ""}`), refetchInterval: 30_000 })
+  const query = useQuery({ queryKey: ["payments", week], queryFn: ({ signal }) => request<Report>(`/api/payments${week ? `?week=${week}` : ""}`, { signal }), refetchInterval: 30_000 })
   useEffect(() => {
     if (selected && query.data && !query.data.bidders.some(bidder => String(bidder.id) === selected)) setSelected("")
   }, [query.data, selected])

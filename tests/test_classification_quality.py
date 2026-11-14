@@ -111,6 +111,21 @@ def test_invalid_confidence_is_not_accepted(confidence):
     assert item.response_complete is False
 
 
+@pytest.mark.parametrize('deadline,expected', [
+    ('2026-02-31', None),
+    ('2026-13-01', None),
+    ('2025-02-29', None),
+    ('2028-02-29', '2028-02-29'),
+    ('Due 2026-11-30', '2026-11-30'),
+])
+def test_deadline_requires_a_real_calendar_date(deadline, expected):
+    from mailcheck.llm.schema import ItemResult
+    item = ItemResult.model_validate({'id': '1', 'category': 'assessment',
+        'confidence': .95, 'action_required': True, 'summary': 'Complete assessment.',
+        'deadline': deadline})
+    assert item.deadline == expected
+
+
 def test_middle_interview_evidence_survives_long_boilerplate():
     msg = message('Update', 'Welcome to our portal. ' * 70 + '\nPlease schedule your interview at Acme.\n' + 'Portal information. ' * 70)
     assert 'schedule your interview' in msg.body

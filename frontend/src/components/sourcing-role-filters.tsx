@@ -7,7 +7,7 @@ type RoleAccount={id:number;label:string;email:string;keywords:string[]}
 type RoleSettings={accounts:RoleAccount[]}
 export default function SourcingRoleFilters({initialAccountId}:{initialAccountId?:number|null}) {
   const client=useQueryClient()
-  const query=useQuery({queryKey:["sourcing-role-filters"],queryFn:()=>request<RoleSettings>("/api/sourcing/role-filters")})
+  const query=useQuery({queryKey:["sourcing-role-filters"],queryFn:({ signal }) =>request<RoleSettings>("/api/sourcing/role-filters", { signal })})
   const [selected,setSelected]=useState<number>()
   const [drafts,setDrafts]=useState<Record<number,string>>({})
   const accounts=query.data?.accounts||[]

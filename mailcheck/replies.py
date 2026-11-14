@@ -28,6 +28,8 @@ class ReplyBody(BaseModel):
     body: str = Field(min_length=1,max_length=30000)
     mode: Literal['reply','reply_all'] = 'reply'
     mark_done: bool = False
+    expected_message_id: str | None = Field(default=None,max_length=4000)
+    expected_account_label: str | None = Field(default=None,max_length=253)
 
     @field_validator('body')
     @classmethod
@@ -140,15 +142,25 @@ def history(conn,pk):
 def send(pk,body):
     operation=str(body.operation)
     with db.session() as conn:
-        row=account_message(conn,pk)
         conn.execute('BEGIN IMMEDIATE')
         previous=conn.execute('SELECT * FROM mail_replies WHERE operation=?',(operation,)).fetchone()
         if previous:
-            if (previous['message_pk'],previous['account_id'],previous['original_message_id'],previous['body'],previous['mode'],bool(previous['mark_done']))!=(pk,row['account_id'],row['message_id'],body.body,body.mode,body.mark_done):
+            if ((previous['message_pk'],previous['body'],previous['mode'],bool(previous['mark_done']))!=(pk,body.body,body.mode,body.mark_done)
+                    or body.expected_message_id is not None and body.expected_message_id!=previous['original_message_id']):
                 raise ReplyError('This send request has already been used for another reply.',409)
+            # A saved receipt remains authoritative after retention removes or
+            # reuses the original local message number. Replaying it never
+            # resolves a replacement message or makes another provider call.
             if previous['status']=='sent': return {'ok':True,'sent_at':previous['sent_at'],'done':bool(previous['mark_done']) and not bool(previous['error']),'warning':previous['error']}
             if previous['status'] in ('preparing','sending','unknown'):
                 raise ReplyError('Delivery is not confirmed. Do not resend this reply until its delivery is verified; The mail server may have accepted it.',409)
+        row=account_message(conn,pk)
+        if ((body.expected_message_id is not None and body.expected_message_id!=row['message_id'])
+                or (body.expected_account_label is not None and body.expected_account_label!=row['account_label'])):
+            raise ReplyError('This message changed while the reply was open. Refresh the message before sending.',409)
+        if previous:
+            if (previous['account_id'],previous['original_message_id'])!=(row['account_id'],row['message_id']):
+                raise ReplyError('This send request has already been used for another reply.',409)
             conn.execute("UPDATE mail_replies SET status='preparing',error='' WHERE operation=?",(operation,))
         else:
             conn.execute("INSERT INTO mail_replies(operation,message_pk,account_id,original_message_id,body,mode,mark_done,status,created_at) VALUES(?,?,?,?,?,?,?,'preparing',?)",
@@ -195,6 +207,15 @@ def send(pk,body):
                     raise ReplyError(f'Microsoft did not accept the reply (HTTP {response.status_code}).',502)
         sent_at=datetime.now(timezone.utc).isoformat()
         with db.session() as conn:
+            # Collection can prune and reuse a message number while the
+            # provider request is in flight. Lock the identity check and Done
+            # update together so only the message that was replied to changes.
+            conn.execute('BEGIN IMMEDIATE')
+            if body.mark_done and not warning:
+                original=conn.execute('SELECT 1 FROM messages WHERE id=? AND account_id=? AND message_id=?',
+                    (pk,row['account_id'],row['message_id'])).fetchone()
+                if not original:
+                    warning='The reply was sent, but the original message is no longer stored. It could not be marked Done.'
             conn.execute("UPDATE mail_replies SET status='sent',sent_at=?,error=? WHERE operation=?",(sent_at,warning,operation))
             if body.mark_done and not warning: db.set_handled(conn,pk,True)
         return {'ok':True,'sent_at':sent_at,'done':body.mark_done and not warning,'warning':warning}

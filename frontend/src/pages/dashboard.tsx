@@ -43,9 +43,9 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     value.set("page_size", "50")
     return value
   }, [search, zone, deferredSearch])
-  const { data, isPending, isFetching, error, refetch } = useQuery({ queryKey: ["dashboard", params.toString()], queryFn: () => api.dashboard(params), placeholderData: (previous) => previous })
-  const accountDetails = useQuery({ queryKey: ["accounts"], queryFn: api.accounts, enabled: !readOnly })
-  const { data: accounts } = useQuery({ queryKey: ["dashboard-accounts"], queryFn: api.dashboardAccounts })
+  const { data, isPending, isFetching, error, refetch } = useQuery({ queryKey: ["dashboard", params.toString()], queryFn: ({ signal }) => api.dashboard(params, signal), placeholderData: (previous) => previous })
+  const accountDetails = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal), enabled: !readOnly })
+  const { data: accounts } = useQuery({ queryKey: ["dashboard-accounts"], queryFn: ({ signal }) => api.dashboardAccounts(signal) })
   const update = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(search)
     for (const [key, value] of Object.entries(changes)) {

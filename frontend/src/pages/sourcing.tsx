@@ -43,7 +43,7 @@ export default function SourcingPage() {
     [dirty, setDirty] = useState(false);
   const index = useQuery({
     queryKey: ["sourcing-index"],
-    queryFn: () => request<Index>("/api/sourcing"),
+    queryFn: ({ signal }) => request<Index>("/api/sourcing", { signal }),
     refetchInterval: admin ? 15_000 : false,
     refetchOnWindowFocus: admin,
     refetchOnReconnect:admin,
@@ -62,7 +62,7 @@ export default function SourcingPage() {
   const [deleting, setDeleting] = useState<Tab | null>(null);
   const deletePreview = useQuery({
     queryKey: ["sourcing-delete-preview", deleting?.id],
-    queryFn: () => request<Snapshot>(`/api/sourcing/tabs/${deleting!.id}`),
+    queryFn: ({ signal }) => request<Snapshot>(`/api/sourcing/tabs/${deleting!.id}`, { signal }),
     enabled: !!deleting,
     staleTime: 0,
     gcTime: 0,
@@ -99,9 +99,9 @@ export default function SourcingPage() {
     enabled: !!search,
     refetchOnWindowFocus:admin,
     refetchOnReconnect:admin,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<{ results: SearchResult[] }>(
-        `/api/sourcing/search?q=${encodeURIComponent(search)}${account ? `&account=${encodeURIComponent(account)}` : ""}`,
+        `/api/sourcing/search?q=${encodeURIComponent(search)}${account ? `&account=${encodeURIComponent(account)}` : ""}`, { signal }
       ),
   });
   return (

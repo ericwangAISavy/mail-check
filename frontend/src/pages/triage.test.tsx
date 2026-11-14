@@ -40,6 +40,18 @@ function renderWithReader(message: Message, readOnly = false) {
   return render(<QueryClientProvider client={queryClient}><ToastProvider><Reader message={message} mobile onBack={() => undefined} onDone={() => undefined} busy={false} canRetry readOnly={readOnly} /></ToastProvider></QueryClientProvider>)
 }
 
+it("aborts an unfinished reader request when the reader closes", async () => {
+  let signal: AbortSignal | undefined
+  vi.stubGlobal("fetch", vi.fn((_input, init) => new Promise((_resolve, reject) => {
+    signal = init.signal
+    signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+  })))
+  const { unmount } = renderWithReader(messages[0])
+  await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+  unmount()
+  expect(signal?.aborted).toBe(true)
+})
+
 it("keeps the guest dashboard reader read-only", async () => {
   renderWithReader({ ...messages[0], category: "unclassified" }, true)
   await screen.findByText("Interview 1")

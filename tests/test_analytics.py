@@ -187,6 +187,21 @@ class AnalyticsTests(unittest.TestCase):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 DashboardFilters(**fields)
 
+    def test_calendar_bounds_reject_unrepresentable_utc_dates(self):
+        for fields in (
+            {'start': '9999-12-31', 'end': '9999-12-31', 'tz': 'UTC'},
+            {'start': '0001-01-01', 'end': '0001-01-01', 'tz': 'Etc/GMT-14'},
+        ):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                DashboardFilters(**fields)
+
+    def test_representable_extreme_calendar_dates_remain_supported(self):
+        for value in ('0001-01-01', '9999-12-30'):
+            filters = DashboardFilters(start=value, end=value, tz='UTC')
+            result = dashboard_data(self.conn, filters, retention_days=90)
+            self.assertEqual(result['daily'][0]['date'], value)
+            self.assertEqual(result['summary']['total'], 0)
+
     def test_read_only_routes_and_navigation(self):
         self.add("a")
         with patch.object(config, "db_path", return_value=self.path), \

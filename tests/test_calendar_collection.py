@@ -105,6 +105,25 @@ class NativeCalendarTests(unittest.TestCase):
         self.collect(self.source([first,second]))
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
 
+    def test_unchanged_native_sync_preserves_rescheduled_status(self):
+        item = event()
+        self.collect(self.source([item]))
+        item['start']['dateTime'] = '2026-10-18T17:00:00'
+        item['end']['dateTime'] = '2026-10-18T18:00:00'
+        item['lastModifiedDateTime'] = '2026-10-16T12:00:00Z'
+        self.collect(self.source([item]))
+        repeated = self.collect(self.source([item]))
+        self.assertEqual(self.conn.execute('SELECT status FROM interview_events').fetchone()[0], 'Rescheduled')
+        self.assertEqual(repeated['changes'], [])
+
+        item['isCancelled'] = True
+        item['lastModifiedDateTime'] = '2026-10-17T12:00:00Z'
+        self.collect(self.source([item]))
+        item['isCancelled'] = False
+        item['lastModifiedDateTime'] = '2026-10-18T12:00:00Z'
+        self.collect(self.source([item]))
+        self.assertEqual(self.conn.execute('SELECT status FROM interview_events').fetchone()[0], 'Scheduled')
+
     def test_bad_event_does_not_prevent_later_valid_bookings(self):
         broken=event('bad');broken['start']={}
         result=self.collect(self.source([broken,event('valid')]))
@@ -169,6 +188,23 @@ class CheckDispatchTests(unittest.TestCase):
         mail.assert_not_called()
         calendar.assert_called_once()
         self.assertIsNone(calendar.call_args.kwargs["account_label"])
+
+    def test_model_deferral_does_not_mask_mailbox_failure(self):
+        from mailcheck.web import app as web
+        from mailcheck.models import RunResult
+        for errors in (["Ollama busy; retry next check"],
+                       ["[broken] Authentication failed", "Ollama busy; retry next check"]):
+            with self.subTest(errors=errors):
+                result = RunResult(started_at=datetime.now(timezone.utc), fetched=1,
+                    retryable=1, errors=errors)
+                with patch.object(web, "_start_job", side_effect=lambda work, **kwargs: work()), \
+                     patch.object(web.cfgmod, "load", return_value=config.Config()), \
+                     patch.object(web.db, "session"), \
+                     patch.object(web, "check_once", return_value=result):
+                    web._run_check(web.CheckBody())
+                self.assertFalse(web._job['ok'])
+                self.assertIn('1 deferred; Ollama busy', web._job['message'])
+                self.assertEqual(web._job['detail'], '\n'.join(errors))
 
 class CalendarDuplicateTests(unittest.TestCase):
     setUp=NativeCalendarTests.setUp

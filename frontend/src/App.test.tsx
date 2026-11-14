@@ -49,6 +49,20 @@ function replaceTextNodes(root: Element) {
   }
 }
 
+it("aborts the header status poll when the workspace unmounts", async () => {
+  let signal: AbortSignal | undefined
+  vi.spyOn(api, "status").mockImplementation((nextSignal) => new Promise((_resolve, reject) => {
+    signal = nextSignal
+    signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  clients.push(client)
+  const { unmount } = render(<QueryClientProvider client={client}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>)
+  await waitFor(() => expect(api.status).toHaveBeenCalled())
+  unmount()
+  expect(signal?.aborted).toBe(true)
+})
+
 describe("header status after external text replacement", () => {
   it("refreshes page data after a manual check that completes immediately", async () => {
     let current = idle

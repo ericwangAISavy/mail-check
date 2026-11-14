@@ -47,8 +47,8 @@ function Field({ label, hint, children, className = "" }: { label: string; hint?
 export default function SettingsPage({ bootstrap }: { bootstrap: Bootstrap }) {
   const queryClient = useQueryClient()
   const toast = useToast()
-  const { data, isPending, error } = useQuery({ queryKey: ["settings"], queryFn: api.settings })
-  const activeModel = useQuery({ queryKey: ["active-model"], queryFn: api.activeModel, enabled: Boolean(data?.settings.llm.base_url) })
+  const { data, isPending, error } = useQuery({ queryKey: ["settings"], queryFn: ({ signal }) => api.settings(signal) })
+  const activeModel = useQuery({ queryKey: ["active-model"], queryFn: ({ signal }) => api.activeModel(signal), enabled: Boolean(data?.settings.llm.base_url) })
   const [draft, setDraft] = useState<Settings | null>(null)
   const [notify, setNotify] = useState(() => localStorage.getItem("mailcheck.notify") === "on")
   const [category, setCategory] = useState("job_alert")

@@ -80,6 +80,10 @@ class DashboardFilters(BaseModel):
             raise ValueError("Choose a range of at most 90 calendar days")
         if self.focus_date and not self.start <= self.focus_date <= self.end:
             raise ValueError("Selected day must be inside the timeline range")
+        try:
+            _bounds(self.start, self.end, ZoneInfo(self.tz))
+        except OverflowError as exc:
+            raise ValueError("Choose dates whose calendar boundaries can be represented in UTC") from exc
         return self
 
 

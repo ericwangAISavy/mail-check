@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 
 type VisibilityData = { bidders: Member[] }
 
-const readVisibility = () => request<VisibilityData>("/api/payments/visibility")
+const readVisibility = (signal?: AbortSignal) => request<VisibilityData>("/api/payments/visibility", { signal })
 
 type Member = {
   id: number
@@ -49,7 +49,7 @@ function VisibilityRow({ member }: { member: Member }) {
     },
   })
   const reload = useMutation({
-    mutationFn: readVisibility,
+    mutationFn: () => readVisibility(),
     onSuccess: data => {
       client.setQueryData(["bidder-visibility"], data)
       setDirty(false)
@@ -69,7 +69,7 @@ function VisibilityRow({ member }: { member: Member }) {
 }
 
 export default function BidderVisibility({ embedded = false }: { embedded?: boolean }) {
-  const query = useQuery({ queryKey: ["bidder-visibility"], queryFn: readVisibility })
+  const query = useQuery({ queryKey: ["bidder-visibility"], queryFn: ({ signal }) => readVisibility(signal) })
   return <Card className="bidder-visibility-panel">
     {!embedded && <h2>Bidder visibility</h2>}
     <p>Choose what each bidder can see. Payment visible allows payment amounts for every bidder they can view. Enable Other bidders’ work visible to share team counts and, when payment visibility is also enabled, team payment status. Account details and wallets stay private. Dashboard graphs always use the signed-in bidder’s assigned accounts.</p>

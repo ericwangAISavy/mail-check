@@ -92,6 +92,31 @@ class ReplyTests(TestCase):
         self.assertIsNone(db.get_message(self.conn,self.pk)['handled_at'])
         self.assertEqual(self.client.post(url,json=self.payload()).status_code,409)
 
+    def test_accepted_reply_does_not_mark_reused_message_number_done(self):
+        def accept_after_retention(request):
+            if request.method == 'GET':
+                return httpx.Response(200,json={'id':'id/with+chars','internetMessageId':'<original@test>',
+                    'subject':'Interview','from':{'emailAddress':{'address':'hr@example.test'}}})
+            with db.session() as conn:
+                conn.execute('DELETE FROM messages WHERE id=?',(self.pk,))
+                replacement=db.upsert_message(conn,NormalizedMessage(account_id=self.account_id,
+                    account_label='personal',message_id='<replacement@test>',uid='replacement',
+                    folder='Inbox',from_addr='other@example.test',from_name='Other',
+                    subject='Another message',body='Keep this in the queue',date_utc=None))
+                self.assertEqual(replacement,self.pk)
+            return httpx.Response(202)
+        self.transport=httpx.MockTransport(accept_after_retention)
+        response=self.client.post(f'/api/messages/{self.pk}/reply',json=self.payload())
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertFalse(response.json()['done'])
+        self.assertTrue(response.json()['warning'])
+        self.assertIsNone(db.get_message(self.conn,self.pk)['handled_at'])
+        record=self.conn.execute('SELECT status FROM mail_replies').fetchone()
+        self.assertEqual(record['status'],'sent')
+        replay=self.client.post(f'/api/messages/{self.pk}/reply',json=self.payload())
+        self.assertEqual(replay.status_code,200,replay.text)
+        self.assertFalse(replay.json()['done'])
+
     def test_read_only_user_and_unconfigured_imap_accounts_cannot_send(self):
         self.conn.execute("UPDATE accounts SET provider='imap'"); self.conn.commit()
         self.assertEqual(self.client.post(f'/api/messages/{self.pk}/reply',json=self.payload()).status_code,409)
@@ -147,7 +172,40 @@ class ReplyTests(TestCase):
         self.assertEqual(self.client.post(f'/api/messages/{self.pk}/reply',json=self.payload()).status_code,200)
         self.conn.execute("UPDATE messages SET message_id='<a-different-message@test>' WHERE id=?",(self.pk,));self.conn.commit()
         self.assertEqual(self.client.get(f'/api/messages/{self.pk}').json()['replies'],[])
-        self.assertEqual(self.client.post(f'/api/messages/{self.pk}/reply',json=self.payload()).status_code,409)
+        # Replaying a completed operation confirms its persisted receipt; it
+        # must never send again against the replacement message.
+        self.assertEqual(self.client.post(f'/api/messages/{self.pk}/reply',json=self.payload()).status_code,200)
+        self.assertEqual(len([request for request in self.calls if request.method=='POST']),1)
+
+    def test_stale_composer_identity_is_rejected_before_provider_calls(self):
+        payload={**self.payload(),'expected_message_id':'<original@test>',
+                 'expected_account_label':'personal'}
+        self.conn.execute("UPDATE messages SET message_id='<replacement@test>' WHERE id=?",(self.pk,))
+        self.conn.commit()
+        response=self.client.post(f'/api/messages/{self.pk}/reply',json=payload)
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertEqual(self.calls,[])
+        self.assertIsNone(self.conn.execute('SELECT operation FROM mail_replies').fetchone())
+
+    def test_stale_composer_account_is_rejected_before_provider_calls(self):
+        payload={**self.payload(),'expected_message_id':'<original@test>',
+                 'expected_account_label':'another-account'}
+        response=self.client.post(f'/api/messages/{self.pk}/reply',json=payload)
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertEqual(self.calls,[])
+        self.assertIsNone(self.conn.execute('SELECT operation FROM mail_replies').fetchone())
+
+    def test_sent_receipt_replay_survives_message_removal(self):
+        payload={**self.payload(),'expected_message_id':'<original@test>',
+                 'expected_account_label':'personal'}
+        first=self.client.post(f'/api/messages/{self.pk}/reply',json=payload)
+        self.assertEqual(first.status_code,200,first.text)
+        self.conn.execute('DELETE FROM messages WHERE id=?',(self.pk,));self.conn.commit()
+        self.calls.clear()
+        replay=self.client.post(f'/api/messages/{self.pk}/reply',json=payload)
+        self.assertEqual(replay.status_code,200,replay.text)
+        self.assertEqual(replay.json()['sent_at'],first.json()['sent_at'])
+        self.assertEqual(self.calls,[])
 
     def test_imap_missing_message_id_does_not_reply_to_a_reused_uid(self):
         self.conn.execute("UPDATE accounts SET provider='imap'")

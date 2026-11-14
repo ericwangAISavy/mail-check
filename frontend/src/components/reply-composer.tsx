@@ -34,7 +34,7 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
   const client=useQueryClient()
   const toast=useToast()
   const open=mode!==null
-  const context=useQuery({queryKey:["reply-context",pk,mode],queryFn:()=>request<Context>(`/api/messages/${pk}/reply?mode=${mode}`),enabled:open,retry:false,staleTime:60_000})
+  const context=useQuery({queryKey:["reply-context",pk,mode],queryFn:({ signal }) =>request<Context>(`/api/messages/${pk}/reply?mode=${mode}`, { signal }),enabled:open,retry:false,staleTime:60_000})
   const refresh=useCallback(()=>{void client.invalidateQueries({queryKey:["reply-context",pk]})},[client,pk])
   useEffect(()=>{if(open){area.current?.focus();area.current?.scrollIntoView?.({block:"nearest",behavior:"smooth"})}},[open,context.data])
   useEffect(()=>{try {if(draft.body){localStorage.setItem(key,JSON.stringify(draft));setDraftSaved(true)}else{localStorage.removeItem(key);setDraftSaved(false)}} catch {setDraftSaved(false)}},[draft,key])
@@ -47,12 +47,12 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
     const operation = !retry && draft.markDone !== undefined && draft.markDone !== markDone ? operationId() : draft.operation
     setDraft(d=>({...d,operation,markDone,mode:sendMode}))
     try {
-      const result=await api.post<{warning?:string;done?:boolean}>(`/api/messages/${pk}/reply`,{operation,body:draft.body,mode:sendMode,mark_done:markDone})
+      const result=await api.post<{warning?:string;done?:boolean}>(`/api/messages/${pk}/reply`,{operation,body:draft.body,mode:sendMode,mark_done:markDone,expected_account_label:accountLabel,...(messageId?{expected_message_id:messageId}:{})})
       setUncertain(false);setDraft({body:"",mode,operation:operationId()});try{localStorage.removeItem(key)}catch{/* optional browser storage */}
       toast(result.warning || (result.done?"Reply sent. Message marked done.":"Reply sent."),result.warning?"error":"success")
       await Promise.all([client.invalidateQueries({queryKey:["interviews","processes"]}),client.invalidateQueries({queryKey:["reader",pk]}),client.invalidateQueries({queryKey:["triage"]}),client.invalidateQueries({queryKey:["bootstrap"]})])
       onModeChange(null)
-    }catch(caught){const text=caught instanceof Error?caught.message:"Could not send your reply.";setError(text);if(!(caught instanceof ApiError)||caught.status>=500||text.includes("not confirmed")){setUncertain(true);setDraft(d=>({...d,uncertain:true}))}}
+    }catch(caught){const text=caught instanceof Error?caught.message:"Could not send your reply.";setError(text);if(!(caught instanceof ApiError)||caught.status===0||caught.status>=500||text.includes("not confirmed")){setUncertain(true);setDraft(d=>({...d,uncertain:true}))}}
     finally{lock.current=false;setSending(false)}
   }
   const checkDelivery=async()=>{

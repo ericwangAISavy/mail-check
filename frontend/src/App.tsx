@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/card"
 import { Loading, PageHeading, ToastProvider, useToast } from "@/components/common"
 import type { Bootstrap } from "@/lib/types"
 import { AuthGate, useAuth } from "@/components/auth"
+import { useRealtimeUpdates } from "@/lib/realtime"
 
 const TriagePage = lazy(() => import("@/pages/triage"))
 const SourcingPage = lazy(() => import("@/pages/sourcing"))
@@ -111,12 +112,13 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
     let timer = 0
     let polling = false
     let latestRunning = false
+    const controller = new AbortController()
     const poll = async () => {
       if (stopped || polling) return
       polling = true
       window.clearTimeout(timer)
       try {
-        const current = await api.status()
+        const current = await api.status(controller.signal)
         if (stopped) return
         latestRunning = current.running
         setStatus(current)
@@ -133,6 +135,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
             queryClient.invalidateQueries({ queryKey: ["interviews"] }),
             queryClient.invalidateQueries({ queryKey: ["pipeline"] }),
           ])
+          if (stopped) return
           window.dispatchEvent(new Event("mailcheck:check-completed"))
           if (!current.background) toast(current.message || (current.ok ? "Check complete." : "Check finished with an issue."), current.ok ? "success" : "error")
           for (const item of current.background ? [] : current.interview_changes || []) {
@@ -142,7 +145,8 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
           try {
             const pref = readBrowserPreference("mailcheck.notify") === "on" && typeof Notification !== "undefined" && Notification.permission === "granted"
             if (pref) {
-              const pending = await request<{ items: { pk: number; title: string; who: string; summary: string; url: string }[] }>("/api/notifications")
+              const pending = await request<{ items: { pk: number; title: string; who: string; summary: string; url: string }[] }>("/api/notifications", { signal: controller.signal })
+              if (stopped) return
               const shown: number[] = []
               for (const item of pending.items) {
                 try {
@@ -166,7 +170,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
     void poll()
     window.addEventListener("focus", focus)
     window.addEventListener("mailcheck:settings-updated", focus)
-    return () => { window.removeEventListener("mailcheck:check-started", checkStarted); stopped = true; window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
+    return () => { window.removeEventListener("mailcheck:check-started", checkStarted); stopped = true; controller.abort(); window.clearTimeout(timer); window.removeEventListener("focus", focus); window.removeEventListener("mailcheck:settings-updated", focus) }
   }, [queryClient, toast, setStatus])
 
   const runCheck = async () => {
@@ -203,7 +207,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
 }
 
 function DailyApplicationCount({count}:{count?:number}) {
-  const daily=useQuery({queryKey:["applications-today"],queryFn:api.applicationsToday,enabled:count===undefined,retry:false,staleTime:30000,refetchInterval:60000,refetchOnWindowFocus:true})
+  const daily=useQuery({queryKey:["applications-today"],queryFn:({ signal }) => api.applicationsToday(signal),enabled:count===undefined,retry:false,staleTime:30000,refetchInterval:60000,refetchOnWindowFocus:true})
   const value=count ?? daily.data?.applications_today
   const label=value===undefined ? daily.isError ? "Today's application count unavailable" : "Loading today's application count" : `${value} checked applications today`
   return <span className="header-application-count" title="Checked applications today · Chicago" aria-label={label}><strong>{value===undefined?"—":value.toLocaleString()}</strong><span>today</span></span>
@@ -280,11 +284,12 @@ function Recovery({ message, retry, retrying }: { message: string; retry: () => 
 }
 
 function ReadyApp() {
+  useRealtimeUpdates()
   const path=useLocation().pathname
   const controlPage = path === "/admin-management"
   const {role,session}=useAuth()
   const settingsRecovery=path==="/settings"&&role==="admin"&&(!session?.workspace_id||!!session.is_owner)
-  const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: api.bootstrap, retry: false, refetchInterval: 60_000, enabled: !controlPage })
+  const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: ({ signal }) => api.bootstrap(signal), retry: false, refetchInterval: 60_000, enabled: !controlPage })
   if (controlPage || settingsRecovery) return <Workspace bootstrap={settingsRecovery && data ? data : {readiness:{model:false,accounts:false,privacy_ack:true,outlook:false},counts:{},taxonomy:[],presets:[],last_run:"",account_count:0}} />
   if (isPending) return <Loading />
   if (!data && error) return <Recovery message={error.message} retry={() => void refetch()} retrying={isFetching} />

@@ -45,7 +45,7 @@ def list_followups(conn,account_id=None,now=None):
                 elapsed=sum((local_start+timedelta(days=i)).weekday()<5 for i in range(1,(local_end-local_start).days+1))
             items.append(dict(id=f"pipeline:{identity}:{action['id']}",account_id=opp['account_id'],
                 account_label=opp['account_label'],company=opp['company'],role=opp['role'],
-                last_interview_at=max((e['start_at'] for e in data['events'] if e['attendance']=='Attended'),default=None),
+                last_interview_at=max((e['start_at'] for e in data['events'] if e['attendance']=='Attended'),key=instant,default=None),
                 last_contact_at=anchor.isoformat() if anchor else None,elapsed_business_days=elapsed,status=status,
                 reason=action['reason']+' Open the opportunity to review contact and evidence.',
                 target_message_pk=None,snoozed_until=snoozed,pipeline_id=identity))

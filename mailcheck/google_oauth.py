@@ -67,7 +67,7 @@ def write_secret(key,value):
 class GoogleConnection:
     def __init__(self,*,client=None):
         self.client=client or httpx.Client(timeout=30)
-        self.pending={};self.lock=threading.RLock()
+        self.pending={};self.lock=threading.RLock();self.revision=0
     def _read(self,key): return json.loads(read_secret(key) or '{}')
     def setup(self,client_id,client_secret,redirect_uri):
         url=urlsplit(redirect_uri)
@@ -88,12 +88,17 @@ class GoogleConnection:
         query.pop('client_secret')
         return {'state':state,'cookie':cookie,'url':'https://accounts.google.com/o/oauth2/v2/auth?'+urlencode(query)}
     def complete(self,state,code,cookie):
-        with self.lock: pending=self.pending.pop(state,None)
+        with self.lock:
+            pending=self.pending.pop(state,None)
+            revision=self.revision
         if not pending or pending['expires']<time.time() or not secrets.compare_digest(pending['cookie'],cookie or ''): raise ValueError('Google connection expired or belongs to another browser. Start again.')
         tokens=self._exchange({**pending['config'],'grant_type':'authorization_code','code':code,'code_verifier':pending['verifier']})
         if not tokens.get('refresh_token'): raise GoogleError('Google did not grant offline access. Reconnect with consent.')
         tokens['oauth_config']=pending['config']
-        write_secret('tokens',json.dumps(tokens))
+        with self.lock:
+            if revision!=self.revision:
+                raise GoogleError('Google connection changed during sign-in. Start again.')
+            write_secret('tokens',json.dumps(tokens))
     def _exchange(self,data):
         try: response=self.client.post('https://oauth2.googleapis.com/token',data=data)
         except httpx.HTTPError as exc: raise GoogleError('Google could not be reached.') from exc
@@ -108,4 +113,8 @@ class GoogleConnection:
                 refreshed=self._exchange({**tokens.get('oauth_config',self._read('config')),'grant_type':'refresh_token','refresh_token':tokens['refresh_token']})
                 tokens.update(refreshed);write_secret('tokens',json.dumps(tokens))
             return tokens['access_token']
-    def disconnect(self): write_secret('tokens','{}')
+    def disconnect(self):
+        with self.lock:
+            write_secret('tokens','{}')
+            self.revision+=1
+            self.pending.clear()

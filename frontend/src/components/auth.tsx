@@ -60,7 +60,7 @@ function SignInViewport({children}:{children:ReactNode}) {
 
 export function AuthGate({children}:{children:ReactNode}) {
   const client=useQueryClient(), navigate=useNavigate()
-  const session=useQuery({queryKey:["auth"],queryFn:api.session,retry:false,staleTime:0,refetchOnWindowFocus:true})
+  const session=useQuery({queryKey:["auth"],queryFn:({ signal }) => api.session(signal),retry:false,staleTime:0,refetchOnWindowFocus:true})
   const data=session.data
   const pageScope=JSON.stringify([data?.workspace_id || "legacy",data?.user_id ?? data?.username ?? "legacy",data?.role,data?.bidder_id ?? null])
   const identity=JSON.stringify([pageScope,Boolean(data?.must_change_password),Boolean(data?.managed)])

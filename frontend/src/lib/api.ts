@@ -68,6 +68,7 @@ async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T
     if(init.signal?.aborted || reason instanceof Error && reason.name==="AbortError")throw reason
     throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
   }
+  init.signal?.throwIfAborted()
   if (!url.startsWith("/api/auth/") && requestRevision !== identityRevision) throw new ApiError("Workspace changed. Reload before continuing.",409)
   const contentType = (response.headers.get("content-type") || "").toLowerCase()
   let html=contentType.includes("html")
@@ -88,6 +89,7 @@ async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T
     throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
   }
   if (!url.startsWith("/api/auth/") && requestRevision !== identityRevision) throw new ApiError("Workspace changed. Reload before continuing.",409)
+  init.signal?.throwIfAborted()
   if (response.status === 409 && value?.workspace_changed) window.dispatchEvent(new Event("offerpath:workspace-changed"))
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mailcheck:unauthorized"))
@@ -118,18 +120,18 @@ export const api = {
     window.dispatchEvent(new Event("mailcheck:check-started"))
     return result
   },
-  session: () => request<Session>("/api/auth/session"),
+  session: (signal?: AbortSignal) => request<Session>("/api/auth/session", { signal }),
   login: (role: "admin" | "bidder", password: string, bidder_id?: number, username="owner") => request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username, ...(role==="bidder"?{bidder_id}: {}) }) }),
-  dashboardAccounts: () => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts"),
-  bootstrap: () => request<Bootstrap>("/api/bootstrap"),
-  applicationsToday: () => request<{applications_today:number}>("/api/applications/today"),
-  triage: (params: URLSearchParams) => request<TriageData>(`/api/triage?${params}`),
-  reader: (pk: number) => request<{ message: import("./types").Message; body_html: string; original_html?: string | null; replies?: import("./types").SentReply[] }>(`/api/messages/${pk}`),
-  accounts: () => request<{ accounts: Account[]; outlook_ready: boolean }>("/api/accounts"),
-  settings: () => request<{ settings: Settings; rules: { category: string; sender: string | null; sender_domain: string | null; subject_contains: string | null }[]; categories: { name: string; label: string }[]; config_path: string; db_path: string }>("/api/settings"),
-  activeModel: () => request<{ model: string | null; loaded: boolean; message: string }>("/api/settings/model"),
-  dashboard: (params: URLSearchParams) => request<Record<string, any>>(`/api/dashboard?${params}`),
-  status: () => request<{ running: boolean; background?: boolean; completion_id: number; auto: boolean; interval_minutes?: number; next_in: number | null; message: string; detail: string; ok: boolean; stage_elapsed: number | null; interview_changes?: { id: number; company: string | null; status: string; start_at: string | null }[] }>("/api/status"),
+  dashboardAccounts: (signal?: AbortSignal) => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts", { signal }),
+  bootstrap: (signal?: AbortSignal) => request<Bootstrap>("/api/bootstrap", { signal }),
+  applicationsToday: (signal?: AbortSignal) => request<{applications_today:number}>("/api/applications/today", { signal }),
+  triage: (params: URLSearchParams, signal?: AbortSignal) => request<TriageData>(`/api/triage?${params}`, { signal }),
+  reader: (pk: number, signal?: AbortSignal) => request<{ message: import("./types").Message; body_html: string; original_html?: string | null; replies?: import("./types").SentReply[] }>(`/api/messages/${pk}`, { signal }),
+  accounts: (signal?: AbortSignal) => request<{ accounts: Account[]; outlook_ready: boolean }>("/api/accounts", { signal }),
+  settings: (signal?: AbortSignal) => request<{ settings: Settings; rules: { category: string; sender: string | null; sender_domain: string | null; subject_contains: string | null }[]; categories: { name: string; label: string }[]; config_path: string; db_path: string }>("/api/settings", { signal }),
+  activeModel: (signal?: AbortSignal) => request<{ model: string | null; loaded: boolean; message: string }>("/api/settings/model", { signal }),
+  dashboard: (params: URLSearchParams, signal?: AbortSignal) => request<Record<string, any>>(`/api/dashboard?${params}`, { signal }),
+  status: (signal?: AbortSignal) => request<{ running: boolean; background?: boolean; completion_id: number; auto: boolean; interval_minutes?: number; next_in: number | null; message: string; detail: string; ok: boolean; stage_elapsed: number | null; interview_changes?: { id: number; company: string | null; status: string; start_at: string | null }[] }>("/api/status", { signal }),
   post: <T,>(url: string, body?: unknown) => request<T>(url, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
 }
 

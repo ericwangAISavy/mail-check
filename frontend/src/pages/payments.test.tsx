@@ -22,7 +22,7 @@ it("records an admin-entered amount with the reviewed week and count", async () 
 it("supports previous week navigation", async () => {
   mount(true)
   fireEvent.click(await screen.findByRole("button", { name: "Previous week" }))
-  await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
+  await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05", {signal: expect.any(AbortSignal)}))
 })
 it("shows gross and net amounts independently of saved payment metadata", async () => {
   const report = data() as any
@@ -498,12 +498,12 @@ it("restores the selected week and bidder after returning to payments", async ()
     const first = mount(true, true)
     fireEvent.change(await screen.findByRole("combobox", { name: "Bidder" }), { target: { value: "1" } })
     fireEvent.click(screen.getByRole("button", { name: "Previous week" }))
-    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05", {signal: expect.any(AbortSignal)}))
     first.unmount()
     vi.mocked(request).mockClear()
     mount(true, true)
     expect((await screen.findByRole("combobox", { name: "Bidder" }) as HTMLSelectElement).value).toBe("1")
-    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05"))
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05", {signal: expect.any(AbortSignal)}))
   } finally {
     sessionStorage.clear()
   }
@@ -517,8 +517,8 @@ it("falls back from malformed persisted week and bidder values", async () => {
     sessionStorage.setItem(key("selected"), JSON.stringify("not-a-bidder"))
     mount(true, true)
     expect((await screen.findByRole("combobox", { name: "Bidder" }) as HTMLSelectElement).value).toBe("")
-    expect(request).toHaveBeenCalledWith("/api/payments")
-    expect(request).not.toHaveBeenCalledWith("/api/payments?week=2026-02-31")
+    expect(request).toHaveBeenCalledWith("/api/payments", {signal: expect.any(AbortSignal)})
+    expect(request).not.toHaveBeenCalledWith("/api/payments?week=2026-02-31", expect.anything())
   } finally {
     sessionStorage.clear()
   }

@@ -22,9 +22,9 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   if (account) queryParams.set("account",account)
   if (status) queryParams.set("status",status)
   if (company) queryParams.set("company",company)
-  const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:()=>request<InterviewData>(`/api/interviews?${queryParams}`),placeholderData:previous=>previous})
+  const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:({ signal }) =>request<InterviewData>(`/api/interviews?${queryParams}`, { signal }),placeholderData:previous=>previous})
   const seenJob = useRef<number | null>(null)
-  const job = useQuery({queryKey:["interview-job"],queryFn:api.status,refetchInterval:2000})
+  const job = useQuery({queryKey:["interview-job"],queryFn:({ signal }) => api.status(signal),refetchInterval:2000})
   useEffect(() => {
     if (job.data && seenJob.current !== job.data.completion_id) {
       if (seenJob.current !== null) void client.invalidateQueries({queryKey:["interviews"]})
@@ -38,7 +38,7 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const refresh = () => check.mutate()
   const check = useMutation({mutationFn:()=>api.post("/api/interviews/sync"),onSuccess:()=>{toast("Calendar collection started.","info");window.dispatchEvent(new Event("mailcheck:check-started"));void job.refetch()},onError:e=>toast(e.message,"error")})
   const retryAnalysis = useMutation({mutationFn:()=>api.post('/api/interviews/analysis/retry'),onSuccess:()=>client.invalidateQueries({queryKey:['interviews']}),onError:e=>toast(e.message,'error')})
-  const analysisQuery = useQuery({queryKey:['interviews','analysis'],queryFn:()=>request<CalendarAnalysisProgress>('/api/interviews/analysis'),refetchInterval:query=>query.state.data?.pending?5000:30000})
+  const analysisQuery = useQuery({queryKey:['interviews','analysis'],queryFn:({ signal }) =>request<CalendarAnalysisProgress>('/api/interviews/analysis', { signal }),refetchInterval:query=>query.state.data?.pending?5000:30000})
   const analysis = analysisQuery.data?.pending !== undefined ? analysisQuery.data : query.data?.analysis
   const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label></Card>
   const actions = <div className="interview-actions"><Button variant="outline" size="sm" onClick={()=>void refresh()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}><RefreshCw size={16}/>Refresh</Button><Button size="sm" onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>

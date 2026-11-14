@@ -481,7 +481,7 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
         _job.update(
             message=" · ".join(bits),
             detail="\n".join((calendar_errors + result.errors)[:5]),
-            ok=(not result.errors or result.retryable > 0) and not calendar_errors,
+            ok=not result.errors and not calendar_errors,
         )
 
     # A manual check counts as a check: restart the clock from now.
@@ -679,10 +679,22 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         raise ValueError("A private workspace worker requires an authentication secret.")
     @asynccontextmanager
     async def lifespan(app):
-        with MaintenanceLock(lock_path()):yield
+        from ..realtime.runtime import Runtime
+        import asyncio
+        with MaintenanceLock(lock_path()):
+            app.state.realtime = await asyncio.to_thread(Runtime.from_env, job_lock=_job_lock)
+            if app.state.realtime:
+                await asyncio.to_thread(app.state.realtime.start)
+            try:
+                yield
+            finally:
+                if app.state.realtime:
+                    await asyncio.to_thread(app.state.realtime.stop)
     app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
+    from ..realtime.routes import install as install_realtime
+    install_realtime(app)
     from .sourcing_routes import install as install_sourcing
     from .pipeline_routes import install as install_pipeline
     install_pipeline(app)
@@ -1720,16 +1732,17 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/autocheck")
     def api_autocheck(enabled: bool):
-        cfg = cfgmod.load()
-        cfg.watch.auto_check = enabled
-        cfgmod.save(cfg)
-        _reschedule(cfg)
-        if not enabled:
-            return {"ok": True, "message": "Automatic checks turned off."}
-        return {
-            "ok": True,
-            "message": f"Checking automatically every {cfg.watch.interval_minutes} min.",
-        }
+        with cfgmod.update_lock():
+            cfg = cfgmod.load()
+            cfg.watch.auto_check = enabled
+            cfgmod.save(cfg)
+            _reschedule(cfg)
+            if not enabled:
+                return {"ok": True, "message": "Automatic checks turned off."}
+            return {
+                "ok": True,
+                "message": f"Checking automatically every {cfg.watch.interval_minutes} min.",
+            }
 
     @app.get("/api/preset")
     def api_preset(email: str):
@@ -1867,13 +1880,6 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     # ------------------------------------------------------- outlook sign-in
 
-    def cleanup_outlook_cache(label: str) -> str:
-        try:
-            outlook_auth.delete_cache(label)
-            return ""
-        except outlook_auth.OutlookAuthError as exc:
-            return f" Credential cleanup failed: {exc}"
-
     @app.post("/api/outlook/start")
     def api_outlook_start(body: OutlookStartBody):
         cfg = cfgmod.load()
@@ -1903,6 +1909,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             pending = outlook_auth.begin_device_flow(label, cfg.outlook.client_id)
         except outlook_auth.OutlookAuthError as exc:
             return _err(str(exc))
+        pending.defer_cache_save = True
 
         with _outlook_lock:
             _outlook.update(
@@ -1913,41 +1920,31 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             flow_id = pending.id
             try:
                 email = outlook_auth.complete_device_flow(pending)
-            except outlook_auth.OutlookAuthError as exc:
-                cleanup_error = cleanup_outlook_cache(label)
-                if _outlook.get("active_id") == flow_id:
-                    _outlook.update(pending=None, state="failed", message=str(exc) + cleanup_error)
-                return
-            except Exception as exc:  # noqa: BLE001 - report, never crash the thread
-                cleanup_error = cleanup_outlook_cache(label)
-                if _outlook.get("active_id") == flow_id:
-                    _outlook.update(
-                        pending=None, state="failed",
-                        message=f"{type(exc).__name__}: {exc}" + cleanup_error,
-                    )
-                return
-
-            # Success — but if this flow was cancelled or superseded while we
-            # were blocked, the cancellation is authoritative: the token we
-            # just saved must not survive, and the account must not appear.
-            with _outlook_lock:
-                if _outlook.get("active_id") != flow_id:
-                    cleanup_outlook_cache(label)
-                    return
-                with db.session() as conn:
-                    current = db.get_account(conn, label)
-                    if body.reconnect and (not current or not email or email.casefold() != current.email.casefold()):
-                        outlook_auth.delete_cache(label)
-                        _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
+                # Publish only this flow's candidate cache after checking ownership.
+                # Stale flows must never delete or overwrite another flow's cache.
+                with _outlook_lock:
+                    if _outlook.get("active_id") != flow_id:
                         return
-                    if not current:
-                        db.add_account(
-                            conn, label=label, email=email or label, provider="outlook"
-                        )
-                _outlook.update(
-                    pending=None, state="connected", email=email,
-                    message=f"Connected {email}.",
-                )
+                    with db.session() as conn:
+                        current = db.get_account(conn, label)
+                        if body.reconnect and (not current or not email or email.casefold() != current.email.casefold()):
+                            _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
+                            return
+                        if pending.completed_cache is not None:
+                            outlook_auth.save_cache(label, pending.completed_cache)
+                        if not current:
+                            db.add_account(
+                                conn, label=label, email=email or label, provider="outlook"
+                            )
+                    _outlook.update(
+                        pending=None, state="connected", email=email,
+                        message=f"Connected {email}.",
+                    )
+            except Exception as exc:  # noqa: BLE001 - surface polling and persistence failures
+                with _outlook_lock:
+                    if _outlook.get("active_id") == flow_id:
+                        message = str(exc) if isinstance(exc, outlook_auth.OutlookAuthError) else f"{type(exc).__name__}: {exc}"
+                        _outlook.update(pending=None, state="failed", message=message)
 
         threading.Thread(target=wait, daemon=True).start()
         return {
@@ -1963,11 +1960,13 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             # Stop the background thread, not just the state the UI reads —
             # otherwise it keeps polling Microsoft for up to its own ~15 min
             # server-side expiry with nothing left to report the result to.
-            outlook_auth.abort(pending)
-            _outlook.update(
-                pending=None, active_id=None, state="failed",
-                message="The sign-in code expired. Start again.",
-            )
+            with _outlook_lock:
+                if _outlook.get("pending") is pending:
+                    outlook_auth.abort(pending)
+                    _outlook.update(
+                        pending=None, active_id=None, state="failed",
+                        message="The sign-in code expired. Start again.",
+                    )
             pending = None
         return {
             "state": _outlook["state"],
@@ -1986,50 +1985,47 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             pending = _outlook.get("pending")
             if pending is not None:
                 outlook_auth.abort(pending)              # unblocks the background thread
-                cleanup_error = cleanup_outlook_cache(pending.label)
-                if cleanup_error:
-                    _outlook.update(pending=None, active_id=None, state="failed", message=cleanup_error.strip(), email="")
-                    return _err(cleanup_error.strip())
             _outlook.update(pending=None, active_id=None, state="idle", message="", email="")
         return {"ok": True, "message": "Sign-in cancelled."}
 
     @app.post("/api/settings")
     def api_settings(body: SettingsBody):
-        cfg = cfgmod.load()
-        data = cfg.model_dump()
-        for field in (
-            "base_url", "batch_size", "max_body_chars", "concurrency",
-            "num_ctx", "think", "keep_alive", "timeout_seconds",
-            "classification_deadline_seconds",
-        ):
-            value = getattr(body, field)
-            if value is not None:
-                data["llm"][field] = value
-        if body.check_mode is not None:
-            data["check"]["mode"] = body.check_mode
-        if body.lookback_days is not None:
-            data["check"]["lookback_days"] = body.lookback_days
-        if body.retain_days is not None:
-            data["check"]["retain_days"] = body.retain_days
-        if body.interval_minutes is not None:
-            data["watch"]["interval_minutes"] = body.interval_minutes
-        if body.other_interval_minutes is not None:
-            data["watch"]["other_interval_minutes"] = body.other_interval_minutes
-        if body.auto_check is not None:
-            data["watch"]["auto_check"] = body.auto_check
-        if body.outlook_client_id is not None:
-            data["outlook"]["client_id"] = body.outlook_client_id.strip()
-        if body.privacy_ack is not None:
-            data["privacy_ack"] = body.privacy_ack
-        try:
-            cfg = cfgmod.Config.model_validate(data)
-        except Exception as exc:  # noqa: BLE001 - pydantic's own message is the useful bit
-            detail = getattr(exc, "errors", None)
-            msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc)
-            return _err(msg)
-        cfgmod.save(cfg)
-        _reschedule(cfg)  # a changed interval takes effect immediately
-        return {"ok": True, "message": "Settings saved."}
+        with cfgmod.update_lock():
+            cfg = cfgmod.load()
+            data = cfg.model_dump()
+            for field in (
+                "base_url", "batch_size", "max_body_chars", "concurrency",
+                "num_ctx", "think", "keep_alive", "timeout_seconds",
+                "classification_deadline_seconds",
+            ):
+                value = getattr(body, field)
+                if value is not None:
+                    data["llm"][field] = value
+            if body.check_mode is not None:
+                data["check"]["mode"] = body.check_mode
+            if body.lookback_days is not None:
+                data["check"]["lookback_days"] = body.lookback_days
+            if body.retain_days is not None:
+                data["check"]["retain_days"] = body.retain_days
+            if body.interval_minutes is not None:
+                data["watch"]["interval_minutes"] = body.interval_minutes
+            if body.other_interval_minutes is not None:
+                data["watch"]["other_interval_minutes"] = body.other_interval_minutes
+            if body.auto_check is not None:
+                data["watch"]["auto_check"] = body.auto_check
+            if body.outlook_client_id is not None:
+                data["outlook"]["client_id"] = body.outlook_client_id.strip()
+            if body.privacy_ack is not None:
+                data["privacy_ack"] = body.privacy_ack
+            try:
+                cfg = cfgmod.Config.model_validate(data)
+            except Exception as exc:  # noqa: BLE001 - pydantic's own message is the useful bit
+                detail = getattr(exc, "errors", None)
+                msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc)
+                return _err(msg)
+            cfgmod.save(cfg)
+            _reschedule(cfg)  # a changed interval takes effect immediately
+            return {"ok": True, "message": "Settings saved."}
 
     @app.post("/api/settings/test")
     def api_settings_test():
@@ -2070,23 +2066,25 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/rules")
     def api_add_rule(body: RuleBody):
-        if body.category not in {c.name for c in CATEGORIES} or body.category == UNCLASSIFIED:
-            return _err("Choose one of the listed categories.")
-        if not (body.sender or body.sender_domain or body.subject_contains):
-            return _err("A rule needs at least one condition.")
-        cfg = cfgmod.load()
-        cfg.prefilter_rules.append(cfgmod.PrefilterRule(**body.model_dump()))
-        cfgmod.save(cfg)
-        return {"ok": True, "message": "Rule added."}
+        with cfgmod.update_lock():
+            if body.category not in {c.name for c in CATEGORIES} or body.category == UNCLASSIFIED:
+                return _err("Choose one of the listed categories.")
+            if not (body.sender or body.sender_domain or body.subject_contains):
+                return _err("A rule needs at least one condition.")
+            cfg = cfgmod.load()
+            cfg.prefilter_rules.append(cfgmod.PrefilterRule(**body.model_dump()))
+            cfgmod.save(cfg)
+            return {"ok": True, "message": "Rule added."}
 
     @app.post("/api/rules/{index}/delete")
     def api_delete_rule(index: int):
-        cfg = cfgmod.load()
-        if not 0 <= index < len(cfg.prefilter_rules):
-            return _err("No such rule.", 404)
-        cfg.prefilter_rules.pop(index)
-        cfgmod.save(cfg)
-        return {"ok": True, "message": "Rule removed."}
+        with cfgmod.update_lock():
+            cfg = cfgmod.load()
+            if not 0 <= index < len(cfg.prefilter_rules):
+                return _err("No such rule.", 404)
+            cfg.prefilter_rules.pop(index)
+            cfgmod.save(cfg)
+            return {"ok": True, "message": "Rule removed."}
 
     @app.get("/{path:path}", include_in_schema=False)
     def frontend_route(path: str):

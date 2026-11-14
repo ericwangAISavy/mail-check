@@ -9,7 +9,7 @@ import SourcingRoleFilters from "./sourcing-role-filters"
 export default function SourcingFilters({accountId}:{accountId?:number|null}) {
   const [view,setView]=useState<"companies"|"roles">("companies")
   const client = useQueryClient()
-  const query = useQuery({queryKey:["sourcing-filters"],queryFn:()=>request<{companies:string[]}>("/api/sourcing/filters")})
+  const query = useQuery({queryKey:["sourcing-filters"],queryFn:({ signal }) =>request<{companies:string[]}>("/api/sourcing/filters", { signal })})
   const [draft,setDraft] = useState<string | null>(null)
   const save = useMutation({mutationFn:()=>api.post<{companies:string[]}>("/api/sourcing/filters",{companies:(draft ?? query.data?.companies.join("\n") ?? "").split("\n").map(s=>s.trim()).filter(Boolean)}),onSuccess:data=>{client.setQueryData(["sourcing-filters"],data);setDraft(null)}})
   return <DialogContent style={{maxHeight:"90dvh",overflowY:"auto"}}><DialogTitle>Job link filters</DialogTitle>

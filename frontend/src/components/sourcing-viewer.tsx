@@ -13,7 +13,7 @@ export default function SourcingViewer({tab,highlightId,highlightRow,initialDay,
  const [day,setDay]=useState(initialDay||chicagoDay()),[page,setPage]=usePageState("/sourcing",`tab:${tab.id}:viewer-page`,0,value=>Number.isSafeInteger(value)&&value>=0)
  const [message,setMessage]=useState(""),[copying,setCopying]=useState(false)
  const resolved=useRef("")
- const query=useQuery({queryKey:["sourcing-viewer",tab.id],queryFn:()=>request<Snapshot>(`/api/sourcing/tabs/${tab.id}`),staleTime:Infinity,refetchOnWindowFocus:false,refetchOnReconnect:false})
+ const query=useQuery({queryKey:["sourcing-viewer",tab.id],queryFn:({ signal }) =>request<Snapshot>(`/api/sourcing/tabs/${tab.id}`, { signal }),staleTime:Infinity,refetchOnWindowFocus:false,refetchOnReconnect:false})
  const snapshot=query.data
  useEffect(()=>{onDayChange?.(day);setMessage("")},[day,onDayChange])
  useEffect(()=>{

@@ -2,6 +2,32 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.28.1 — 2026-11-13
+
+Protect concurrent workflows and live updates
+
+- Prevent encoded gateway paths from bypassing owner-only API restrictions and avoid worker replacement races.
+- Guard replies against stale messages, uncertain delivery, and unrelated Done updates; preserve account data when credential cleanup fails.
+- Preserve concurrent settings changes and prevent pending form saves from discarding edits.
+- Refresh business views through bounded transactional realtime hints and include Junk Email in Outlook notifications.
+- Correct calendar reschedule state, deadlines, time-zone ordering, review decisions, and date-boundary validation.
+
+## 2.28.0 — 2026-11-13
+
+Automatic email and calendar updates
+
+- Opt in to background email and Outlook calendar collection using durable Redis Streams jobs, recovery checks, and independent classification.
+- Update open workspace pages through authenticated server-sent events with replay, scoped access, and separate traffic limits.
+- Configure Microsoft notification subscriptions and monitor per-account automatic sync health from Accounts.
+
+## 2.27.18 — 2026-11-12
+
+Keep gateway and page loading responsive
+
+- Keep session replacement database work off the gateway serving loop so login contention does not stall other requests.
+- Cancel obsolete page reads and status polls, and ignore canceled responses before they can change the active session.
+- Preserve working Outlook credentials when a reconnect is canceled, fails, or is superseded by a newer sign-in.
+
 ## 2.27.17 — 2026-11-10
 
 Bound local worker connects and recover dropped page-read sockets

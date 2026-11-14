@@ -87,6 +87,7 @@ class WorkerPool:
     def __init__(self,store,gateway_url,legacy_paths):
         self.store=store;self.gateway_url=gateway_url;self.legacy_paths=legacy_paths
         self.workers={};self.failures={};self.errors={};self.stopped=set();self.closing=False;self._lock=threading.RLock()
+        self._retiring=set()
         self._backup_lock=threading.Lock()
 
     def _backup(self):
@@ -113,12 +114,14 @@ class WorkerPool:
         if wid=='legacy':
             with self._lock:
                 if self.closing or wid in self.stopped:raise RuntimeError('Workspace is suspended or shutting down.')
+                if wid in self._retiring:raise WorkerStartupPending('Workspace is restarting. Retry shortly.')
                 current=self.workers.get(wid)
                 needs_backup=current is None or current.process.poll() is not None
             # Backup disk I/O must not hold the heartbeat authentication lock.
             if needs_backup:self._backup()
         with self._lock:
             if self.closing or wid in self.stopped:raise RuntimeError('Workspace is suspended or shutting down.')
+            if wid in self._retiring:raise WorkerStartupPending('Workspace is restarting. Retry shortly.')
             current=self.workers.get(wid)
             if current and current.process.poll() is None:
                 if current.ready:return current
@@ -186,6 +189,7 @@ class WorkerPool:
             env['OFFERPATH_LEGACY_CONFIG_PATH']=str(self.legacy_paths[0])
             env['OFFERPATH_LEGACY_DB_PATH']=str(self.legacy_paths[1])
         env.update(OFFERPATH_WORKER_TOKEN=token,OFFERPATH_GATEWAY_URL=self.gateway_url,
+                   OFFERPATH_REALTIME_REGISTRY=str(self.store.root/'realtime.db'),
                    OFFERPATH_WORKER_ID=wid,OFFERPATH_WORKER_LOCK=str(self.store.root/'runtime'/f'{wid}.lock'))
         logs=self.store.root/'logs';logs.mkdir(mode=0o700,exist_ok=True)
         log=(logs/f'{wid}.log').open('ab')
@@ -231,6 +235,10 @@ class WorkerPool:
             if only_unready and worker and worker.ready:return False
             if suspended:self.stopped.add(wid)
             worker=self.workers.pop(wid,None)
+            # The old process still owns its workspace instance lock until it
+            # exits. Keep replacement startup paused without holding the pool
+            # lock needed by healthy workers' heartbeats during process.wait.
+            if worker:self._retiring.add(wid)
         if worker:
             try:
                 if worker.process.poll() is None:
@@ -239,7 +247,10 @@ class WorkerPool:
                         if worker.process.poll() is None:raise
                 try:worker.process.wait(timeout=10)
                 except subprocess.TimeoutExpired:worker.process.kill();worker.process.wait(timeout=5)
-            finally:worker.log.close()
+            finally:
+                try:worker.log.close()
+                finally:
+                    with self._lock:self._retiring.discard(wid)
             return True
         return False
 

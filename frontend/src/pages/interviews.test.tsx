@@ -65,6 +65,22 @@ it("opens event details and persists only fields explicitly corrected",async()=>
   fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{company:'Correct Company'}))
 })
+it("protects interview corrections during a pending save and preserves a failed draft",async()=>{
+  let rejectSave!:(error:Error)=>void
+  vi.mocked(api.post).mockImplementation(()=>new Promise((_,reject)=>{rejectSave=reject}))
+  mount();await screen.findByRole("button",{name:"Month"})
+  fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
+  const dialog=await screen.findByRole("dialog")
+  fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
+  fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:"Correct Company"}})
+  fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/interviews/1",{company:"Correct Company"}))
+  for(const input of dialog.querySelectorAll(".interview-editor input, .interview-editor select, .interview-editor textarea"))expect(input).toHaveProperty("disabled",true)
+  rejectSave(new Error("Could not save corrections"))
+  await within(dialog).findByText("Could not save corrections")
+  expect(within(dialog).getByLabelText("Company")).toHaveProperty("value","Correct Company")
+  expect(within(dialog).getByLabelText("Company")).toHaveProperty("disabled",false)
+})
 it("shows only dated calendar events without upcoming or review panels",async()=>{
   current={...event(),start_at:null,end_at:null,display_status:'Needs review',needs_review:true}
   mount();await screen.findByRole("button",{name:"Month"})

@@ -277,10 +277,14 @@ def account_remove(label: str) -> None:
             f"Remove '{label}' ({account.email}) and its cached mail?", default=False
         ):
             raise typer.Exit()
+        from . import outlook_auth
+        try:
+            secrets.delete_account_password(label)
+            outlook_auth.delete_cache(label)
+        except (secrets.SecretError, outlook_auth.OutlookAuthError) as exc:
+            console.print(Panel(str(exc), title="Credential cleanup failed", border_style="red"))
+            raise typer.Exit(1)
         db.remove_account(conn, label)
-    secrets.delete_account_password(label)
-    from . import outlook_auth
-    outlook_auth.delete_cache(label)  # a token must not outlive its account
     console.print(f"[green]Removed[/green] {label}")
 
 
@@ -518,18 +522,19 @@ def config_show() -> None:
 @config_app.command("set")
 def config_set(key: str, value: str) -> None:
     """Set a dotted key, e.g. `config set llm.batch_size 5`."""
-    cfg = _load_cfg()
-    try:
-        cfg = cfgmod.set_dotted(cfg, key, value)
-    except KeyError:
-        console.print(f"[red]Unknown key '{key}'.[/red] See: mail-check config show")
-        raise typer.Exit(1)
-    except Exception as exc:  # noqa: BLE001 - pydantic raises its own error type
-        detail = getattr(exc, "errors", None)
-        msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc).split("\n")[0]
-        console.print(f"[red]Invalid value for '{key}':[/red] {msg}")
-        raise typer.Exit(1)
-    cfgmod.save(cfg)
+    with cfgmod.update_lock():
+        cfg = _load_cfg()
+        try:
+            cfg = cfgmod.set_dotted(cfg, key, value)
+        except KeyError:
+            console.print(f"[red]Unknown key '{key}'.[/red] See: mail-check config show")
+            raise typer.Exit(1)
+        except Exception as exc:  # noqa: BLE001 - pydantic raises its own error type
+            detail = getattr(exc, "errors", None)
+            msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc).split("\n")[0]
+            console.print(f"[red]Invalid value for '{key}':[/red] {msg}")
+            raise typer.Exit(1)
+        cfgmod.save(cfg)
     console.print(f"[green]Set[/green] {key} = {value}")
 
 

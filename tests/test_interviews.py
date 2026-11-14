@@ -241,12 +241,12 @@ class InterviewApiTests(unittest.TestCase):
 
 
     def test_outlook_reconnect_preserves_account_and_calendar_records(self):
-        from types import SimpleNamespace
         import time
         cfg=config.Config();cfg.outlook.client_id="test";config.save(cfg)
         with db.session() as conn:
             account_id=db.add_account(conn,label="outlook",email="me@example.test",provider="outlook")
-        pending=SimpleNamespace(id="reconnect-test",label="outlook",user_code="TEST",verification_uri="https://microsoft.com/devicelogin")
+        pending=web.outlook_auth.PendingFlow(label="outlook",client_id="test",flow={
+            "user_code":"TEST","verification_uri":"https://microsoft.com/devicelogin"})
         with patch.object(web.outlook_auth,"begin_device_flow",return_value=pending),patch.object(web.outlook_auth,"complete_device_flow",return_value="me@example.test"):
             response=self.client.post("/api/outlook/start",json={"label":"outlook","reconnect":True})
             self.assertEqual(response.status_code,200)

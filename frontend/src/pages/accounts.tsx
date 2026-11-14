@@ -14,6 +14,7 @@ import OutgoingDialog from "@/components/outgoing-dialog"
 import BidderVisibility from "@/components/bidder-visibility"
 import "./accounts.css"
 import BidderManagement from "@/components/bidder-management"
+import RealtimeAccounts from "@/components/realtime-accounts"
 
 function AccountSectionHeading({ icon: Icon, eyebrow, title, detail }: { icon: LucideIcon; eyebrow: string; title: string; detail?: React.ReactNode }) {
   return <div className="settings-section-title account-section-heading">
@@ -114,7 +115,7 @@ export default function AccountsPage({canManageSettings=true}:{canManageSettings
   const [outlookOpen, setOutlookOpen] = useState(false)
   const [reconnectLabel, setReconnectLabel] = useState<string>()
   const queryClient = useQueryClient()
-  const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts })
+  const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal) })
   const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bidder-management"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); void queryClient.invalidateQueries({ queryKey: ["dashboard-accounts"] }) }, [queryClient])
   if (isPending) return <div className="page-wrap"><Loading /></div>
   return <div className="page-wrap accounts-page"><PageHeading title="Accounts" description="Connect the inboxes behind your next opportunity." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect mailbox</Button>} />
@@ -123,7 +124,7 @@ export default function AccountsPage({canManageSettings=true}:{canManageSettings
     <div className="settings-layout"><nav className="settings-nav" aria-label="Account sections">{[["connected-accounts","Connected accounts"],["provider-options","Choose provider"],["bidder-management","Manage bidders"],["bidder-visibility","Bidder visibility"]].map(([id,label])=><a href={`#${id}`} key={id}>{label}</a>)}</nav><div className="settings-sections"><section id="connected-accounts">
     <AccountSectionHeading icon={Inbox} eyebrow="CONNECTED INBOXES" title="Your accounts" detail={data?.accounts.length ? `${data.accounts.length} total` : undefined} />
     {data?.accounts.length ? <><Card className="account-card">{data.accounts.map((account) => <AccountRow key={account.id} account={account} onRefresh={refresh} onReconnect={()=>{if(account.provider==="imap")setImapReconnect(account);else{setReconnectLabel(account.label);setOutlookOpen(true)}}} />)}</Card></> : <EmptyState title="One inbox at a time" description="Connect a mailbox to begin building your private application queue." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect your first mailbox</Button>} />}
-    </section><section id="provider-options">
+    </section><RealtimeAccounts accounts={data?.accounts || []} /><section id="provider-options">
     <AccountSectionHeading icon={Plug} eyebrow="CONNECTION OPTIONS" title="Choose your provider" detail="Credentials stay on your computer." />
     <div className="provider-grid"><button className="provider-card" onClick={() => setImapOpen(true)}><span className="provider-logo"><KeyRound /></span><span><strong>Gmail, Yahoo, iCloud &amp; more</strong><small>Connect with a secure app password over IMAP.</small></span><Plus size={17} className="provider-add" /></button><button className="provider-card" disabled={!data?.outlook_ready && !canManageSettings} onClick={() => data?.outlook_ready ? (setReconnectLabel(undefined),setOutlookOpen(true)) : (window.location.href = "/settings#outlook")}><span className="provider-logo provider-microsoft">M</span><span><strong>Personal Outlook</strong><small>{data?.outlook_ready ? "Sign in with Microsoft. No password is stored." : canManageSettings ? "Add your Microsoft client ID in Settings first." : "The owner must configure the shared Microsoft connection."}</small></span><Plus size={17} className="provider-add" /></button></div>
     <Card className="privacy-card"><ShieldCheck size={18} /><div><strong>Your mail stays yours.</strong><p>Messages and email bodies live in your local database. Only sender, subject, and the configured body excerpt go to your chosen Ollama model. Microsoft 365 work and school accounts are not supported.</p></div></Card>

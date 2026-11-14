@@ -8,7 +8,9 @@ import os
 import re
 import tempfile
 import threading
+import time
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -255,8 +257,41 @@ def load() -> Config:
 
 
 #: Serializes writes within this process — the web console's request-handling
-#: threads and its background scheduler thread can both call save().
-_save_lock = threading.Lock()
+#: threads and its background scheduler thread can both call save(). Reentrant
+#: so request handlers can hold the same lock across their read-modify-save.
+_save_lock = threading.RLock()
+_update_local = threading.local()
+
+
+@contextmanager
+def update_lock():
+    """Serialize read-modify-save across web threads and CLI processes."""
+    from .maintenance import MaintenanceLock, lock_path
+    from .workspace_workers import InstanceLock, InstanceAlreadyRunningError
+    path=config_path().resolve()
+    with MaintenanceLock(lock_path(path)), _save_lock:
+        held=getattr(_update_local,'paths',None)
+        if held is None:
+            held=_update_local.paths=set()
+        if path in held:
+            yield
+            return
+        guard=InstanceLock(path.with_name('.'+path.name+'.update.lock'))
+        deadline=time.monotonic()+30
+        while True:
+            try:
+                guard.__enter__()
+                break
+            except InstanceAlreadyRunningError:
+                if time.monotonic()>=deadline:
+                    raise ValueError('Settings are busy. Try saving again shortly.') from None
+                time.sleep(.05)
+        held.add(path)
+        try:
+            yield
+        finally:
+            held.remove(path)
+            guard.__exit__(None,None,None)
 
 
 @shared_writer

@@ -11,7 +11,7 @@ const clients: QueryClient[] = []
 let accounts: Account[] = []
 const originalRequest=apiModule.request
 beforeEach(() => {
-  vi.spyOn(apiModule,"request").mockImplementation((url,init)=>url.startsWith("/api/payments")||url==="/api/auth/bidders/manage" ? Promise.resolve({bidders:[],accounts:[]} as any) : originalRequest(url,init))
+  vi.spyOn(apiModule,"request").mockImplementation((url,init)=>url==="/api/realtime/accounts" ? Promise.resolve({configured:false,accounts:[]} as any) : url.startsWith("/api/payments")||url==="/api/auth/bidders/manage" ? Promise.resolve({bidders:[],accounts:[]} as any) : originalRequest(url,init))
   accounts = [{ id: 1, label: "personal", email: "me@example.test", provider: "imap", imap_host: "imap.example.test", imap_port: 993, folder: "INBOX", use_ssl: true, enabled: true }]
   vi.spyOn(api, "accounts").mockImplementation(async () => ({ accounts: structuredClone(accounts), outlook_ready: true }))
 })

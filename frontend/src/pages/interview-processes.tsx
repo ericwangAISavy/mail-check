@@ -40,7 +40,7 @@ export default function InterviewProcessesPage() {
     } catch (error) { toast(error instanceof Error ? error.message : "Could not refresh interviews.", "error") }
     finally { setRefreshing(false) }
   }
-  const query = useQuery({ queryKey: ["interviews", "processes"], queryFn: () => request<{ processes: InterviewProcess[]; removed: { organization: string | null; account_id?: number | null; account_emails?: string[]; removed_at: string }[] }>("/api/interview-processes"), refetchInterval: 30_000 })
+  const query = useQuery({ queryKey: ["interviews", "processes"], queryFn: ({ signal }) => request<{ processes: InterviewProcess[]; removed: { organization: string | null; account_id?: number | null; account_emails?: string[]; removed_at: string }[] }>("/api/interview-processes", { signal }), refetchInterval: 30_000 })
   const creation = useMutation({
     mutationFn: (name: string) => request("/api/interview-processes", { method: "POST", body: JSON.stringify({ name }) }),
     onSuccess: async () => { setCompanyName(""); setPeriod("all"); setSearch(""); await client.invalidateQueries({ queryKey: ["interviews", "processes"] }) },

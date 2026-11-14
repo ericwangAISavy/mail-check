@@ -53,7 +53,7 @@ export default function BidderActivity({ week, selected, onSelect,readOnly=false
     previousAccountContext.current = context
   }, [week, selected])
   const scope = group === "accounts" ? selected : ""
-  const query = useQuery({ queryKey: ["payments", "activity", week, scope, day, visibilityKey], queryFn: () => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`), refetchInterval: 30_000 })
+  const query = useQuery({ queryKey: ["payments", "activity", week, scope, day, visibilityKey], queryFn: ({ signal }) => request<ActivityData>(`/api/payments/activity?week=${week}${day ? `&day=${day}` : ""}${scope ? `&bidder=${scope}` : ""}`, { signal }), refetchInterval: 30_000 })
   const data = query.data
   const valid = data && Array.isArray(data.timeline)
   const entities = valid ? group === "accounts" ? (data.accounts || []).map(account => ({ ...account, name: maskAccountLabel(account.name) })) : data.bidders : []

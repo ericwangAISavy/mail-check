@@ -379,7 +379,7 @@ def reconcile(conn, candidate: dict, row: dict) -> dict | None:
                 updates["status"] = "Rescheduled"
                 if "end_at" not in manual and not candidate["end_at"]:
                     updates["end_at"] = None
-            elif candidate["extraction_rank"] < 3 and existing["status"] in ("Rescheduled", "Cancelled") and updates.get("status") == "Scheduled":
+            elif updates.get("status") == "Scheduled" and (existing["status"] == "Rescheduled" or candidate["extraction_rank"] < 3 and existing["status"] == "Cancelled"):
                 updates.pop("status", None)  # reminders do not undo cancellation/update
             merged = {**dict(existing), **updates}
             if merged["start_at"] and merged["end_at"] and _utc(merged["end_at"]) <= _utc(merged["start_at"]):

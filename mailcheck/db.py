@@ -14,7 +14,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 48
+SCHEMA_VERSION = 50
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -310,6 +310,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                     if statement.strip():
                         conn.execute(statement)
                 migrate_native(conn)
+                from .realtime.storage import initialize as initialize_realtime
+                initialize_realtime(conn)
                 initialize_activity(conn)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed ON sourcing_check_activity(confirmed_at,bidder_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed_day ON sourcing_check_activity(julianday(confirmed_at),bidder_id)")

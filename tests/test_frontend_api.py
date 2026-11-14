@@ -38,6 +38,42 @@ class FrontendApiTests(unittest.TestCase):
         self.client = TestClient(create_app())
         self.addCleanup(self.client.close)
 
+    def test_concurrent_settings_updates_preserve_unrelated_fields(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        real_load,real_save=config.load,config.save
+        first_read=threading.Event();second_read=threading.Event()
+        release_first=threading.Event();first_saved=threading.Event()
+        count_lock=threading.Lock();reads=0
+        def queued_load():
+            nonlocal reads
+            cfg=real_load()
+            with count_lock:
+                reads+=1;number=reads
+            if number==1:
+                first_read.set()
+                assert release_first.wait(5)
+            elif number==2:
+                second_read.set()
+                assert first_saved.wait(5)
+            return cfg
+        def tracked_save(cfg):
+            path=real_save(cfg)
+            first_saved.set()
+            return path
+        with patch.object(config,'load',side_effect=queued_load),patch.object(config,'save',side_effect=tracked_save):
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                first=workers.submit(self.client.post,'/api/settings',json={'retain_days':99})
+                self.assertTrue(first_read.wait(5))
+                second=workers.submit(self.client.post,'/api/settings',json={'interval_minutes':30})
+                second_read.wait(.2)
+                release_first.set()
+                self.assertEqual(first.result(timeout=5).status_code,200)
+                self.assertEqual(second.result(timeout=5).status_code,200)
+        saved=real_load()
+        self.assertEqual(saved.check.retain_days,99)
+        self.assertEqual(saved.watch.interval_minutes,30)
+
     def test_imap_reconnect_tests_new_secret_before_saving_and_keeps_account(self):
         before = db.get_account(self.conn, "personal")
         with patch.object(web_app, "IMAPSource") as source, \

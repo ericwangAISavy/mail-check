@@ -16,6 +16,15 @@ from typing import Any
 
 import keyring
 
+import hashlib
+import os
+import tempfile
+import threading
+import weakref
+from contextlib import contextmanager
+from functools import wraps
+from pathlib import Path
+
 from .secrets import SERVICE, credential_errors
 
 #: Personal Microsoft accounts only. Work/school tenants are out of scope.
@@ -47,6 +56,80 @@ class ReconnectRequired(OutlookAuthError):
 CHUNK_CHARS = 1100
 MAX_CHUNKS = 64
 
+_cache_locks = weakref.WeakValueDictionary()
+_cache_locks_guard = threading.Lock()
+_cache_local = threading.local()
+
+
+@contextmanager
+def _cache_lock(label):
+    """Serialize cache transactions across threads and same-user processes.
+
+    A lock covers the whole silent refresh, including reading and writing its
+    chunked credential. Nested cache helpers reuse the outer advisory lock.
+    Device-code polling only locks its individual cache reads/writes.
+    """
+    key = hashlib.sha256((SERVICE + ':' + _cache_key(label)).encode()).hexdigest()
+    with _cache_locks_guard:
+        lock = _cache_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _cache_locks[key] = lock
+    if not lock.acquire(timeout=60):
+        raise OutlookAuthError('Microsoft credential cache is busy. Try again shortly.')
+    try:
+        held = getattr(_cache_local, 'held', None)
+        if held is None:
+            held = _cache_local.held = set()
+        if key in held:
+            yield
+            return
+        identity = str(os.getuid()) if hasattr(os, 'getuid') else 'user'
+        folder = Path(tempfile.gettempdir()) / ('offerpath-cache-locks-' + identity)
+        folder.mkdir(mode=0o700, exist_ok=True)
+        if folder.is_symlink() or (hasattr(os, 'getuid') and folder.stat().st_uid != os.getuid()):
+            raise OutlookAuthError('Microsoft credential lock directory is unavailable.')
+        filename = folder / key
+        descriptor = os.open(filename, os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+        with os.fdopen(descriptor, 'r+b') as target:
+            if os.name == 'nt':
+                import msvcrt
+                if not target.read(1):
+                    target.write(b' ');target.flush()
+                def acquire():
+                    target.seek(0);msvcrt.locking(target.fileno(), msvcrt.LK_NBLCK, 1)
+                def release():
+                    target.seek(0);msvcrt.locking(target.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                def acquire():fcntl.flock(target.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                def release():fcntl.flock(target.fileno(), fcntl.LOCK_UN)
+            deadline = time.monotonic() + 60
+            while True:
+                try:
+                    acquire();break
+                except OSError as exc:
+                    import errno
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK) or time.monotonic() >= deadline:
+                        raise OutlookAuthError('Microsoft credential cache is busy or unavailable. Try again shortly.') from None
+                    time.sleep(.05)
+            held.add(key)
+            try:
+                yield
+            finally:
+                held.remove(key)
+                release()
+    finally:
+        lock.release()
+
+
+def _serialized_cache(operation):
+    @wraps(operation)
+    def run(label, *args, **kwargs):
+        with _cache_lock(label):
+            return operation(label, *args, **kwargs)
+    return run
+
 
 def _cache_key(label: str) -> str:
     from .workspaces import credential_namespace
@@ -59,6 +142,7 @@ def _chunk_key(label: str, index: int) -> str:
 
 
 @credential_errors(OutlookAuthError)
+@_serialized_cache
 def _read_blob(label: str) -> str:
     header = keyring.get_password(SERVICE, _cache_key(label))
     if not header:
@@ -79,6 +163,7 @@ def _read_blob(label: str) -> str:
 
 
 @credential_errors(OutlookAuthError)
+@_serialized_cache
 def _write_blob(label: str, blob: str) -> None:
     chunks = [blob[i : i + CHUNK_CHARS] for i in range(0, len(blob), CHUNK_CHARS)] or [""]
     if len(chunks) > MAX_CHUNKS:
@@ -103,6 +188,8 @@ def _delete_quietly(key: str) -> None:
         pass
 
 
+@credential_errors(OutlookAuthError)
+@_serialized_cache
 def load_cache(label: str) -> Any:
     """Deserialize this account's MSAL cache out of the keyring."""
     import msal
@@ -117,11 +204,15 @@ def load_cache(label: str) -> Any:
     return cache
 
 
+@credential_errors(OutlookAuthError)
+@_serialized_cache
 def save_cache(label: str, cache) -> None:
     if cache.has_state_changed:
         _write_blob(label, cache.serialize())
 
 
+@credential_errors(OutlookAuthError)
+@_serialized_cache
 def delete_cache(label: str) -> None:
     """Called on account removal so no token survives the account."""
     _delete_quietly(_cache_key(label))
@@ -130,6 +221,7 @@ def delete_cache(label: str) -> None:
 
 
 @credential_errors(OutlookAuthError)
+@_serialized_cache
 def has_cache(label: str) -> bool:
     return bool(keyring.get_password(SERVICE, _cache_key(label)))
 
@@ -148,7 +240,7 @@ def _app(client_id: str, cache):
             "in Settings — register a public client application in the Microsoft "
             "Entra admin center to obtain one. It is a public identifier, not a secret."
         )
-    return msal.PublicClientApplication(client_id, authority=AUTHORITY, token_cache=cache)
+    return msal.PublicClientApplication(client_id, authority=AUTHORITY, token_cache=cache, timeout=15)
 
 
 # ------------------------------------------------------------------ device flow
@@ -168,6 +260,10 @@ class PendingFlow:
     flow: dict
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     started_at: float = field(default_factory=time.time)
+    # The web console validates cancellation, account identity and supersession
+    # before publishing credentials. Other callers retain immediate persistence.
+    defer_cache_save: bool = False
+    completed_cache: Any = field(default=None, repr=False)
 
     @property
     def user_code(self) -> str:
@@ -222,7 +318,10 @@ def complete_device_flow(pending: PendingFlow) -> str:
             raise OutlookAuthError(f"Sign-in was not completed: {description}")
         raise OutlookAuthError(f"Microsoft sign-in failed: {description}")
 
-    save_cache(pending.label, cache)
+    if pending.defer_cache_save:
+        pending.completed_cache = cache
+    else:
+        save_cache(pending.label, cache)
     claims = result.get("id_token_claims") or {}
     return (
         claims.get("preferred_username")
@@ -231,6 +330,8 @@ def complete_device_flow(pending: PendingFlow) -> str:
     )
 
 
+@credential_errors(OutlookAuthError)
+@_serialized_cache
 def acquire_token(label: str, client_id: str, *, scopes: list[str] | None = None) -> str:
     """Return a valid access token, refreshing silently from the cache.
 

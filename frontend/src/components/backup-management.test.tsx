@@ -10,6 +10,20 @@ function mount(){vi.mocked(getWorkspaceIdentity).mockReturnValue("legacy");vi.mo
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.restoreAllMocks();vi.resetAllMocks();vi.unstubAllGlobals()})
 it("shows archive sensitivity, history and restore instructions",async()=>{mount();await screen.findByText("offerpath-test.zip");expect(screen.getByText(/plain ZIP/i)).toBeTruthy();expect(screen.getByText(/backup inspect FILE.zip/)).toBeTruthy();expect(screen.getByText(/1 KB/)).toBeTruthy()})
 it("creates a backup and saves retention settings",async()=>{mount();await screen.findByText("offerpath-test.zip");fireEvent.click(screen.getByRole("button",{name:"Create backup"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/admin/backups/create",{}));await screen.findByText("Backup created.");fireEvent.change(screen.getByLabelText("Automatic backups to keep"),{target:{value:"3"}});fireEvent.click(screen.getByRole("button",{name:"Save backup settings"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/admin/backups/settings",{enabled:true,retain:3}))})
+it("protects backup settings during a pending save and keeps them after failure",async()=>{
+  let rejectSave!:(error:Error)=>void
+  vi.mocked(api.post).mockImplementation(()=>new Promise((_,reject)=>{rejectSave=reject}))
+  mount();await screen.findByText("offerpath-test.zip")
+  fireEvent.change(screen.getByLabelText("Automatic backups to keep"),{target:{value:"3"}})
+  fireEvent.click(screen.getByRole("button",{name:"Save backup settings"}))
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/admin/backups/settings",{enabled:true,retain:3}))
+  expect(screen.getByLabelText("Automatic backups to keep")).toHaveProperty("disabled",true)
+  expect(screen.getByLabelText("Daily automatic backups")).toHaveProperty("disabled",true)
+  rejectSave(new Error("Could not save backup settings"))
+  await screen.findByText("Could not save backup settings")
+  expect(screen.getByLabelText("Automatic backups to keep")).toHaveProperty("value","3")
+  expect(screen.getByLabelText("Automatic backups to keep")).toHaveProperty("disabled",false)
+})
 it("starts a native download using a guarded server ticket",async()=>{
   mount();await screen.findByText("offerpath-test.zip")
   const url="/api/admin/backups/file/offerpath-test.zip?ticket=one-use&workspace=legacy"

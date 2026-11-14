@@ -55,19 +55,20 @@ class CredentialApiTests(unittest.TestCase):
         self.assertEqual(result.accounts_checked,1)
         self.assertEqual(len(result.errors),1)
 
-    def test_outlook_failure_reaches_failed_state_even_if_cleanup_fails(self):
+    def test_outlook_failure_reaches_failed_state_without_deleting_credentials(self):
         pending = outlook_auth.PendingFlow(label='work',client_id='test',flow={'user_code':'test','verification_uri':'https://example.test','expires_at':time.time()+900})
         cfg = config.Config();cfg.outlook.client_id='test'
         with patch.dict(web._outlook,{'pending':None,'active_id':None,'state':'idle','message':'','email':''}), \
              patch.object(config,'load',return_value=cfg), \
              patch.object(outlook_auth,'begin_device_flow',return_value=pending), \
              patch.object(outlook_auth,'complete_device_flow',side_effect=outlook_auth.OutlookAuthError('Could not save token')), \
-             patch.object(keyring,'delete_password',side_effect=keyring.errors.NoKeyringError('backend failure')):
+             patch.object(keyring,'delete_password',side_effect=keyring.errors.NoKeyringError('backend failure')) as cleanup:
             self.assertEqual(self.client.post('/api/outlook/start',json={'label':'work'}).status_code,200)
             for _ in range(100):
                 if web._outlook['state'] != 'waiting':break
                 time.sleep(0.005)
             status=self.client.get('/api/outlook/status').json()
             self.assertEqual(status['state'],'failed')
-            self.assertIn('credential',status['message'])
+            self.assertIn('Could not save token',status['message'])
             self.assertIsNone(web._outlook['pending'])
+            cleanup.assert_not_called()

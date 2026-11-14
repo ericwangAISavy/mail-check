@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException
@@ -200,6 +200,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     def identity_for(token):
         return store.identity(token) or bidder_access.identity(token)
 
+    def replace_session(token,previous):
+        # Session revocation writes SQLite and identity lookup can read the
+        # owner auth file. Keep all login storage work off the serving loop.
+        store.logout(previous);bidder_access.logout(previous)
+        return identity_for(token)
+
     def owner(request):
         identity=request.state.identity
         if not identity or not identity['is_owner']:raise HTTPException(403,'Owner access required.')
@@ -210,6 +216,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         host=urlparse('//'+request.headers.get('host','')).hostname or ''
         if host.lower() not in hosts:return JSONResponse({'error':'Unrecognised Host header.'},403)
         path=request.url.path
+        if path == '/hooks/microsoft':
+            return await call_next(request)
         if path.startswith('/_internal/'):
             wid=await asyncio.get_running_loop().run_in_executor(
                 _worker_control_executor, pool.authenticate_worker, request.headers.get('x-offerpath-worker',''))
@@ -236,6 +244,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             if not identity:
                 return JSONResponse({'error':'Sign in to continue.'},401) if path.startswith('/api/') else RedirectResponse('/login',303)
             expected=request.headers.get('x-offerpath-workspace')
+            if path == '/api/realtime/events' and request.method == 'GET':
+                expected=request.query_params.get('workspace')
             if not expected and request.method=='GET' and path.startswith('/api/admin/backups/file/'):
                 expected=request.query_params.get('workspace')
             if path.startswith('/api/') and expected!=identity['workspace_id']:
@@ -310,8 +320,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         except ValueError:raise HTTPException(429,'Too many sign-in attempts. Try again in a minute.',headers={'Retry-After':'60'})
         if not token:raise HTTPException(401,'Incorrect username or password.')
         # Replacing this browser's identity must invalidate in-flight old-session requests.
-        store.logout(request.cookies.get(COOKIE));bidder_access.logout(request.cookies.get(COOKIE))
-        return cookie(JSONResponse(identity_for(token)),token)
+        identity=await asyncio.to_thread(replace_session,token,request.cookies.get(COOKIE))
+        return cookie(JSONResponse(identity),token)
 
     @app.post('/api/auth/logout')
     def logout(request:Request):
@@ -473,7 +483,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                     await asyncio.sleep(.05)
                     await validate_dispatch()
                 try:
-                    result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
+                    # ASGI already decoded this path. Escape it before building
+                    # another URL so percent escapes and ?/# in account labels
+                    # cannot change the route authorized by the gateway.
+                    result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{quote(path, safe="/")}',params=list(request.query_params.multi_items()),content=body,headers=headers)
                     break
                 except httpx.HTTPError as exc:
                     if safe_read and attempt==0 and isinstance(exc,RETRYABLE_READ_TRANSPORT_ERRORS):continue
@@ -519,6 +532,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         except TimeoutError:
             raise HTTPException(504,'This page took too long to load. Try again shortly.',
                                 headers={'Retry-After':'1'})
+
+    from .realtime_routes import install as install_realtime
+    install_realtime(app, store, identity_for, COOKIE)
 
     @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
     async def proxy(path:str,request:Request):

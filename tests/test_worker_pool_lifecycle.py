@@ -209,3 +209,40 @@ def test_worker_that_exceeds_hard_startup_limit_is_retired(monkeypatch,tmp_path)
     with pytest.raises(RuntimeError,match='could not start'):pool.ensure({'id':'alice'})
     process.terminate.assert_called_once()
     assert 'alice' not in pool.workers
+
+
+def test_recovery_does_not_start_replacement_until_old_worker_exits(monkeypatch, tmp_path):
+    pool = WorkerPool(SimpleNamespace(root=tmp_path), '', ())
+    old_process = Mock()
+    old_process.poll.return_value = None
+    old_worker = Worker('alice', 1234, 'old', old_process, Mock(), ready=True)
+    pool.workers['alice'] = old_worker
+    waiting, exited = Event(), Event()
+
+    def wait(timeout):
+        waiting.set()
+        assert exited.wait(3)
+
+    old_process.wait.side_effect = wait
+    new_process = Mock()
+    new_process.poll.return_value = None
+    replacement = Worker('alice', 1235, 'new', new_process, Mock(), ready=True)
+    def spawn_replacement(workspace):
+        pool.workers['alice'] = replacement
+        return replacement
+
+    spawn = Mock(side_effect=spawn_replacement)
+    monkeypatch.setattr(pool, '_spawn', spawn)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        stopping = executor.submit(pool.stop, 'alice', suspended=False)
+        assert waiting.wait(2)
+        try:
+            with pytest.raises(workspace_workers.WorkerStartupPending, match='restarting'):
+                pool.ensure({'id': 'alice'})
+            spawn.assert_not_called()
+        finally:
+            exited.set()
+            stopping.result(timeout=3)
+
+    assert pool.ensure({'id': 'alice'}) is replacement

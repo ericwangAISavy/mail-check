@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -103,7 +104,12 @@ class ItemResult(BaseModel):
         if s.lower() in _NULLISH:
             return None
         m = _ISO_DATE.search(s)
-        return m.group(0) if m else None
+        if not m:
+            return None
+        try:
+            return date.fromisoformat(m.group(0)).isoformat()
+        except ValueError:
+            return None
 
     @field_validator("action_required", mode="before")
     @classmethod

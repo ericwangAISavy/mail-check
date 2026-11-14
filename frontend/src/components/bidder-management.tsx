@@ -17,8 +17,8 @@ export default function BidderManagement({initiallyOpen=false,embedded=false}:{i
   const [expandedBidder, setExpandedBidder] = usePageState<number>("/accounts", "expanded-bidder", -1, value => Number.isSafeInteger(value) && value >= -2)
   const client = useQueryClient()
   const toast = useToast()
-  const query = useQuery({ queryKey: ["bidder-management"], queryFn: () => request<Report>("/api/payments/management"), enabled: open })
-  const access=useQuery({queryKey:["bidder-access"],queryFn:()=>request<{bidders:{bidder_id:number;enabled:boolean}[]}>("/api/auth/bidders/manage"),enabled:open})
+  const query = useQuery({ queryKey: ["bidder-management"], queryFn: ({ signal }) => request<Report>("/api/payments/management", { signal }), enabled: open })
+  const access=useQuery({queryKey:["bidder-access"],queryFn:({ signal }) =>request<{bidders:{bidder_id:number;enabled:boolean}[]}>("/api/auth/bidders/manage", { signal }),enabled:open})
   const mutation = useMutation({ mutationFn: ({ url, body }: { url: string; body: unknown }) => api.post(url, body), onSuccess: async () => {
     await Promise.all(["bootstrap", "applications-today", "bidder-access", "bidder-management", "payments", "dashboard-accounts", "dashboard", "sourcing-index", "sourcing-search", "login-bidders", "bidder-visibility"].map(key => client.invalidateQueries({ queryKey: [key] })))
     toast("Saved.", "success")

@@ -27,7 +27,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
   const [compose, setCompose] = useState<{pk:number;mode:"reply"|"reply_all"}|null>(null)
   const [retrying, setRetrying] = useState(false)
   useEffect(()=>{if(autoReply && message && !readOnly)setCompose({pk:message.pk,mode:"reply"})},[autoReply,message?.pk,readOnly])
-  const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["reader", message?.pk], queryFn: () => api.reader(message!.pk), enabled: Boolean(message), staleTime: readOnly?0:60_000,refetchInterval:readOnly?10000:false })
+  const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["reader", message?.pk], queryFn: ({ signal }) => api.reader(message!.pk, signal), enabled: Boolean(message), staleTime: readOnly?0:60_000,refetchInterval:readOnly?10000:false })
   if (readOnly && error instanceof ApiError && [401,403,404].includes(error.status)) return <section className={`reader-empty ${mobile ? "mobile-visible" : ""}`} role="alert"><p>This message is unavailable. Your account assignment or message category may have changed.</p><Button variant="outline" size="sm" onClick={onBack}><ArrowLeft size={16}/>All messages</Button></section>
   message = data?.message || message
   if (!message) return <section className={`reader-empty ${mobile ? "mobile-visible" : ""}`}><span className="reader-empty-icon"><Sparkles size={18} /></span><h2>Choose a message</h2><p>Select a message from your queue and its full story will appear here.</p><p className="shortcut-hint"><kbd>↑</kbd><kbd>↓</kbd> to move <span>·</span> <kbd>E</kbd> to mark done</p></section>
@@ -69,7 +69,7 @@ function ReclassifyBanner({ count }: { count: number }) {
   const [starting, setStarting] = useState(false)
   const [pollUntil, setPollUntil] = useState(0)
   // A just-started job may not have flipped `running` yet; keep polling briefly so the banner does not miss it.
-  const status = useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: (query) => query.state.data?.running || Date.now() < pollUntil ? 1500 : false })
+  const status = useQuery({ queryKey: ["status"], queryFn: ({ signal }) => api.status(signal), refetchInterval: (query) => query.state.data?.running || Date.now() < pollUntil ? 1500 : false })
   const running = Boolean(status.data?.running)
   const busy = starting || running
   const retry = async () => {
@@ -109,7 +109,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   }, [])
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === "visible")
   const normalized = useMemo(() => {const next=triageParams(params.toString());if(bidderInbox){next.set("category","info_request");next.set("live","1")};return next}, [params,bidderInbox])
-  const query = useQuery({ queryKey: ["triage", normalized.toString(), bidderInbox ? "bidder" : "admin"], queryFn: () => api.triage(normalized), placeholderData: (previous) => previous, enabled:!bidderInbox || pageVisible, refetchInterval:bidderInbox ? () => document.visibilityState === "visible" ? 3000 : false : false, refetchOnWindowFocus:!bidderInbox })
+  const query = useQuery({ queryKey: ["triage", normalized.toString(), bidderInbox ? "bidder" : "admin"], queryFn: ({ signal }) => api.triage(normalized, signal), placeholderData: (previous) => previous, enabled:!bidderInbox || pageVisible, refetchInterval:bidderInbox ? () => document.visibilityState === "visible" ? 3000 : false : false, refetchOnWindowFocus:!bidderInbox })
   const recovery = useReadRecovery({scope:normalized.toString(),error:query.error,errorUpdatedAt:query.errorUpdatedAt,isFetching:query.isFetching,isSuccess:query.isSuccess,retry:query.refetch,enabled:!bidderInbox})
   useEffect(() => {
     if (!bidderInbox) return
@@ -127,7 +127,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   const data = query.data as TriageData | undefined
   const messages = data?.groups.flatMap((group) => group.items) || []
   const targetPk=Number(params.get("message")) || null
-  const target=useQuery({queryKey:["reader",targetPk],queryFn:()=>api.reader(targetPk!),enabled:Boolean(targetPk),staleTime:60_000})
+  const target=useQuery({queryKey:["reader",targetPk],queryFn:({ signal }) =>api.reader(targetPk!, signal),enabled:Boolean(targetPk),staleTime:60_000})
   const selectedMessage = messages.find((message) => message.pk === selected) || (selected===targetPk?target.data?.message:null) || null
   const view = normalized.get("view") as TriageData["view"]
   const title = view === "queue" ? data?.summary.actionable ? `${data.summary.actionable} to handle` : "All clear" : view === "all" ? "All mail" : "Completed"

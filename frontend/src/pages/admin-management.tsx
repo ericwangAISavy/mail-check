@@ -14,8 +14,8 @@ export default function AdminManagement(){
   const [notice,setNotice]=useState("")
   const [busy,setBusy]=useState(false)
   const [resetting,setResetting]=useState<number|null>(null)
-  const query=useQuery({queryKey:["owner-admins"],queryFn:()=>request<{admins:Admin[];max_workspaces:number}>("/api/admin/users"),enabled:!!session?.is_owner,refetchInterval:10000})
-  const audit=useQuery({queryKey:["owner-audit"],queryFn:()=>request<{events:{id:number;at:number;actor:number;action:string;target:string}[]}>("/api/admin/audit"),enabled:!!session?.is_owner})
+  const query=useQuery({queryKey:["owner-admins"],queryFn:({ signal }) =>request<{admins:Admin[];max_workspaces:number}>("/api/admin/users", { signal }),enabled:!!session?.is_owner,refetchInterval:10000})
+  const audit=useQuery({queryKey:["owner-audit"],queryFn:({ signal }) =>request<{events:{id:number;at:number;actor:number;action:string;target:string}[]}>("/api/admin/audit", { signal }),enabled:!!session?.is_owner})
   const write=async(url:string,body:unknown)=>{
     setBusy(true);setError("");setNotice("")
     try{await api.post(url,body);await Promise.all([client.invalidateQueries({queryKey:["owner-admins"]}),client.invalidateQueries({queryKey:["owner-audit"]})]);return true}
