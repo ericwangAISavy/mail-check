@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.28.2",
+    "date": "2026-11-13",
+    "title": "Maintenance version update",
+    "changes": [
+      "Update the OfferPath application and bundled console version to 2.28.2."
+    ]
+  },
+  {
     "version": "2.28.1",
     "date": "2026-11-13",
     "title": "Protect concurrent workflows and live updates",

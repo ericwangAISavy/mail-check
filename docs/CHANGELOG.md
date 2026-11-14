@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.28.2 — 2026-11-13
+
+Maintenance version update
+
+- Update the OfferPath application and bundled console version to 2.28.2.
+
 ## 2.28.1 — 2026-11-13
 
 Protect concurrent workflows and live updates
