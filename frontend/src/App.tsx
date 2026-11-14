@@ -23,6 +23,7 @@ const InterviewsPage = lazy(() => import("@/pages/interviews"))
 const InterviewPipelinePage = lazy(() => import("@/pages/interview-pipeline"))
 const InterviewProcessesPage = lazy(() => import("@/pages/interview-processes"))
 const AccountsPage = lazy(() => import("@/pages/accounts"))
+const SystemMonitoring = lazy(() => import("@/pages/system-monitoring"))
 const AdminManagement = lazy(() => import("@/pages/admin-management"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
 
@@ -36,6 +37,7 @@ const sections = [
   { to: "/payments", label: "Bidder management", icon: UsersRound },
   { to: "/accounts", label: "Accounts", icon: Mails },
   { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/system-monitoring", label: "System monitoring", icon: Activity },
   { to: "/admin-management", label: "Admin management", icon: ShieldCheck },
 ]
 
@@ -232,7 +234,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => s.to !== "/admin-management" || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management", "/system-monitoring"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
         // Keep the current URL, including filters updated through browser history.
         // Modified clicks retain the link's normal browser behavior.
         if (to === location.pathname && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
@@ -245,10 +247,10 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
       <header className="topbar">
         <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
-        <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && <JobStatus bootstrap={bootstrap} />}</div>
+        <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/system-monitoring" && <JobStatus bootstrap={bootstrap} />}</div>
       </header>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
-      {admin && location.pathname !== "/admin-management" && location.pathname !== "/sourcing" && location.pathname !== "/settings" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
+      {admin && location.pathname !== "/admin-management" && location.pathname !== "/system-monitoring" && location.pathname !== "/sourcing" && location.pathname !== "/settings" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><PageQueryBoundary><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/dashboard" replace />} />
@@ -260,6 +262,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/sourcing" element={<SourcingPage />} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/system-monitoring" element={session?.is_owner ? <SystemMonitoring /> : <Navigate to="/" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
         <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
@@ -286,7 +289,7 @@ function Recovery({ message, retry, retrying }: { message: string; retry: () => 
 function ReadyApp() {
   useRealtimeUpdates()
   const path=useLocation().pathname
-  const controlPage = path === "/admin-management"
+  const controlPage = path === "/admin-management" || path === "/system-monitoring"
   const {role,session}=useAuth()
   const settingsRecovery=path==="/settings"&&role==="admin"&&(!session?.workspace_id||!!session.is_owner)
   const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: ({ signal }) => api.bootstrap(signal), retry: false, refetchInterval: 60_000, enabled: !controlPage })

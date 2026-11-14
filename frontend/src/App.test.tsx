@@ -371,3 +371,15 @@ describe("bootstrap outage recovery", () => {
     expect(screen.getByRole("button",{name:"Try settings"})).toBeTruthy()
   })
 })
+
+it('opens owner system monitoring without a workspace bootstrap or worker status request',async()=>{
+ vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:true,workspace_id:'legacy',workspace_name:'Original workspace',username:'owner'} as any)
+ const status=vi.spyOn(api,'status').mockResolvedValue(idle)
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/admin/system-monitoring'?{checked_at:Date.now()/1000,components:[],workspaces:[],events:[],event_retention:1000}:{configured:false}),{headers:{'Content-Type':'application/json'}})))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/system-monitoring']}><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByRole('heading',{name:'System monitoring'})
+ expect(api.bootstrap).not.toHaveBeenCalled()
+ expect(status).not.toHaveBeenCalled()
+ expect(screen.getByRole('link',{name:'System monitoring'})).toBeTruthy()
+})

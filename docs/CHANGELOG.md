@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 2.29.0 — 2026-11-14
+
+Owner system monitoring
+
+- Add an owner-only System monitoring page with health checks across all admin workspaces, queue and sync status, and a live operational event flow.
+- Record bounded operational telemetry without blocking collection, classification, or event delivery.
+
 ## 2.28.2 — 2026-11-13
 
 Maintenance version update

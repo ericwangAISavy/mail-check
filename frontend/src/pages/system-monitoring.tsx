@@ -1,0 +1,44 @@
+import {useState} from 'react'
+import {useQuery} from '@tanstack/react-query'
+import {Activity, Pause, Play, RefreshCw} from 'lucide-react'
+import {useAuth} from '@/components/auth'
+import {request} from '@/lib/api'
+import {Button} from '@/components/ui/button'
+import {Card} from '@/components/ui/card'
+import {Loading, PageHeading} from '@/components/common'
+import './system-monitoring.css'
+
+type Health = 'healthy'|'degraded'|'unavailable'|'disabled'|'unknown'
+type Component = {id:string;name:string;status:Health;detail:string;workspace?:string|null}
+type Workspace = {id:string;name:string;enabled:boolean;outbox:number|null;accounts:{account_id:number;enabled:boolean;last_sync:number|null;status:Health}[];queues:{kind:string;pending:number;retry:number;dead:number}[]}
+type Event = {job_id?:string;id:string;at:number;workspace:string;component:string;action:string;status:Health}
+type Snapshot = {checked_at:number;components:Component[];workspaces:Workspace[];events:Event[];event_retention:number}
+const clock = (value:number) => new Date(value*1000).toLocaleString()
+function Badge({status}:{status:Health}){return <span className={`monitor-badge monitor-${status}`}><span aria-hidden="true"/>{status}</span>}
+
+export default function SystemMonitoring(){
+ const {session}=useAuth()
+ const [paused,setPaused]=useState(false),[workspace,setWorkspace]=useState('all'),[component,setComponent]=useState('all'),[issuesOnly,setIssuesOnly]=useState(false)
+ const [frozen,setFrozen]=useState<Snapshot|undefined>()
+ const query=useQuery({queryKey:['system-monitoring'],queryFn:({signal})=>request<Snapshot>('/api/admin/system-monitoring',{signal}),enabled:!!session?.is_owner&&!paused,refetchInterval:paused?false:3000,retry:false})
+ if(!session?.is_owner)return <div className="page-wrap"><PageHeading title="Owner access required"/></div>
+ const data=paused?frozen:query.data
+ const names=new Map(data?.workspaces.map(w=>[w.id,w.name]))
+ const components=data?.components.filter(c=>workspace==='all'||!c.workspace||c.workspace===workspace)??[]
+ const events=data?.events.filter(e=>(workspace==='all'||e.workspace===workspace)&&(component==='all'||e.component===component)&&(!issuesOnly||e.status==='degraded'||e.status==='unavailable'))??[]
+ const issues=data?.components.filter(c=>c.status==='degraded'||c.status==='unavailable').length??0
+ return <div className="page-wrap system-monitoring-page">
+  <PageHeading title="System monitoring" description="Whole-system health and operational event flow across every admin workspace."/>
+  <div className="monitor-toolbar"><span className="monitor-live"><Activity size={16}/>{paused?'Updates paused':query.isError?'Connection interrupted':'Refreshes every 3 seconds'}</span><span className="muted">{data?`Last checked ${clock(data.checked_at)}`:'Awaiting first snapshot'}</span><Button variant="outline" onClick={()=>{if(!paused)setFrozen(query.data);setPaused(!paused)}}>{paused?<Play size={16}/>:<Pause size={16}/>} {paused?'Resume live updates':'Pause live updates'}</Button><Button variant="outline" disabled={query.isFetching||paused} onClick={()=>void query.refetch()} aria-label="Refresh monitoring"><RefreshCw size={16}/></Button></div>
+  {!paused&&query.isError&&<p role="alert" className="inline-error">Monitoring is unavailable. {data?'The snapshot below is stale.':'No health data has been received.'} {query.error.message}</p>}
+  {paused&&<p role="status">Live updates are paused. Health and events reflect the last snapshot.</p>}
+  {!data&&query.isPending&&!paused?<Loading/>:null}
+  {data&&<>
+   <div className="monitor-overview"><Card><strong>{data.workspaces.length}</strong><span>Admin workspaces</span></Card><Card><strong>{issues}</strong><span>Components needing attention</span></Card><Card><strong>{data.events.length}</strong><span>Recent operational events</span></Card></div>
+   <div className="monitor-filters"><label>Workspace<select value={workspace} onChange={e=>setWorkspace(e.target.value)}><option value="all">All workspaces</option>{data.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label></div>
+   <section aria-labelledby="monitor-health"><h2 id="monitor-health">Component health</h2><p className="muted">Health is based on local checks and recorded sync evidence. Provider and model reachability are not actively probed. Unknown means no current evidence.</p><div className="monitor-component-grid">{components.map(c=><Card key={c.id} className="monitor-component"><div><h3>{c.name}</h3><Badge status={c.status}/></div>{c.workspace&&<p className="monitor-workspace-name">{names.get(c.workspace)}</p>}<p>{c.detail}</p></Card>)}</div></section>
+   <section aria-labelledby="monitor-queues"><h2 id="monitor-queues">Workspace queues & account sync</h2>{data.workspaces.filter(w=>workspace==='all'||w.id===workspace).map(w=><Card className="monitor-workspace" key={w.id}><h3>{w.name}{!w.enabled?' · Suspended':''}</h3>{w.queues.length?<div className="monitor-table-scroll"><table><caption className="sr-only">Queue counts for {w.name}</caption><thead><tr><th>Stage</th><th>Outstanding jobs</th><th>Delayed retries</th><th>Dead letters</th></tr></thead><tbody>{w.queues.map(q=><tr key={q.kind}><td>{q.kind==='classify'?'Classification':q.kind==='mail'?'Mail collection':'Calendar collection'}</td><td>{q.pending}</td><td>{q.retry}</td><td>{q.dead}</td></tr>)}</tbody></table></div>:<p className="muted">Queue metrics unavailable or real-time processing disabled.</p>}<p className="muted">Outstanding includes queued and in-progress jobs. Committed changes awaiting publication: {w.outbox??'unknown'}.</p>{w.accounts.length?<ul className="monitor-accounts">{w.accounts.map(a=><li key={a.account_id}><span>Account #{a.account_id}</span><Badge status={a.enabled?a.status:'disabled'}/><span>{a.last_sync?`Last sync ${clock(a.last_sync)}`:'No recorded sync'}</span></li>)}</ul>:<p className="muted">No account sync evidence recorded.</p>}</Card>)}</section>
+   <section aria-labelledby="monitor-flow"><h2 id="monitor-flow">Live event flow</h2><p className="muted">Queued → started → completed → published. Failed jobs may retry or move to dead letters. Events begin after monitoring instrumentation is installed; up to {data.event_retention} are retained per workspace, with the latest 200 shown here. Telemetry is best effort and contains no email content.</p><div className="monitor-filters"><label>Event component<select value={component} onChange={e=>setComponent(e.target.value)}><option value="all">All components</option><option value="mail">Mail collection</option><option value="calendar">Calendar collection</option><option value="classify">Classification</option><option value="events">Event publication</option></select></label><label className="monitor-checkbox"><input type="checkbox" checked={issuesOnly} onChange={e=>setIssuesOnly(e.target.checked)}/>Issues only</label></div><Card className="monitor-table-scroll"><table><caption className="sr-only">Recent operational events</caption><thead><tr><th>Time</th><th>Workspace</th><th>Component</th><th>Event</th><th>Job / change ID</th><th>Status</th></tr></thead><tbody>{events.map(e=><tr key={e.id}><td><time dateTime={new Date(e.at*1000).toISOString()}>{clock(e.at)}</time></td><td>{names.get(e.workspace)||'Unknown workspace'}</td><td>{e.component}</td><td>{e.action.replaceAll('_',' ')}</td><td><code>{e.job_id||'—'}</code></td><td><Badge status={e.status}/></td></tr>)}</tbody></table>{!events.length&&<p className="monitor-empty">No events match the current filters. Waiting for system activity.</p>}</Card></section>
+  </>}
+ </div>
+}

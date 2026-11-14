@@ -410,6 +410,8 @@ Microsoft 365 work and school accounts are out of scope.
 For opt-in background email/calendar collection and live page updates using Redis Streams,
 see [Automatic updates](docs/REALTIME.md). Existing manual checks remain available.
 
+The owner-only **System monitoring** page shows component health across all admin workspaces, queue and sync status, and recent operational event flow. See [System monitoring](docs/SYSTEM_MONITORING.md) for health evidence and event retention details.
+
 ```bash
 python tests/test_smoke.py
 python -m unittest discover -s tests

@@ -211,13 +211,23 @@ class Broker:
             if 'BUSYGROUP' not in str(exc):
                 raise
 
+    def _record(self, kind: str, action: str, job_id: str):
+        # Only enqueue a hint locally; network latency never blocks business work.
+        from .telemetry import record
+        try:
+            record(self.redis_url, self.prefix, kind, action, job_id)
+        except Exception:
+            pass
+
     def enqueue(self, kind: str, account_id: int, reason: str = 'notification') -> str:
         if reason not in self.reasons:
             raise ValueError('Unknown realtime reason')
         if not isinstance(account_id, int) or isinstance(account_id, bool) or account_id < 1:
             raise ValueError('Account ID must be a positive integer')
-        return self.redis.xadd(self.stream_name(kind), {'account_id': str(account_id),
+        result = self.redis.xadd(self.stream_name(kind), {'account_id': str(account_id),
                               'kind': kind, 'reason': reason, 'attempt': '1'})
+        self._record(kind, 'queued', result)
+        return result
 
     def claim(self, kind: str, consumer: str, block_ms: int = 0) -> list[tuple[str, dict]]:
         self._group(kind)
@@ -238,34 +248,48 @@ class Broker:
             else:
                 jobs.append((message_id, fields))
         if jobs:
+            self._record(kind, 'started', jobs[0][0])
             return jobs
         results = self.redis.xreadgroup(self.group, consumer, {stream: '>'}, count=1,
                                        block=min(block_ms, 1000) if block_ms > 0 else None)
-        return [(message_id, fields) for _, entries in results for message_id, fields in entries]
+        jobs = [(message_id, fields) for _, entries in results for message_id, fields in entries]
+        if jobs:
+            self._record(kind, 'started', jobs[0][0])
+        return jobs
 
     def ack(self, kind: str, message_id: str, consumer: str | None = None) -> bool:
-        return bool(self.redis.eval(_ACK, 1, self.stream_name(kind), self.group,
+        result = bool(self.redis.eval(_ACK, 1, self.stream_name(kind), self.group,
                                     message_id, consumer or ''))
+        if result:
+            self._record(kind, 'completed', message_id)
+        return result
 
     def fail(self, kind: str, message_id: str, fields: dict,
              consumer: str | None = None) -> bool:
         # Read the durable original in Lua, never trust callback-supplied fields.
-        return bool(self.redis.eval(_FAIL, 3, self.stream_name(kind), self.prefix+'retry:'+kind,
+        result = bool(self.redis.eval(_FAIL, 3, self.stream_name(kind), self.prefix+'retry:'+kind,
                         self.deadletter_stream(kind), self.group, message_id,
                         self.max_attempts, int(time.time()*1000), self.retry_base_ms, consumer or ''))
+        if result:
+            self._record(kind, 'retry_or_failed', message_id)
+        return result
 
     def _deadletter(self, kind: str, message_id: str, fields: dict, consumer: str):
         # The same atomic transition with a zero budget forces dead-lettering.
-        self.redis.eval(_FAIL, 3, self.stream_name(kind), self.prefix+'retry:'+kind,
+        result = self.redis.eval(_FAIL, 3, self.stream_name(kind), self.prefix+'retry:'+kind,
                         self.deadletter_stream(kind), self.group, message_id,
                         0, int(time.time()*1000), self.retry_base_ms, consumer)
+        if result:
+            self._record(kind, 'retry_or_failed', message_id)
 
     def publish(self, topics: list[str], event_id: int) -> str:
         if not topics or not set(topics) <= self.topics:
             raise ValueError('Unknown realtime change topic')
-        return self.redis.eval(_PUBLISH, 2, self.changes_stream,
+        result = self.redis.eval(_PUBLISH, 2, self.changes_stream,
                                self.prefix+'published:'+str(int(event_id)),
                                json.dumps(sorted(set(topics))), str(int(event_id)))
+        self._record('events', 'published', result)
+        return result
 
     def latest_change_id(self) -> str:
         rows = self.redis.xrevrange(self.changes_stream, count=1)

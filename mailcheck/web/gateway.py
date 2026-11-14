@@ -255,7 +255,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if identity and identity['role']=='bidder' and not path.startswith(('/assets/','/static/')):
             if path not in ('/api/auth/session','/api/auth/logout') and not viewer_read_allowed(path,request.method):
                 return JSONResponse({'error':'Bidder access is limited to your Inbox, Dashboard, Bidder management, and Job sourcing.'},403)
-        restricted_settings = path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
+        restricted_settings = path == '/system-monitoring' or path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)
         try:
@@ -382,6 +382,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     from .backup_routes import install as install_backups
     install_backups(app,backup_manager,owner)
     app.state.backup_manager=backup_manager
+
+    from .system_monitoring import install as install_monitoring
+    install_monitoring(app, store, pool, owner, lambda: len(leases))
 
     @app.get('/api/admin/users')
     def admins(request:Request):
