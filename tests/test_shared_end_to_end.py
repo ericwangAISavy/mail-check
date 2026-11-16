@@ -291,3 +291,31 @@ def test_real_channel_close_after_commit_redelivers_without_duplicate_business_r
             tag, fields = claim_own(producer, 'classify')
             producer.ack(tag)
         producer.close()
+
+
+def test_one_bad_checkpoint_recovers_without_changing_other_workspace_state(installation,monkeypatch):
+    import json
+    from datetime import timedelta
+    from mailcheck import mail_checkpoints
+    from mailcheck.shared.runtime import WorkspaceOperations, AccountBroker
+    from mailcheck.shared.state import runtime_root
+    env=installation
+    fake_provider(monkeypatch)
+    monkeypatch.setattr(AccountBroker,'enqueue',lambda *args,**kwargs:'test-classification-hint')
+    first,second=env.contexts
+    first_path=runtime_root(env.contexts[first])/'mail-1.json'
+    first_path.parent.mkdir(parents=True,exist_ok=True)
+    first_path.write_text('{')
+    second_path=runtime_root(env.contexts[second])/'mail-1.json'
+    second_path.parent.mkdir(parents=True,exist_ok=True)
+    with bind_workspace(env.contexts[second]), db.session() as conn:
+        account=db.list_accounts(conn)[0]
+    old=datetime.now(timezone.utc)-timedelta(days=20)
+    second_path.write_text(json.dumps(dict(mailbox=mail_checkpoints.mailbox_key(account),pending=old.isoformat())))
+    original=second_path.read_bytes()
+    with bind_workspace(env.contexts[first]):
+        WorkspaceOperations(env.contexts[first],'amqp://unused').collect_mail(1)
+    assert second_path.read_bytes()==original
+    with bind_workspace(env.contexts[second]):
+        WorkspaceOperations(env.contexts[second],'amqp://unused').collect_mail(1)
+    assert_business_state(env)

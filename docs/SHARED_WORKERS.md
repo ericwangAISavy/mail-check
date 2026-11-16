@@ -162,3 +162,25 @@ These tests use temporary databases and fake mail/model providers. They verify
 context isolation, schema preservation, real broker delivery/redelivery, confirmed
 outbox publication and SSE fanout. They do not prove live mailbox, model, TLS,
 tunnel or production broker connectivity.
+
+### Workspace mail collection recovery (3.1.2)
+
+Automatic mail checkpoints are stored separately for each workspace under
+`control_root/shared-runtime/<workspace_id>/mail-<account_id>.json`. Malformed
+JSON, invalid dates, timezone-naive dates, and future dates previously caused
+repeated collection failures or empty future-window reads for that workspace.
+These invalid checkpoints now fall back to the configured lookback window.
+Valid pending catch-up bounds remain intact, including those older than the
+normal lookback. An unreadable checkpoint due to a permission/storage error
+still fails and retries rather than overwriting inaccessible state.
+
+Collection failures in `shared-job-collection-*.log` and processing failures in
+`shared-job-model-0.log` now include workspace ID, account ID, job kind, attempt,
+and exception type. Raw provider responses, credentials, and mail content are
+not added to these diagnostic lines. This fixes a reproducible checkpoint
+failure mode; production checkpoint files and provider errors must still be
+checked to establish the cause of a particular workspace's missing mail.
+
+No database migration or cross-workspace checkpoint reset is needed. Load the
+new code during a controlled restart after active jobs complete; recovery uses
+normal queue deliveries and idempotent message upserts.

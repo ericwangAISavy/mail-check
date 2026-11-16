@@ -71,6 +71,30 @@ class AccountBroker:
             broker.close()
 
 
+def mail_collection_since(path, mailbox, started, lookback_days):
+    """Reject invalid/future runtime stamps without losing valid catch-up bounds."""
+    fallback = started-timedelta(days=max(1, lookback_days))
+    try:
+        previous = json.loads(path.read_text())
+    except (FileNotFoundError, ValueError):
+        return fallback
+    if not isinstance(previous, dict) or previous.get('mailbox') != mailbox:
+        return fallback
+    for field in ('pending', 'checked'):
+        value = previous.get(field)
+        if not isinstance(value, str):
+            continue
+        try:
+            instant = datetime.fromisoformat(value)
+            if instant.tzinfo is None or instant.utcoffset() is None or instant > started:
+                continue
+            instant = instant.astimezone(timezone.utc)
+            return instant if field == 'pending' else instant-timedelta(minutes=3)
+        except (ValueError, OverflowError):
+            continue
+    return fallback
+
+
 class WorkspaceOperations(Runtime):
     def __init__(self, context, url):
         # Deliberately do not call Runtime.__init__: it initializes legacy
@@ -97,15 +121,7 @@ class WorkspaceOperations(Runtime):
                 started = datetime.now(timezone.utc)
                 mailbox = mail_checkpoints.mailbox_key(account)
                 checkpoint = runtime_root(self.context)/f'mail-{account_id}.json'
-                try:
-                    previous = json.loads(checkpoint.read_text())
-                except FileNotFoundError:
-                    previous = {}
-                since = started-timedelta(days=max(1,cfg.check.lookback_days))
-                if previous.get('mailbox') == mailbox:
-                    since = datetime.fromisoformat(previous.get('pending') or previous['checked'])
-                    if not previous.get('pending'):
-                        since -= timedelta(minutes=3)
+                since = mail_collection_since(checkpoint, mailbox, started, cfg.check.lookback_days)
                 # Preserve catch-up lower bound across provider outages/crashes.
                 atomic_json(checkpoint, {'mailbox':mailbox,'pending':since.isoformat()})
                 with collection_scope(lambda _: check()):
@@ -483,7 +499,9 @@ class Consumer:
                             except (WorkDeferred,PendingCapacityError):
                                 if not disconnected:
                                     broker.defer(tag,fields)
-                            except Exception:
+                            except Exception as exc:
+                                log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s',
+                                    fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__)
                                 if not disconnected:
                                     broker.fail(tag,fields)
                                     record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'retry_or_failed',fields['id'])

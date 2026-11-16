@@ -144,3 +144,69 @@ def test_mail_collection_releases_capacity_when_classification_hint_is_full(tmp_
     with db.session(path) as conn:
         assert conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0]==1
         assert conn.execute('SELECT category FROM classifications').fetchone()[0]=='unclassified'
+
+
+@pytest.mark.parametrize('checkpoint', ['broken-json', 'bad-date', 'future', 'naive'])
+def test_bad_workspace_mail_checkpoint_cannot_stop_new_mail_collection(tmp_path, monkeypatch, checkpoint):
+    import json
+    from datetime import datetime, timedelta, timezone
+    from mailcheck import db, mail_checkpoints
+    from mailcheck.realtime import storage
+    from mailcheck.shared.runtime import WorkspaceOperations
+    from mailcheck.shared.state import runtime_root
+    from mailcheck.workspaces import WorkspaceContext, bind_workspace
+    from tests.test_realtime_runtime import message
+    path = tmp_path/'mail.db'
+    with db.session(path) as conn:
+        aid = db.add_account(conn, label='primary', email='person@example.com')
+        storage.set_account(conn, aid, True)
+        account = db.list_accounts(conn)[0]
+    context = WorkspaceContext.from_record({'id':'legacy','root':None},
+        (tmp_path/'config.toml',path,tmp_path/'auth'),tmp_path/'control')
+    now = datetime.now(timezone.utc)
+    value = {'mailbox':mail_checkpoints.mailbox_key(account), 'checked':
+        'not-a-date' if checkpoint=='bad-date' else
+        (now+timedelta(days=7)).isoformat() if checkpoint=='future' else
+        (now-timedelta(hours=1)).replace(tzinfo=None).isoformat()}
+    saved = runtime_root(context)/f'mail-{aid}.json'
+    saved.parent.mkdir(parents=True)
+    saved.write_text('{' if checkpoint=='broken-json' else json.dumps(value))
+    received = message(aid)
+    def fetch(account, since, cfg):
+        assert since.tzinfo is not None
+        # A future checkpoint silently produces an empty mailbox result.
+        return [received] if since <= now else []
+    monkeypatch.setattr('mailcheck.shared.runtime.pipeline.fetch_account', fetch)
+    monkeypatch.setattr('mailcheck.shared.runtime.prefilter.apply',lambda *args:None)
+    with bind_workspace(context):
+        operation = WorkspaceOperations(context, 'amqp://test')
+        monkeypatch.setattr(operation.broker, 'enqueue', lambda *args:None)
+        operation.collect_mail(aid)
+    with db.session(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0] == 1
+    assert 'checked' in json.loads(saved.read_text())
+
+
+def test_mail_window_keeps_valid_pending_catchup_after_failure(tmp_path):
+    import json
+    from datetime import datetime, timedelta, timezone
+    from mailcheck.shared.runtime import mail_collection_since
+    now = datetime(2026,11,16,tzinfo=timezone.utc)
+    path = tmp_path/'mail.json'
+    old = now-timedelta(days=20)
+    path.write_text(json.dumps(dict(mailbox='same',pending=old.isoformat(),checked=(now-timedelta(hours=1)).isoformat())))
+    assert mail_collection_since(path,'same',now,7) == old
+    assert mail_collection_since(path,'new-mailbox',now,7) == now-timedelta(days=7)
+    path.write_text(json.dumps(dict(mailbox='same',pending='invalid',checked=old.isoformat())))
+    assert mail_collection_since(path,'same',now,7) == old-timedelta(minutes=3)
+    path.write_text(json.dumps(dict(mailbox='same',checked='0001-01-01T00:00:00+00:00')))
+    assert mail_collection_since(path,'same',now,7) == now-timedelta(days=7)
+
+
+def test_mail_window_does_not_hide_checkpoint_permission_errors(tmp_path):
+    from datetime import datetime, timezone
+    from mailcheck.shared.runtime import mail_collection_since
+    path = Mock()
+    path.read_text.side_effect = PermissionError('checkpoint unavailable')
+    with pytest.raises(PermissionError):
+        mail_collection_since(path,'same',datetime.now(timezone.utc),7)

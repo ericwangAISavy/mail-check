@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.1.2 — 2026-11-16
+
+Recover workspace mail collection checkpoints
+
+- Recover automatic email collection from malformed or future-dated workspace checkpoints while preserving valid catch-up windows.
+- Identify failed shared jobs by workspace, account, and error type without logging private provider responses.
+
 ## 3.1.1 — 2026-11-16
 
 Safe Windows monitoring probes
