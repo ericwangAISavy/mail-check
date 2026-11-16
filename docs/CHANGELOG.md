@@ -2,6 +2,15 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.0.1 — 2026-11-15
+
+Protect shared worker retries and sign-in lifecycle
+
+- Prevent duplicate completed manual checks and keep queued retries from being replaced or overwriting newer status.
+- Defer busy shared workers without exhausting provider retries, separate collection/model queue budgets, and reject reclassification of disabled accounts.
+- Cancel and drain pending sign-ins on shutdown, revalidate workspace access before credential writes, and ignore notifications for suspended workspaces.
+- Restore the original-workspace backup check before shared worker startup.
+
 ## 3.0.0 — 2026-11-15
 
 Shared RabbitMQ worker architecture

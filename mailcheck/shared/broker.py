@@ -15,7 +15,9 @@ import uuid
 JOBS_EXCHANGE = 'offerpath.shared.jobs'
 CHANGES_EXCHANGE = 'offerpath.shared.changes'
 DEAD_NOTICES_QUEUE = 'offerpath.shared.dead-notices'
-MAX_PENDING_PER_WORKSPACE = 16
+MAX_PENDING_PER_LANE = 16
+MAX_PENDING_PER_WORKSPACE = 2 * MAX_PENDING_PER_LANE
+COLLECTION_KINDS = frozenset({'mail','calendar'})
 
 
 class PendingCapacityError(RuntimeError):
@@ -192,8 +194,11 @@ class RabbitBroker:
                 if marker['confirmed']:
                     return marker['id']
             else:
-                if sum(1 for _ in path.parent.glob('*.json')) >= MAX_PENDING_PER_WORKSPACE:
-                    raise PendingCapacityError('workspace pending job capacity reached')
+                pending=list(path.parent.glob('*.json'))
+                collection=kind in COLLECTION_KINDS
+                lane_count=sum((item.stem.rsplit('-',1)[0] in COLLECTION_KINDS)==collection for item in pending)
+                if len(pending)>=MAX_PENDING_PER_WORKSPACE or lane_count>=MAX_PENDING_PER_LANE:
+                    raise PendingCapacityError('workspace pending lane capacity reached')
                 marker = dict(id=str(uuid.uuid4()), dirty=False, confirmed=False, timestamp=time.time())
                 atomic_json(path, marker)
             self.enqueue(kind, account_id, reason, workspace_id=workspace, job_id=marker['id'])
@@ -282,6 +287,12 @@ class RabbitBroker:
             retry['attempt'] += 1
             route = f"retry.{fields['kind']}.{fields['attempt']}"
         self._publish(JOBS_EXCHANGE, route, retry)
+        self.ack(tag)
+
+    def defer(self, tag, fields):
+        """Retry admission later without spending a business failure attempt."""
+        validate_envelope(fields)
+        self._publish(JOBS_EXCHANGE, f"retry.{fields['kind']}.0", fields)
         self.ack(tag)
 
     def publish(self, topics, event_id, workspace_id=None):

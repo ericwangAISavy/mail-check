@@ -158,3 +158,30 @@ def test_subscriber_uses_exclusive_queue_and_resyncs_on_reconnect(monkeypatch):
     assert all(not connection.is_open for connection in connections)
     assert sum(name == 'resync' for name, args in recorded) >= 2
     assert ('publish', ('a',)) in recorded
+
+
+def test_hook_skips_disabled_workspace_but_keeps_registry_errors(tmp_path, monkeypatch):
+    import sqlite3
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from types import SimpleNamespace
+    from mailcheck.shared import events, broker
+    recorded = []
+    monkeypatch.setattr(events, 'ReadOnlyRegistry', lambda path: SimpleNamespace(validate=lambda sid, state:
+        {'workspace_id': sid, 'kind': 'mail', 'account_id': 1}))
+    monkeypatch.setattr(broker, 'RabbitBroker', lambda url: SimpleNamespace(
+        enqueue_unique=lambda *args, **kwargs: recorded.append(kwargs['workspace_id']), close=lambda: None))
+    failure = [ValueError('disabled')]
+    def workspace(wid):
+        if wid == 'disabled':
+            raise failure[0]
+        return {'enabled': True}
+    app = FastAPI()
+    events.install(app, SimpleNamespace(root=tmp_path, workspace=workspace), lambda token: None,
+                   'session', amqp_url='amqp://unused')
+    client = TestClient(app)
+    body = {'value': [{'subscriptionId': wid, 'clientState': 'secret'} for wid in ('disabled', 'active')]}
+    assert client.post('/hooks/microsoft', json=body).status_code == 202
+    assert recorded == ['active']
+    failure[0] = sqlite3.OperationalError('unavailable')
+    assert client.post('/hooks/microsoft', json=body).status_code == 503

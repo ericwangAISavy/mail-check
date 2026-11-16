@@ -127,7 +127,14 @@ class WorkspaceOperations(Runtime):
                 storage.set_status(conn,account_id,last_sync=time.time())
                 pending = self._pending(conn,account)
             if pending:
-                self.broker.enqueue('classify',account_id)
+                try:
+                    self.broker.enqueue('classify',account_id)
+                except PendingCapacityError:
+                    # Pending classifications are already durable in SQLite.
+                    # Finish/ACK this mail job so its marker frees a quota slot;
+                    # otherwise a full set of mail hints could block every
+                    # classification hint forever. Reconciliation retries it.
+                    pass
 
 
 def publish_outbox(conn, broker, workspace_id):
@@ -178,6 +185,39 @@ def _dispatch_record(reader, fields):
 
 
 def execute_job(reader, legacy_paths, fields, *, handler=None):
+    from .manual import read_dispatch,dispatch_path,bind_manual_job,update_status,complete_manual,retry_manual,pending_dispatch
+    if fields['kind'] not in {'manual-check','manual-reclassify'}:
+        if fields['kind'] in {'scheduled-check','calendar-analysis','live-inbox'} and pending_dispatch(reader.root/'shared-runtime',fields['workspace_id']):
+            raise WorkDeferred('A manual check owns the workspace queue')
+        return _execute_job(reader,legacy_paths,fields,handler=handler)
+    root=reader.root/'shared-runtime'
+    path=dispatch_path(root,fields.get('dispatch_id'))
+    lock=OperationLock(path.with_suffix('.lock'))
+    if not lock.acquire(False):
+        raise WorkDeferred('Manual delivery is already executing')
+    try:
+        record=read_dispatch(root,fields)
+        if record.get('state')=='succeeded':
+            complete_manual(root,fields,record)
+            return
+        state=JobState(root/fields['workspace_id']/'job.json').snapshot()
+        if state.get('job_id') not in (None,fields['id']):
+            raise PermissionError('Manual delivery has been superseded')
+        atomic_json(path,{**record,'state':'running'})
+        update_status(root,fields,running=True)
+        with bind_manual_job(fields):
+            try:
+                result=_execute_job(reader,legacy_paths,fields,handler=handler)
+            except Exception:
+                retry_manual(root,fields)
+                raise
+            complete_manual(root,fields,record)
+            return result
+    finally:
+        lock.release()
+
+
+def _execute_job(reader, legacy_paths, fields, *, handler=None):
     workspace = reader.workspace(fields['workspace_id'])
     context = WorkspaceContext.from_record(workspace,legacy_paths,reader.root)
     with bind_workspace(context):
@@ -188,10 +228,25 @@ def execute_job(reader, legacy_paths, fields, *, handler=None):
         scoped=manual or kind in {'scheduled-check','live-inbox','calendar-analysis'}
         if scoped and config.db_path().is_file():
             with sqlite3.connect(config.db_path().resolve().as_uri()+'?mode=ro',uri=True) as conn:
-                account_snapshot=conn.execute('SELECT id,label,email,provider FROM accounts WHERE enabled=1').fetchall()
-            label=record['body'].get('account') if record else None
-            if label:
-                account_snapshot=[row for row in account_snapshot if row[1]==label]
+                if kind == 'manual-reclassify':
+                    conn.row_factory = sqlite3.Row
+                    body = record['body']
+                    waiting = db.messages_in_categories(conn, [pipeline.UNCLASSIFIED],
+                        pks=body.get('pks') or None, account_label=body.get('account'),
+                        since_iso=(datetime.now(timezone.utc)-timedelta(days=body['days'])).isoformat()
+                            if body.get('days') else None)
+                    targets = {row['account_id'] for row in waiting}
+                    # Empty pks means "all" to the legacy operation. A negative
+                    # sentinel keeps an empty resolved selection empty instead.
+                    record = {**record, 'body': {**body,
+                        'pks': [row['pk'] for row in waiting] or [-1]}}
+                    account_snapshot = [tuple(row) for row in conn.execute(
+                        'SELECT id,label,email,provider FROM accounts') if row['id'] in targets]
+                else:
+                    account_snapshot=conn.execute('SELECT id,label,email,provider FROM accounts WHERE enabled=1').fetchall()
+                    label=record['body'].get('account') if record else None
+                    if label:
+                        account_snapshot=[row for row in account_snapshot if row[1]==label]
 
         def guard():
             current = reader.workspace(context.workspace_id)
@@ -425,6 +480,9 @@ class Consumer:
                                     finish_manual(fields,self.reader.root/'shared-runtime')
                                     broker.ack(tag)
                                     record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'discarded',fields['id'])
+                            except (WorkDeferred,PendingCapacityError):
+                                if not disconnected:
+                                    broker.defer(tag,fields)
                             except Exception:
                                 if not disconnected:
                                     broker.fail(tag,fields)

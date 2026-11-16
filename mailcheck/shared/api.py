@@ -9,7 +9,7 @@ import sqlite3
 
 from starlette.responses import JSONResponse
 
-from ..workspaces import WorkspaceContext, bind_workspace
+from ..workspaces import WorkspaceContext, bind_workspace, bind_commit_guard
 
 
 class WorkspaceDispatcher:
@@ -48,7 +48,13 @@ class WorkspaceDispatcher:
             return await JSONResponse({'detail': 'Workspace unavailable'}, status_code=403)(scope, receive, send)
         # Keep context through response streaming and ASGI background tasks.
         # Starlette copies this context into its synchronous endpoint threads.
-        with bind_workspace(context):
+        def check_active():
+            record = self.reader.workspace(wid)
+            active = WorkspaceContext.from_record(record, self.legacy_paths, self.reader.root)
+            if active != context:
+                raise ValueError('Workspace changed during the request.')
+
+        with bind_workspace(context), bind_commit_guard(check_active):
             return await self.app(scope, receive, send)
 
 

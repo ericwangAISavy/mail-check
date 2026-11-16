@@ -119,3 +119,28 @@ def test_cancelled_manual_job_clears_only_its_own_status(tmp_path):
     state.update(job_id=newer,running=True,ok=True)
     finish_manual(fields,tmp_path)
     assert state['running'] and state['job_id']==newer
+
+
+def test_mail_collection_releases_capacity_when_classification_hint_is_full(tmp_path,monkeypatch):
+    from mailcheck import db,config
+    from mailcheck.realtime import storage
+    from mailcheck.shared.broker import PendingCapacityError
+    from mailcheck.shared.runtime import WorkspaceOperations
+    from mailcheck.workspaces import WorkspaceContext,bind_workspace
+    from tests.test_realtime_runtime import message
+    path=tmp_path/'mail.db'
+    with db.session(path) as conn:
+        aid=db.add_account(conn,label='primary',email='person@example.com')
+        storage.set_account(conn,aid,True)
+    context=WorkspaceContext.from_record({'id':'legacy','root':None},
+        (tmp_path/'config.toml',path,tmp_path/'auth'),tmp_path/'control')
+    monkeypatch.setattr('mailcheck.shared.runtime.pipeline.fetch_account',lambda *args:[message(aid)])
+    monkeypatch.setattr('mailcheck.shared.runtime.prefilter.apply',lambda *args:None)
+    with bind_workspace(context):
+        operation=WorkspaceOperations(context,'amqp://test')
+        def full(*args,**kwargs):raise PendingCapacityError('full')
+        monkeypatch.setattr(operation.broker,'enqueue',full)
+        operation.collect_mail(aid)
+    with db.session(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0]==1
+        assert conn.execute('SELECT category FROM classifications').fetchone()[0]=='unclassified'

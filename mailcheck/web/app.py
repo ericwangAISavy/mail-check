@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from ..maintenance import MaintenanceLock,lock_path,shared_writer
 import threading
 import sqlite3
@@ -102,7 +102,7 @@ _scheduler_started = threading.Event()
 # Legacy mode retains its original objects; shared requests/jobs resolve these
 # values through an explicit immutable context, never a changed environment.
 from ..shared.web_state import WorkspaceValue
-from ..workspaces import current_workspace, start_workspace_thread
+from ..workspaces import current_workspace, current_commit_guard, start_workspace_thread
 _interview_scan = WorkspaceValue(_interview_scan, lambda: dict(running=False,processed=0,total=0,found=0,errors=0))
 _job_lock = WorkspaceValue(_job_lock, threading.Lock, name='job-lock')
 _job = WorkspaceValue(_job, dict, name='job')
@@ -411,8 +411,12 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, backg
             if current_workspace() is not None:
                 raise
         finally:
-            _job.update(running=False, at=datetime.now().strftime("%H:%M"),
-                        stage_started=None, completion_id=_job["completion_id"] + 1)
+            from ..shared.manual import current_manual_job
+            if current_manual_job() is None:
+                _job.update(running=False, at=datetime.now().strftime("%H:%M"),
+                            stage_started=None, completion_id=_job["completion_id"] + 1)
+            else:
+                _job.update(stage_started=None)
             try:
                 if on_finish is not None:
                     on_finish()
@@ -429,7 +433,8 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, backg
         else:
             threading.Thread(target=runner, daemon=True).start()
     except Exception:
-        _job.update(running=False, ok=False, message=failed, stage_started=None)
+        from ..shared.manual import current_manual_job
+        _job.update(running=current_manual_job() is not None, ok=False, message=failed, stage_started=None)
         if current_workspace() is None or _job_lock.locked():
             _job_lock.release()
         raise
@@ -698,10 +703,16 @@ def _scheduler() -> None:
 def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None, shared: bool = False) -> FastAPI:
     if worker_secret is not None and not worker_secret:
         raise ValueError("A private workspace worker requires an authentication secret.")
+    from ..shared.auth_flows import SharedAuthFlows
+    auth_flows = SharedAuthFlows(outlook_auth.abort) if shared else None
+
     @asynccontextmanager
     async def lifespan(app):
         if shared:
-            yield
+            try:
+                yield
+            finally:
+                await run_in_threadpool(auth_flows.stop)
             return
         from ..realtime.runtime import Runtime
         import asyncio
@@ -1946,7 +1957,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 email = outlook_auth.complete_device_flow(pending)
                 # Publish only this flow's candidate cache after checking ownership.
                 # Stale flows must never delete or overwrite another flow's cache.
-                with _outlook_lock:
+                with (auth_flows.persistence(pending) if shared else nullcontext()), _outlook_lock:
                     if _outlook.get("active_id") != flow_id:
                         return
                     with db.session() as conn:
@@ -1955,8 +1966,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                             _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
                             return
                         if pending.completed_cache is not None:
+                            if shared and (guard := current_commit_guard()) is not None:
+                                guard()
                             outlook_auth.save_cache(label, pending.completed_cache)
                         if not current:
+                            if shared and (guard := current_commit_guard()) is not None:
+                                guard()
                             db.add_account(
                                 conn, label=label, email=email or label, provider="outlook"
                             )
@@ -1970,7 +1985,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                         message = str(exc) if isinstance(exc, outlook_auth.OutlookAuthError) else f"{type(exc).__name__}: {exc}"
                         _outlook.update(pending=None, state="failed", message=message)
 
-        if current_workspace() is not None:
+        if shared:
+            try:
+                auth_flows.start(pending, wait)
+            except RuntimeError as exc:
+                outlook_auth.abort(pending)
+                with _outlook_lock:
+                    if _outlook.get("active_id") == pending.id:
+                        _outlook.update(pending=None, active_id=None, state="failed", message=str(exc))
+                return _err(str(exc), 503)
+        elif current_workspace() is not None:
             start_workspace_thread(wait, daemon=True)
         else:
             threading.Thread(target=wait, daemon=True).start()

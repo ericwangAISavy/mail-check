@@ -10,8 +10,27 @@ from unittest.mock import Mock
 from mailcheck.shared.pool import SharedPool
 
 
+def test_shared_pool_preserves_original_backup_gate(tmp_path,monkeypatch):
+    pool=SharedPool(SimpleNamespace(root=tmp_path),'http://gateway',
+        (tmp_path/'config',tmp_path/'db',tmp_path/'auth'))
+    backup=Mock(side_effect=RuntimeError('Original backup is invalid'))
+    monkeypatch.setattr(pool,'_backup',backup)
+    process=Mock()
+    process.poll.return_value=None
+    def spawn(record):
+        worker=SimpleNamespace(workspace_id=record['id'],process=process,ready=True,startup_at=time.monotonic())
+        pool.workers[record['id']]=worker
+        return worker
+    spawn=Mock(side_effect=spawn)
+    monkeypatch.setattr(pool,'_spawn',spawn)
+    import pytest
+    with pytest.raises(RuntimeError,match='backup'):
+        pool.ensure({'id':'legacy','root':None})
+    spawn.assert_not_called()
+
+
 def test_slots_are_fixed_and_workspace_suspension_does_not_kill(tmp_path, monkeypatch):
-    pool = SharedPool(SimpleNamespace(root=tmp_path), 'http://gateway', (tmp_path/'c', tmp_path/'d'), size=2)
+    pool = SharedPool(SimpleNamespace(root=tmp_path), 'http://gateway', (tmp_path/'c', tmp_path/'d',tmp_path/'auth'), size=2)
     spawned = []
     def spawn(record):
         worker = SimpleNamespace(workspace_id=record['id'], process=Mock(), ready=True, startup_at=time.monotonic())
@@ -208,3 +227,31 @@ def test_shared_api_holds_process_slot_lock(tmp_path, monkeypatch):
     cleanup.assert_called_once()
     with InstanceLock(tmp_path/'shared-runtime'/'processes'/f'{slot}.lock'):
         pass
+
+
+def test_dispatcher_commit_guard_rejects_changed_workspace(tmp_path):
+    from mailcheck.shared.api import create_dispatcher
+    from mailcheck.workspaces import current_commit_guard
+    enabled = [True]
+    def lookup(wid):
+        if not enabled[0]:
+            raise ValueError('disabled')
+        return {'id': 'legacy', 'root': None}
+    app = FastAPI()
+    @app.get('/check')
+    def check():
+        enabled[0] = False
+        guard = current_commit_guard()
+        assert guard is not None
+        try:
+            guard()
+        except ValueError:
+            return {'blocked': True}
+        return {'blocked': False}
+    dispatcher = create_dispatcher(SimpleNamespace(root=tmp_path, workspace=lookup),
+                                   'secret', (tmp_path/'c', tmp_path/'d'), app=app)
+    async def request():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=dispatcher), base_url='http://test') as client:
+            result = await client.get('/check', headers={'x-offerpath-worker':'secret', 'x-offerpath-workspace':'legacy'})
+            assert result.json() == {'blocked': True}
+    asyncio.run(request())

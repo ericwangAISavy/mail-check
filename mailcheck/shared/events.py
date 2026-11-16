@@ -177,7 +177,11 @@ def install(app, store, identity_for, cookie_name, *, amqp_url, subscriber=None)
                 job = registered['workspace_id'], registered['kind'], registered['account_id']
                 if job in enqueued:
                     continue
-                workspace = await asyncio.to_thread(store.workspace, registered['workspace_id'])
+                try:
+                    workspace = await asyncio.to_thread(store.workspace, registered['workspace_id'])
+                except ValueError:
+                    # Retired subscriptions may outlive workspace access.
+                    continue
                 if not workspace or not workspace.get('enabled', True):
                     continue
                 def enqueue():

@@ -7,6 +7,7 @@ import uuid
 from ..workspaces import WorkspaceContext
 from .broker import RabbitBroker
 from .state import JobState, OperationLock, atomic_json, runtime_root
+from .manual import pending_dispatch
 
 
 def submit_manual(store, legacy_paths, workspace_id, token, kind, body, url):
@@ -22,12 +23,14 @@ def submit_manual(store, legacy_paths, workspace_id, token, kind, body, url):
             raise BlockingIOError('A check is already running.')
         job_lock.release()
         status = state.snapshot()
+        if pending_dispatch(store.root/'shared-runtime',workspace_id,status):
+            raise BlockingIOError('A check is already queued or waiting to retry.')
         if status.get('running') and time.time()-status.get('queued_at',0)<120:
             raise BlockingIOError('A check is already queued or running.')
         dispatch = str(uuid.uuid4())
         path = store.root/'shared-runtime'/'dispatch'/f'{dispatch}.json'
         atomic_json(path,dict(workspace_id=workspace_id,kind=kind,token=token,body=parsed,
-                              expires=time.time()+7200))
+                              expires=time.time()+7200,state='queued'))
         state.update(running=True,message='Queued for a shared worker',detail='',ok=True,
                      queued_at=time.time(),stage_started=None,job_id=dispatch)
         broker = RabbitBroker(url,workspace_id)

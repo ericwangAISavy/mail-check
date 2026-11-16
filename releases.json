@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.0.1",
+    "date": "2026-11-15",
+    "title": "Protect shared worker retries and sign-in lifecycle",
+    "changes": [
+      "Prevent duplicate completed manual checks and keep queued retries from being replaced or overwriting newer status.",
+      "Defer busy shared workers without exhausting provider retries, separate collection/model queue budgets, and reject reclassification of disabled accounts.",
+      "Cancel and drain pending sign-ins on shutdown, revalidate workspace access before credential writes, and ignore notifications for suspended workspaces.",
+      "Restore the original-workspace backup check before shared worker startup."
+    ]
+  },
+  {
     "version": "3.0.0",
     "date": "2026-11-15",
     "title": "Shared RabbitMQ worker architecture",

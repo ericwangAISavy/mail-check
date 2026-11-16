@@ -33,6 +33,9 @@ class SharedPool(WorkerPool):
 
     def ensure(self, workspace):
         wid = workspace['id']
+        # Slot IDs deliberately replace workspace IDs below, so preserve the
+        # original rollback-archive gate explicitly before any shared startup.
+        self._backup()
         with self._lock:
             if self.closing or wid in self.stopped:
                 raise RuntimeError('Workspace is suspended or shutting down.')
@@ -146,6 +149,13 @@ class SharedPool(WorkerPool):
 
     async def _monitor_jobs(self):
         while True:
+            try:
+                await asyncio.to_thread(self._backup)
+            except (RuntimeError,OSError,ValueError):
+                self.errors['_backup']='Original workspace backup is unavailable; shared jobs have not started.'
+                await asyncio.sleep(5)
+                continue
+            self.errors.pop('_backup',None)
             for slot in self.job_slots:
                 try:
                     await asyncio.to_thread(super().check_health, slot)

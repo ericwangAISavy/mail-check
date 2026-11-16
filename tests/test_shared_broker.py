@@ -302,6 +302,18 @@ def test_unique_workspace_capacity_defers_new_accounts_only(broker, tmp_path):
     assert len(ch.messages) == 17
 
 
+@pytest.mark.parametrize('first,second',[('mail','classify'),('classify','mail')])
+def test_collection_and_model_hints_have_independent_capacity(broker,tmp_path,first,second):
+    from mailcheck.shared.broker import PendingCapacityError
+    b,ch=broker
+    for account in range(1,17):
+        b.enqueue_unique(first,account,coordination_root=tmp_path)
+    with pytest.raises(PendingCapacityError):
+        b.enqueue_unique(first,17,coordination_root=tmp_path)
+    b.enqueue_unique(second,17,coordination_root=tmp_path)
+    assert len(ch.messages)==17
+
+
 def test_dead_notices_have_separate_queue_and_validate_envelope(broker):
     from mailcheck.shared.broker import DEAD_NOTICES_QUEUE
     b, ch = broker
@@ -316,3 +328,25 @@ def test_dead_notices_have_separate_queue_and_validate_envelope(broker):
     ch.delivery = (types.SimpleNamespace(delivery_tag=89), None, b'{}')
     assert b.claim_dead_notice() is None
     assert ch.calls[-1] == ('basic_reject', dict(delivery_tag=89, requeue=False))
+
+
+def test_defer_confirms_same_envelope_without_spending_retry_budget(broker):
+    b, ch = broker
+    b.enqueue('mail', 1)
+    fields = json.loads(ch.messages[-1]['body'])
+    fields['attempt'] = 4
+    b.defer(42, fields)
+    assert ch.messages[-1]['routing_key'] == 'retry.mail.0'
+    assert json.loads(ch.messages[-1]['body']) == fields
+    assert ch.messages[-1]['properties'].delivery_mode == 2
+    assert ch.calls[-1] == ('basic_ack', dict(delivery_tag=42))
+
+
+def test_defer_publish_failure_preserves_original_delivery(broker):
+    b, ch = broker
+    b.enqueue('mail', 1)
+    fields = json.loads(ch.messages[-1]['body'])
+    ch.error = ConnectionError('unavailable')
+    with pytest.raises(ConnectionError):
+        b.defer(42, fields)
+    assert not any(name == 'basic_ack' for name, _ in ch.calls)

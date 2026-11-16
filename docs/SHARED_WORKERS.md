@@ -88,7 +88,9 @@ opaque dispatch identity. Manual checks remain usable without realtime opt-in.
 - Account collection/classification file locks and commit guards prevent overlap
   and reject writes after workspace/account revocation. Model access uses one
   same-host lock so a draining job can finish without gateway HTTP admission.
-- A workspace has at most 16 outstanding unique automatic jobs. Notifications
+- A workspace has separate budgets of 16 outstanding collection hints and 16
+  model/schedule hints, so slow classification cannot prevent mail collection.
+  Notifications
   coalesce by workspace/account/kind; changes received during a scan request one
   follow-up. Capacity returns a retryable webhook error rather than accepting
   undurable work. Other workspaces retain their own independent allowance.
