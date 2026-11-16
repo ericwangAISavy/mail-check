@@ -5,6 +5,7 @@ import asyncio
 import json
 import re
 import time
+import anyio
 from collections import Counter
 
 from fastapi import HTTPException, Request
@@ -53,7 +54,11 @@ class EventResponse(StreamingResponse):
         try:
             await super().__call__(scope, receive, bounded_send)
         finally:
-            await self.cleanup()
+            # Starlette middleware may cancel its task group when the stream
+            # closes. Finish releasing subscriptions/connections within that
+            # cancellation scope instead of abandoning async cleanup.
+            with anyio.CancelScope(shield=True):
+                await self.cleanup()
 
 
 def install(app, store, identity_for, cookie_name):

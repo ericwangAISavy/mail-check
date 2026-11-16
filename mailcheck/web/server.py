@@ -3,6 +3,7 @@ import asyncio
 import logging
 import inspect
 import sys
+import signal
 
 import uvicorn
 
@@ -27,6 +28,24 @@ class LocalOriginHealth:
         return await self.app(scope, receive, send)
 
 
+class GracefulServer(uvicorn.Server):
+    def handle_exit(self, sig, frame):
+        self._shutdown_reason = f'signal {signal.Signals(sig).name}'
+        log.warning('Origin shutdown requested by %s.', self._shutdown_reason)
+        super().handle_exit(sig, frame)
+
+    async def shutdown(self, sockets=None):
+        log.warning('Origin shutting down (%s).', getattr(self, '_shutdown_reason', 'application or server request; no process signal recorded'))
+        app = self.config.app
+        if isinstance(app, LocalOriginHealth):
+            app = app.app
+        if isinstance(app, RequestAdmission):
+            app.begin_shutdown()
+        # Lifespan shutdown runs after this HTTP drain in Uvicorn. Closing
+        # streams there would be too late: their responses never finish alone.
+        await super().shutdown(sockets=sockets)
+
+
 def windows_exception_handler(server, failures):
     def handle(loop, context):
         error = context.get('exception')
@@ -40,6 +59,7 @@ def windows_exception_handler(server, failures):
                 failures.append(error)
                 log.error('Windows HTTP listener failed; shutting down cleanly so the foreground launcher can recover.')
             server.should_exit = True
+            server._shutdown_reason = 'Windows HTTP listener failure'
             return
         callback = getattr(context.get('handle'), '_callback', None)
         transport = getattr(callback, '__self__', None)
@@ -95,11 +115,15 @@ def run(app, *, health_check=False, **options):
     options.setdefault('timeout_keep_alive', 5)
     options.setdefault('timeout_graceful_shutdown', 15)
     if sys.platform != 'win32':
-        return uvicorn.run(app, **options)
+        server = GracefulServer(uvicorn.Config(app, **options))
+        result = server.run()
+        if not server.started:
+            raise SystemExit(3)  # Preserve uvicorn.run's failed-startup status.
+        return result
     # The previous forced Selector loop can repeatedly call accept() on a
     # socket rejected by Winsock (10022), consuming CPU without serving HTTP.
     # Use native Windows IOCP, without changing the process-wide loop policy.
-    server = uvicorn.Server(uvicorn.Config(app, **options, loop='asyncio'))
+    server = GracefulServer(uvicorn.Config(app, **options, loop='asyncio'))
     failures = []
     with asyncio.Runner(loop_factory=asyncio.ProactorEventLoop) as runner:
         runner.get_loop().set_exception_handler(windows_exception_handler(server, failures))

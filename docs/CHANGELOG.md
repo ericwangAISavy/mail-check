@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.0.2 — 2026-11-16
+
+Close live event streams before server shutdown
+
+- Close browser event streams before the HTTP shutdown deadline and finish asynchronous subscription cleanup without cancelling ordinary API requests.
+- Log the shutdown signal or Windows listener failure so unexpected exits can be distinguished from shutdown cleanup errors.
+
 ## 3.0.1 — 2026-11-15
 
 Protect shared worker retries and sign-in lifecycle

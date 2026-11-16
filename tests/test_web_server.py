@@ -6,7 +6,7 @@ from mailcheck.web.server import run
 
 def test_windows_uses_native_loop_for_serving():
     app=object()
-    with patch('mailcheck.web.server.sys.platform','win32'), patch('mailcheck.web.server.asyncio.Runner') as runner, patch('mailcheck.web.server.asyncio.ProactorEventLoop', create=True) as native, patch('mailcheck.web.server.uvicorn.Config') as config, patch('mailcheck.web.server.uvicorn.Server') as server:
+    with patch('mailcheck.web.server.sys.platform','win32'), patch('mailcheck.web.server.asyncio.Runner') as runner, patch('mailcheck.web.server.asyncio.ProactorEventLoop', create=True) as native, patch('mailcheck.web.server.uvicorn.Config') as config, patch('mailcheck.web.server.GracefulServer') as server:
         server.return_value.serve=MagicMock(return_value='serve-coroutine')
         run(app,host='0.0.0.0',port=52400,log_level='warning')
         import asyncio
@@ -17,17 +17,43 @@ def test_windows_uses_native_loop_for_serving():
         runner.return_value.__enter__.return_value.run.assert_called_once_with('serve-coroutine')
 
 
-def test_other_platforms_keep_uvicorn_startup():
+def test_other_platforms_use_the_stream_aware_server():
     app=object()
-    with patch('mailcheck.web.server.sys.platform','linux'), patch('mailcheck.web.server.uvicorn.run') as start:
+    with patch('mailcheck.web.server.sys.platform','linux'), patch('mailcheck.web.server.uvicorn.Config') as config, patch('mailcheck.web.server.GracefulServer') as server:
         run(app,host='127.0.0.1',port=52400,log_level='warning')
-        wrapped=start.call_args.args[0]
+        wrapped=config.call_args.args[0]
         assert wrapped.app is app
-        start.assert_called_once_with(wrapped,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15)
+        config.assert_called_once_with(wrapped,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15)
+        server.assert_called_once_with(config.return_value)
+        server.return_value.run.assert_called_once_with()
+
+
+def test_non_windows_lifespan_startup_failure_keeps_nonzero_exit():
+    with patch('mailcheck.web.server.sys.platform','linux'), patch('mailcheck.web.server.uvicorn.Config'), patch('mailcheck.web.server.GracefulServer') as server:
+        server.return_value.started=False
+        with pytest.raises(SystemExit) as error:
+            run(object())
+        assert error.value.code==3
+
+
+def test_shutdown_signal_is_logged_for_unexpected_exit_diagnosis(caplog):
+    import logging
+    import signal
+    from mailcheck.web.server import GracefulServer
+    server=GracefulServer(__import__('uvicorn').Config(object(),log_config=None))
+    logger=logging.getLogger('uvicorn.error')
+    logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING,logger='uvicorn.error'):
+            server.handle_exit(signal.SIGTERM,None)
+    finally:
+        logger.removeHandler(caplog.handler)
+    assert server.should_exit
+    assert 'SIGTERM' in caplog.text
 
 
 def test_windows_does_not_hide_server_errors():
-    with patch('mailcheck.web.server.sys.platform','win32'), patch('mailcheck.web.server.asyncio.ProactorEventLoop', create=True), patch('mailcheck.web.server.asyncio.Runner') as runner, patch('mailcheck.web.server.uvicorn.Server') as server:
+    with patch('mailcheck.web.server.sys.platform','win32'), patch('mailcheck.web.server.asyncio.ProactorEventLoop', create=True), patch('mailcheck.web.server.asyncio.Runner') as runner, patch('mailcheck.web.server.GracefulServer') as server:
         server.return_value.serve=MagicMock(return_value='serve-coroutine')
         runner.return_value.__enter__.return_value.run.side_effect=RuntimeError('startup failed')
         with pytest.raises(RuntimeError,match='startup failed'):
@@ -44,7 +70,7 @@ def test_windows_runner_uses_provided_native_factory_and_closes_loop():
             loops.append(asyncio.get_running_loop())
             await asyncio.sleep(0)
     # Replace this module's sys reference, not the host's global platform.
-    with patch('mailcheck.web.server.sys',SimpleNamespace(platform='win32')), patch('mailcheck.web.server.asyncio.ProactorEventLoop', asyncio.SelectorEventLoop, create=True), patch('mailcheck.web.server.uvicorn.Server',Server):
+    with patch('mailcheck.web.server.sys',SimpleNamespace(platform='win32')), patch('mailcheck.web.server.asyncio.ProactorEventLoop', asyncio.SelectorEventLoop, create=True), patch('mailcheck.web.server.GracefulServer',Server):
         run(object(),host='127.0.0.1',port=52400)
     assert len(loops)==1
     assert isinstance(loops[0],asyncio.SelectorEventLoop)
@@ -124,7 +150,7 @@ def test_native_listener_failure_is_raised_after_serve_cleanup():
             assert self.should_exit
             await asyncio.sleep(0)
             cleaned.append(True)
-    with patch('mailcheck.web.server.sys',SimpleNamespace(platform='win32')), patch('mailcheck.web.server.asyncio.ProactorEventLoop',asyncio.SelectorEventLoop,create=True), patch('mailcheck.web.server.uvicorn.Server',Server):
+    with patch('mailcheck.web.server.sys',SimpleNamespace(platform='win32')), patch('mailcheck.web.server.asyncio.ProactorEventLoop',asyncio.SelectorEventLoop,create=True), patch('mailcheck.web.server.GracefulServer',Server):
         with pytest.raises(OSError,match='listener invalid'):
             run(object(),host='127.0.0.1',port=52400)
     assert cleaned==[True]

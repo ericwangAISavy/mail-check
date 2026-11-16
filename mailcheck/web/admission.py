@@ -20,6 +20,17 @@ class RequestAdmission:
         self.stream_active = 0
         self.callback_active = 0
         self.stream_send_timeout = stream_send_timeout
+        self.closing = False
+        self._streams = set()
+        self._shutdown_streams = set()
+
+    def begin_shutdown(self):
+        """End indefinite browser streams before Uvicorn waits for HTTP drain."""
+        self.closing = True
+        for task in tuple(self._streams):
+            if not task.done() and not task.cancelling():
+                self._shutdown_streams.add(task)
+                task.cancel('OfferPath closing live event stream')
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
@@ -38,25 +49,49 @@ class RequestAdmission:
         elif scope['path'] == '/hooks/microsoft':
             counter, limit = 'callback_active', self.max_callbacks
         # No await between checking and reserving: requests share one server loop.
-        if getattr(self, counter) >= limit:
+        if getattr(self, counter) >= limit or (counter == 'stream_active' and self.closing):
             return await JSONResponse(
                 {'error': 'Server is busy. Try again shortly.'}, status_code=503,
                 headers={'Retry-After': '1', 'Cache-Control': 'no-store',
                          'Connection': 'close'},
             )(scope, receive, send)
         setattr(self, counter, getattr(self, counter) + 1)
+        task = asyncio.current_task()
+        if counter == 'stream_active':
+            self._streams.add(task)
         timed_out = False
+        response_started = False
+        response_complete = False
         async def bounded_send(message):
-            nonlocal timed_out
+            nonlocal timed_out, response_started, response_complete
             try:
                 await asyncio.wait_for(send(message), self.stream_send_timeout)
+                if message['type'] == 'http.response.start':
+                    response_started = True
+                elif message['type'] == 'http.response.body' and not message.get('more_body', False):
+                    response_complete = True
             except TimeoutError:
                 timed_out = True
                 raise
         try:
             await self.app(scope, receive, bounded_send if counter == 'stream_active' else send)
+        except asyncio.CancelledError as exc:
+            if task not in self._shutdown_streams or exc.args != ('OfferPath closing live event stream',):
+                raise
+            # Only our explicit stream shutdown is expected. Do not hide
+            # unrelated cancellations/errors or interrupt ordinary API work.
+            try:
+                if not response_started:
+                    await JSONResponse({'error':'Server is shutting down.'},503,
+                        headers={'Retry-After':'1','Connection':'close'})(scope, receive, bounded_send)
+                elif not response_complete:
+                    await bounded_send({'type':'http.response.body','body':b'','more_body':False})
+            except (OSError, TimeoutError):
+                pass  # A disconnected/slow event subscriber cannot hold drain.
         except TimeoutError:
             if not timed_out:
                 raise
         finally:
+            self._streams.discard(task)
+            self._shutdown_streams.discard(task)
             setattr(self, counter, getattr(self, counter) - 1)

@@ -116,6 +116,29 @@ Monitoring separates global queues/shared processes from per-workspace sync and
 outbox evidence. Telemetry is bounded and best effort, not an audit trail. Broker
 health does not establish provider or model health.
 
+## Unexpected stops and shutdown messages
+
+Version 3.0.2 closes browser event streams before Uvicorn waits for HTTP requests
+to drain, and finishes their asynchronous subscription cleanup. A live stream
+must not hold shutdown open until `timeout graceful shutdown exceeded`. This
+does not cancel ordinary API requests or change database schemas.
+
+The timeout traceback describes shutdown cleanup; it does not identify what
+initiated shutdown. Updated runtime messages distinguish received process signals
+from Windows HTTP listener failures and other application/server requests.
+
+Keep the foreground origin supervisor in the launcher, retaining existing public
+hostname and tunnel flags:
+
+```sh
+python -m mailcheck.web.supervisor --no-open --tunnel --allow-host your-domain.example --max-workspaces 30
+```
+
+It records its lifecycle decisions under `control_root/logs/origin-supervisor.log`
+and can recover a confirmed failed listener. If the app exits without a requested
+stop, retain the preceding runtime messages and supervisor log; do not treat the
+shutdown traceback alone as the initiating failure. Keep RabbitMQ running.
+
 ## Rollback
 
 Pause new work, wait for in-flight operations and stop shared mode gracefully.

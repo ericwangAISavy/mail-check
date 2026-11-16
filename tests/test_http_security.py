@@ -71,13 +71,13 @@ def test_tunnel_profile_rejects_direct_public_requests_to_local_hostname(system)
 
 def test_server_pins_proxy_trust_and_removes_banner():
     from mailcheck.web.server import run
-    with patch('mailcheck.web.server.uvicorn.run') as serve:
+    with patch('mailcheck.web.server.uvicorn.Config') as config, patch('mailcheck.web.server.GracefulServer'):
         run(object(), host='127.0.0.1', port=52400)
-        options = serve.call_args.kwargs
+        options = config.call_args.kwargs
         assert options['server_header'] is False
         assert options['forwarded_allow_ips'] == '127.0.0.1,::1'
         assert options['limit_concurrency'] == 256
-        admission = serve.call_args.args[0]
+        admission = config.call_args.args[0]
         assert admission.max_requests == 64
         assert admission.max_control_requests == 8
 

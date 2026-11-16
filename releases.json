@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.0.2",
+    "date": "2026-11-16",
+    "title": "Close live event streams before server shutdown",
+    "changes": [
+      "Close browser event streams before the HTTP shutdown deadline and finish asynchronous subscription cleanup without cancelling ordinary API requests.",
+      "Log the shutdown signal or Windows listener failure so unexpected exits can be distinguished from shutdown cleanup errors."
+    ]
+  },
+  {
     "version": "3.0.1",
     "date": "2026-11-15",
     "title": "Protect shared worker retries and sign-in lifecycle",
