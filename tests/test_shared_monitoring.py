@@ -95,6 +95,7 @@ def test_shared_model_state_uses_file_coordinator_not_legacy_callback(tmp_path,m
     state.parent.mkdir()
     state.write_text(json.dumps(dict(pid=123,workspace='legacy',started_at=100)))
     calls=[]
+    monkeypatch.setattr(monitoring, 'sys', SimpleNamespace(platform='linux'))
     monkeypatch.setattr(monitoring.os,'kill',lambda pid,signal:calls.append((pid,signal)))
     live=scheduler()
     assert live['status']=='healthy' and '1 active' in live['detail']
@@ -105,3 +106,67 @@ def test_shared_model_state_uses_file_coordinator_not_legacy_callback(tmp_path,m
     assert scheduler()['status']=='unknown'
     state.write_text(json.dumps(dict(pid=True,workspace='legacy')))
     assert scheduler()['status']=='unknown'
+
+
+def test_windows_model_probe_reads_process_without_sending_console_signals(tmp_path, monkeypatch):
+    import ctypes
+    import json
+    from unittest.mock import Mock
+    from mailcheck.shared import monitoring
+    state = tmp_path/'shared-runtime'/'model-state.json'
+    state.parent.mkdir()
+    state.write_text(json.dumps(dict(pid=123, workspace='legacy')))
+    monkeypatch.setattr(monitoring, 'sys', SimpleNamespace(platform='win32'), raising=False)
+    def unsafe_signal(*args):
+        raise AssertionError('Monitoring sent a Windows console control event')
+    monkeypatch.setattr(monitoring.os, 'kill', unsafe_signal)
+    kernel = Mock()
+    kernel.OpenProcess.return_value = 456
+    def read_status(handle, output):
+        output._obj.value = 259  # STILL_ACTIVE
+        return True
+    kernel.GetExitCodeProcess.side_effect = read_status
+    monkeypatch.setattr(ctypes, 'WinDLL', lambda *args, **kwargs: kernel, raising=False)
+    assert monitoring.model_activity_snapshot(tmp_path) == 1
+    kernel.OpenProcess.assert_called_once_with(0x1000, False, 123)
+    kernel.CloseHandle.assert_called_once_with(456)
+    def exited(handle, output):
+        output._obj.value = 0
+        return True
+    kernel.GetExitCodeProcess.side_effect = exited
+    assert monitoring.model_activity_snapshot(tmp_path) is None
+    assert kernel.CloseHandle.call_count == 2
+    # Access denied and failed status reads are unknown, never an active count.
+    monkeypatch.setattr(ctypes, 'get_last_error', lambda: 5, raising=False)
+    monkeypatch.setattr(ctypes, 'WinError', lambda code: OSError(code, 'Access denied'), raising=False)
+    kernel.OpenProcess.return_value = 0
+    assert monitoring.model_activity_snapshot(tmp_path) is None
+    assert kernel.CloseHandle.call_count == 2
+    kernel.OpenProcess.return_value = 789
+    kernel.GetExitCodeProcess.side_effect = None
+    kernel.GetExitCodeProcess.return_value = False
+    assert monitoring.model_activity_snapshot(tmp_path) is None
+    kernel.CloseHandle.assert_called_with(789)
+
+
+def test_model_monitoring_keeps_a_live_process_running(tmp_path):
+    import json
+    import subprocess
+    import sys
+    from mailcheck.shared import monitoring
+    state = tmp_path/'shared-runtime'/'model-state.json'
+    state.parent.mkdir()
+    # Isolate the test child from our console on Windows; never signal a real job.
+    flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == 'win32' else 0
+    with subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+                          creationflags=flags, stdin=subprocess.DEVNULL,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as process:
+        try:
+            state.write_text(json.dumps(dict(pid=process.pid, workspace='legacy')))
+            for _ in range(20):
+                assert monitoring.model_activity_snapshot(tmp_path) == 1
+                assert process.poll() is None
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+        assert monitoring.model_activity_snapshot(tmp_path) is None

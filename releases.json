@@ -1,5 +1,21 @@
 [
   {
+    "version": "3.1.1",
+    "date": "2026-11-16",
+    "title": "Safe Windows monitoring probes",
+    "changes": [
+      "Fix a Windows monitoring liveness probe that could generate console interrupt events instead of checking model process state."
+    ]
+  },
+  {
+    "version": "3.1.0",
+    "date": "2026-11-16",
+    "title": "Visual status history",
+    "changes": [
+      "Replace the monitoring event table with an interactive timeline grouped by component and status, with selectable event details."
+    ]
+  },
+  {
     "version": "3.0.3",
     "date": "2026-11-16",
     "title": "System-wide monitoring",

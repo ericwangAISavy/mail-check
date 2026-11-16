@@ -6,6 +6,7 @@ import json
 import re
 import math
 import os
+import sys
 
 from .broker import KINDS, RETRY_DELAYS_MS, queue_name
 
@@ -66,6 +67,37 @@ def read_events(root, workspace):
     return events
 
 
+def process_running(pid):
+    """Read process state without sending Windows console control events.
+
+    On Windows os.kill(pid, 0) calls GenerateConsoleCtrlEvent(CTRL_C_EVENT,
+    pid), rather than implementing POSIX's signal-free existence check.
+    Only query rights are requested here; termination rights are never used.
+    """
+    if sys.platform != 'win32':
+        os.kill(pid, 0)
+        return True
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        code = wintypes.DWORD()
+        if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def model_activity_snapshot(root):
     """Read the shared file coordinator; never acquire its operation lock."""
     path = Path(root)/'shared-runtime'/'model-state.json'
@@ -80,8 +112,7 @@ def model_activity_snapshot(root):
         workspace = state.get('workspace')
         if not isinstance(workspace,str) or not re.fullmatch(r'legacy|[0-9a-f]{32}',workspace):
             return None
-        os.kill(state['pid'],0)
-        return 1
+        return 1 if process_running(state['pid']) else None
     except FileNotFoundError:
         return 0
     except (OSError,ValueError,OverflowError):

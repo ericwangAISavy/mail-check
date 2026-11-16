@@ -2,6 +2,18 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.1.1 — 2026-11-16
+
+Safe Windows monitoring probes
+
+- Fix a Windows monitoring liveness probe that could generate console interrupt events instead of checking model process state.
+
+## 3.1.0 — 2026-11-16
+
+Visual status history
+
+- Replace the monitoring event table with an interactive timeline grouped by component and status, with selectable event details.
+
 ## 3.0.3 — 2026-11-16
 
 System-wide monitoring
