@@ -99,6 +99,19 @@ _sched: dict = {"next_due": None}
 _live_inbox = LiveInbox()
 _scheduler_started = threading.Event()
 
+# Legacy mode retains its original objects; shared requests/jobs resolve these
+# values through an explicit immutable context, never a changed environment.
+from ..shared.web_state import WorkspaceValue
+from ..workspaces import current_workspace, start_workspace_thread
+_interview_scan = WorkspaceValue(_interview_scan, lambda: dict(running=False,processed=0,total=0,found=0,errors=0))
+_job_lock = WorkspaceValue(_job_lock, threading.Lock, name='job-lock')
+_job = WorkspaceValue(_job, dict, name='job')
+_outlook = WorkspaceValue(_outlook, lambda: dict(pending=None,active_id=None,state='idle',message='',email=''))
+_outlook_lock = WorkspaceValue(_outlook_lock, threading.Lock)
+_sched = WorkspaceValue(_sched, lambda: {'next_due':None}, name='schedule')
+_live_inbox = WorkspaceValue(_live_inbox, LiveInbox, name='live-inbox')
+_scheduler_started = WorkspaceValue(_scheduler_started, threading.Event)
+
 
 def _reschedule(cfg=None) -> None:
     """Push the next automatic check one full interval into the future."""
@@ -395,6 +408,8 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, backg
                 _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
         except Exception as exc:  # noqa: BLE001 - surface it in the UI, never 500
             _job.update(message=failed, detail=str(exc), ok=False)
+            if current_workspace() is not None:
+                raise
         finally:
             _job.update(running=False, at=datetime.now().strftime("%H:%M"),
                         stage_started=None, completion_id=_job["completion_id"] + 1)
@@ -408,10 +423,15 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, backg
                 _job_lock.release()
 
     try:
-        threading.Thread(target=runner, daemon=True).start()
+        if current_workspace() is not None:
+            # Shared jobs already execute in a bounded consumer executor.
+            runner()
+        else:
+            threading.Thread(target=runner, daemon=True).start()
     except Exception:
         _job.update(running=False, ok=False, message=failed, stage_started=None)
-        _job_lock.release()
+        if current_workspace() is None or _job_lock.locked():
+            _job_lock.release()
         raise
 
 
@@ -590,6 +610,7 @@ def _live_assigned_accounts(conn):
 
 
 _payment_refresh_lock = threading.Lock()
+_payment_refresh_lock = WorkspaceValue(_payment_refresh_lock, threading.Lock)
 
 
 def _refresh_payment_week(conn, start):
@@ -674,11 +695,14 @@ def _scheduler() -> None:
 
 
 @shared_writer
-def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None) -> FastAPI:
+def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None, shared: bool = False) -> FastAPI:
     if worker_secret is not None and not worker_secret:
         raise ValueError("A private workspace worker requires an authentication secret.")
     @asynccontextmanager
     async def lifespan(app):
+        if shared:
+            yield
+            return
         from ..realtime.runtime import Runtime
         import asyncio
         with MaintenanceLock(lock_path()):
@@ -738,7 +762,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             status_code=503,
         )
 
-    if not _scheduler_started.is_set():
+    if not shared and not _scheduler_started.is_set():
         _scheduler_started.set()
         threading.Thread(target=_scheduler, daemon=True).start()
 
@@ -1946,7 +1970,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                         message = str(exc) if isinstance(exc, outlook_auth.OutlookAuthError) else f"{type(exc).__name__}: {exc}"
                         _outlook.update(pending=None, state="failed", message=message)
 
-        threading.Thread(target=wait, daemon=True).start()
+        if current_workspace() is not None:
+            start_workspace_thread(wait, daemon=True)
+        else:
+            threading.Thread(target=wait, daemon=True).start()
         return {
             "ok": True,
             "user_code": pending.user_code,

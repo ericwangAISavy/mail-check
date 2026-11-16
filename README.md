@@ -407,6 +407,10 @@ Microsoft 365 work and school accounts are out of scope.
 
 ## Development
 
+For the opt-in RabbitMQ shared process architecture and a drained migration from
+per-admin workers, see [Shared workers](docs/SHARED_WORKERS.md). Existing deployments
+keep their current worker mode until explicitly switched.
+
 For opt-in background email/calendar collection and live page updates using Redis Streams,
 see [Automatic updates](docs/REALTIME.md). Existing manual checks remain available.
 

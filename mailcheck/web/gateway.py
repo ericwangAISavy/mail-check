@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -83,11 +84,24 @@ class Switch(BaseModel):
     workspace_id: str = Field(min_length=1,max_length=32)
 
 
-def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True,tunnel_mode=False):
+def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True,tunnel_mode=False,worker_mode=None,amqp_url=None):
     if not 1<=max_workspaces<=64:raise ValueError('Choose 1–64 maximum workspaces.')
     original_config=config.config_path(); original_db=config.db_path(); original_auth=config.config_dir()/'web-auth.json'
     store=store or ControlStore(config.control_dir(),AuthStore(lambda:original_auth),max_workspaces)
+    worker_mode=worker_mode or os.environ.get('OFFERPATH_WORKER_MODE','legacy')
+    if worker_mode not in {'legacy','shared'}:
+        raise ValueError('OFFERPATH_WORKER_MODE must be legacy or shared.')
+    shared=worker_mode=='shared'
+    amqp_url=amqp_url or os.environ.get('AMQP_URL')
+    if shared and not amqp_url:
+        raise ValueError('Shared worker mode requires AMQP_URL; existing jobs are not moved automatically.')
+    if pool is None and shared:
+        from ..shared.pool import SharedPool
+        pool=SharedPool(store,gateway_url,(original_config,original_db,original_auth),
+            size=int(os.environ.get('OFFERPATH_API_WORKERS','2')),
+            job_size=int(os.environ.get('OFFERPATH_COLLECTION_WORKERS','2')),amqp_url=amqp_url)
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
+    subscriber=None
     backup_manager=BackupManager(BackupLayout(original_config,original_db,store.root),store._lock)
     admin_change_lock=threading.Lock()
     bidder_change_lock=asyncio.Lock()
@@ -159,8 +173,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             monitor=asyncio.create_task(pool.monitor()) if start_workers else None
             recovery=asyncio.create_task(recover_leases())
             backups=asyncio.create_task(backup_loop()) if start_workers else None
+            if subscriber is not None and start_workers:
+                subscriber.start()
             try:yield
             finally:
+                if subscriber is not None and start_workers:
+                    await subscriber.stop()
                 for task in (backups,monitor,recovery):
                     if task is None:continue
                     task.cancel()
@@ -358,7 +376,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             worker=await ready_workspace(identity['workspace_id'])
             async with worker_http_client() as client:
                 result=await client.get(f'http://127.0.0.1:{worker.port}/_internal/bidders/{bidder_id}',
-                    headers={'x-offerpath-worker':worker.token})
+                    headers={'x-offerpath-worker':worker.token,'x-offerpath-workspace':identity['workspace_id']})
         except (httpx.HTTPError,RuntimeError,OSError):
             raise HTTPException(503,'Could not load workspace bidders. Try again when the workspace is available.')
         if result.status_code==404:raise HTTPException(404,'Bidder not found in this workspace.')
@@ -469,7 +487,29 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'],
                                         read_only=request.method in ('GET','HEAD'))
         await validate_dispatch()
+        if shared and request.method=='POST' and path.rstrip('/') in {'api/check','api/reclassify','api/interviews/sync'}:
+            if identity['role']!='admin':
+                raise HTTPException(403,'Admin access required.')
+            from ..shared.dispatch import submit_manual
+            kind='manual-reclassify' if path.rstrip('/')=='api/reclassify' else 'manual-check'
+            try:
+                if path.rstrip('/')=='api/interviews/sync':
+                    from .app import CheckBody
+                    options=CheckBody.model_validate_json(b'{}' if not body or body.strip()==b'null' else body).model_copy(update={'mode':'calendar'})
+                    body=options.model_dump_json().encode()
+                return await asyncio.to_thread(submit_manual,store,(original_config,original_db,original_auth),
+                    target,request.cookies.get(COOKIE),kind,body,amqp_url)
+            except BlockingIOError:
+                raise HTTPException(409,'A check is already queued or running.') from None
+            except ValueError:
+                raise HTTPException(422,'Invalid check options.') from None
+            except (PermissionError,RevokedSession):
+                raise
+            except Exception:
+                raise HTTPException(503,'The job queue is unavailable; check status before retrying.') from None
         headers={'x-offerpath-worker':worker.token}
+        if shared:
+            headers['x-offerpath-workspace']=target
         if identity['role']=='bidder':
             headers['x-offerpath-viewer']='bidder'
             headers['x-offerpath-bidder']=str(identity['bidder_id'])
@@ -515,7 +555,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 try:
                     member=await ready_workspace(workspace['id'])
                     async with worker_http_client() as client:
-                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token},timeout=5)
+                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token,'x-offerpath-workspace':workspace['id']},timeout=5)
                 except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
             workspaces=await asyncio.to_thread(store.enabled_workspaces)
             await asyncio.gather(*(notify(workspace) for workspace in workspaces))
@@ -536,8 +576,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             raise HTTPException(504,'This page took too long to load. Try again shortly.',
                                 headers={'Retry-After':'1'})
 
-    from .realtime_routes import install as install_realtime
-    install_realtime(app, store, identity_for, COOKIE)
+    if shared:
+        from ..shared.events import install as install_realtime
+        subscriber=install_realtime(app,store,identity_for,COOKIE,amqp_url=amqp_url)
+    else:
+        from .realtime_routes import install as install_realtime
+        install_realtime(app, store, identity_for, COOKIE)
 
     @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
     async def proxy(path:str,request:Request):

@@ -43,3 +43,16 @@ it('freezes the displayed snapshot when an in-flight refresh finishes after paus
  expect(screen.queryByText('Changed gateway')).toBeNull()
  expect(screen.getByText('Gateway')).toBeTruthy()
 })
+it('shows shared process and data flow with global queues',async()=>{
+ const shared={...snapshot,architecture:'shared',process_counts:{api:2,collection:2,model:1},global_queues:[{kind:'mail',pending:3,retry:1,dead:0}]}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify(shared),{headers:{'Content-Type':'application/json'}})))
+ mount()
+ expect(await screen.findByRole('region',{name:'Shared process and data flow'})).toBeTruthy()
+ expect(screen.getByText('Shared API pool')).toBeTruthy()
+ expect(screen.getByText('Collection pool')).toBeTruthy()
+ expect(screen.getByText('Model process')).toBeTruthy()
+ expect(screen.getByText('Workspace databases')).toBeTruthy()
+ expect(screen.getByText('RabbitMQ change exchange')).toBeTruthy()
+ expect(screen.getByText('Global RabbitMQ queues')).toBeTruthy()
+ expect(screen.getByText(/Ready messages exclude in-flight/)).toBeTruthy()
+})

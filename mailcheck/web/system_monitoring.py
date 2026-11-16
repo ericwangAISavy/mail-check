@@ -112,6 +112,9 @@ class Monitor:
             return result
 
     def _collect(self):
+        if getattr(self.pool,'amqp_url',None):
+            from ..shared.monitoring import shared_snapshot
+            return shared_snapshot(self.store,self.pool,self.model_activity)
         checked_at = time.time()
         admins = self.store.list_admins()
         states = self.pool.status()

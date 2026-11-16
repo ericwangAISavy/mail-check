@@ -19,13 +19,16 @@ class ProgressStore:
         self._items = {}
 
     def get(self, tab, operation):
+        from .workspaces import current_workspace
+        workspace = current_workspace()
         with self._lock:
-            item = self._items.get((tab, operation))
+            item = self._items.get((workspace, tab, operation))
             return dict(item[1]) if item else None
 
     @contextmanager
     def track(self, tab, operation):
-        key = (tab, operation)
+        from .workspaces import current_workspace
+        key = (current_workspace(), tab, operation)
         with self._lock:
             now = monotonic()
             self._items = {k:v for k,v in self._items.items()

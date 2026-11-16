@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.0.0 — 2026-11-15
+
+Shared RabbitMQ worker architecture
+
+- Add an opt-in fixed shared API and RabbitMQ job pool while keeping admin databases and credentials isolated.
+- Keep the current runtime as the default; switching requires draining existing jobs and does not migrate application database schemas.
+- Show shared component, data, and event flows in owner system monitoring.
+
 ## 2.29.0 — 2026-11-14
 
 Owner system monitoring

@@ -24,12 +24,23 @@ def install(app):
             settings = Settings()
         runtime = getattr(app.state, 'realtime', None)
         subscriptions = []
+        from ..workspaces import current_workspace
+        context=current_workspace()
+        from .graph import GraphSubscriptions
+        resources=GraphSubscriptions.resources
         if runtime:
             subscriptions = runtime.registry.list_workspace(runtime.workspace_id)
+        elif context is not None:
+            from ..shared.events import ReadOnlyRegistry
+            import sqlite3
+            try:
+                subscriptions=ReadOnlyRegistry(context.control_root/'realtime.db').list_workspace(context.workspace_id)
+            except (sqlite3.Error,OSError):
+                pass
         callback_url = settings.public_url + '/hooks/microsoft' if settings.public_url else ''
         live = {(s['account_id'], s['kind']) for s in subscriptions if callback_url
                 and s['expires'] > time.time() and s.get('callback_url', '') == callback_url
-                and s.get('resource', '') == runtime.graph.resources.get(s['kind'])}
+                and s.get('resource', '') == resources.get(s['kind'])}
         with db.session() as conn:
             records = storage.status(conn)
             providers = {a.id: a.provider for a in db.list_accounts(conn)}

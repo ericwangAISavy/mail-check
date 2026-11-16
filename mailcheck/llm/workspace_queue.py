@@ -29,6 +29,25 @@ def _release_lease(client, gateway, token, lease):
 def shared_model_slot(operation):
     @wraps(operation)
     def run(*args,**kwargs):
+        from ..workspaces import current_workspace
+        context=current_workspace()
+        if context is not None:
+            # Same-host shared processes must finish an admitted multi-batch job
+            # even after the gateway stops accepting HTTP during graceful drain.
+            from ..shared.state import OperationLock,atomic_json
+            lock=OperationLock(context.control_root/'shared-runtime'/'model.lock')
+            if not lock.acquire(timeout=600):
+                from .client import OllamaBusy
+                raise OllamaBusy('The shared model queue is busy. Try again shortly.',category='connect')
+            status=context.control_root/'shared-runtime'/'model-state.json'
+            try:
+                atomic_json(status,dict(pid=os.getpid(),workspace=context.workspace_id,started_at=time.time()))
+                return operation(*args,**kwargs)
+            finally:
+                try:
+                    status.unlink(missing_ok=True)
+                finally:
+                    lock.release()
         gateway=os.environ.get('OFFERPATH_GATEWAY_URL')
         token=os.environ.get('OFFERPATH_WORKER_TOKEN')
         if not gateway or not token:return operation(*args,**kwargs)
