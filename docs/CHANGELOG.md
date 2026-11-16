@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.0.3 — 2026-11-16
+
+System-wide monitoring
+
+- Focus monitoring on shared service pools, global queue backlog, and event flow; remove per-admin health and sync cards.
+
 ## 3.0.2 — 2026-11-16
 
 Close live event streams before server shutdown

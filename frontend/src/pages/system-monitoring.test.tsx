@@ -1,4 +1,4 @@
-import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {afterEach, expect, it, vi} from 'vitest'
 import SystemMonitoring from './system-monitoring'
@@ -55,4 +55,40 @@ it('shows shared process and data flow with global queues',async()=>{
  expect(screen.getByText('RabbitMQ change exchange')).toBeTruthy()
  expect(screen.getByText('Global RabbitMQ queues')).toBeTruthy()
  expect(screen.getByText(/Ready messages exclude in-flight/)).toBeTruthy()
+})
+
+it('shows global backlog and pool health without per-admin health cards',async()=>{
+ const shared={...snapshot,architecture:'shared',process_counts:{api:2,collection:1,model:1},
+  global_queues:[{kind:'mail',pending:4,retry:2,dead:1},{kind:'classify',pending:7,retry:3,dead:2}],
+  components:[snapshot.components[0],
+   {id:'shared-api-0',name:'Shared api process · 0',status:'healthy',detail:'Ready.'},
+   {id:'shared-api-1',name:'Shared api process · 1',status:'unavailable',detail:'Stopped.'},
+   {id:'legacy:worker',workspace:'legacy',name:'Workspace worker',status:'unavailable',detail:'Private admin worker detail.'},
+   {id:'legacy:database',workspace:'legacy',name:'Workspace database',status:'healthy',detail:'Private admin database detail.'}]}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify(shared),{headers:{'Content-Type':'application/json'}})))
+ mount()
+ const backlog=await screen.findByRole('region',{name:'Queue backlog'})
+ expect(within(backlog).getByText('11')).toBeTruthy()
+ expect(within(backlog).getByText('5')).toBeTruthy()
+ expect(within(backlog).getByText('3')).toBeTruthy()
+ expect(screen.queryByText('Private admin worker detail.')).toBeNull()
+ expect(screen.queryByText('Private admin database detail.')).toBeNull()
+ expect(screen.queryByText('Admin workspaces')).toBeNull()
+ expect(screen.queryByText('Workspace account sync & publication')).toBeNull()
+ expect(screen.queryByText('Shared api process · 0')).toBeNull()
+ expect(screen.getByText('1 of 2 processes ready.')).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('Event workspace'),{target:{value:'legacy'}})
+ expect(within(backlog).getByText('11')).toBeTruthy()
+})
+
+it('keeps legacy monitoring system-wide and does not invent zero queue counts',async()=>{
+ const legacy={...snapshot,components:[...snapshot.components,
+  {id:'legacy:worker',workspace:'legacy',name:'Workspace worker',status:'unavailable',detail:'Admin worker offline.'}]}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify(legacy),{headers:{'Content-Type':'application/json'}})))
+ mount()
+ const backlog=await screen.findByRole('region',{name:'Queue backlog'})
+ expect(within(backlog).queryByText('0')).toBeNull()
+ expect(screen.queryByText('Admin worker offline.')).toBeNull()
+ expect(screen.queryByRole('heading',{name:'Workspace queues & account sync'})).toBeNull()
+ expect(screen.getByText('Queue metrics unavailable.')).toBeTruthy()
 })
