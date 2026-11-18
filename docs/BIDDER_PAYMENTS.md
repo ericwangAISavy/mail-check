@@ -106,7 +106,7 @@ account-management list, while assigned account labels remain visible in the tab
 The default **Confirmation time** graph, hourly heatmaps, peak hour,
 and last confirmation use the matching email's received timestamp, not the time
 Check now or auto-check ran. Multiple valid matches use the earliest receipt in the
-row's seven-day matching window. Both bidder and account views use these timestamps.
+row's ten-day matching window. Both bidder and account views use these timestamps.
 Rows checked manually or preserved from older data without a matching confirmation
 keep their payment credit but have no inferred receipt time. The selected-day
 summary reconciles the payment total as timed confirmations plus checks without

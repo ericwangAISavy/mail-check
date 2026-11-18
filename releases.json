@@ -1,5 +1,31 @@
 [
   {
+    "version": "3.3.1",
+    "date": "2026-11-18",
+    "title": "Keep link-history cleanup within its selection",
+    "changes": [
+      "Remove only selected links from retained import snapshots during history cleanup, preserving unrelated imported rows and operation records.",
+      "Roll back cleanup safely when a retained import snapshot cannot be read."
+    ]
+  },
+  {
+    "version": "3.3.0",
+    "date": "2026-11-18",
+    "title": "Manage sourcing link history from Accounts",
+    "changes": [
+      "Let admins preview and clear sourcing link history per email account and bidder, including deleted bidders, with optional sourcing-date filters.",
+      "Show affected and checked-link counts before permanent deletion, with concurrent-edit protection and safe retries."
+    ]
+  },
+  {
+    "version": "3.2.15",
+    "date": "2026-11-18",
+    "title": "Extend application matching to ten days",
+    "changes": [
+      "Match application confirmations within ten Chicago calendar days of the sourcing date, including manual checks, automatic verification, and bounded payment refreshes."
+    ]
+  },
+  {
     "version": "3.2.14",
     "date": "2026-11-18",
     "title": "Modernize sign-in typography",

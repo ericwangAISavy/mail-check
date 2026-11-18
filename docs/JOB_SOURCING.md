@@ -62,6 +62,16 @@ undo history clears on a day change so it cannot affect another day's jobs.
 
 ## Check received applications
 
+Admins can open **Accounts → Link history** on an email account to remove retained
+sourcing links. Choose a bidder, including deleted bidders, and optionally filter
+by sourcing date. Leaving both dates empty includes undated links. Archived tabs
+are included. Review the selected and checked-link counts before confirming
+permanent deletion. A changed sheet requires a fresh preview.
+
+Removing checked rows can change calculated application and payment totals.
+Saved payment records are retained. Cleared links become available for reuse
+through the usual account-level duplicate checks.
+
 Select the account tab and job date, wait for **Saved**, then click
 **Check applications**. For each job link on that tab and date, mail-check compares
 its company and role with a single saved **Application received** confirmation from
@@ -69,13 +79,13 @@ the same account. If the confirmation includes a role, company and role must bot
 match. Only confirmations with no role allow company-only matching. A missing role
 on the sourcing row does not bypass a role present in the email. Missing roles in older receipts are filled from retained email
 classifications when available.
-Confirmations received during the seven-day window beginning on the sourcing date
-count: Chicago midnight on that date inclusive to midnight seven days later exclusive. Choose a date first; Undated rows cannot be checked.
+Confirmations received during the ten-day window beginning on the sourcing date
+count: Chicago midnight on that date inclusive to midnight ten days later exclusive. Choose a date first; Undated rows cannot be checked.
 
 The top-level **Check now** button and each scheduled **Auto-check** run also
 verify all dated jobs on every active tab in every workbook after collection and
 classification finish. Each row is compared against confirmations received within its
-own seven-day window beginning on its work date, including earlier dates. Archived tabs and tabs whose accounts have
+own ten-day window beginning on its work date, including earlier dates. Archived tabs and tabs whose accounts have
 been removed are skipped. The completion message includes the matched-link and tab
 counts. An open, saved sheet refreshes immediately; active edits remain protected.
 Automatic verification adds new matches and never clears existing checks.

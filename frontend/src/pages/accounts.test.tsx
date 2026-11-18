@@ -23,6 +23,26 @@ function mount() {
 }
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
 
+it("previews deleted bidder links before clearing history", async () => {
+  const current = vi.mocked(apiModule.request).getMockImplementation()!
+  vi.mocked(apiModule.request).mockImplementation((url, init) => url.endsWith('/link-history') ?
+    Promise.resolve({ bidders: [{ id: 9, name: 'Former bidder', deleted: true, link_count: 12 }] } as never) : current(url, init))
+  const post = vi.spyOn(api, 'post').mockImplementation(async (url) =>
+    url.endsWith('/preview') ? { link_count: 12, checked_count: 2, preview_token: 'a'.repeat(64) } as never : { deleted: 12 } as never)
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Link history' }))
+  await screen.findByRole('option', { name: /Former bidder \(Deleted\)/ })
+  fireEvent.change(screen.getByLabelText('Bidder'), { target: { value: '9' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review deletion' }))
+  const remove = await screen.findByRole('button', { name: 'Delete 12 links' })
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(screen.getByText(/Removing checked rows can change/)).toBeTruthy()
+  fireEvent.click(remove)
+  await screen.findByText('12 sourcing link(s) removed.')
+  expect(post.mock.calls[1][0]).toBe('/api/accounts/1/link-history/clear')
+  expect(post.mock.calls[1][1]).toMatchObject({ bidder_id: 9, start: null, end: null, preview_token: 'a'.repeat(64) })
+})
+
 it("shows pending Outlook read updates and reconnection guidance", async () => {
   accounts[0].provider = "outlook"
   accounts[0].pending_read_updates = 3

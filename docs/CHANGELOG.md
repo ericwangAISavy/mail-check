@@ -2,6 +2,26 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.3.1 — 2026-11-18
+
+Keep link-history cleanup within its selection
+
+- Remove only selected links from retained import snapshots during history cleanup, preserving unrelated imported rows and operation records.
+- Roll back cleanup safely when a retained import snapshot cannot be read.
+
+## 3.3.0 — 2026-11-18
+
+Manage sourcing link history from Accounts
+
+- Let admins preview and clear sourcing link history per email account and bidder, including deleted bidders, with optional sourcing-date filters.
+- Show affected and checked-link counts before permanent deletion, with concurrent-edit protection and safe retries.
+
+## 3.2.15 — 2026-11-18
+
+Extend application matching to ten days
+
+- Match application confirmations within ten Chicago calendar days of the sourcing date, including manual checks, automatic verification, and bounded payment refreshes.
+
 ## 3.2.14 — 2026-11-18
 
 Modernize sign-in typography

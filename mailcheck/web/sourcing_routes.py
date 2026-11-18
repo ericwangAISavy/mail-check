@@ -3,6 +3,7 @@
 from typing import Annotated, Literal
 import sqlite3
 import uuid
+from datetime import date
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -102,6 +103,24 @@ class Archive(BaseModel):
     archived: bool
 
 
+class HistoryScope(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    bidder_id: int = Field(gt=0)
+    start: date | None = None
+    end: date | None = None
+
+    @model_validator(mode='after')
+    def ordered_dates(self):
+        if self.start and self.end and self.start > self.end:
+            raise ValueError('The start date must be on or before the end date.')
+        return self
+
+
+class ClearHistory(HistoryScope):
+    preview_token: str = Field(pattern=r'^[a-f0-9]{64}$')
+    operation: uuid.UUID
+
+
 def install(app, frontend_page, secure_cookies):
     router = APIRouter()
     from ..sourcing_progress import ProgressStore
@@ -114,8 +133,37 @@ def install(app, frontend_page, secure_cookies):
         return {"role": req.state.role, "bidder_id": req.state.bidder_id}
 
     def admin(req):
-        if req.state.role != "admin":
+        if req.state.role != "admin" or getattr(req.state, 'viewer_read_only', False):
             raise HTTPException(403, "Admin access required.")
+
+    def history_call(req, action):
+        admin(req)
+        with db.session() as conn:
+            try:
+                return action(conn)
+            except LookupError as exc:
+                raise HTTPException(404, str(exc))
+            except FileExistsError as exc:
+                raise HTTPException(409, str(exc))
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+
+    @router.get('/api/accounts/{account_id}/link-history')
+    def link_history(account_id: int, req: Request):
+        from .. import link_history as history
+        return history_call(req, lambda conn: history.bidders(conn, account_id))
+
+    @router.post('/api/accounts/{account_id}/link-history/preview')
+    def preview_history(account_id: int, body: HistoryScope, req: Request):
+        from .. import link_history as history
+        return history_call(req, lambda conn: history.preview(conn, account_id, body.model_dump(mode='json')))
+
+    @router.post('/api/accounts/{account_id}/link-history/clear')
+    def clear_history(account_id: int, body: ClearHistory, req: Request):
+        from .. import link_history as history
+        scope = body.model_dump(mode='json', exclude={'preview_token', 'operation'})
+        return history_call(req, lambda conn: history.clear(conn, account_id, scope,
+            body.preview_token, str(body.operation)))
 
     def owned(conn, tab_id, req):
         try:

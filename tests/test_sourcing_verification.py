@@ -25,14 +25,14 @@ class SourcingVerificationTests(unittest.TestCase):
             [["Acme", "Engineer", "https://jobs.test/1"], ["Beta", "Engineer", "https://jobs.test/2"],
              ["Other", "Engineer", "https://jobs.test/3"]], work_date=day)
 
-    def test_matching_checks_same_account_company_and_seven_chicago_days(self):
+    def test_matching_checks_same_account_company_and_ten_chicago_days(self):
         from mailcheck import sourcing_verification as verification
         other = db.add_account(self.conn, label="other", email="other@example.test")
         self.conn.commit()
         base = self.jobs()
         self.receipt("start", "A.C.M.E.", "2026-10-20T05:00:00+00:00")
-        self.receipt("end", "Acme", "2026-10-27T04:59:59+00:00")
-        self.receipt("too-late", "Beta", "2026-10-27T05:00:00+00:00")
+        self.receipt("end", "Acme", "2026-10-30T04:59:59+00:00")
+        self.receipt("too-late", "Beta", "2026-10-30T05:00:00+00:00")
         self.receipt("too-early", "Beta", "2026-10-20T04:59:59+00:00")
         self.receipt("other-account", "Other", "2026-10-20T12:00:00+00:00", account=other)
         self.receipt("wrong-category", "Beta", "2026-10-20T12:00:00+00:00", category="interview_invite")
@@ -139,7 +139,7 @@ class SourcingVerificationTests(unittest.TestCase):
         other = db.add_account(self.conn, label="other", email="other@example.test")
         self.receipt("no-role", "Acme", "2026-10-21T12:00:00+00:00", role="  ")
         self.receipt("wrong-account", "Beta", "2026-10-21T12:00:00+00:00", account=other, role=None)
-        self.receipt("outside-window", "Other", "2026-10-27T05:00:00+00:00", role=None)
+        self.receipt("outside-window", "Other", "2026-10-30T05:00:00+00:00", role=None)
         self.conn.commit()
         verification.verify_all(self.conn)
         self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
@@ -199,11 +199,11 @@ class SourcingVerificationTests(unittest.TestCase):
         result = verification.verify(self.conn, self.tab(), "after-cleanup", base["revision"], "2026-10-20")
         self.assertEqual(result["rows"][1][3]["value"], "true")
 
-    def test_seven_day_window_handles_fall_back_offset_change(self):
+    def test_ten_day_window_handles_fall_back_offset_change(self):
         from mailcheck import sourcing_verification as verification
         base = self.jobs("2026-11-01")
-        self.receipt("last-minute", "Acme", "2026-11-08T05:59:59+00:00")
-        self.receipt("next-midnight", "Beta", "2026-11-08T06:00:00+00:00")
+        self.receipt("last-minute", "Acme", "2026-11-11T05:59:59+00:00")
+        self.receipt("next-midnight", "Beta", "2026-11-11T06:00:00+00:00")
         self.conn.commit()
         result = verification.verify(self.conn, self.tab(), "dst", base["revision"], "2026-11-01")
         self.assertEqual([row[3]["value"] for row in result["rows"][1:3]], ["true", "false"])
@@ -242,15 +242,23 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         self.assertEqual(verification.verify_all(self.conn)["tabs"], 2)
 
-    def test_automatic_window_includes_day_seven_but_excludes_day_eight(self):
+    def test_automatic_window_includes_day_ten_but_excludes_day_eleven(self):
         from mailcheck import sourcing_verification as verification
         self.jobs()
-        self.receipt("last-minute", "Acme", "2026-10-27T04:59:59+00:00")
-        self.receipt("too-late", "Beta", "2026-10-27T05:00:00+00:00")
+        self.receipt("last-minute", "Acme", "2026-10-30T04:59:59+00:00")
+        self.receipt("too-late", "Beta", "2026-10-30T05:00:00+00:00")
         self.receipt("too-early", "Other", "2026-10-20T04:59:59+00:00")
         self.conn.commit()
         verification.verify_all(self.conn)
         self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
+
+    def test_bounded_refresh_matches_eight_day_old_job(self):
+        from mailcheck import sourcing_verification as verification
+        self.jobs('2026-10-20')
+        self.receipt('eight-days-later', 'Acme', '2026-10-28T12:00:00+00:00')
+        self.conn.commit()
+        verification.verify_all(self.conn, refresh_since=date(2026, 10, 28), refresh_until=date(2026, 10, 28))
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
 
     def test_late_confirmation_credits_receipt_day_even_across_payment_weeks(self):
         from mailcheck import sourcing_verification as verification

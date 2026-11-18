@@ -9,6 +9,8 @@ from . import native_sourcing as sheets
 from .payments import ZONE, sync_receipts
 from .sourcing_structure import check_revision
 
+MATCHING_WINDOW_DAYS = 10
+
 
 def company_key(value):
     name = unicodedata.normalize("NFKC", value or "").casefold().strip()
@@ -125,7 +127,7 @@ def _matching_plan(conn, rows, receipts, *, early_since, explanations=None):
         tiers = ((False, False), (False, True)) if role is None else ((False, False), (False, True), (True, True))
         for partial, aliases in tiers:
             for dates, by_date in compatible_groups(receipt['account_id'], company, role, partial, aliases):
-                for source_day in dates[bisect_left(dates, (day-timedelta(days=6)).isoformat()):bisect_right(dates, day.isoformat())]:
+                for source_day in dates[bisect_left(dates, (day-timedelta(days=MATCHING_WINDOW_DAYS - 1)).isoformat()):bisect_right(dates, day.isoformat())]:
                     candidates.update(by_date[source_day])
                 if day >= early_since:
                     for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
@@ -175,10 +177,10 @@ def verify(conn, tab, operation, revision, work_date):
         raise ValueError("This sheet needs a connected account before checking applications.")
     selected = date.fromisoformat(day)
     current = payments.today()
-    early_lower = datetime.combine(current - timedelta(days=6), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+    early_lower = datetime.combine(current - timedelta(days=MATCHING_WINDOW_DAYS - 1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     early_upper = datetime.combine(current + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     lower = datetime.combine(selected, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-    upper = datetime.combine(selected + timedelta(days=7), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+    upper = datetime.combine(selected + timedelta(days=MATCHING_WINDOW_DAYS), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     payload = {"action": "verify", "revision": revision, "work_date": day}
     explanations = {}
     with sheets.atomic(conn):
@@ -203,7 +205,7 @@ def verify(conn, tab, operation, revision, work_date):
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=rc.id
                 JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''
                 WHERE t.account_id=? AND (t.archived=0 OR t.id=?) AND r.work_date IS NOT NULL""", (tab['account_id'],tab['id'])).fetchall()
-            plan = _matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=6), explanations=explanations)
+            plan = _matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=MATCHING_WINDOW_DAYS - 1), explanations=explanations)
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
@@ -255,9 +257,9 @@ def verify(conn, tab, operation, revision, work_date):
 
 
 def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, week_only=False, rebuild=False):
-    """Refresh active account sheets against receipts in each row’s seven-day window.
+    """Refresh active account sheets against receipts in each row’s ten-day window.
 
-    A bounded refresh includes links from six days before its receipt window and all later pre-registered dates. Recent receipts can match early work on future rows.
+    A bounded refresh includes links from nine days before its receipt window and all later pre-registered dates. Recent receipts can match early work on future rows.
     Keep earlier receipts too so reconciliation never shifts an existing match
     to a later duplicate email. Passive report reads do not create check runs.
 
@@ -275,7 +277,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             return False
         day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
         return refresh_since <= day <= refresh_until
-    source_since = refresh_since - timedelta(days=6) if refresh_since else None
+    source_since = refresh_since - timedelta(days=MATCHING_WINDOW_DAYS - 1) if refresh_since else None
     with sheets.atomic(conn):
         sync_receipts(conn, since=refresh_since if week_only else None, until=refresh_until if week_only else None)
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
@@ -328,7 +330,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"])
                     or (week_only and in_week(r["confirmed_at"]))]
         receipts = list(conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters))
-        plan = _matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=6)))
+        plan = _matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=MATCHING_WINDOW_DAYS - 1)))
         changed_tabs = set()
         checked_count = changed_count = 0
         for row in rows:
