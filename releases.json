@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.4.0",
+    "date": "2026-11-18",
+    "title": "Application confirmations in bidder Inbox",
+    "changes": [
+      "Bidders now see Application received messages alongside Info requests for their assigned accounts.",
+      "Filter the bidder Inbox by Info request or Application received, or view both together."
+    ]
+  },
+  {
     "version": "3.3.1",
     "date": "2026-11-18",
     "title": "Keep link-history cleanup within its selection",

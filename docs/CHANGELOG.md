@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.4.0 — 2026-11-18
+
+Application confirmations in bidder Inbox
+
+- Bidders now see Application received messages alongside Info requests for their assigned accounts.
+- Filter the bidder Inbox by Info request or Application received, or view both together.
+
 ## 3.3.1 — 2026-11-18
 
 Keep link-history cleanup within its selection

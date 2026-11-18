@@ -278,7 +278,7 @@ it('gives bidders the restricted inbox navigation without admin triage or accoun
  expect(await screen.findByRole('link',{name:'Inbox'})).toBeTruthy()
  expect(screen.queryByRole('link',{name:'Triage'})).toBeNull()
  expect(screen.queryByRole('link',{name:'Accounts'})).toBeNull()
- expect(await screen.findByText('Info request messages for your assigned accounts.')).toBeTruthy()
+ expect(await screen.findByText('Info requests and application confirmations for your assigned accounts.')).toBeTruthy()
 })
 
 function CurrentAddress() {

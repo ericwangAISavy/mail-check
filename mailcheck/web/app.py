@@ -1282,8 +1282,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             +db.LATEST_CLASSIFICATION+" WHERE m.id=?"+scope,[pk,*values]).fetchone() is not None
 
     def bidder_inbox_summary(conn,viewer,*,since=None,account=None,search=None):
-        pending=db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=False,search=search).get('info_request',0)
-        completed=db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=True,search=search).get('info_request',0)
+        pending=sum(db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=False,search=search).values())
+        completed=sum(db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=True,search=search).values())
         return {'actionable':pending,'informational':0,'done':completed}
 
     @app.get('/inbox')
@@ -1304,7 +1304,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                  if days == 0 else now - timedelta(days=days)).isoformat()
         handled = {"queue": False, "completed": True, "all": None}[view]
         viewer=request.state.bidder_id if request.state.role=='bidder' else None
-        if viewer:category='info_request'
+        if viewer and category not in db.BIDDER_INBOX_CATEGORIES:
+            category=None
         with db.session() as conn:
             if viewer:
                 conn.execute('PRAGMA query_only=ON')
@@ -1312,6 +1313,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             rows = db.query_triaged(
                 conn,
                 categories=([category] if category else
+                            db.BIDDER_INBOX_CATEGORIES if viewer else
                             ACTIONABLE_CATEGORIES if view == "queue" else None),
                 account_label=account,
                 since_iso=since,

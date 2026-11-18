@@ -31,7 +31,7 @@ class BidderInboxTests(unittest.TestCase):
             headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
             for client,extra in ((self.client,{}),(worker,{'headers':headers})):
                 data=client.get('/api/triage?category=interview_invite&days=90&view=all',**extra).json()
-                self.assertEqual(data['selected_category'],'info_request')
+                self.assertIsNone(data['selected_category'])
                 self.assertEqual([m['pk'] for g in data['groups'] for m in g['items']],[mine])
                 self.assertEqual(data['accounts'],[{'label':'personal','enabled':True}])
                 self.assertEqual(set(data['counts']),{'info_request'})
@@ -58,6 +58,24 @@ class BidderInboxTests(unittest.TestCase):
                 self.assertEqual(client.post(f'/api/messages/{mine}/handled?done=false',**extra).status_code,200)
         self.assertIsNone(db.get_message(self.conn,forbidden)['handled_at'])
         self.assertIsNone(db.get_message(self.conn,other)['handled_at'])
+
+    def test_application_received_is_visible_and_filterable_for_assigned_accounts(self):
+        mine, forbidden, other = self.prepare()
+        stamp = datetime.now(timezone.utc).isoformat()
+        ack = self.message('my-confirmation', stamp=stamp, category='application_ack')
+        other_ack = self.message('other-confirmation', stamp=stamp, category='application_ack', account=self.other)
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        data = self.client.get('/api/triage?view=all&days=90').json()
+        self.assertEqual({m['pk'] for g in data['groups'] for m in g['items']}, {mine, ack})
+        self.assertEqual(data['summary']['actionable'], 2)
+        filtered = self.client.get('/api/triage?category=application_ack&days=90').json()
+        self.assertEqual([m['pk'] for g in filtered['groups'] for m in g['items']], [ack])
+        self.assertEqual(self.client.get(f'/api/messages/{ack}').status_code, 200)
+        self.assertEqual(self.client.get(f'/api/messages/{other_ack}').status_code, 404)
+        handled = self.client.post(f'/api/messages/{ack}/handled?done=true')
+        self.assertEqual(handled.status_code, 200)
+        self.assertEqual(handled.json()['summary']['done'], 1)
 
     def test_reassignment_and_reclassification_revoke_access_immediately(self):
         mine,_,_=self.prepare()
