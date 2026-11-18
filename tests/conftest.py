@@ -33,3 +33,9 @@ def isolate_outlook_token_files(tmp_path, monkeypatch):
     """Windows OAuth secrets are files; never let a test touch the real config folder."""
     from mailcheck import secret_files
     monkeypatch.setattr(secret_files, 'folder', lambda name: tmp_path / name)
+
+
+@pytest.fixture(autouse=True)
+def isolate_read_permission_markers(tmp_path, monkeypatch):
+    from mailcheck import read_marking
+    monkeypatch.setattr(read_marking, '_marker_dir', lambda: tmp_path / 'outlook-read-permission')

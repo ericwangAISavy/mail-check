@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.5.3",
+    "date": "2026-11-18",
+    "title": "Clearer Outlook read updates after reconnecting",
+    "changes": [
+      "Apply queued Outlook read updates immediately after an account is reconnected instead of waiting for the next mail check.",
+      "Ask to reconnect only when Microsoft refuses read permission; otherwise show that emails will be marked read on the next check.",
+      "Stop retrying read updates Microsoft permanently rejects, so they no longer keep the Accounts warning visible."
+    ]
+  },
+  {
     "version": "3.5.2",
     "date": "2026-11-18",
     "title": "Keep Google sign-in out of a full Credential Manager",

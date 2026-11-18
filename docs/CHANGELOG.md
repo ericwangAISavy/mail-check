@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.5.3 — 2026-11-18
+
+Clearer Outlook read updates after reconnecting
+
+- Apply queued Outlook read updates immediately after an account is reconnected instead of waiting for the next mail check.
+- Ask to reconnect only when Microsoft refuses read permission; otherwise show that emails will be marked read on the next check.
+- Stop retrying read updates Microsoft permanently rejects, so they no longer keep the Accounts warning visible.
+
 ## 3.5.2 — 2026-11-18
 
 Keep Google sign-in out of a full Credential Manager

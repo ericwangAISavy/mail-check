@@ -41,7 +41,19 @@ class SourceError(RuntimeError):
 
 
 class MessageReadError(SourceError):
-    """One message could not be updated; other queued messages may proceed."""
+    """One message could not be updated; other queued messages may proceed.
+
+    ``permanent`` means the provider will never accept this update (for example
+    a malformed or invalid message ID), so retrying it is pointless.
+    """
+
+    def __init__(self, message: str, *, permanent: bool = False):
+        super().__init__(message)
+        self.permanent = permanent
+
+
+class ReadPermissionError(SourceError):
+    """The provider refused read updates for the account: reconnect to grant access."""
 
 
 @runtime_checkable

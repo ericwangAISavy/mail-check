@@ -104,3 +104,35 @@ def test_database_failure_after_sign_in_exits_waiting_state(outlook_console, mon
     status = ctx.client.get("/api/outlook/status").json()
     assert status["state"] == "failed"
     assert "database unavailable" in status["message"]
+
+
+@pytest.mark.parametrize("drain_fails", [False, True])
+def test_successful_reconnect_applies_queued_read_updates(outlook_console, monkeypatch, drain_fails):
+    ctx = outlook_console
+    with db.session() as conn:
+        db.add_account(conn, label="mail", email="mail@example.com", provider="outlook")
+    drained = []
+
+    def drain(conn, account, source, check):
+        drained.append(account.label)
+        if drain_fails:
+            raise RuntimeError("Graph unavailable")
+        return []
+    monkeypatch.setattr(web.read_marking, "drain", drain)
+    monkeypatch.setattr(web, "build_source", lambda account, cfg: SimpleNamespace(mark_read=lambda uid: None))
+    assert ctx.client.post("/api/outlook/start", json={"label": "mail", "reconnect": True}).status_code == 200
+    ctx.runners[0]()
+    assert drained == ["mail"]
+    assert ctx.client.get("/api/outlook/status").json()["state"] == "connected"
+
+
+def test_failed_reconnect_does_not_apply_read_updates(outlook_console, monkeypatch):
+    ctx = outlook_console
+    with db.session() as conn:
+        db.add_account(conn, label="mail", email="mail@example.com", provider="outlook")
+    drained = []
+    monkeypatch.setattr(web.read_marking, "drain", lambda *args: drained.append(args) or [])
+    assert ctx.client.post("/api/outlook/start", json={"label": "mail", "reconnect": True}).status_code == 200
+    ctx.flows[0].flow["email"] = "other@example.com"
+    ctx.runners[0]()
+    assert drained == []

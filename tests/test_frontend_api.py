@@ -355,6 +355,11 @@ class FrontendApiTests(unittest.TestCase):
         response = self.client.get('/api/accounts')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['accounts'][0]['pending_read_updates'], 1)
+        self.assertIs(response.json()['accounts'][0]['read_updates_need_permission'], False)
+        from types import SimpleNamespace
+        from mailcheck import read_marking
+        read_marking._set_needs_permission(SimpleNamespace(id=self.account_id), 'me@example.test', True)
+        self.assertIs(self.client.get('/api/accounts').json()['accounts'][0]['read_updates_need_permission'], True)
 
     def test_settings_api_provides_editable_state_without_secrets(self):
         response = self.client.get("/api/settings")

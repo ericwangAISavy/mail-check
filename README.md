@@ -22,7 +22,7 @@ For information  (2)
 12 unread | 4 classified | 5 cached | 3 prefiltered  across 1 account(s) in 6.2s
 ```
 
-**Outlook emails are automatically marked as read after collection is saved.** Pending updates retry on subsequent collection runs, even if classification fails. Existing Outlook accounts must reconnect in Accounts to grant Mail.ReadWrite permission. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
+**Outlook emails are automatically marked as read after collection is saved.** Pending updates retry on subsequent collection runs, even if classification fails, and are applied immediately after an account is reconnected. Accounts asks you to reconnect only when Microsoft refuses the read permission; updates Microsoft permanently rejects (for example an invalid message ID) are dropped. Existing Outlook accounts must reconnect in Accounts to grant Mail.ReadWrite permission. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
 
 ## Install
 

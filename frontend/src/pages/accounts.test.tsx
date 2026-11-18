@@ -43,11 +43,20 @@ it("previews deleted bidder links before clearing history", async () => {
   expect(post.mock.calls[1][1]).toMatchObject({ bidder_id: 9, start: null, end: null, preview_token: 'a'.repeat(64) })
 })
 
-it("shows pending Outlook read updates and reconnection guidance", async () => {
+it("shows pending Outlook read updates without asking to reconnect", async () => {
   accounts[0].provider = "outlook"
   accounts[0].pending_read_updates = 3
   mount()
-  expect(await screen.findByText(/3 email\(s\) awaiting Outlook read updates/)).toBeTruthy()
+  expect(await screen.findByText("3 email(s) will be marked read in Outlook on the next mail check.")).toBeTruthy()
+  expect(screen.queryByText(/Reconnect this account/)).toBeNull()
+})
+
+it("asks to reconnect only when Microsoft refused read permission", async () => {
+  accounts[0].provider = "outlook"
+  accounts[0].pending_read_updates = 3
+  accounts[0].read_updates_need_permission = true
+  mount()
+  expect(await screen.findByText(/3 email\(s\) could not be marked read: Microsoft refused permission\. Reconnect this account/)).toBeTruthy()
   expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy()
 })
 

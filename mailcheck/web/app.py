@@ -26,6 +26,7 @@ from .. import config as cfgmod
 from .. import followups, db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
+from .. import read_marking
 from ..live_inbox import LiveInbox
 from .. import queue_actions
 from ..sources import IMAPSource, SourceError
@@ -285,6 +286,7 @@ class TriageResponse(BaseModel):
 
 class PublicAccount(BaseModel):
     pending_read_updates: int = 0
+    read_updates_need_permission: bool = False
     last_checked_at: str | None = None
     id: int
     label: str
@@ -1421,6 +1423,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 "folder": a.folder, "enabled": a.enabled,
                 "last_checked_at": last_checks[a.id].isoformat() if last_checks[a.id] else None,
                 "pending_read_updates": pending_reads.get((a.id, a.email.casefold()), 0) if a.provider == "outlook" else 0,
+                "read_updates_need_permission": bool(
+                    a.provider == "outlook" and pending_reads.get((a.id, a.email.casefold()))
+                    and read_marking.needs_permission(a.id, a.email)),
             } for a in accounts],
             "outlook_ready": bool(cfgmod.load().outlook.client_id),
         }
@@ -1917,6 +1922,25 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             db.remove_account(conn, label)
         return {"ok": True, "message": f"Removed {label}."}
 
+    def _drain_read_updates(label):
+        """Apply queued Outlook read updates right after a reconnect grants access.
+
+        Runs on the sign-in thread after the connection is reported, so a slow or
+        failing Graph call never changes the sign-in result. Collection also
+        drains this queue, and both sides are idempotent.
+        """
+        try:
+            with db.session() as conn:
+                account = db.get_account(conn, label)
+                if not account or account.provider != "outlook":
+                    return
+                guard = current_commit_guard()
+                for warning in read_marking.drain(conn, account, build_source(account, cfgmod.load()),
+                                                  guard or (lambda: None)):
+                    logging.getLogger(__name__).warning(warning)
+        except Exception:  # noqa: BLE001 - the next mail check retries
+            logging.getLogger(__name__).warning("Outlook read updates will retry on the next check.", exc_info=True)
+
     # ------------------------------------------------------- outlook sign-in
 
     @app.post("/api/outlook/start")
@@ -1957,6 +1981,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
         def wait():
             flow_id = pending.id
+            connected = False
             try:
                 email = outlook_auth.complete_device_flow(pending)
                 # Publish only this flow's candidate cache after checking ownership.
@@ -1983,11 +2008,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                         pending=None, state="connected", email=email,
                         message=f"Connected {email}.",
                     )
+                    connected = True
             except Exception as exc:  # noqa: BLE001 - surface polling and persistence failures
                 with _outlook_lock:
                     if _outlook.get("active_id") == flow_id:
                         message = str(exc) if isinstance(exc, outlook_auth.OutlookAuthError) else f"{type(exc).__name__}: {exc}"
                         _outlook.update(pending=None, state="failed", message=message)
+            if connected:
+                _drain_read_updates(label)
 
         if shared:
             try:

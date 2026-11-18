@@ -20,7 +20,7 @@ from ..models import RawMessage
 from ..calendar_events import CalendarBooking
 from ..interview_metadata import graph_calendars, message_references
 from ..outlook_auth import OutlookAuthError, ReconnectRequired, acquire_token, CALENDAR_SCOPES
-from .base import MessageReadError, SourceError, collection_status
+from .base import MessageReadError, ReadPermissionError, SourceError, collection_status
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 MESSAGES_URL = f"{GRAPH}/me/mailFolders/inbox/messages"
@@ -112,7 +112,7 @@ class OutlookGraphSource:
         try:
             token = acquire_token(self.label, self.client_id, scopes=["Mail.ReadWrite"])
         except OutlookAuthError as exc:
-            raise SourceError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.") from exc
+            raise ReadPermissionError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.") from exc
         with httpx.Client(timeout=self.timeout, headers={"Authorization": f"Bearer {token}"}) as client:
             for attempt in range(self.max_retries):
                 try:
@@ -125,13 +125,16 @@ class OutlookGraphSource:
                 if response.status_code in (200, 204, 404, 410):
                     return
                 if response.status_code in (401, 403):
-                    raise SourceError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.")
+                    raise ReadPermissionError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.")
                 if response.status_code == 429 or response.status_code >= 500:
                     if attempt < self.max_retries - 1:
                         time.sleep(_retry_after(response) or _backoff(attempt))
                         continue
                 elif 400 <= response.status_code < 500:
-                    raise MessageReadError(f"Microsoft Graph rejected a message read update (HTTP {response.status_code}).")
+                    raise MessageReadError(
+                        f"Microsoft Graph rejected a message read update (HTTP {response.status_code}).",
+                        # Malformed/invalid IDs never succeed; conflicts and locks may.
+                        permanent=response.status_code in (400, 422))
                 raise SourceError(f"Microsoft Graph read update failed (HTTP {response.status_code}).")
 
     def test(self) -> None:

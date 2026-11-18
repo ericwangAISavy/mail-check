@@ -181,3 +181,92 @@ def test_manual_check_marks_committed_mail_before_classification(tmp_path, monke
         with pytest.raises(RuntimeError, match='model unavailable'):
             pipeline.check_once(conn, Config())
         assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 0
+
+
+def _queue(tmp_path, uids):
+    from types import SimpleNamespace
+    account = SimpleNamespace(id=1, email='a@example.com', provider='outlook', label='a')
+    conn = sqlite3.connect(tmp_path / 'queue.db')
+    conn.executescript(read_marking.SCHEMA)
+    for uid in uids:
+        read_marking.enqueue(conn, account, uid)
+    conn.commit()
+    return conn, account
+
+
+def test_permanently_rejected_updates_leave_the_queue(tmp_path):
+    from mailcheck.sources.base import MessageReadError
+    conn, account = _queue(tmp_path, ['bad-id', 'locked', 'good'])
+
+    def mark_read(uid):
+        if uid == 'bad-id':
+            raise MessageReadError('invalid message ID', permanent=True)
+        if uid == 'locked':
+            raise MessageReadError('conflict')
+    errors = read_marking.drain(conn, account, SimpleNamespace(mark_read=mark_read))
+    assert [e.split(': ')[0] for e in errors] == ['[a] Read marking skipped', '[a] Read marking pending']
+    assert conn.execute('SELECT uid FROM outlook_read_tasks').fetchall() == [('locked',)]
+
+
+def test_permission_refusal_is_remembered_until_an_update_succeeds(tmp_path):
+    from mailcheck.sources.base import ReadPermissionError
+    conn, account = _queue(tmp_path, ['one', 'two'])
+    seen = []
+
+    def refuse(uid):
+        seen.append(uid)
+        raise ReadPermissionError('Reconnect to grant Mail.ReadWrite access.')
+    assert read_marking.drain(conn, account, SimpleNamespace(mark_read=refuse))
+    assert seen == ['one']  # stops: every other update would be refused too
+    assert read_marking.needs_permission(1, 'A@example.com')
+    assert read_marking.drain(conn, account, SimpleNamespace(mark_read=lambda uid: None)) == []
+    assert not read_marking.needs_permission(1, 'a@example.com')
+    assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 0
+
+
+def test_transient_failure_keeps_the_permission_hint_unchanged(tmp_path):
+    from mailcheck.sources.base import ReadPermissionError
+    conn, account = _queue(tmp_path, ['one'])
+    read_marking.drain(conn, account, SimpleNamespace(mark_read=lambda uid: (_ for _ in ()).throw(ReadPermissionError('no'))))
+    read_marking.drain(conn, account, SimpleNamespace(mark_read=lambda uid: (_ for _ in ()).throw(SourceError('Graph unreachable'))))
+    assert read_marking.needs_permission(1, 'a@example.com')
+
+
+def test_empty_queue_clears_a_stale_permission_hint(tmp_path):
+    conn, account = _queue(tmp_path, [])
+    read_marking._set_needs_permission(account, 'a@example.com', True)
+    read_marking.drain(conn, account, SimpleNamespace(mark_read=lambda uid: None))
+    assert not read_marking.needs_permission(1, 'a@example.com')
+
+
+def test_permission_hint_is_per_mailbox(tmp_path):
+    account = SimpleNamespace(id=1)
+    read_marking._set_needs_permission(account, 'old@example.com', True)
+    assert not read_marking.needs_permission(1, 'new@example.com')
+
+
+@pytest.mark.parametrize('status,permanent', [(400, True), (422, True), (409, False), (423, False)])
+def test_graph_rejections_say_whether_a_retry_can_succeed(status, permanent):
+    from mailcheck.sources.base import MessageReadError
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(status)))
+    with patch('mailcheck.sources.outlook.acquire_token', return_value='token'), patch('mailcheck.sources.outlook.httpx.Client', return_value=client):
+        with pytest.raises(MessageReadError) as raised:
+            OutlookGraphSource(label='test', client_id='test').mark_read('id')
+    assert raised.value.permanent is permanent
+
+
+@pytest.mark.parametrize('status', [401, 403])
+def test_graph_permission_refusal_is_a_permission_error(status):
+    from mailcheck.sources.base import ReadPermissionError
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(status)))
+    with patch('mailcheck.sources.outlook.acquire_token', return_value='token'), patch('mailcheck.sources.outlook.httpx.Client', return_value=client):
+        with pytest.raises(ReadPermissionError):
+            OutlookGraphSource(label='test', client_id='test').mark_read('id')
+
+
+def test_missing_read_write_consent_is_a_permission_error():
+    from mailcheck.outlook_auth import OutlookAuthError
+    from mailcheck.sources.base import ReadPermissionError
+    with patch('mailcheck.sources.outlook.acquire_token', side_effect=OutlookAuthError('consent required')):
+        with pytest.raises(ReadPermissionError):
+            OutlookGraphSource(label='test', client_id='test').mark_read('id')
