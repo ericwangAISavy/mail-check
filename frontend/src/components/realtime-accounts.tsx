@@ -29,7 +29,6 @@ export default function RealtimeAccounts({accounts}:{accounts:Account[]}) {
         const status=query.data.accounts?.find(item=>item.account_id===account.id)
         return <div className="account-row" key={account.id}><div className="account-info"><strong>{account.label}</strong>
           <p>{account.provider==='outlook'&&query.data.public_ready?'Email and calendar notifications with recovery checks':account.provider==='outlook'?'Email and calendar recovery checks; notifications need a public connection':'Email polling every 30 seconds'}</p>
-          <p>{status?.last_sync?`Last synced ${new Date(status.last_sync*1000).toLocaleString()}`:'Not synced automatically yet'}</p>
           {status?.enabled&&<p>{status.subscription_status==='subscribed'?'Notifications connected':status.subscription_status==='pending'?'Connecting notifications; recovery checks are active':'Recovery checks are active'}</p>}
           {status?.last_error&&<p role="status">{status.last_error}</p>}</div>
           <Switch label={`Automatic updates for ${account.label}`} checked={!!status?.enabled} disabled={!account.enabled||busy!==null}

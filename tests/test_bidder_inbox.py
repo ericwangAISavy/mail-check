@@ -121,3 +121,36 @@ class BidderInboxTests(unittest.TestCase):
             self.assertFalse(schedule['automatic'])
             self.assertIsNone(schedule['next_at'])
         self.assertEqual(self.client.get('/api/status').status_code,403)
+
+
+class BidderTimelineTests(unittest.TestCase):
+    setUp=fixtures.PaymentTests.setUp
+    assign=fixtures.PaymentTests.assign
+    message=fixtures.PaymentTests.message
+
+    def test_inbox_is_one_timeline_newest_first_regardless_of_category(self):
+        self.assign(start=payments.today()-timedelta(days=1))
+        now=datetime.now(timezone.utc)
+        stamp=lambda hours:(now-timedelta(hours=hours)).isoformat()
+        oldest_offer=self.message('offer',stamp=stamp(5),category='offer')
+        newest_ack=self.message('ack',stamp=stamp(1),category='application_ack')
+        middle_invite=self.message('invite',stamp=stamp(3),category='interview_invite')
+        noise=self.message('noise',stamp=stamp(2),category='newsletter')
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        expected=[newest_ack,noise,middle_invite,oldest_offer]
+        for view in ('queue','all'):
+            data=self.client.get(f'/api/triage?view={view}&days=90').json()
+            self.assertEqual([g['tier'] for g in data['groups']],['all'])
+            self.assertEqual([m['pk'] for m in data['groups'][0]['items']],expected)
+        # Completed keeps received order too, not the order messages were marked done.
+        for pk in (oldest_offer,newest_ack,middle_invite,noise):
+            self.assertEqual(self.client.post(f'/api/messages/{pk}/handled?done=true').status_code,200)
+            time.sleep(0.01)
+        done=self.client.get('/api/triage?view=completed&days=90').json()
+        self.assertEqual([m['pk'] for g in done['groups'] for m in g['items']],expected)
+
+    def test_empty_bidder_inbox_has_no_groups(self):
+        self.assign(start=payments.today()-timedelta(days=1))
+        sign_in_bidder(self.client)
+        self.assertEqual(self.client.get('/api/triage?days=90').json()['groups'],[])

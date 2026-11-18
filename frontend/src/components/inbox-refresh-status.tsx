@@ -7,6 +7,8 @@ function stamp(value: string | null | undefined) {
   return Number.isFinite(date.getTime()) ? date : null
 }
 const clock = (date: Date) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })
+/** Today's times match the next-check clock; older checks keep their date. */
+const when = (date: Date, now: number) => new Date(now).toDateString() === date.toDateString() ? clock(date) : `${date.toLocaleDateString()}, ${clock(date)}`
 
 export function InboxRefreshStatus({ schedule, unavailable = false }: { schedule: TriageData["check_schedule"]; unavailable?: boolean }) {
   const [now, setNow] = useState(Date.now)
@@ -27,7 +29,7 @@ export function InboxRefreshStatus({ schedule, unavailable = false }: { schedule
     {!unavailable && live?.enabled && !live.running && <p>{schedule?.running ? "Next live check: after the current server task finishes" : next ? <>Next live check: <time dateTime={next.toISOString()}>{clock(next)}</time> (your local time)<span aria-hidden="true">{countdown}</span></> : "Next live check: being scheduled"}</p>}
     {!unavailable && !live && schedule?.automatic && !schedule.running && next && <p>Next mail check: <time dateTime={next.toISOString()}>{clock(next)}</time> (your local time)</p>}
     {live?.enabled && live.last_check_ok === false && <p className="inbox-live-warning">The last live mail check failed. Retrying automatically.</p>}
-    {live?.enabled && last && <p>Last successful live check: <time dateTime={last.toISOString()}>{last.toLocaleString()}</time> (your local time)</p>}
+    {live?.enabled && last && <p>Last successful live check: <time dateTime={last.toISOString()}>{when(last, now)}</time> (your local time)</p>}
     <p className="inbox-live-hint">Refresh Inbox reloads saved messages; live checks collect new mail. New messages may take a moment to appear after a check.</p>
   </section>
 }

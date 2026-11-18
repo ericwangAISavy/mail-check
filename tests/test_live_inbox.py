@@ -88,6 +88,34 @@ def test_fast_job_only_fetches_current_assigned_accounts(workspace,monkeypatch):
         finally:jobs[0][1]();web._job_lock.release()
 
 
+
+import pytest
+
+
+@pytest.mark.parametrize('errors,read_errors,ok',[
+    ([],[],True),
+    (['[a] Read marking pending: Reconnect to grant Mail.ReadWrite access.'],
+     ['[a] Read marking pending: Reconnect to grant Mail.ReadWrite access.'],True),
+    (['[a] Graph unreachable','[a] Read marking pending: x'],['[a] Read marking pending: x'],False),
+])
+def test_read_update_problems_do_not_fail_live_checks(workspace,monkeypatch,errors,read_errors,ok):
+    from mailcheck.models import RunResult
+    from datetime import datetime,timezone
+    conn,account=workspace
+    cfg=Config();cfg.watch.auto_check=True;cfg.llm.base_url='http://model.test'
+    tracker=LiveInbox();tracker.heartbeat(1)
+    monkeypatch.setattr(web,'_live_inbox',tracker)
+    jobs=[]
+    monkeypatch.setattr(web,'_start_job',lambda work,**kwargs:jobs.append((work,kwargs['on_finish'])))
+    result=RunResult(started_at=datetime.now(timezone.utc),errors=list(errors),read_errors=list(read_errors))
+    with patch.object(web.cfgmod,'load',return_value=cfg),patch.object(web.payments,'today',return_value=date(2026,11,4)),patch.object(web,'check_once',return_value=result):
+        assert web._resume_live_inbox(cfg)
+        try:jobs[0][0]()
+        finally:jobs[0][1]();web._job_lock.release()
+    snapshot=tracker.snapshot(True)
+    assert snapshot['last_check_ok'] is ok
+    assert (snapshot['last_checked_at'] is not None) is ok
+
 def test_live_status_reports_failed_attempt_then_success():
     tracker=LiveInbox();tracker.heartbeat(1)
     assert tracker.snapshot(True)['last_check_ok'] is None

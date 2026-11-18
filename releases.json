@@ -1,5 +1,39 @@
 [
   {
+    "version": "3.5.7",
+    "date": "2026-11-18",
+    "title": "Keep live Inbox checks healthy during read update retries",
+    "changes": [
+      "Outlook read update retries no longer make bidder live Inbox checks report failure or slow down to every minute; new mail keeps arriving every 30 seconds.",
+      "Show today's last successful live check as a time, matching the next check."
+    ]
+  },
+  {
+    "version": "3.5.6",
+    "date": "2026-11-18",
+    "title": "One last-synced time per account",
+    "changes": [
+      "Account cards show one Last synced time covering both full mail checks and real-time collection, instead of a Last mail check time that ignored real-time updates.",
+      "Accounts with real-time collection on show a Live marker; the Automatic updates panel no longer repeats the sync time."
+    ]
+  },
+  {
+    "version": "3.5.5",
+    "date": "2026-11-18",
+    "title": "Bidder Inbox in received order",
+    "changes": [
+      "Show the bidder Inbox as one list ordered by when each email was received, newest first, instead of grouping it by category."
+    ]
+  },
+  {
+    "version": "3.5.4",
+    "date": "2026-11-18",
+    "title": "Compact Outlook read update badge",
+    "changes": [
+      "Show pending Outlook read updates on Accounts as a small orange count badge instead of a long description; hover it for details and reconnect guidance."
+    ]
+  },
+  {
     "version": "3.5.3",
     "date": "2026-11-18",
     "title": "Clearer Outlook read updates after reconnecting",

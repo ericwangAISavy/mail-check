@@ -47,8 +47,10 @@ it("shows pending Outlook read updates without asking to reconnect", async () =>
   accounts[0].provider = "outlook"
   accounts[0].pending_read_updates = 3
   mount()
-  expect(await screen.findByText("3 email(s) will be marked read in Outlook on the next mail check.")).toBeTruthy()
-  expect(screen.queryByText(/Reconnect this account/)).toBeNull()
+  const badge = await screen.findByRole("status", { name: "3 email(s) will be marked read in Outlook on the next mail check." })
+  expect(badge.textContent).toBe("3")
+  expect(badge.getAttribute("title")).toBe("3 email(s) will be marked read in Outlook on the next mail check.")
+  expect(screen.queryByText(/email\(s\)/)).toBeNull()  // no long sub-description line
 })
 
 it("asks to reconnect only when Microsoft refused read permission", async () => {
@@ -56,7 +58,8 @@ it("asks to reconnect only when Microsoft refused read permission", async () => 
   accounts[0].pending_read_updates = 3
   accounts[0].read_updates_need_permission = true
   mount()
-  expect(await screen.findByText(/3 email\(s\) could not be marked read: Microsoft refused permission\. Reconnect this account/)).toBeTruthy()
+  const badge = await screen.findByRole("status", { name: /3 email\(s\) could not be marked read: Microsoft refused permission\. Reconnect this account/ })
+  expect(badge.textContent).toBe("3")
   expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy()
 })
 
@@ -164,11 +167,27 @@ it("shows Gmail app-password guidance and prevents duplicate reconnect submissio
  await act(async()=>finish({message:"Reconnected."}))
 })
 
-it("shows each account's last successful mail check",async()=>{
+it("shows one last-synced time covering full checks and real-time collection",async()=>{
  accounts[0].last_checked_at="2026-11-01T12:34:56Z"
+ accounts[0].last_synced_at="2026-11-01T12:40:00Z"
  mount()
- expect(await screen.findByText(/Last mail check:/)).toBeTruthy()
- expect(screen.getByText(/Last mail check:/).textContent).toContain(new Date(accounts[0].last_checked_at).toLocaleString())
+ expect(await screen.findByText(/Last synced:/)).toBeTruthy()
+ expect(screen.getByText(/Last synced:/).textContent).toContain(new Date("2026-11-01T12:40:00Z").toLocaleString())
+ expect(screen.queryByText(/Last mail check/)).toBeNull()
+})
+
+it("falls back to the full-check time and marks live accounts",async()=>{
+ accounts[0].last_checked_at="2026-11-01T12:34:56Z"
+ accounts[0].live=true
+ mount()
+ expect((await screen.findByText(/Last synced:/)).textContent).toContain(new Date("2026-11-01T12:34:56Z").toLocaleString())
+ expect(screen.getByText("Live").closest(".live-badge")?.getAttribute("title")).toMatch(/collected as it arrives/)
+})
+
+it("shows Not synced yet and no Live marker by default",async()=>{
+ mount()
+ expect(await screen.findByText(/Not synced yet/)).toBeTruthy()
+ expect(screen.queryByText("Live")).toBeNull()
 })
 
 it('orders provider, bidder management, and visibility panels beneath connected accounts',async()=>{

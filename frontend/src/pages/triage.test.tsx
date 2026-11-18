@@ -359,6 +359,7 @@ it('reuses triage for the bidder Inbox with all categories, reading and scoped D
  })
  renderPage(true,[{name:'interview_invite',label:'Interview invite',tier:'act'},{name:'info_request',label:'Info request',tier:'reply'},{name:'application_ack',label:'Application received',tier:'info'}])
  expect(await screen.findByText('Your verification code is 123456')).toBeTruthy()
+ expect(document.querySelector('.tier-label')).toBeNull()  // one timeline, no category sections
  expect(screen.getByText(/Next mail check:.*your local time/)).toBeTruthy()
  const triageRequests=requests.filter(url=>url.startsWith('GET /api/triage?'))
  expect(triageRequests.length).toBeGreaterThan(0)

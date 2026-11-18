@@ -917,8 +917,9 @@ def query_triaged(
     elif handled is False:
         sql += " AND m.handled_at IS NULL"
     # Completed reads best most-recently-finished first; everything else by date.
-    sql += f" ORDER BY m.handled_at DESC, {RECEIVED} DESC LIMIT ?" if handled else \
-           f" ORDER BY {RECEIVED} DESC LIMIT ?"
+    # The bidder Inbox is one timeline: always newest received first.
+    sql += f" ORDER BY m.handled_at DESC, {RECEIVED} DESC LIMIT ?" if handled and bidder_id is None else \
+           f" ORDER BY {RECEIVED} DESC, m.id DESC LIMIT ?"
     params.append(limit)
     return list(conn.execute(sql, params))
 

@@ -361,6 +361,38 @@ class FrontendApiTests(unittest.TestCase):
         read_marking._set_needs_permission(SimpleNamespace(id=self.account_id), 'me@example.test', True)
         self.assertIs(self.client.get('/api/accounts').json()['accounts'][0]['read_updates_need_permission'], True)
 
+    def test_account_api_reports_latest_sync_and_live_collection(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+        from mailcheck import mail_checkpoints
+        from mailcheck.realtime import settings as realtime_settings, storage as realtime_storage
+        account = db.get_account(self.conn, "personal")
+        full = datetime.now(timezone.utc) - timedelta(hours=2)
+        mail_checkpoints.record(self.conn, account, full)
+        self.conn.commit()
+        first = self.client.get("/api/accounts").json()["accounts"][0]
+        self.assertEqual(first["last_synced_at"], first["last_checked_at"])
+        self.assertIs(first["live"], False)
+        live = datetime.now(timezone.utc) - timedelta(minutes=1)
+        realtime_storage.set_account(self.conn, self.account_id, True)
+        realtime_storage.set_status(self.conn, self.account_id, last_sync=live.timestamp())
+        configured = realtime_settings.Settings(amqp_url="amqp://broker.test/")
+        with patch.object(realtime_settings.Settings, "from_env", classmethod(lambda cls: configured)):
+            row = self.client.get("/api/accounts").json()["accounts"][0]
+            self.assertIs(row["live"], True)
+            self.assertEqual(datetime.fromisoformat(row["last_synced_at"]), datetime.fromtimestamp(live.timestamp(), timezone.utc))
+            self.assertEqual(datetime.fromisoformat(row["last_checked_at"]), full)  # unchanged
+            realtime_storage.set_status(self.conn, self.account_id, last_sync=(datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
+            skewed = self.client.get("/api/accounts").json()["accounts"][0]
+            self.assertEqual(skewed["last_synced_at"], skewed["last_checked_at"])  # future stamps ignored
+            self.conn.execute("UPDATE accounts SET enabled=0 WHERE id=?", (self.account_id,))
+            self.conn.commit()
+            self.assertIs(self.client.get("/api/accounts").json()["accounts"][0]["live"], False)
+        # Without the background service, an opted-in account is not live.
+        self.conn.execute("UPDATE accounts SET enabled=1 WHERE id=?", (self.account_id,))
+        self.conn.commit()
+        self.assertIs(self.client.get("/api/accounts").json()["accounts"][0]["live"], False)
+
     def test_settings_api_provides_editable_state_without_secrets(self):
         response = self.client.get("/api/settings")
 

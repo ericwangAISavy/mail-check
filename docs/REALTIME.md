@@ -1,7 +1,8 @@
 # Automatic email and calendar updates
 
 OfferPath can collect account changes in the background and update open pages without
-refreshing. Enable this separately for each account in **Accounts → Automatic updates**.
+refreshing. Enable this separately for each account in **Accounts → Automatic updates**. Each account card then shows a **Live** marker, and its **Last synced** time is the latest of a full
+mail check and real-time collection.
 Collection remains read-only; notifications never send replies or mark mail as read.
 The app must remain running. A sleeping/offline Windows host cannot receive notifications.
 

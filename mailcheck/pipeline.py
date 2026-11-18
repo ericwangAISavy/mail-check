@@ -80,6 +80,17 @@ def fetch_account(
     return out
 
 
+def _drain_read_updates(conn, account, cfg, result: RunResult) -> None:
+    """Apply queued Outlook read updates; their problems are reported, never fatal.
+
+    They are also kept in ``read_errors`` so callers can tell a collection
+    failure from a read update that will retry on its own.
+    """
+    errors = read_marking.drain(conn, account, build_source(account, cfg) if account.provider == "outlook" else None)
+    result.errors.extend(errors)
+    result.read_errors.extend(errors)
+
+
 def check_once(
     conn: sqlite3.Connection,
     cfg: Config,
@@ -172,7 +183,7 @@ def check_once(
 
     if not fetched:
         for account, _ in successful:
-            result.errors.extend(read_marking.drain(conn, account, build_source(account, cfg) if account.provider == "outlook" else None))
+            _drain_read_updates(conn, account, cfg, result)
         for account, started in successful:
             if account.id in advances:
                 mail_checkpoints.record(conn, account, started)
@@ -212,7 +223,7 @@ def check_once(
     conn.commit()
 
     for account, _ in successful:
-        result.errors.extend(read_marking.drain(conn, account, build_source(account, cfg) if account.provider == "outlook" else None))
+        _drain_read_updates(conn, account, cfg, result)
 
     # ---- classify --------------------------------------------------------
     if pending:

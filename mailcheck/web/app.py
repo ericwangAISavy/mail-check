@@ -288,6 +288,8 @@ class PublicAccount(BaseModel):
     pending_read_updates: int = 0
     read_updates_need_permission: bool = False
     last_checked_at: str | None = None
+    last_synced_at: str | None = None
+    live: bool = False
     id: int
     label: str
     email: str
@@ -665,7 +667,13 @@ def _resume_live_inbox(cfg):
                 recent_since=datetime.now(timezone.utc)-timedelta(minutes=10),
                 status=lambda message: _job.update(message=message),
                 progress=lambda done,total: _job.update(message=f"Updating bidder Inbox… {done} of {total}"))
-        succeeded[0] = not result.errors
+        # Read updates retry on their own; only collection or classification
+        # problems make a live check fail (and back off for every bidder).
+        failures = list(result.errors)
+        for warning in result.read_errors:
+            if warning in failures:
+                failures.remove(warning)
+        succeeded[0] = not failures
         _job.update(message=f"Bidder Inbox refreshed: {result.fetched} recent messages, {result.classified} classified.",
                     detail="\n".join(result.errors[:5]),ok=succeeded[0])
     try:
@@ -1334,10 +1342,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             else:
                 accounts = db.list_accounts(conn)
         grouped: dict[str, list] = {tier: [] for tier in TIER_ORDER}
+        timeline: list = []
         for row in rows:
             item = _decorate(row)
             if viewer:item.update(open_url=None,provider_url=None)
             grouped[item["tier"]].append(item)
+            timeline.append(item)
         cfg = cfgmod.load()
         due = _sched["next_due"] if cfg.watch.auto_check else None
         schedule = {"automatic": cfg.watch.auto_check, "running": bool(_job["running"]),
@@ -1352,7 +1362,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return {
             "check_schedule": schedule,
             "view": view,
-            "groups": [{"tier": tier, "label": TIER_META[tier][0],
+            # Bidders read one timeline in received order, regardless of category.
+            "groups": ([{"tier": "all", "label": "All mail", "items": timeline}] if timeline else [])
+                      if viewer else
+                      [{"tier": tier, "label": TIER_META[tier][0],
                         "items": grouped[tier]} for tier in TIER_ORDER if grouped[tier]],
             "summary": summary,
             "counts": counts,
@@ -1407,12 +1420,42 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         try: return replies.send(pk,body)
         except replies.ReplyError as exc: return _err(str(exc),exc.status)
 
+    def _realtime_sync_state(conn):
+        """{account_id: (live, last real-time sync)}; live needs the background service."""
+        from ..realtime import storage as realtime_storage
+        from ..realtime.settings import Settings as RealtimeSettings
+        try:
+            configured = RealtimeSettings.from_env().enabled
+        except ValueError:
+            configured = False
+        try:
+            rows = realtime_storage.status(conn)
+        except sqlite3.Error:
+            return {}
+        state = {}
+        for row in rows:
+            stamp = None
+            if row["last_sync"]:
+                try:
+                    stamp = datetime.fromtimestamp(float(row["last_sync"]), timezone.utc)
+                except (TypeError, ValueError, OverflowError, OSError):
+                    stamp = None
+            state[row["account_id"]] = (configured and bool(row["enabled"]), stamp)
+        return state
+
+    def _latest(*stamps):
+        """Latest valid instant; future values (clock skew, bad data) are ignored."""
+        now = datetime.now(timezone.utc)
+        valid = [stamp for stamp in stamps if stamp is not None and stamp <= now]
+        return max(valid).isoformat() if valid else None
+
     @app.get("/api/accounts", response_model=AccountsResponse)
     def api_accounts():
         from ..mail_checkpoints import snapshot as checkpoint_snapshot
         with db.session() as conn:
             accounts = db.list_accounts(conn)
             last_checks = checkpoint_snapshot(conn, accounts)
+            synced = _realtime_sync_state(conn)
             pending_reads = {(row[0], row[1]): row[2] for row in conn.execute(
                 "SELECT account_id,mailbox,count(*) FROM outlook_read_tasks GROUP BY account_id,mailbox")}
         return {
@@ -1422,6 +1465,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 "imap_port": a.imap_port, "use_ssl": a.use_ssl,
                 "folder": a.folder, "enabled": a.enabled,
                 "last_checked_at": last_checks[a.id].isoformat() if last_checks[a.id] else None,
+                # One "last synced" time: the latest full check or real-time collection.
+                "last_synced_at": _latest(last_checks[a.id], synced.get(a.id, (False, None))[1]),
+                "live": bool(a.enabled and synced.get(a.id, (False, None))[0]),
                 "pending_read_updates": pending_reads.get((a.id, a.email.casefold()), 0) if a.provider == "outlook" else 0,
                 "read_updates_need_permission": bool(
                     a.provider == "outlook" and pending_reads.get((a.id, a.email.casefold()))

@@ -20,6 +20,8 @@ export type Account = {
   pending_read_updates?: number
   read_updates_need_permission?: boolean
   last_checked_at?: string | null
+  last_synced_at?: string | null
+  live?: boolean
   id: number; label: string; email: string; provider: string; imap_host: string
   imap_port: number; use_ssl: boolean; folder: string; enabled: boolean
 }

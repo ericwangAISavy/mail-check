@@ -270,3 +270,14 @@ def test_missing_read_write_consent_is_a_permission_error():
     with patch('mailcheck.sources.outlook.acquire_token', side_effect=OutlookAuthError('consent required')):
         with pytest.raises(ReadPermissionError):
             OutlookGraphSource(label='test', client_id='test').mark_read('id')
+
+
+def test_check_reports_read_update_problems_separately(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from mailcheck import pipeline
+    from mailcheck.models import RunResult
+    result = RunResult(started_at=datetime.now(timezone.utc))
+    monkeypatch.setattr(pipeline.read_marking, 'drain', lambda conn, account, source: ['[a] Read marking pending: x'])
+    monkeypatch.setattr(pipeline, 'build_source', lambda account, cfg: None)
+    pipeline._drain_read_updates(None, SimpleNamespace(provider='outlook'), None, result)
+    assert result.errors == result.read_errors == ['[a] Read marking pending: x']

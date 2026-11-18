@@ -99,6 +99,8 @@ class RunResult:
     llm_retries: int = 0
     items: list[TriagedMessage] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    #: Subset of ``errors`` from Outlook read updates, which retry on their own.
+    read_errors: list[str] = field(default_factory=list)
     interview_changes: list[dict] = field(default_factory=list)
 
     @property

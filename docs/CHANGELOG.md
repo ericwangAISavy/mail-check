@@ -2,6 +2,32 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.5.7 — 2026-11-18
+
+Keep live Inbox checks healthy during read update retries
+
+- Outlook read update retries no longer make bidder live Inbox checks report failure or slow down to every minute; new mail keeps arriving every 30 seconds.
+- Show today's last successful live check as a time, matching the next check.
+
+## 3.5.6 — 2026-11-18
+
+One last-synced time per account
+
+- Account cards show one Last synced time covering both full mail checks and real-time collection, instead of a Last mail check time that ignored real-time updates.
+- Accounts with real-time collection on show a Live marker; the Automatic updates panel no longer repeats the sync time.
+
+## 3.5.5 — 2026-11-18
+
+Bidder Inbox in received order
+
+- Show the bidder Inbox as one list ordered by when each email was received, newest first, instead of grouping it by category.
+
+## 3.5.4 — 2026-11-18
+
+Compact Outlook read update badge
+
+- Show pending Outlook read updates on Accounts as a small orange count badge instead of a long description; hover it for details and reconnect guidance.
+
 ## 3.5.3 — 2026-11-18
 
 Clearer Outlook read updates after reconnecting

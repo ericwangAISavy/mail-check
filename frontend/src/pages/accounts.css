@@ -24,3 +24,9 @@
 .link-history-dates input { width: 100%; min-width: 0; }
 .link-history-preview { padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--muted); }
 .link-history-preview p { margin: 8px 0 0; font-size: 13px; line-height: 1.5; }
+
+.read-update-badge { min-width: 22px; justify-content: center; font-variant-numeric: tabular-nums; cursor: help; }
+.live-badge { gap: 5px; }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); }
+@media (prefers-reduced-motion: no-preference) { .live-dot { animation: live-pulse 2s ease-in-out infinite; } }
+@keyframes live-pulse { 50% { opacity: .45; } }
