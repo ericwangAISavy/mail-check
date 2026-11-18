@@ -1,6 +1,6 @@
 """Microsoft Graph mail source for personal Outlook.com accounts.
 
-Collection calls are GET-only and never mark messages read or move them.
+Collection reads messages; committed messages are subsequently marked read.
 Explicit user replies are handled separately by mailcheck.replies.
 
 https://learn.microsoft.com/en-us/graph/api/user-list-messages
@@ -12,6 +12,7 @@ import random
 import time
 from datetime import date, datetime, timezone, timedelta
 from typing import Iterator
+from urllib.parse import quote
 
 import httpx
 
@@ -19,7 +20,7 @@ from ..models import RawMessage
 from ..calendar_events import CalendarBooking
 from ..interview_metadata import graph_calendars, message_references
 from ..outlook_auth import OutlookAuthError, ReconnectRequired, acquire_token, CALENDAR_SCOPES
-from .base import SourceError, collection_status
+from .base import MessageReadError, SourceError, collection_status
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 MESSAGES_URL = f"{GRAPH}/me/mailFolders/inbox/messages"
@@ -105,6 +106,33 @@ class OutlookGraphSource:
         )
 
     # ---------------------------------------------------------- MailSource API
+
+    def mark_read(self, uid: str) -> None:
+        """Idempotently mark a collected Graph message read."""
+        try:
+            token = acquire_token(self.label, self.client_id, scopes=["Mail.ReadWrite"])
+        except OutlookAuthError as exc:
+            raise SourceError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.") from exc
+        with httpx.Client(timeout=self.timeout, headers={"Authorization": f"Bearer {token}"}) as client:
+            for attempt in range(self.max_retries):
+                try:
+                    response = client.patch(f"{GRAPH}/me/messages/{quote(uid, safe='')}", json={"isRead": True})
+                except httpx.TransportError as exc:
+                    if attempt == self.max_retries - 1:
+                        raise SourceError("Could not reach Microsoft Graph to mark mail read.") from exc
+                    time.sleep(_backoff(attempt))
+                    continue
+                if response.status_code in (200, 204, 404, 410):
+                    return
+                if response.status_code in (401, 403):
+                    raise SourceError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.")
+                if response.status_code == 429 or response.status_code >= 500:
+                    if attempt < self.max_retries - 1:
+                        time.sleep(_retry_after(response) or _backoff(attempt))
+                        continue
+                elif 400 <= response.status_code < 500:
+                    raise MessageReadError(f"Microsoft Graph rejected a message read update (HTTP {response.status_code}).")
+                raise SourceError(f"Microsoft Graph read update failed (HTTP {response.status_code}).")
 
     def test(self) -> None:
         # Probe mailbox access with the Mail.Read permission we request. The
@@ -232,6 +260,7 @@ def _to_raw(item: dict, folder: str = "Inbox") -> RawMessage:
 
     return RawMessage(
         message_id=message_id,
+        is_read=item.get("isRead"),
         uid=str(item.get("id") or ""),
         folder=folder,
         from_addr=(sender.get("address") or "").lower(),

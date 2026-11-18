@@ -29,8 +29,8 @@ from .secrets import SERVICE, credential_errors
 
 #: Personal Microsoft accounts only. Work/school tenants are out of scope.
 AUTHORITY = "https://login.microsoftonline.com/consumers"
-#: Read-only calendar access for bookings; mail access remains for CLI triage.
-SCOPES = ["Mail.Read", "Calendars.Read"]
+#: Mail read/write access supports automatic read marking after collection.
+SCOPES = ["Mail.Read", "Mail.ReadWrite", "Calendars.Read"]
 CALENDAR_SCOPES = ["Calendars.Read"]
 CONNECT_SCOPES = SCOPES + ["Mail.Send"]
 

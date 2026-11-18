@@ -159,6 +159,7 @@ def normalize(
         account_id=account_id,
         account_label=account_label,
         message_id=raw.message_id,
+        is_read=raw.is_read,
         uid=raw.uid,
         folder=raw.folder,
         from_addr=raw.from_addr,

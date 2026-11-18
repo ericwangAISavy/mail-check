@@ -6,6 +6,7 @@ control_root/shared-runtime; normal business operations use existing tables.
 from contextlib import contextmanager, ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from mailcheck import read_marking
 import json
 import logging
 import os
@@ -129,6 +130,7 @@ class WorkspaceOperations(Runtime):
                 for message in messages:
                     check()
                     pk = db.upsert_message(conn,message)
+                    read_marking.enqueue(conn, account, message.uid, is_read=message.is_read)
                     if db.get_cached(conn,pk,None) is not None:
                         continue
                     rule = prefilter.apply(message,cfg.prefilter_rules)
@@ -140,6 +142,8 @@ class WorkspaceOperations(Runtime):
                 check()
                 conn.commit()
                 atomic_json(checkpoint, {'mailbox':mailbox,'checked':started.isoformat()})
+                for warning in read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check):
+                    logging.getLogger(__name__).warning(warning)
                 storage.set_status(conn,account_id,last_sync=time.time())
                 pending = self._pending(conn,account)
             if pending:

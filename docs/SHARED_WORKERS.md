@@ -9,7 +9,7 @@ running jobs. The default `OFFERPATH_WORKER_MODE=legacy` retains the current run
 
 ## Requirements
 
-- Python 3.11+, existing OfferPath database schema version 50, and the `shared` extra:
+- Python 3.11+, existing OfferPath database schema version 51, and the `shared` extra:
   `python -m pip install -e '.[shared]'`.
 - RabbitMQ 4.1+ with quorum queues and at-least-once dead lettering. Use persistent
   broker storage, a dedicated vhost/user, and private networking; use `amqps://`
@@ -184,3 +184,7 @@ checked to establish the cause of a particular workspace's missing mail.
 No database migration or cross-workspace checkpoint reset is needed. Load the
 new code during a controlled restart after active jobs complete; recovery uses
 normal queue deliveries and idempotent message upserts.
+
+### Outlook read marking upgrade
+
+Version 3.2 adds durable Outlook read tasks in application schema 51. Stop workers and open each workspace database through the regular OfferPath database upgrade path before restarting shared workers. Shared workers continue to require an already upgraded database. Reconnect Outlook accounts in Accounts to grant Mail.ReadWrite permission. Collected messages are marked read after their local save commits, with failed updates retried during later collections.

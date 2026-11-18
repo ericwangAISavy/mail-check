@@ -2,6 +2,20 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.2.1 — 2026-11-17
+
+Avoid redundant Outlook read updates
+
+- Preserve Outlook read state during collection so already-read messages are not repeatedly updated and completed retry tasks are cleared.
+- Allow later Outlook read updates to proceed when an individual message update is rejected, while preserving failed tasks for retry.
+
+## 3.2.0 — 2026-11-17
+
+Automatically mark collected Outlook emails read
+
+- Automatically mark Outlook emails as read after they are saved, with durable retries for failed updates.
+- Reconnect existing Outlook accounts to grant Mail.ReadWrite permission.
+
 ## 3.1.2 — 2026-11-16
 
 Recover workspace mail collection checkpoints

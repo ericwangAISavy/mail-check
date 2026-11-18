@@ -26,6 +26,7 @@ class RawMessage:
     thread_id: str | None = None
     references: list[str] = field(default_factory=list)
     original_html: str | None = None
+    is_read: bool | None = None
 
 
 @dataclass
@@ -49,6 +50,7 @@ class NormalizedMessage:
     references: list[str] = field(default_factory=list)
     interview_text: str | None = None
     original_html: str | None = None
+    is_read: bool | None = None
 
     @property
     def snippet(self) -> str:

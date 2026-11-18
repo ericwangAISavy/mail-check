@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
-from . import db, normalize, prefilter, secrets, interviews, mail_checkpoints
+from . import read_marking, db, normalize, prefilter, secrets, interviews, mail_checkpoints
 from .config import Config
 from .diagnostics import PerformanceLog
 from .llm import LLMClient, PROMPT_VERSION, classify
@@ -171,6 +171,8 @@ def check_once(
     result.fetch_seconds = time.monotonic() - fetch_started
 
     if not fetched:
+        for account, _ in successful:
+            result.errors.extend(read_marking.drain(conn, account, build_source(account, cfg) if account.provider == "outlook" else None))
         for account, started in successful:
             if account.id in advances:
                 mail_checkpoints.record(conn, account, started)
@@ -182,8 +184,11 @@ def check_once(
     pending: list[NormalizedMessage] = []
     pending_pks: list[int] = []
 
+    accounts_by_id = {account.id: account for account in accounts}
     for msg in fetched:
         pk = db.upsert_message(conn, msg)
+        account = accounts_by_id[msg.account_id]
+        read_marking.enqueue(conn, account, msg.uid, is_read=msg.is_read)
 
         if use_cache:
             cached = db.get_cached(conn, pk, None)
@@ -205,6 +210,9 @@ def check_once(
         pending_pks.append(pk)
 
     conn.commit()
+
+    for account, _ in successful:
+        result.errors.extend(read_marking.drain(conn, account, build_source(account, cfg) if account.provider == "outlook" else None))
 
     # ---- classify --------------------------------------------------------
     if pending:

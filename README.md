@@ -22,7 +22,7 @@ For information  (2)
 12 unread | 4 classified | 5 cached | 3 prefiltered  across 1 account(s) in 6.2s
 ```
 
-**Collection stays read-only.** Mail checks never mark messages as read. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
+**Outlook emails are automatically marked as read after collection is saved.** Pending updates retry on subsequent collection runs, even if classification fails. Existing Outlook accounts must reconnect in Accounts to grant Mail.ReadWrite permission. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
 
 ## Install
 
@@ -391,7 +391,7 @@ Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft inste
 mailbox password — Microsoft disabled basic-auth IMAP, so app passwords cannot work there.
 
 One-time setup: register a **public client** application in the Microsoft Entra admin
-center with delegated `Calendars.Read`, `Mail.Read` and `Mail.Send` permissions and device-code flow enabled, then paste its
+center with delegated `Calendars.Read`, `Mail.ReadWrite` and `Mail.Send` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
 shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are
@@ -481,7 +481,7 @@ Open **Job sourcing → Job link filters → Roles by account**, select an email
 
 ### Inbox and Junk/Spam collection
 
-Manual and automatic mail checks collect both read and unread mail from Outlook Inbox and Junk Email. IMAP checks the configured folder plus discovered Junk/Spam folders (including Gmail’s Spam folder). Folder selection and message fetching remain read-only; nothing is moved or marked read. Messages found in more than one scanned folder are collected once. Folder names and collected counts appear in collection status/log messages.
+Manual and automatic mail checks collect both read and unread mail from Outlook Inbox and Junk Email. IMAP checks the configured folder plus discovered Junk/Spam folders (including Gmail’s Spam folder). Outlook messages are automatically marked read after they are saved locally. Failed read updates retry on later collection runs. IMAP uses read-only folder selection and fetching. Messages found in more than one scanned folder are collected once. Folder names and collected counts appear in collection status/log messages.
 
 The first incremental check after this upgrade uses the configured first-check lookback again to include the newly covered folders. Afterwards, successful per-account checkpoints resume as usual. A failure in any scanned folder keeps that account’s checkpoint unchanged for retry.
 

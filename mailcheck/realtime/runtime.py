@@ -1,7 +1,9 @@
 """Opt-in workspace collectors, independent classification, and durable publication."""
 from __future__ import annotations
 
+from mailcheck import read_marking
 import os
+import logging
 import threading
 import time
 import uuid
@@ -161,6 +163,7 @@ class Runtime:
                 check()
                 for msg in messages:
                     pk = db.upsert_message(guarded, msg)
+                    read_marking.enqueue(guarded, account, msg.uid, is_read=msg.is_read)
                     # Preserve every existing successful/manual classification.
                     if db.get_cached(guarded, pk, None) is not None:
                         continue
@@ -176,6 +179,8 @@ class Runtime:
                 conn.execute('DELETE FROM realtime_pending_windows WHERE account_id=? AND mailbox=?',
                              (account_id, mailbox))
                 guarded.commit()
+                for warning in read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check):
+                    logging.getLogger(__name__).warning(warning)
                 storage.set_status(conn, account_id, last_sync=time.time())
                 pending = self._pending(conn, account)
             if pending:

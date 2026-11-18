@@ -48,6 +48,34 @@ def message(aid):
         date_utc=datetime.now(timezone.utc), body='We would like to interview you.')
 
 
+def test_outlook_read_update_follows_commit_and_retries_without_new_mail(setup, monkeypatch):
+    from types import SimpleNamespace
+    from mailcheck.sources.base import SourceError
+    runtime, path, aid, broker = setup
+    with db.session(path) as conn:
+        conn.execute("UPDATE accounts SET provider='outlook' WHERE id=?", (aid,))
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [message(aid)])
+    monkeypatch.setattr('mailcheck.realtime.runtime.prefilter.apply', lambda *a: None)
+    attempts = []
+    def mark_read(uid):
+        with db.session(path) as conn:
+            assert conn.execute('SELECT count(*) FROM messages').fetchone()[0] == 1
+            assert conn.execute('SELECT category FROM classifications').fetchone()[0] == 'unclassified'
+        attempts.append(uid)
+        if len(attempts) == 1:
+            raise SourceError('temporary failure')
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.build_source',
+                        lambda *a: SimpleNamespace(mark_read=mark_read))
+    runtime.collect_mail(aid)
+    with db.session(path) as conn:
+        assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 1
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [])
+    runtime.collect_mail(aid)
+    assert attempts == ['1', '1']
+    with db.session(path) as conn:
+        assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 0
+
+
 def test_collection_commits_placeholder_before_classification_and_preserves_done(setup, monkeypatch):
     runtime, path, aid, broker = setup
     monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [message(aid)])

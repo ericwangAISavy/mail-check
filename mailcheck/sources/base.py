@@ -40,6 +40,10 @@ class SourceError(RuntimeError):
     """
 
 
+class MessageReadError(SourceError):
+    """One message could not be updated; other queued messages may proceed."""
+
+
 @runtime_checkable
 class MailSource(Protocol):
     def test(self) -> None:
