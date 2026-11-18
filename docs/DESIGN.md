@@ -394,8 +394,9 @@ redesign. It uses Microsoft Graph, not basic-auth IMAP:
   DPAPI-encrypted file under the workspace config folder (`outlook-tokens/`), bound to the
   account and credential namespace; Credential Manager's per-user capacity is too small for
   ~7 chunked entries per account. Older chunked keyring caches migrate on first read and are
-  then deleted. Other systems keep the chunked OS keyring cache. Backups never include
-  token files. SQLite stores no access token, refresh token, device code, or client secret.
+  then deleted. Google Sheets OAuth secrets (client configuration and tokens) use the same
+  scheme under `google-credentials/`. Other systems keep the chunked OS keyring cache.
+  Backups never include these files. SQLite stores no access token, refresh token, device code, or client secret.
 - Fetch: `GET /me/mailFolders/inbox/messages`, filtered to unread messages within the
   configured lookback, with an explicit `$select`, `Prefer:
   outlook.body-content-type="text"`, and complete `@odata.nextLink` traversal.

@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.5.2 — 2026-11-18
+
+Keep Google sign-in out of a full Credential Manager
+
+- On Windows, Google Sheets sign-in and its OAuth client settings are now stored in encrypted files instead of Credential Manager, so connecting Google no longer fails when Credential Manager is full.
+- Existing Google connections move to the new files automatically and free their Credential Manager entries.
+
 ## 3.5.1 — 2026-11-18
 
 Reconnect Outlook when Credential Manager is full

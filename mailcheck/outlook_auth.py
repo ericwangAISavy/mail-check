@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 
-from . import dpapi
+from . import secret_files
 from .secrets import SERVICE, credential_errors
 
 #: Personal Microsoft accounts only. Work/school tenants are out of scope.
@@ -148,12 +148,11 @@ def _chunk_key(label: str, index: int) -> str:
 def _file_store() -> bool:
     """Windows keeps token caches in DPAPI files: Credential Manager has a small
     per-user capacity, and ~7 chunked entries per account exhausts it."""
-    return dpapi.available()
+    return secret_files.enabled()
 
 
 def _token_dir() -> Path:
-    from . import config
-    return config.config_path().parent / "outlook-tokens"
+    return secret_files.folder("outlook-tokens")
 
 
 def _token_file(label: str) -> Path:
@@ -169,45 +168,11 @@ def _entropy(label: str) -> bytes:
 
 def _read_file_blob(label: str) -> str | None:
     """None when there is no file; "" when it exists but is unusable."""
-    try:
-        raw = _token_file(label).read_bytes()
-    except FileNotFoundError:
-        return None
-    if not raw.startswith(TOKEN_FILE_MAGIC):
-        return ""
-    try:
-        return dpapi.unprotect(raw[len(TOKEN_FILE_MAGIC):], _entropy(label)).decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return ""  # corrupt, or encrypted for another user — re-authenticate
+    return secret_files.read(_token_file(label), TOKEN_FILE_MAGIC, _entropy(label))
 
 
 def _write_file_blob(label: str, blob: str) -> None:
-    target = _token_file(label)
-    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    data = TOKEN_FILE_MAGIC + dpapi.protect(blob.encode("utf-8"), _entropy(label))
-    descriptor, temporary = tempfile.mkstemp(prefix=".tmp-", dir=target.parent)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        _replace(temporary, target)  # atomic: readers see the old or new cache, never a torn one
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
-
-
-def _replace(source: str, target: Path) -> None:
-    """Antivirus or indexing can briefly open the target on Windows; retry those
-    sharing violations instead of failing the whole sign-in save."""
-    for attempt in range(20):
-        try:
-            os.replace(source, target)
-            return
-        except PermissionError:
-            if attempt == 19:
-                raise
-            time.sleep(0.05)
+    secret_files.write(_token_file(label), TOKEN_FILE_MAGIC, _entropy(label), blob)
 
 
 def _purge_keyring_blob(label: str) -> None:

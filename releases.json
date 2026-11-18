@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.5.2",
+    "date": "2026-11-18",
+    "title": "Keep Google sign-in out of a full Credential Manager",
+    "changes": [
+      "On Windows, Google Sheets sign-in and its OAuth client settings are now stored in encrypted files instead of Credential Manager, so connecting Google no longer fails when Credential Manager is full.",
+      "Existing Google connections move to the new files automatically and free their Credential Manager entries."
+    ]
+  },
+  {
     "version": "3.5.1",
     "date": "2026-11-18",
     "title": "Reconnect Outlook when Credential Manager is full",

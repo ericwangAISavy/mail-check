@@ -48,8 +48,8 @@ def store(monkeypatch):
             if not data.startswith(entropy + b"|"):
                 raise OSError("wrong entropy")
             return bytes(b ^ 0x5A for b in data[len(entropy) + 1:])
-        monkeypatch.setattr(auth.dpapi, "protect", protect)
-        monkeypatch.setattr(auth.dpapi, "unprotect", unprotect)
+        monkeypatch.setattr(dpapi, "protect", protect)
+        monkeypatch.setattr(dpapi, "unprotect", unprotect)
     return fake
 
 
