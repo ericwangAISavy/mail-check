@@ -142,9 +142,10 @@ class WorkspaceOperations(Runtime):
                 check()
                 conn.commit()
                 atomic_json(checkpoint, {'mailbox':mailbox,'checked':started.isoformat()})
-                for warning in read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check):
+                read_errors = read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check)
+                for warning in read_errors:
                     logging.getLogger(__name__).warning(warning)
-                storage.set_status(conn,account_id,last_sync=time.time())
+                storage.set_status(conn,account_id,error="\n".join(read_errors),last_sync=time.time())
                 pending = self._pending(conn,account)
             if pending:
                 try:

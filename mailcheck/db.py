@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -272,10 +272,11 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     path = path or config.db_path()
     from .workspaces import current_workspace
     if current_workspace() is not None and Path(path).is_file():
-        # Shared-mode adoption never upgrades an existing application database.
-        # A separate explicit upgrade is required for older installations.
-        with sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True) as existing:
-            if existing.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
+        # Schema 50 is the supported shared-worker baseline. Its additive
+        # read-task upgrade runs under the migration lock below, including
+        # when an API request is the first operation after an app update.
+        with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)) as existing:
+            if existing.execute('PRAGMA user_version').fetchone()[0] not in (50, SCHEMA_VERSION):
                 raise RuntimeError('Shared workers require the existing database schema; no automatic migration was performed.')
     from .maintenance import connect_database
     conn = connect_database(path)

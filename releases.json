@@ -1,5 +1,110 @@
 [
   {
+    "version": "3.2.14",
+    "date": "2026-11-18",
+    "title": "Modernize sign-in typography",
+    "changes": [
+      "Use locally hosted Manrope typography with refined heading weights, quieter supporting text, and restrained silver-blue accents on the sign-in page."
+    ]
+  },
+  {
+    "version": "3.2.13",
+    "date": "2026-11-18",
+    "title": "Compact sign-in and expose Outlook read-sync failures",
+    "changes": [
+      "Reduce the sign-in panel, branding, fields, and button to a more natural size.",
+      "Show pending Outlook read updates in Accounts and preserve mail-collection read-sync errors so accounts requiring Mail.ReadWrite consent can be identified."
+    ]
+  },
+  {
+    "version": "3.2.12",
+    "date": "2026-11-18",
+    "title": "Remove the sign-in logo frame",
+    "changes": [
+      "Remove the inherited rounded border, tile background, and shadow around the sign-in logo."
+    ]
+  },
+  {
+    "version": "3.2.11",
+    "date": "2026-11-18",
+    "title": "Lighten the OfferPath logo finish",
+    "changes": [
+      "Lighten the shared logo to an icy silver-blue palette with soft cyan highlights for the updated application design."
+    ]
+  },
+  {
+    "version": "3.2.10",
+    "date": "2026-11-18",
+    "title": "Deepen and sharpen the OfferPath logo",
+    "changes": [
+      "Refine the logo with richer sapphire-blue tones, controlled highlights, and a cleaner high-resolution transparent asset throughout the application."
+    ]
+  },
+  {
+    "version": "3.2.9",
+    "date": "2026-11-18",
+    "title": "Use the supplied neon loop logo",
+    "changes": [
+      "Replace the approximate arrow mark with the supplied open-loop logo design across sign-in, navigation, startup, and the browser icon."
+    ]
+  },
+  {
+    "version": "3.2.8",
+    "date": "2026-11-18",
+    "title": "Match the mountain sunrise sign-in design",
+    "changes": [
+      "Refine sign-in branding, glass panel, rounded fields, and metallic blue button to match the supplied design while retaining the existing background."
+    ]
+  },
+  {
+    "version": "3.2.7",
+    "date": "2026-11-18",
+    "title": "Refine the OfferPath application mark",
+    "changes": [
+      "Update the shared application mark with a metallic silver-blue finish, dark rounded tile, and cyan highlights inspired by the new brand design."
+    ]
+  },
+  {
+    "version": "3.2.6",
+    "date": "2026-11-18",
+    "title": "Center the sign-in form independently",
+    "changes": [
+      "Center the sign-in form itself in the viewport with OfferPath branding positioned above it, while keeping the complete layout visible on small screens."
+    ]
+  },
+  {
+    "version": "3.2.5",
+    "date": "2026-11-18",
+    "title": "Center the sign-in panel",
+    "changes": [
+      "Remove promotional text and milestone badges over the sign-in artwork and center the sign-in panel vertically and horizontally."
+    ]
+  },
+  {
+    "version": "3.2.4",
+    "date": "2026-11-18",
+    "title": "Refresh sign-in background",
+    "changes": [
+      "Publish the updated sign-in background in the production frontend assets."
+    ]
+  },
+  {
+    "version": "3.2.3",
+    "date": "2026-11-18",
+    "title": "Close workspace schema probe connections",
+    "changes": [
+      "Close SQLite schema-check connections immediately after workspace validation to prevent retained database handles during repeated requests and failed upgrades."
+    ]
+  },
+  {
+    "version": "3.2.2",
+    "date": "2026-11-18",
+    "title": "Recover workspaces after Outlook upgrade",
+    "changes": [
+      "Automatically apply the additive Outlook read-task migration when existing shared workspaces open, preventing schema-50 workspaces from returning server errors after updating."
+    ]
+  },
+  {
     "version": "3.2.1",
     "date": "2026-11-17",
     "title": "Avoid redundant Outlook read updates",
@@ -281,7 +386,7 @@
     "date": "2026-11-10",
     "title": "Separate owner and admin workspace mail schedules",
     "changes": [
-      "Configure independent automatic mail-check intervals for the owner\u2019s workspace and other admin workspaces, with quick choices, validation and clear live Inbox guidance."
+      "Configure independent automatic mail-check intervals for the owner’s workspace and other admin workspaces, with quick choices, validation and clear live Inbox guidance."
     ]
   },
   {
@@ -628,7 +733,7 @@
     "title": "Simplify interview calendar details",
     "changes": [
       "Interview dialogs focus on time, email account, company, role, interview contacts, and location or a meeting link.",
-      "Deduplicate calendar accounts and contacts, exclude the candidate\u2019s own email addresses, and stop labeling fallback calendar titles as companies.",
+      "Deduplicate calendar accounts and contacts, exclude the candidate’s own email addresses, and stop labeling fallback calendar titles as companies.",
       "Move event removal into Edit details and remove technical metadata and repeated source-account sections from the summary."
     ]
   },
@@ -899,7 +1004,7 @@
     "date": "2026-11-02",
     "title": "Separate bidder work by email account",
     "changes": [
-      "Expand a bidder in the daily breakdown to see each account\u2019s daily estimated confirmations, checked applications, and weekly total. Shared-account figures use that bidder\u2019s allocated share."
+      "Expand a bidder in the daily breakdown to see each account’s daily estimated confirmations, checked applications, and weekly total. Shared-account figures use that bidder’s allocated share."
     ]
   },
   {

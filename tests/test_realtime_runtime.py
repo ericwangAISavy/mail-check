@@ -69,11 +69,13 @@ def test_outlook_read_update_follows_commit_and_retries_without_new_mail(setup, 
     runtime.collect_mail(aid)
     with db.session(path) as conn:
         assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 1
+        assert 'Read marking pending' in conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()[0]
     monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [])
     runtime.collect_mail(aid)
     assert attempts == ['1', '1']
     with db.session(path) as conn:
         assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 0
+        assert conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()[0] == ''
 
 
 def test_collection_commits_placeholder_before_classification_and_preserves_done(setup, monkeypatch):

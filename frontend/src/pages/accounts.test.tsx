@@ -23,6 +23,14 @@ function mount() {
 }
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
 
+it("shows pending Outlook read updates and reconnection guidance", async () => {
+  accounts[0].provider = "outlook"
+  accounts[0].pending_read_updates = 3
+  mount()
+  expect(await screen.findByText(/3 email\(s\) awaiting Outlook read updates/)).toBeTruthy()
+  expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy()
+})
+
 it("tests the selected account and prevents a concurrent toggle", async () => {
   let finish!: (value: unknown) => void
   const post = vi.spyOn(api, "post").mockImplementation(() => new Promise((resolve) => { finish = resolve as typeof finish }))

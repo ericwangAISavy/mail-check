@@ -284,6 +284,7 @@ class TriageResponse(BaseModel):
 
 
 class PublicAccount(BaseModel):
+    pending_read_updates: int = 0
     last_checked_at: str | None = None
     id: int
     label: str
@@ -1410,6 +1411,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             accounts = db.list_accounts(conn)
             last_checks = checkpoint_snapshot(conn, accounts)
+            pending_reads = {(row[0], row[1]): row[2] for row in conn.execute(
+                "SELECT account_id,mailbox,count(*) FROM outlook_read_tasks GROUP BY account_id,mailbox")}
         return {
             "accounts": [{
                 "id": a.id, "label": a.label, "email": a.email,
@@ -1417,6 +1420,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 "imap_port": a.imap_port, "use_ssl": a.use_ssl,
                 "folder": a.folder, "enabled": a.enabled,
                 "last_checked_at": last_checks[a.id].isoformat() if last_checks[a.id] else None,
+                "pending_read_updates": pending_reads.get((a.id, a.email.casefold()), 0) if a.provider == "outlook" else 0,
             } for a in accounts],
             "outlook_ready": bool(cfgmod.load().outlook.client_id),
         }

@@ -179,9 +179,10 @@ class Runtime:
                 conn.execute('DELETE FROM realtime_pending_windows WHERE account_id=? AND mailbox=?',
                              (account_id, mailbox))
                 guarded.commit()
-                for warning in read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check):
+                read_errors = read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check)
+                for warning in read_errors:
                     logging.getLogger(__name__).warning(warning)
-                storage.set_status(conn, account_id, last_sync=time.time())
+                storage.set_status(conn, account_id, error="\n".join(read_errors), last_sync=time.time())
                 pending = self._pending(conn, account)
             if pending:
                 self.broker.enqueue('classify', account_id, reason='reconcile')

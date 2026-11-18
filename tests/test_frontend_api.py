@@ -345,6 +345,17 @@ class FrontendApiTests(unittest.TestCase):
         self.assertEqual(response.json()["accounts"][0]["label"], "personal")
         self.assertNotIn("password", str(response.json()).lower())
 
+    def test_account_api_counts_only_current_mailbox_read_updates(self):
+        self.conn.execute("UPDATE accounts SET provider='outlook' WHERE id=?", (self.account_id,))
+        self.conn.executemany('INSERT INTO outlook_read_tasks VALUES(?,?,?)', [
+            (self.account_id, 'me@example.test', 'pending'),
+            (self.account_id, 'previous@example.test', 'old-mailbox'),
+        ])
+        self.conn.commit()
+        response = self.client.get('/api/accounts')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['accounts'][0]['pending_read_updates'], 1)
+
     def test_settings_api_provides_editable_state_without_secrets(self):
         response = self.client.get("/api/settings")
 

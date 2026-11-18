@@ -17,6 +17,7 @@ export type TriageData = {
   last_run?: string
 }
 export type Account = {
+  pending_read_updates?: number
   last_checked_at?: string | null
   id: number; label: string; email: string; provider: string; imap_host: string
   imap_port: number; use_ssl: boolean; folder: string; enabled: boolean

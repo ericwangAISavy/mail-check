@@ -35,6 +35,59 @@ def test_connection_grants_collection_reply_and_read_update_scopes():
     assert set(SEND_SCOPES) <= set(CONNECT_SCOPES)
 
 
+def test_bound_workspace_upgrades_previous_schema_without_losing_data(tmp_path):
+    from mailcheck import db
+    from mailcheck.workspaces import WorkspaceContext, bind_workspace
+    path = tmp_path / 'mail.db'
+    with db.session(path) as conn:
+        db.add_account(conn, label='preserved', email='person@example.com')
+        conn.execute('DROP TABLE outlook_read_tasks')
+        conn.execute('PRAGMA user_version=50')
+    context = WorkspaceContext('legacy', None, tmp_path / 'config.toml', path, tmp_path / 'control')
+    with bind_workspace(context), db.session(path) as conn:
+        assert conn.execute('PRAGMA user_version').fetchone()[0] == db.SCHEMA_VERSION
+        assert conn.execute('SELECT label FROM accounts').fetchone()[0] == 'preserved'
+        assert conn.execute('SELECT count(*) FROM outlook_read_tasks').fetchone()[0] == 0
+
+
+def test_bound_workspace_still_rejects_unsupported_schema(tmp_path):
+    from mailcheck import db
+    from mailcheck.workspaces import WorkspaceContext, bind_workspace
+    path = tmp_path / 'mail.db'
+    with db.session(path) as conn:
+        conn.execute('PRAGMA user_version=49')
+    context = WorkspaceContext('legacy', None, tmp_path / 'config.toml', path, tmp_path / 'control')
+    with bind_workspace(context), pytest.raises(RuntimeError, match='no automatic migration'):
+        db.connect(path)
+
+
+@pytest.mark.parametrize('version', [50, 51, 49])
+def test_workspace_schema_probe_closes_connection(tmp_path, monkeypatch, version):
+    from mailcheck import db
+    from mailcheck.workspaces import WorkspaceContext, bind_workspace
+    path = tmp_path / 'mail.db'
+    with db.session(path) as conn:
+        conn.execute(f'PRAGMA user_version={version}')
+    original = sqlite3.connect
+    probes = []
+    def connect(*args, **kwargs):
+        connection = original(*args, **kwargs)
+        if kwargs.get('uri') and 'mode=ro' in str(args[0]):
+            probes.append(connection)
+        return connection
+    monkeypatch.setattr(sqlite3, 'connect', connect)
+    context = WorkspaceContext('legacy', None, tmp_path / 'config.toml', path, tmp_path / 'control')
+    with bind_workspace(context):
+        if version == 49:
+            with pytest.raises(RuntimeError):
+                db.connect(path)
+        else:
+            db.connect(path).close()
+    assert len(probes) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match='closed'):
+        probes[0].execute('SELECT 1')
+
+
 def test_outlook_read_state_survives_normalization_and_clears_retry(tmp_path):
     from mailcheck.normalize import normalize
     from mailcheck.sources.outlook import _to_raw

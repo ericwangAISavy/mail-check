@@ -59,7 +59,7 @@ def installation(tmp_path, monkeypatch):
             conn.execute('INSERT INTO users(username,workspace_id,owner,enabled,version,must_change) VALUES(?,?,0,1,?,0)',
                          (f'admin{index}', wid, uuid.uuid4().hex))
         context = WorkspaceContext.from_record(store.workspace(wid), legacy, store.root)
-        # Explicitly provision schema 50 before a shared context is bound.
+        # Explicitly provision the current schema before a shared context is bound.
         path = root/'data'/'mailcheck.db'
         conn = db.connect(path)
         account_id = db.add_account(conn, label='same-label', email=f'admin{index}@example.test')
@@ -74,7 +74,7 @@ def installation(tmp_path, monkeypatch):
         conn.commit()
         existing[wid] = conn.execute('SELECT m.handled_at,c.category,c.summary,c.model FROM messages m JOIN classifications c ON c.message_pk=m.id WHERE m.id=?', (pk,)).fetchone()
         conn.close()
-        assert schema(path)[0] == 50
+        assert schema(path)[0] == db.SCHEMA_VERSION
         contexts[wid] = context
         snapshots[wid] = schema(path)
     original_files = {path: path.read_bytes() for path in (legacy[0], legacy[2])}

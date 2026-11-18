@@ -187,4 +187,4 @@ normal queue deliveries and idempotent message upserts.
 
 ### Outlook read marking upgrade
 
-Version 3.2 adds durable Outlook read tasks in application schema 51. Stop workers and open each workspace database through the regular OfferPath database upgrade path before restarting shared workers. Shared workers continue to require an already upgraded database. Reconnect Outlook accounts in Accounts to grant Mail.ReadWrite permission. Collected messages are marked read after their local save commits, with failed updates retried during later collections.
+Version 3.2 adds durable Outlook read tasks in application schema 51. Existing schema 50 workspaces automatically receive the additive read-task table on first access under the database migration lock. Earlier schemas still require an explicit upgrade before starting shared workers. Reconnect Outlook accounts in Accounts to grant Mail.ReadWrite permission. Collected messages are marked read after their local save commits, with failed updates retried during later collections.

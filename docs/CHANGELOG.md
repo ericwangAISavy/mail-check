@@ -2,6 +2,85 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.2.14 — 2026-11-18
+
+Modernize sign-in typography
+
+- Use locally hosted Manrope typography with refined heading weights, quieter supporting text, and restrained silver-blue accents on the sign-in page.
+
+## 3.2.13 — 2026-11-18
+
+Compact sign-in and expose Outlook read-sync failures
+
+- Reduce the sign-in panel, branding, fields, and button to a more natural size.
+- Show pending Outlook read updates in Accounts and preserve mail-collection read-sync errors so accounts requiring Mail.ReadWrite consent can be identified.
+
+## 3.2.12 — 2026-11-18
+
+Remove the sign-in logo frame
+
+- Remove the inherited rounded border, tile background, and shadow around the sign-in logo.
+
+## 3.2.11 — 2026-11-18
+
+Lighten the OfferPath logo finish
+
+- Lighten the shared logo to an icy silver-blue palette with soft cyan highlights for the updated application design.
+
+## 3.2.10 — 2026-11-18
+
+Deepen and sharpen the OfferPath logo
+
+- Refine the logo with richer sapphire-blue tones, controlled highlights, and a cleaner high-resolution transparent asset throughout the application.
+
+## 3.2.9 — 2026-11-18
+
+Use the supplied neon loop logo
+
+- Replace the approximate arrow mark with the supplied open-loop logo design across sign-in, navigation, startup, and the browser icon.
+
+## 3.2.8 — 2026-11-18
+
+Match the mountain sunrise sign-in design
+
+- Refine sign-in branding, glass panel, rounded fields, and metallic blue button to match the supplied design while retaining the existing background.
+
+## 3.2.7 — 2026-11-18
+
+Refine the OfferPath application mark
+
+- Update the shared application mark with a metallic silver-blue finish, dark rounded tile, and cyan highlights inspired by the new brand design.
+
+## 3.2.6 — 2026-11-18
+
+Center the sign-in form independently
+
+- Center the sign-in form itself in the viewport with OfferPath branding positioned above it, while keeping the complete layout visible on small screens.
+
+## 3.2.5 — 2026-11-18
+
+Center the sign-in panel
+
+- Remove promotional text and milestone badges over the sign-in artwork and center the sign-in panel vertically and horizontally.
+
+## 3.2.4 — 2026-11-18
+
+Refresh sign-in background
+
+- Publish the updated sign-in background in the production frontend assets.
+
+## 3.2.3 — 2026-11-18
+
+Close workspace schema probe connections
+
+- Close SQLite schema-check connections immediately after workspace validation to prevent retained database handles during repeated requests and failed upgrades.
+
+## 3.2.2 — 2026-11-18
+
+Recover workspaces after Outlook upgrade
+
+- Automatically apply the additive Outlook read-task migration when existing shared workspaces open, preventing schema-50 workspaces from returning server errors after updating.
+
 ## 3.2.1 — 2026-11-17
 
 Avoid redundant Outlook read updates
