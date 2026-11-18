@@ -2,7 +2,8 @@
 
 Device authorization only — no client secret is shipped or stored, and no
 redirect URI or hosted callback is needed. The token cache is serialized into
-the OS keyring per account; SQLite and the TOML config never hold a token.
+the OS keyring per account (on Windows, a DPAPI-encrypted file per account in
+the workspace's private config folder); SQLite and the TOML config never hold a token.
 
 https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code
 """
@@ -25,6 +26,7 @@ from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 
+from . import dpapi
 from .secrets import SERVICE, credential_errors
 
 #: Personal Microsoft accounts only. Work/school tenants are out of scope.
@@ -55,6 +57,8 @@ class ReconnectRequired(OutlookAuthError):
 #: guessed: CredWrite fails with "The stub received bad data" above 1280.
 CHUNK_CHARS = 1100
 MAX_CHUNKS = 64
+#: Windows stores each cache in one DPAPI-encrypted file instead (see _file_store).
+TOKEN_FILE_MAGIC = b"offerpath-outlook-cache-v1\n"
 
 _cache_locks = weakref.WeakValueDictionary()
 _cache_locks_guard = threading.Lock()
@@ -141,9 +145,115 @@ def _chunk_key(label: str, index: int) -> str:
     return f"{credential_namespace()}outlook-cache:{label}:{index}"
 
 
+def _file_store() -> bool:
+    """Windows keeps token caches in DPAPI files: Credential Manager has a small
+    per-user capacity, and ~7 chunked entries per account exhausts it."""
+    return dpapi.available()
+
+
+def _token_dir() -> Path:
+    from . import config
+    return config.config_path().parent / "outlook-tokens"
+
+
+def _token_file(label: str) -> Path:
+    name = hashlib.sha256((SERVICE + ":" + _cache_key(label)).encode()).hexdigest()
+    return _token_dir() / (name + ".bin")
+
+
+def _entropy(label: str) -> bytes:
+    """Bind each file to its account and credential namespace, so a file copied
+    to another account, workspace or restored namespace will not decrypt."""
+    return (TOKEN_FILE_MAGIC.decode() + _cache_key(label)).encode()
+
+
+def _read_file_blob(label: str) -> str | None:
+    """None when there is no file; "" when it exists but is unusable."""
+    try:
+        raw = _token_file(label).read_bytes()
+    except FileNotFoundError:
+        return None
+    if not raw.startswith(TOKEN_FILE_MAGIC):
+        return ""
+    try:
+        return dpapi.unprotect(raw[len(TOKEN_FILE_MAGIC):], _entropy(label)).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""  # corrupt, or encrypted for another user — re-authenticate
+
+
+def _write_file_blob(label: str, blob: str) -> None:
+    target = _token_file(label)
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    data = TOKEN_FILE_MAGIC + dpapi.protect(blob.encode("utf-8"), _entropy(label))
+    descriptor, temporary = tempfile.mkstemp(prefix=".tmp-", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _replace(temporary, target)  # atomic: readers see the old or new cache, never a torn one
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def _replace(source: str, target: Path) -> None:
+    """Antivirus or indexing can briefly open the target on Windows; retry those
+    sharing violations instead of failing the whole sign-in save."""
+    for attempt in range(20):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
+
+
+def _purge_keyring_blob(label: str) -> None:
+    """Free the Credential Manager entries of a cache now held in a file.
+
+    Best effort: the file is authoritative, and a later save retries.
+    """
+    try:
+        if keyring.get_password(SERVICE, _cache_key(label)) is None:
+            return
+        for i in range(MAX_CHUNKS):  # no early stop: a torn write can leave gaps
+            _delete_quietly(_chunk_key(label, i))
+        _delete_quietly(_cache_key(label))  # header last, so an interrupted purge is retried
+    except (keyring.errors.KeyringError, OSError, OutlookAuthError):
+        pass
+
+
 @credential_errors(OutlookAuthError)
 @_serialized_cache
 def _read_blob(label: str) -> str:
+    if not _file_store():
+        return _read_keyring_blob(label)
+    blob = _read_file_blob(label)
+    if blob is not None:
+        return blob
+    blob = _read_keyring_blob(label)
+    if blob:  # migrate a cache saved before token files, then free its entries
+        try:
+            _write_file_blob(label, blob)
+        except OSError:
+            return blob  # keep using the old entries; the next read or save retries
+        _purge_keyring_blob(label)
+    return blob
+
+
+@credential_errors(OutlookAuthError)
+@_serialized_cache
+def _write_blob(label: str, blob: str) -> None:
+    if not _file_store():
+        _write_keyring_blob(label, blob)
+        return
+    _write_file_blob(label, blob)
+    _purge_keyring_blob(label)
+
+
+def _read_keyring_blob(label: str) -> str:
     header = keyring.get_password(SERVICE, _cache_key(label))
     if not header:
         return ""
@@ -162,9 +272,7 @@ def _read_blob(label: str) -> str:
     return "".join(parts)
 
 
-@credential_errors(OutlookAuthError)
-@_serialized_cache
-def _write_blob(label: str, blob: str) -> None:
+def _write_keyring_blob(label: str, blob: str) -> None:
     chunks = [blob[i : i + CHUNK_CHARS] for i in range(0, len(blob), CHUNK_CHARS)] or [""]
     if len(chunks) > MAX_CHUNKS:
         raise OutlookAuthError(
@@ -191,7 +299,7 @@ def _delete_quietly(key: str) -> None:
 @credential_errors(OutlookAuthError)
 @_serialized_cache
 def load_cache(label: str) -> Any:
-    """Deserialize this account's MSAL cache out of the keyring."""
+    """Deserialize this account's MSAL cache from its token store."""
     import msal
 
     cache = msal.SerializableTokenCache()
@@ -218,11 +326,16 @@ def delete_cache(label: str) -> None:
     _delete_quietly(_cache_key(label))
     for i in range(MAX_CHUNKS):
         _delete_quietly(_chunk_key(label, i))
+    # Last: if the keyring is locked above, the account stays removable and signed in.
+    if _file_store():
+        _token_file(label).unlink(missing_ok=True)
 
 
 @credential_errors(OutlookAuthError)
 @_serialized_cache
 def has_cache(label: str) -> bool:
+    if _file_store() and _token_file(label).exists():
+        return True
     return bool(keyring.get_password(SERVICE, _cache_key(label)))
 
 

@@ -20,6 +20,7 @@ class CredentialErrors(unittest.TestCase):
                 with self.assertRaisesRegex(secrets.SecretError, "credential store is unavailable or locked"):
                     operation()
 
+    @patch.object(outlook_auth, "_file_store", lambda: False)
     def test_outlook_store_errors_are_handled_by_the_provider(self):
         for method, operation in (
             ("get_password", lambda: outlook_auth.load_cache("work")),

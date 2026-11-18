@@ -17,6 +17,7 @@ def test_chunked_cache_writers_cannot_interleave(monkeypatch):
         else:
             assert not inside.is_set(), 'Concurrent writers interleaved credential chunks'
             values[key]=value
+    monkeypatch.setattr(auth,'_file_store',lambda:False)
     monkeypatch.setattr(auth.keyring,'set_password',put)
     monkeypatch.setattr(auth.keyring,'get_password',lambda service,key:values.get(key))
     monkeypatch.setattr(auth.keyring,'delete_password',lambda service,key:values.pop(key,None))

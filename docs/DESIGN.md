@@ -57,7 +57,7 @@ mailcheck/
     base.py           # MailSource protocol — the pluggable seam
     imap.py           # IMAPSource (v1)
     outlook.py        # OutlookGraphSource for personal Microsoft accounts
-  outlook_auth.py     # MSAL public-client auth + keyring-backed token cache
+  outlook_auth.py     # MSAL public-client auth + token cache (DPAPI file on Windows)
   normalize.py        # MIME → clean plain text
   prefilter.py        # rule-based noise labelling, pre-LLM
   llm/
@@ -390,8 +390,12 @@ redesign. It uses Microsoft Graph, not basic-auth IMAP:
   client ID in `outlook.client_id`. The ID is not a secret; when it is absent, Accounts
   explains how to configure it instead of starting a broken sign-in.
 - Permission: delegated `Mail.Read`, the minimum permission that includes message bodies.
-- Tokens: MSAL's serialized cache is stored per account in the OS keyring. SQLite stores no
-  access token, refresh token, device code, or client secret.
+- Tokens: MSAL's serialized cache is stored per account. On Windows it is one
+  DPAPI-encrypted file under the workspace config folder (`outlook-tokens/`), bound to the
+  account and credential namespace; Credential Manager's per-user capacity is too small for
+  ~7 chunked entries per account. Older chunked keyring caches migrate on first read and are
+  then deleted. Other systems keep the chunked OS keyring cache. Backups never include
+  token files. SQLite stores no access token, refresh token, device code, or client secret.
 - Fetch: `GET /me/mailFolders/inbox/messages`, filtered to unread messages within the
   configured lookback, with an explicit `$select`, `Prefer:
   outlook.body-content-type="text"`, and complete `@odata.nextLink` traversal.
@@ -404,7 +408,7 @@ redesign. It uses Microsoft Graph, not basic-auth IMAP:
 The Accounts screen begins with provider choices. IMAP providers keep the current email,
 app-password, and advanced-server flow. Outlook shows **Connect Outlook**, a device-code
 instruction state, success, expiry, cancellation, and reconnect states. Account removal also
-deletes its token cache from the keyring.
+deletes its token cache (file and any keyring entries).
 
 ### 15.6 Boundaries and failure behavior
 

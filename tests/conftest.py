@@ -26,3 +26,10 @@ def isolate_maintenance_lock(tmp_path,monkeypatch):
     import os
     if not os.environ.get('OFFERPATH_MAINTENANCE_LOCK'):
         monkeypatch.setenv('OFFERPATH_MAINTENANCE_LOCK',str(tmp_path/'installation.lock'))
+
+
+@pytest.fixture(autouse=True)
+def isolate_outlook_token_files(tmp_path, monkeypatch):
+    """Windows token caches are files; never let a test touch the real config folder."""
+    from mailcheck import outlook_auth
+    monkeypatch.setattr(outlook_auth, '_token_dir', lambda: tmp_path / 'outlook-tokens')

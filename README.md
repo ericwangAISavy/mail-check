@@ -394,8 +394,11 @@ One-time setup: register a **public client** application in the Microsoft Entra 
 center with delegated `Calendars.Read`, `Mail.ReadWrite` and `Mail.Send` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
-shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are
-deleted with the account.
+shows a code to enter at Microsoft's sign-in page. Tokens are deleted with the account.
+On Windows each account's tokens are one file in the workspace's private config folder
+(`outlook-tokens`), encrypted to your Windows user with DPAPI; other systems use the OS
+keyring. Existing Windows sign-ins move to these files automatically, which frees their
+Credential Manager entries, so reconnecting no longer fails when Credential Manager is full.
 
 Microsoft 365 work and school accounts are out of scope.
 

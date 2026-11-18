@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.5.1 — 2026-11-18
+
+Reconnect Outlook when Credential Manager is full
+
+- On Windows, Outlook sign-in tokens are now stored in one encrypted file per account instead of several Credential Manager entries, so connecting or reconnecting accounts no longer fails when Credential Manager is full.
+- Existing Outlook sign-ins move to the new files automatically and free their Credential Manager entries; accounts stay connected.
+
 ## 3.5.0 — 2026-11-18
 
 Show all mail in the bidder Inbox
