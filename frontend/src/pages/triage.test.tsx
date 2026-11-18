@@ -360,7 +360,7 @@ it('reuses triage for the bidder Inbox with all categories, reading and scoped D
  renderPage(true,[{name:'interview_invite',label:'Interview invite',tier:'act'},{name:'info_request',label:'Info request',tier:'reply'},{name:'application_ack',label:'Application received',tier:'info'}])
  expect(await screen.findByText('Your verification code is 123456')).toBeTruthy()
  expect(document.querySelector('.tier-label')).toBeNull()  // one timeline, no category sections
- expect(screen.getByText(/Next mail check:.*your local time/)).toBeTruthy()
+ expect(screen.getByRole('region',{name:'Inbox update schedule'})).toBeTruthy()
  const triageRequests=requests.filter(url=>url.startsWith('GET /api/triage?'))
  expect(triageRequests.length).toBeGreaterThan(0)
  expect(triageRequests.every(url=>url.includes('category=offer')&&url.includes('live=1'))).toBe(true)
@@ -432,9 +432,9 @@ it('does not offer a bidder refresh button on admin triage', async () => {
 })
 
 it.each([
-  [true, false, false, 'Live inbox: checks for new mail about every 30 seconds'],
-  [true, true, false, 'Live inbox: checks for new mail about every 30 seconds; checking for new mail…'],
-  [true, false, true, 'Live inbox: checks for new mail about every 30 seconds; server is processing updates'],
+  [true, false, false, 'Waiting for the first update'],
+  [true, true, false, 'Checking for new mail…'],
+  [true, false, true, 'Server is busy — updates resume shortly'],
   [false, false, false, 'Automatic mail checks are off'],
 ])('describes live inbox state (enabled=%s, fetching=%s, processing=%s)', async (enabled, running, processing, label) => {
   const base = vi.mocked(fetch).getMockImplementation()!
@@ -585,17 +585,17 @@ it('does not count the fixed bidder category as a removable filter', async () =>
  expect(screen.queryByLabelText('1 active')).toBeNull()
 })
 
-it('shows the actual next live check time supplied by the server', async () => {
+it('shows how fresh the bidder Inbox is from the server', async () => {
  const base=vi.mocked(fetch).getMockImplementation()!
  vi.mocked(fetch).mockImplementation(async(input,init)=>{
   const res=await base(input,init)
   if(!String(input).startsWith('/api/triage'))return res
   const data=await res.json()
-  data.check_schedule={automatic:true,running:false,next_at:null,live:{enabled:true,running:false,interval_seconds:30,last_checked_at:null,next_at:new Date(Date.now()+30000).toISOString()}}
+  data.check_schedule={automatic:true,running:false,next_at:null,live:{enabled:true,running:false,interval_seconds:30,last_checked_at:null,next_at:new Date(Date.now()+30000).toISOString(),updated_at:new Date(Date.now()-20000).toISOString()}}
   return response(data)
  })
  renderPage(true)
- expect(await screen.findByText(/Next live check:/)).toBeTruthy()
+ await waitFor(()=>expect(screen.getByRole('region',{name:'Inbox update schedule'}).querySelector('[role=status]')?.textContent).toMatch(/^Updated (2\d|1\d) seconds ago$/))
 })
 
 it('keeps the bidder inbox open after a temporary refresh failure', async () => {

@@ -8,6 +8,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "reac
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
 import { api, request } from "@/lib/api"
+import { parseStamp, timeAgo } from "@/lib/relative-time"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Loading, PageHeading, ToastProvider, useToast } from "@/components/common"
@@ -64,30 +65,18 @@ function ThemeControl() {
   return <Button variant="ghost" size="icon" aria-label={`Color theme: ${theme}. Change theme`} title={`Theme: ${theme}`} onClick={rotate}><Icon size={18} /></Button>
 }
 
-const formatClock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 
-/** Counts down from the server's `next_in` between polls.
- *
- * The status poll only runs every 30 s while idle, so rendering `next_in`
- * directly froze the clock between polls. This ticks locally off `Date.now()`
- * (accurate even when a background tab throttles timers) and re-baselines on
- * every poll, so the server stays the source of truth. Kept as its own
- * component so only these digits re-render each second.
- */
-function Countdown({ nextIn, receivedAt, onDue }: { nextIn: number; receivedAt: number; onDue: () => void }) {
+/** "Updated 2 min ago" for the latest mail collection, ticking locally between polls.
+ * Kept as its own component so only this text re-renders each second. */
+function Freshness({ updatedAt }: { updatedAt: string }) {
   const [now, setNow] = useState(() => Date.now())
-  const announced = useRef(false)
   useEffect(() => {
-    announced.current = false
-    setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [receivedAt, nextIn])
-  const remaining = Math.max(0, nextIn - Math.floor((now - receivedAt) / 1000))
-  useEffect(() => {
-    if (remaining === 0 && !announced.current) { announced.current = true; onDue() }
-  }, [remaining, onDue])
-  return <strong className="tabular" aria-live="off">{formatClock(remaining)}</strong>
+  }, [])
+  const date = parseStamp(updatedAt)
+  if (!date) return null
+  return <time className="tabular status-updated" dateTime={date.toISOString()} title={date.toLocaleString()} aria-live="off">{timeAgo(date, now)}</time>
 }
 
 function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
@@ -191,6 +180,13 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
     } catch (error) { toast(error instanceof Error ? error.message : "Could not update the schedule.", "error") }
   }
   const scheduled = Boolean(status?.auto && status.next_in != null)
+  // No visible countdown: poll quickly when a scheduled check is due, so the
+  // bar switches to "Checking mail…" promptly.
+  useEffect(() => {
+    if (status?.running || !scheduled || status?.next_in == null) return
+    const timer = window.setTimeout(onDue, Math.max(0, status.next_in) * 1000)
+    return () => window.clearTimeout(timer)
+  }, [status?.running, status?.next_in, scheduled, receivedAt, onDue])
   const elapsed = status?.running && status.stage_elapsed != null && status.stage_elapsed >= 5 ? status.stage_elapsed : null
   return <div className="top-actions">
     <span className={`connection-status ${status?.running ? "is-running" : ""}`}>
@@ -199,9 +195,9 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
           nodes, so removing a bare text sibling can crash React reconciliation.
           Only this message is a live region; the ticking digits are not, or a
           screen reader would announce every second. */}
-      <span className="status-text" aria-live="polite" title={status?.message || undefined}>{!status ? "Status unavailable" : status.running ? status.message || "Checking mail…" : scheduled ? "Next check" : "All systems ready"}</span>
+      <span className="status-text" aria-live="polite" title={status?.message || undefined}>{!status ? "Status unavailable" : status.running ? status.message || "Checking mail…" : status.updated_at ? "Updated" : "All systems ready"}</span>
       {elapsed != null && <small className="tabular status-elapsed">{elapsed}s</small>}
-      {!status?.running && scheduled && status?.next_in != null && <Countdown nextIn={status.next_in} receivedAt={receivedAt} onDue={onDue} />}
+      {!status?.running && status?.updated_at && <Freshness updatedAt={status.updated_at} />}
     </span>
     <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} disabled={!canManageSettings} title={!canManageSettings ? "Automatic checking is managed by the owner." : status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>
     <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.accounts || (!calendarOnly && !bootstrap.readiness.model)}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>

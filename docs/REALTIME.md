@@ -3,6 +3,14 @@
 OfferPath can collect account changes in the background and update open pages without
 refreshing. Enable this separately for each account in **Accounts → Automatic updates**. Each account card then shows a **Live** marker, and its **Last synced** time is the latest of a full
 mail check and real-time collection.
+
+While an account's last real-time sync is under 10 minutes old, scheduled checks and bidder
+live Inbox checks skip collecting it, because real-time collection already keeps it current.
+When real-time covers every enabled account, scheduled checks slow to every 30 minutes (or
+your longer interval) and keep doing housekeeping: sourcing verification, retention clean-up
+and a safety-net catch-up. If real-time stops (for example the background service is down),
+its accounts stop counting as covered and the configured interval returns automatically.
+**Check now** always checks every account.
 Collection remains read-only; notifications never send replies or mark mail as read.
 The app must remain running. A sleeping/offline Windows host cannot receive notifications.
 

@@ -323,7 +323,7 @@ def _execute_job(reader, legacy_paths, fields, *, handler=None):
                         web._run_calendar_analysis()
                     else:
                         body = web.CheckBody.model_validate(record['body'] if manual else {})
-                        web._run_check(body,include_calendar=kind=='scheduled-check')
+                        web._run_check(body,include_calendar=kind=='scheduled-check',scheduled=kind=='scheduled-check')
                     if not web._job.get('ok',True):
                         raise RuntimeError('Workspace operation reported failure; retrying safely')
                 finally:
@@ -422,13 +422,18 @@ class Coordinator:
                                     return False
                             from .state import ScheduleState
                             schedule=ScheduleState(runtime_root(context)/'schedule.json')
+                            from .. import realtime_coverage
+                            minutes=realtime_coverage.interval_minutes(conn,cfg)
                             if not cfg.watch.auto_check:
                                 schedule.update(next_due=None)
                             elif schedule['next_due'] is None:
-                                schedule.update(next_due=time.time()+cfg.watch.interval_minutes*60)
+                                schedule.update(next_due=time.time()+minutes*60)
                             elif time.time()>=schedule['next_due']:
                                 if admit('scheduled-check',0):
-                                    schedule.update(next_due=time.time()+cfg.watch.interval_minutes*60)
+                                    schedule.update(next_due=time.time()+minutes*60)
+                            elif (tightened:=realtime_coverage.tightened(schedule['next_due'],minutes))!=schedule['next_due']:
+                                # A housekeeping wait shortens as soon as real-time stops covering an account.
+                                schedule.update(next_due=tightened)
                             from ..calendar_queue import due
                             if cfg.is_llm_ready() and due(conn) and now>=self.due.get((wid,0,'calendar-analysis'),0):
                                 if admit('calendar-analysis',0):

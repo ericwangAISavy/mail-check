@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
+import { Info } from "lucide-react"
 import type { TriageData } from "@/lib/types"
+import { parseStamp, timeAgo } from "@/lib/relative-time"
 
-function stamp(value: string | null | undefined) {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isFinite(date.getTime()) ? date : null
-}
-const clock = (date: Date) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })
-/** Today's times match the next-check clock; older checks keep their date. */
-const when = (date: Date, now: number) => new Date(now).toDateString() === date.toDateString() ? clock(date) : `${date.toLocaleDateString()}, ${clock(date)}`
+/** Real-time recovery checks run every 2 minutes; older than this is late. */
+const DELAYED_AFTER_SECONDS = 5 * 60
+const HINT = "Refresh Inbox reloads saved messages. New mail is collected automatically and appears here on its own; it may take a moment after it arrives. Hover the time for the exact update time."
 
+type Tone = "live" | "busy" | "warn" | "off"
+
+/** One compact, colour-coded line: a state pill, how fresh the Inbox is, and details on hover. */
 export function InboxRefreshStatus({ schedule, unavailable = false }: { schedule: TriageData["check_schedule"]; unavailable?: boolean }) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -17,19 +17,38 @@ export function InboxRefreshStatus({ schedule, unavailable = false }: { schedule
     return () => window.clearInterval(timer)
   }, [])
   const live = schedule?.live
-  const next = stamp(live?.enabled ? live.next_at : schedule?.next_at)
-  const last = stamp(live?.last_checked_at)
-  const seconds = next ? Math.max(0, Math.ceil((next.getTime() - now) / 1000)) : null
-  const countdown = seconds === null ? "" : seconds > 0 ? ` (in ${seconds}s)` : " (due now)"
-  const label = unavailable ? "Live inbox: connection interrupted; retrying automatically" : live?.enabled
-    ? `Live inbox: checks for new mail about every ${live.interval_seconds} seconds${live.running ? "; checking for new mail…" : schedule?.running ? "; server is processing updates" : ""}`
-    : live?.disabled_reason || (!schedule ? "Check schedule unavailable" : !schedule.automatic ? "Automatic mail checks are off" : schedule.running ? "Server is processing updates; mail checks resume afterward" : "Live check schedule unavailable")
-  return <section className="inbox-live-status" aria-label="Inbox update schedule">
-    <p role="status">{label}</p>
-    {!unavailable && live?.enabled && !live.running && <p>{schedule?.running ? "Next live check: after the current server task finishes" : next ? <>Next live check: <time dateTime={next.toISOString()}>{clock(next)}</time> (your local time)<span aria-hidden="true">{countdown}</span></> : "Next live check: being scheduled"}</p>}
-    {!unavailable && !live && schedule?.automatic && !schedule.running && next && <p>Next mail check: <time dateTime={next.toISOString()}>{clock(next)}</time> (your local time)</p>}
-    {live?.enabled && live.last_check_ok === false && <p className="inbox-live-warning">The last live mail check failed. Retrying automatically.</p>}
-    {live?.enabled && last && <p>Last successful live check: <time dateTime={last.toISOString()}>{when(last, now)}</time> (your local time)</p>}
-    <p className="inbox-live-hint">Refresh Inbox reloads saved messages; live checks collect new mail. New messages may take a moment to appear after a check.</p>
+  // When every assigned mailbox was last collected (full check, real-time or live poll).
+  const updated = parseStamp(live?.updated_at ?? live?.last_checked_at)
+  const fresh = updated ? <time dateTime={updated.toISOString()} title={updated.toLocaleString()}>{timeAgo(updated, now)}</time> : null
+  const updatedLine = fresh ? <> · Updated {fresh}</> : null
+  const late = updated ? (now - updated.getTime()) / 1000 > DELAYED_AFTER_SECONDS : false
+
+  let tone: Tone
+  let pill: string
+  let detail: ReactNode
+  if (unavailable) {
+    tone = "warn"; pill = "Offline"; detail = "Connection interrupted — retrying automatically"
+  } else if (live?.enabled) {
+    if (live.running) {
+      tone = "busy"; pill = "Checking"; detail = <>Checking for new mail…{updatedLine}</>
+    } else if (live.last_check_ok === false) {
+      tone = "warn"; pill = "Retrying"; detail = <>Last check failed — retrying automatically{updatedLine}</>
+    } else if (late) {
+      tone = "warn"; pill = "Delayed"; detail = <>Updates are running late{updatedLine}</>
+    } else if (schedule?.running) {
+      tone = "busy"; pill = "Live"; detail = fresh ? <>Updated {fresh} · server is busy</> : "Server is busy — updates resume shortly"
+    } else {
+      tone = "live"; pill = "Live"; detail = fresh ? <>Updated {fresh}</> : "Waiting for the first update"
+    }
+  } else {
+    tone = "off"; pill = "Off"
+    detail = live?.disabled_reason || (!schedule ? "Update status unavailable" : !schedule.automatic ? "Automatic mail checks are off"
+      : schedule.running ? "Server is processing updates" : "Mail updates automatically")
+  }
+
+  return <section className={`inbox-live-status tone-${tone}`} aria-label="Inbox update schedule">
+    <span className="inbox-live-pill"><span className="inbox-live-dot" aria-hidden="true" />{pill}</span>
+    <p role="status">{detail}</p>
+    <span className="inbox-live-hint" role="img" aria-label={HINT} title={HINT}><Info size={14} aria-hidden="true" /></span>
   </section>
 }

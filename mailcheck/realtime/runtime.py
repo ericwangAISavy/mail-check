@@ -208,7 +208,10 @@ class Runtime:
                 if result.get('errors'):
                     raise RuntimeError('Calendar collection unavailable; retrying.')
                 check()
-                storage.set_status(conn, account_id, last_sync=time.time())
+                # last_sync means "mail was collected": scheduled and live Inbox
+                # checks skip accounts whose mail real-time keeps current, so a
+                # calendar success must never make failing mail look fresh.
+                storage.set_status(conn, account_id)
 
     def classify_account(self, account_id, processing=None):
         if not self.job_lock.acquire(blocking=False):

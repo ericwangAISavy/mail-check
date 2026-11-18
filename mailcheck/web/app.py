@@ -26,7 +26,7 @@ from .. import config as cfgmod
 from .. import followups, db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
-from .. import read_marking
+from .. import read_marking, realtime_coverage
 from ..live_inbox import LiveInbox
 from .. import queue_actions
 from ..sources import IMAPSource, SourceError
@@ -114,11 +114,21 @@ _live_inbox = WorkspaceValue(_live_inbox, LiveInbox, name='live-inbox')
 _scheduler_started = WorkspaceValue(_scheduler_started, threading.Event)
 
 
+def _check_interval_minutes(cfg) -> int:
+    """The configured interval, or the housekeeping interval while real-time
+    collection keeps every enabled account current."""
+    try:
+        with db.session() as conn:
+            return realtime_coverage.interval_minutes(conn, cfg)
+    except Exception:  # noqa: BLE001 - never stop scheduling over a status read
+        return cfg.watch.interval_minutes
+
+
 def _reschedule(cfg=None) -> None:
     """Push the next automatic check one full interval into the future."""
     cfg = cfg or cfgmod.load()
     if cfg.watch.auto_check:
-        _sched["next_due"] = time.time() + cfg.watch.interval_minutes * 60
+        _sched["next_due"] = time.time() + _check_interval_minutes(cfg) * 60
     else:
         _sched["next_due"] = None
 
@@ -445,13 +455,22 @@ def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, backg
         raise
 
 
-def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
+def _run_check(body: CheckBody, *, include_calendar: bool = False, scheduled: bool = False) -> None:
     if body.mode == "calendar":
         _run_calendar_check(body)
         return
 
     def work():
         cfg = cfgmod.load()
+        # Scheduled checks leave accounts that real-time collection is keeping
+        # current to it; Check now still checks every account.
+        account_ids = None
+        covered = set()
+        if scheduled:
+            with db.session() as conn:
+                covered = realtime_coverage.covered_accounts(conn)
+                if covered:
+                    account_ids = {a.id for a in db.list_accounts(conn, only_enabled=True)} - covered
 
         def event(values: dict) -> None:
             if values.get("type") == "llm_request_started":
@@ -476,7 +495,7 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
                 with db.session() as conn:
                     calendar = interviews.collect_calendar_events(conn, cfg,
                         account_label=body.account, since_days=body.since_days,defer_analysis=True,
-                        status=lambda message: _job.update(message=message))
+                        account_ids=account_ids, status=lambda message: _job.update(message=message))
                 calendar_changes = calendar['changes']
                 calendar_errors = calendar['errors']
             except Exception as exc:
@@ -489,6 +508,7 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
                 cfg,
                 account_label=body.account,
                 since_days=body.since_days,
+                account_ids=account_ids,
                 use_cache=not body.no_cache,
                 status=lambda m: _job.update(message=m),
                 progress=lambda done, total: _job.update(
@@ -508,6 +528,8 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
             bits.append(f"{result.pruned} aged out")
         if result.retryable:
             bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
+        if covered:
+            bits.append(f"{len(covered)} kept current by real-time collection")
         _job.update(
             message=" · ".join(bits),
             detail="\n".join((calendar_errors + result.errors)[:5]),
@@ -607,6 +629,44 @@ def _resume_calendar_if_due(cfg):
 
 
 def _live_assigned_accounts(conn):
+    """Assigned accounts that need live polling: real-time collection already
+    keeps covered accounts current, so polling them again only adds load."""
+    return _live_viewer_accounts(conn) - realtime_coverage.covered_accounts(conn)
+
+
+def _inbox_updated_at(accounts, live_checked_at):
+    """When every assigned mailbox was last collected.
+
+    Each account counts its latest full check, real-time sync, or live poll (live
+    polls cover only accounts real-time is not keeping current); the Inbox is as
+    fresh as its least recently collected account.
+    """
+    from ..mail_checkpoints import snapshot
+    now = datetime.now(timezone.utc)
+    try:
+        live = datetime.fromisoformat(live_checked_at) if live_checked_at else None
+    except ValueError:
+        live = None
+    with db.session() as conn:
+        checks = snapshot(conn, accounts)
+        syncs = realtime_coverage.last_syncs(conn)
+        covered = realtime_coverage.covered_accounts(conn)
+    oldest = None
+    for account in accounts:
+        candidates = [checks.get(account.id)]
+        if syncs.get(account.id):
+            candidates.append(datetime.fromtimestamp(syncs[account.id], timezone.utc))
+        if live and account.id not in covered:
+            candidates.append(live)
+        valid = [stamp for stamp in candidates if stamp is not None and stamp <= now]
+        if not valid:
+            return None  # an assigned mailbox has never been collected
+        latest = max(valid)
+        oldest = latest if oldest is None or latest < oldest else oldest
+    return oldest.isoformat() if oldest else None
+
+
+def _live_viewer_accounts(conn):
     viewers = sorted(_live_inbox.active())
     if not viewers:return set()
     day = payments.today().isoformat()
@@ -654,6 +714,18 @@ def _resume_live_inbox(cfg):
     if not _live_inbox.reserve():
         _job_lock.release()
         return False
+    try:
+        with db.session() as conn:
+            pending = _live_assigned_accounts(conn)
+    except Exception:
+        _live_inbox.finish()
+        _job_lock.release()
+        raise
+    if not pending:
+        # Nothing to poll: real-time collection keeps every assigned account current.
+        _live_inbox.finish(True)
+        _job_lock.release()
+        return True
     succeeded = [False]
     def work():
         current_cfg = cfgmod.load()
@@ -661,7 +733,11 @@ def _resume_live_inbox(cfg):
         with db.session() as conn:
             accounts = _live_assigned_accounts(conn)
             if not accounts:
-                _job.update(message="No active assigned Inbox accounts to refresh.")
+                # Nothing to poll is not a failed check: assignments may have
+                # ended, or real-time collection now covers every account.
+                succeeded[0] = True
+                _job.update(message="Bidder Inbox accounts are already current." if _live_viewer_accounts(conn)
+                            else "No active assigned Inbox accounts to refresh.")
                 return
             result = check_once(conn, current_cfg, account_ids=accounts,
                 recent_since=datetime.now(timezone.utc)-timedelta(minutes=10),
@@ -687,6 +763,7 @@ def _resume_live_inbox(cfg):
 
 def _scheduler() -> None:
     """Resume saved calendar work independently of the optional mail schedule."""
+    coverage_checked = 0.0
     while True:
         time.sleep(2)
         try:
@@ -695,12 +772,17 @@ def _scheduler() -> None:
                 _sched['next_due'] = None
             elif _sched['next_due'] is None:
                 _reschedule(cfg)
-            elif not _job['running'] and time.time() >= _sched['next_due']:
-                if _state()['has_accounts'] and _job_lock.acquire(blocking=False):
-                    _reschedule(cfg)
-                    _run_check(CheckBody(),include_calendar=True)
-                    continue
-                if not _state()['has_accounts']:_reschedule(cfg)
+            else:
+                if time.time() - coverage_checked >= 30:
+                    # A housekeeping wait shortens as soon as real-time stops covering an account.
+                    coverage_checked = time.time()
+                    _sched['next_due'] = realtime_coverage.tightened(_sched['next_due'], _check_interval_minutes(cfg))
+                if not _job['running'] and time.time() >= _sched['next_due']:
+                    if _state()['has_accounts'] and _job_lock.acquire(blocking=False):
+                        _reschedule(cfg)
+                        _run_check(CheckBody(),include_calendar=True,scheduled=True)
+                        continue
+                    if not _state()['has_accounts']:_reschedule(cfg)
             if _resume_live_inbox(cfg):continue
             _resume_calendar_if_due(cfg)
         except Exception:
@@ -1359,6 +1441,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             enabled = reason is None
             if enabled:_live_inbox.heartbeat(viewer)
             schedule['live'] = _live_inbox.snapshot(enabled, reason)
+            schedule['live']['updated_at'] = _inbox_updated_at(accounts, schedule['live'].get('last_checked_at')) if accounts else None
         return {
             "check_schedule": schedule,
             "view": view,
@@ -1802,12 +1885,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         _run_reclassify(body)
         return {"ok": True, "count": len(waiting)}
 
+    def _mail_updated_at():
+        """Most recent mail collection in this workspace: a full check or real-time sync."""
+        from ..mail_checkpoints import snapshot
+        try:
+            with db.session() as conn:
+                accounts = db.list_accounts(conn, only_enabled=True)
+                checks = [stamp for stamp in snapshot(conn, accounts).values() if stamp]
+                syncs = [datetime.fromtimestamp(value, timezone.utc)
+                         for value in realtime_coverage.last_syncs(conn).values() if value]
+        except Exception:  # noqa: BLE001 - status must stay available
+            return None
+        return _latest(*checks, *syncs)
+
     @app.get("/api/status")
     def api_status():
         cfg = cfgmod.load()
         due = _sched["next_due"]
         return {
             **_job,
+            "updated_at": _mail_updated_at(),
             "completion_id": _job["completion_id"],
             "auto": cfg.watch.auto_check,
             "interval_minutes": cfg.watch.interval_minutes,

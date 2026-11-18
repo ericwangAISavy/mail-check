@@ -2,6 +2,21 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.6.0 — 2026-11-18
+
+Let real-time collection replace redundant checks
+
+- Scheduled checks skip accounts real-time collection is keeping current and slow to every 30 minutes once it covers every account; they speed back up automatically if real-time stops. Check now still checks everything.
+- Bidder live Inbox checks poll only assigned accounts real-time is not covering.
+- Replace check countdowns with how recently mail was updated: the top bar shows Updated 2 min ago, and the bidder Inbox shows when every assigned mailbox was last collected, turning amber after 5 minutes.
+
+## 3.5.8 — 2026-11-18
+
+Compact live Inbox status
+
+- Show the bidder Inbox live status as one compact, colour-coded line with a state pill (Live, Checking, Retrying, Delayed, Offline or Off), the next check countdown and the last update.
+- Flag live checks that are running late instead of showing due now indefinitely; the explanation moves to an info tooltip.
+
 ## 3.5.7 — 2026-11-18
 
 Keep live Inbox checks healthy during read update retries

@@ -494,7 +494,7 @@ def _save_calendar_booking(conn, account, booking, details, *, analysis_enabled)
     return change
 
 
-def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None, analysis_client=None, defer_analysis=False):
+def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None, analysis_client=None, defer_analysis=False, account_ids=None):
     """Read native calendar bookings and persist events, never mail or classifications."""
     from datetime import timedelta
     from .pipeline import build_source
@@ -503,6 +503,8 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     from .interview_pipeline import note_calendar_sync
     from .calendar_analysis import CalendarAnalyzer
     accounts = db.list_accounts(conn, only_enabled=True)
+    if account_ids is not None:
+        accounts = [account for account in accounts if account.id in account_ids]
     if account_label:
         accounts = [account for account in accounts if account.label == account_label]
         if not accounts:

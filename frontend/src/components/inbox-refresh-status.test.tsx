@@ -1,48 +1,79 @@
-import { afterEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, cleanup, render, screen } from "@testing-library/react"
 import { InboxRefreshStatus } from "./inbox-refresh-status"
 import type { TriageData } from "@/lib/types"
-const schedule=():NonNullable<TriageData['check_schedule']>=>({automatic:true,running:false,next_at:null,live:{enabled:true,interval_seconds:30,running:false,last_checked_at:null,next_at:new Date(Date.now()+30000).toISOString()}})
+const NOW=new Date('2026-11-18T18:00:00Z')
+const ago=(seconds:number)=>new Date(NOW.getTime()-seconds*1000).toISOString()
+const schedule=(updated:string|null=ago(20)):NonNullable<TriageData['check_schedule']>=>({automatic:true,running:false,next_at:null,live:{enabled:true,interval_seconds:30,running:false,last_checked_at:null,next_at:null,updated_at:updated}})
+const bar=()=>screen.getByRole('region',{name:'Inbox update schedule'})
+const status=()=>screen.getByRole('status').textContent
+beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(NOW)})
 afterEach(()=>{cleanup();vi.useRealTimers()})
-it('counts down without making additional server requests',()=>{
- vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-10T18:00:00Z'))
+
+it('shows one compact live line with how fresh the Inbox is, and no countdown',()=>{
  render(<InboxRefreshStatus schedule={schedule()}/>)
- expect(screen.getByText('(in 30s)')).toBeTruthy()
- act(()=>vi.advanceTimersByTime(1000))
- expect(screen.getByText('(in 29s)')).toBeTruthy()
+ expect(bar().className).toContain('tone-live')
+ expect(screen.getByText('Live')).toBeTruthy()
+ expect(status()).toBe('Updated 20 seconds ago')
+ act(()=>vi.advanceTimersByTime(45000))
+ expect(status()).toBe('Updated 1 min ago')
+ expect(status()).not.toMatch(/Next|in \d+s|due/)
 })
-it('prioritizes active mail collection over the generic server task state',()=>{
- const value=schedule();value.running=true;value.live!.running=true
+it('shows the exact update time on hover',()=>{
+ render(<InboxRefreshStatus schedule={schedule()}/>)
+ expect(screen.getByRole('status').querySelector('time')!.getAttribute('title')).toBe(new Date(ago(20)).toLocaleString())
+})
+it('keeps the explanation in a tooltip instead of a separate line',()=>{
+ render(<InboxRefreshStatus schedule={schedule()}/>)
+ const hint=screen.getByRole('img',{name:/Refresh Inbox reloads saved messages/})
+ expect(hint.getAttribute('title')).toMatch(/collected automatically/)
+ expect(screen.queryByText(/Refresh Inbox reloads/)).toBeNull()
+})
+it('falls back to the last live check when no Inbox-wide time is available',()=>{
+ const value=schedule(null);value.live!.last_checked_at=ago(90)
  render(<InboxRefreshStatus schedule={value}/>)
- expect(screen.getByRole('status').textContent).toContain('checking for new mail…')
- expect(screen.queryByText(/Next live check:/)).toBeNull()
+ expect(status()).toBe('Updated 1 min ago')
 })
-it('explains server delays, failed checks and successful freshness separately',()=>{
- const value=schedule();value.running=true;value.live!.last_check_ok=false;value.live!.last_checked_at='2026-11-10T17:00:00Z'
- render(<InboxRefreshStatus schedule={value}/>)
- expect(screen.getByText('Next live check: after the current server task finishes')).toBeTruthy()
- expect(screen.getByText(/last live mail check failed/)).toBeTruthy()
- expect(screen.getByText(/Last successful live check:/)).toBeTruthy()
+it('waits for the first update',()=>{
+ render(<InboxRefreshStatus schedule={schedule(null)}/>)
+ expect(status()).toBe('Waiting for the first update')
 })
-it('does not show a stale countdown while disconnected',()=>{
+it('shows active collection and server work as busy',()=>{
+ const value=schedule();value.live!.running=true
+ const {unmount}=render(<InboxRefreshStatus schedule={value}/>)
+ expect(bar().className).toContain('tone-busy')
+ expect(status()).toBe('Checking for new mail… · Updated 20 seconds ago')
+ unmount()
+ const busy=schedule();busy.running=true
+ render(<InboxRefreshStatus schedule={busy}/>)
+ expect(status()).toBe('Updated 20 seconds ago · server is busy')
+})
+it('highlights failed checks and stale updates',()=>{
+ const failed=schedule(ago(7*60));failed.live!.last_check_ok=false
+ const {unmount}=render(<InboxRefreshStatus schedule={failed}/>)
+ expect(bar().className).toContain('tone-warn')
+ expect(screen.getByText('Retrying')).toBeTruthy()
+ expect(status()).toBe('Last check failed — retrying automatically · Updated 7 min ago')
+ unmount()
+ render(<InboxRefreshStatus schedule={schedule(ago(7*60))}/>)
+ expect(screen.getByText('Delayed')).toBeTruthy()
+ expect(status()).toBe('Updates are running late · Updated 7 min ago')
+})
+it('turns late only after five minutes',()=>{
+ render(<InboxRefreshStatus schedule={schedule(ago(4*60+50))}/>)
+ expect(screen.getByText('Live')).toBeTruthy()
+ act(()=>vi.advanceTimersByTime(15000))
+ expect(screen.getByText('Delayed')).toBeTruthy()
+})
+it('does not show stale timing while disconnected',()=>{
  render(<InboxRefreshStatus schedule={schedule()} unavailable/>)
- expect(screen.getByRole('status').textContent).toContain('connection interrupted')
- expect(screen.queryByText(/Next live check:/)).toBeNull()
+ expect(screen.getByText('Offline')).toBeTruthy()
+ expect(status()).toBe('Connection interrupted — retrying automatically')
 })
 it('shows a disabled reason and tolerates invalid saved timestamps',()=>{
- const value=schedule();value.live!.enabled=false;value.live!.disabled_reason='No active assigned mailboxes.';value.live!.last_checked_at='bad-date'
+ const value=schedule('bad-date');value.live!.enabled=false;value.live!.disabled_reason='No active assigned mailboxes.'
  render(<InboxRefreshStatus schedule={value}/>)
- expect(screen.getByText('No active assigned mailboxes.')).toBeTruthy()
+ expect(bar().className).toContain('tone-off')
+ expect(status()).toBe('No active assigned mailboxes.')
  expect(screen.queryByText(/Invalid Date/)).toBeNull()
-})
-it("shows today's last check as a time like the next check, and older checks with their date",()=>{
- vi.useFakeTimers();vi.setSystemTime(new Date(2026,10,18,12,15,40))
- const value=schedule();value.live!.last_checked_at=new Date(2026,10,18,12,15,20).toISOString()
- const {unmount}=render(<InboxRefreshStatus schedule={value}/>)
- const today=screen.getByText(/Last successful live check:/).querySelector('time')!
- expect(today.textContent).toBe(new Date(2026,10,18,12,15,20).toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'}))
- unmount()
- value.live!.last_checked_at=new Date(2026,10,17,9,0,0).toISOString()
- render(<InboxRefreshStatus schedule={value}/>)
- expect(screen.getByText(/Last successful live check:/).querySelector('time')!.textContent).toContain(new Date(2026,10,17).toLocaleDateString())
 })
