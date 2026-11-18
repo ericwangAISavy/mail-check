@@ -481,12 +481,12 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False, scheduled: bo
                     stage_started=time.time(),
                 )
             elif values.get("type") == "model_loading":
-                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
+                _job.update(message="Loading the model…",
                             stage_started=time.time())
             elif values.get("type") == "llm_request" and values.get("outcome") in {
                 "timeout", "busy", "deadline"
             }:
-                _job.update(message="Ollama busy; remaining mail will retry next check")
+                _job.update(message="Model busy; remaining mail will retry")
 
         calendar_changes = []
         calendar_errors = []
@@ -527,9 +527,9 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False, scheduled: bo
         if result.pruned:
             bits.append(f"{result.pruned} aged out")
         if result.retryable:
-            bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
+            bits.append(f"{result.retryable} deferred")
         if covered:
-            bits.append(f"{len(covered)} kept current by real-time collection")
+            bits.append(f"{len(covered)} live")
         _job.update(
             message=" · ".join(bits),
             detail="\n".join((calendar_errors + result.errors)[:5]),
@@ -567,12 +567,12 @@ def _run_reclassify(body: ReclassifyBody) -> None:
                     stage_started=time.time(),
                 )
             elif values.get("type") == "model_loading":
-                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
+                _job.update(message="Loading the model…",
                             stage_started=time.time())
             elif values.get("type") == "llm_request" and values.get("outcome") in {
                 "timeout", "busy", "deadline"
             }:
-                _job.update(message="Ollama busy; press Retry again to continue")
+                _job.update(message="Model busy; try again shortly")
 
         with db.session() as conn:
             result = reclassify(
@@ -596,7 +596,7 @@ def _run_reclassify(body: ReclassifyBody) -> None:
         if still:
             bits.append(f"{still} still unclassified")
         if result.retryable:
-            bits.append("Ollama busy — press Retry again to continue")
+            bits.append("model busy, try again shortly")
         _job.update(
             message=" · ".join(bits),
             detail="\n".join(result.errors[:5]),

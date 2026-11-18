@@ -473,7 +473,7 @@ export default function SourcingEditor({
     if (
       dirty &&
       !window.confirm(
-        "Discard this draft and reload the saved sheet? Download your draft first if needed.",
+        "Discard this draft and reload the saved sheet?",
       )
     )
       return;
@@ -690,7 +690,7 @@ export default function SourcingEditor({
           </Button>
         </div>
         <Button variant="outline" size="sm" disabled={locked || dirty || loading || !snapshot || day === "undated" || day === "all"}
-          title="Match the selected date and pre-registered future rows by account, company, and role. Recent early confirmations can check future-dated jobs. Use company only if the email has no role. Checks are permanent."
+          title="Checks are permanent."
           onClick={() => void checkApplications()}><Check size={14} />Check applications</Button>
         {snapshot?.verification && snapshot.verification.day === day && <span className="sheet-verification-result" role="status">
           {snapshot.verification.checked} links checked · {day}{snapshot.verification.future_checked ? ` · ${snapshot.verification.future_checked} future-dated checked` : ""} · Chicago
@@ -741,7 +741,7 @@ export default function SourcingEditor({
         <details className="sheet-verification-details">
           <summary>{snapshot.verification.unmatched_count} {snapshot.verification.unmatched_count===1?"link remains":"links remain"} unchecked — view reasons</summary>
           {snapshot.verification.account_email && <p>Mailbox checked: {snapshot.verification.account_email}</p>}
-          <p>Results from your last check. Run Check applications to refresh these reasons.</p>
+          <p>Results from your last check.</p>
           <ul>{snapshot.verification.unmatched?.map(item=><li key={item.row_id}><strong>Row {item.sheet_row} · {item.company || "Company missing"} · {item.work_date}</strong>: {item.reason}</li>)}</ul>
           {(snapshot.verification.unmatched_count || 0)>(snapshot.verification.unmatched?.length || 0)&&<p>Showing the first {snapshot.verification.unmatched?.length || 0} unchecked links.</p>}
         </details>

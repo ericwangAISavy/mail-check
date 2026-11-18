@@ -2,6 +2,19 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.6.2 — 2026-11-18
+
+Brighter sidebar identity
+
+- Restyle the sidebar logo, OfferPath wordmark and version badge with the brand glow, bold italic two-tone lettering and a highlighted version pill.
+
+## 3.6.1 — 2026-11-18
+
+Shorter, plainer interface text
+
+- Remove technical and how-it-works explanations across the app, keeping labels, errors and the instructions you need to act.
+- Shorten confirmations, empty states, Settings descriptions and check status messages.
+
 ## 3.6.0 — 2026-11-18
 
 Let real-time collection replace redundant checks

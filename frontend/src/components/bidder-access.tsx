@@ -16,6 +16,6 @@ export function BidderAccess({bidderId,name,enabled,busy,write}:{bidderId:number
       <label>{enabled?"New bidder password":"Bidder password"}<input type="password" name="bidder_password" autoComplete="new-password" minLength={12} maxLength={256} required value={password} onChange={event=>setPassword(event.target.value)}/></label>
       <Button variant="outline" disabled={busy||saving}>{enabled?"Reset bidder password":"Enable bidder access"}</Button>
       {enabled&&<Button type="button" variant="ghost" disabled={busy||saving} onClick={async()=>{try{await write(`/api/auth/bidders/${bidderId}/password`,{enabled:false});setPassword("")}catch{/* Parent displays the error. */}}}>Disable bidder access</Button>}
-    </form><small className="payment-muted">Use 12–256 characters. Resetting or disabling access signs out this bidder on every device.</small>
+    </form><small className="payment-muted">12–256 characters.</small>
   </section>
 }

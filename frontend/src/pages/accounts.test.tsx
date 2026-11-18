@@ -121,7 +121,7 @@ it("reconnects Outlook in place to grant read-only calendar access",async()=>{
   mount();fireEvent.click(await screen.findByRole("button",{name:"Reconnect"}))
   const label=screen.getByLabelText("Account label") as HTMLInputElement
   expect(label.value).toBe("personal");expect(label.readOnly).toBe(true)
-  expect(screen.getByText(/Calendars.Read/)).toBeTruthy()
+  expect(screen.getByText('Sign in with Microsoft to connect this account.')).toBeTruthy()
   fireEvent.click(screen.getByRole("button",{name:"Continue with Microsoft"}))
   await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/outlook/start",{label:"personal",reconnect:true}))
   expect(await screen.findByText("TEST")).toBeTruthy()

@@ -301,7 +301,7 @@ export default function SourcingPage() {
       <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>{filtersOpen && <SourcingFilters accountId={tab?.account_id}/>}</Dialog>
       <Dialog open={deleting !== null} onOpenChange={open => {if (!open && !deletion.isPending) setDeleting(null)}}>
         {deleting && <DialogContent><DialogTitle>Delete {deleting.title} tab?</DialogTitle>
-          <DialogDescription>This permanently deletes this tab and all its job rows. Its checked links will be removed from payment breakdowns. Received emails and recorded payments stay saved. This cannot be undone.</DialogDescription>
+          <DialogDescription>This permanently deletes this tab and its job rows. This cannot be undone.</DialogDescription>
           {deletePreview.isPending ? <p>Loading tab details…</p> : deletePreview.error ? <p role="alert" className="inline-error">{deletePreview.error.message}</p> : <p>{deletePreview.data?.rows.slice(1).filter(row => row.some((cell, i) => deletePreview.data?.columns[i]?.kind !== "check" && String(cell.value).trim())).length || 0} job rows in this tab.</p>}
           {deletion.error && <p role="alert" className="inline-error">{deletion.error.message}</p>}
           <div className="sheet-actions"><Button variant="ghost" disabled={deletion.isPending} onClick={() => setDeleting(null)}>Cancel</Button>

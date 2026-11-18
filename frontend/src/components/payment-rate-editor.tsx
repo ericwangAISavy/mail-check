@@ -16,7 +16,7 @@ export default function PaymentRateEditor({bidder,onClose}:{bidder:BidderRate;on
   })
   return <Card className="payment-rate-entry">
     <h2>Set payment rate for {bidder.name}</h2>
-    <p>A pay-per-bid rate is needed to calculate this bidder’s amounts. Enter the agreed rate; saved payments and manual amount overrides remain unchanged.</p>
+    <p>Enter the agreed pay-per-bid rate.</p>
     <form className="payment-inline-form" onSubmit={event=>{
       event.preventDefault()
       const values=new FormData(event.currentTarget)

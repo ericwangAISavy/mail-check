@@ -103,7 +103,7 @@ it('keeps the timezone usable and warns when the browser blocks saving',()=>{
  fireEvent.change(screen.getByRole('combobox',{name:'Calendar timezone'}),{target:{value:'Tokyo'}})
  fireEvent.click(screen.getByRole('option',{name:'Asia/Tokyo'}))
  expect((screen.getByRole('combobox',{name:'Calendar timezone'}) as HTMLInputElement).value).toBe('Asia/Tokyo')
- expect(screen.getByText('Timezone changed for this visit. Your browser blocked saving it for future visits.')).toBeTruthy()
+ expect(screen.getByText('Timezone changed for this visit only.')).toBeTruthy()
 })
 
 it('restores calendar filter and split controls after remount',()=>{

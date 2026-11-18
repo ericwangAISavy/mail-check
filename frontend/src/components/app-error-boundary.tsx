@@ -18,7 +18,7 @@ export class AppErrorBoundary extends Component<Props, State> {
     this.setState({ recovering: true, recoveryMessage: "Checking connection before reloading…" })
     const result = await recoverPageAssets({ signal: controller.signal, manual })
     if (!this.active || this.recovery !== controller) return
-    this.setState({ recovering: false, recoveryMessage: result === "exhausted" ? "Automatic recovery was already attempted. You can try again when the connection is available." : result === "unavailable" ? "Could not reconnect to OfferPath. Keep this page open and try again shortly." : "Reloading the latest page files…" })
+    this.setState({ recovering: false, recoveryMessage: result === "exhausted" ? "Could not reconnect. Try again shortly." : result === "unavailable" ? "Could not reconnect to OfferPath. Try again shortly." : "Reloading the latest page files…" })
   }
 
   static getDerivedStateFromError(error: unknown): Partial<State> {
@@ -38,7 +38,7 @@ export class AppErrorBoundary extends Component<Props, State> {
         <div className="brand-mark"><OfferPathMark size={34} /></div>
         <p className="eyebrow">SAFE RECOVERY</p>
         <h1>{assetError ? "This page couldn’t finish loading" : "Mail-check couldn’t open this page"}</h1>
-        <p className="recovery-description">{assetError ? "The page files could not be downloaded. This can happen during an update or a temporary connection outage." : "An error interrupted the page. Reload to try again. If it happens again, share the technical details below."}</p>
+        <p className="recovery-description">{assetError ? "The page could not load." : "Something went wrong. Reload to try again."}</p>
         {assetError ? <><Button disabled={this.state.recovering} onClick={() => void this.recover(true)}>{this.state.recovering ? "Checking connection…" : "Retry loading page"}</Button><p role="status" aria-live="polite">{this.state.recoveryMessage}</p></> : <Button onClick={() => window.location.reload()}>Reload page</Button>}
         <details className="recovery-card" style={{ marginTop: "1.5rem", textAlign: "left" }}>
           <summary>Technical details</summary>

@@ -50,6 +50,6 @@ it('keeps confirmed saved options when the follow-up read fails',async()=>{
  fireEvent.click(payment)
  vi.mocked(request).mockRejectedValue(new Error('Could not refresh'))
  fireEvent.click(screen.getByRole('button',{name:'Save visibility'}))
- await screen.findByText('Could not refresh visibility options. Showing the last loaded settings.')
+ await screen.findByText('Could not refresh visibility options.')
  expect((screen.getByRole('checkbox',{name:'Payment visible for Alex'}) as HTMLInputElement).checked).toBe(false)
 })

@@ -1,5 +1,22 @@
 [
   {
+    "version": "3.6.2",
+    "date": "2026-11-18",
+    "title": "Brighter sidebar identity",
+    "changes": [
+      "Restyle the sidebar logo, OfferPath wordmark and version badge with the brand glow, bold italic two-tone lettering and a highlighted version pill."
+    ]
+  },
+  {
+    "version": "3.6.1",
+    "date": "2026-11-18",
+    "title": "Shorter, plainer interface text",
+    "changes": [
+      "Remove technical and how-it-works explanations across the app, keeping labels, errors and the instructions you need to act.",
+      "Shorten confirmations, empty states, Settings descriptions and check status messages."
+    ]
+  },
+  {
     "version": "3.6.0",
     "date": "2026-11-18",
     "title": "Let real-time collection replace redundant checks",

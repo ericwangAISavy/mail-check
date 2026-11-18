@@ -39,7 +39,7 @@ it("filters graph and heatmap by bidder without redundant cards or summary table
 it("does not invent historical activity when no checks are recorded", async () => {
   vi.mocked(request).mockResolvedValue({...payload(), bidders:[],timeline:[],check_count:0}); mount()
   expect(await screen.findByText("No confirmations in this day")).toBeTruthy()
-  expect(screen.getByText(/not exact working hours/)).toBeTruthy()
+  expect(screen.getByText('Confirmation times in America/Chicago.')).toBeTruthy()
 })
 it("offers a retry when activity cannot be loaded", async () => {
   vi.mocked(request).mockRejectedValue(new Error("Offline")); mount()

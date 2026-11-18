@@ -17,7 +17,7 @@ it('shows component evidence and event flow with pause and filtering',async()=>{
  expect(screen.getByRole('button',{name:'Resume live updates'})).toBeTruthy()
  fireEvent.change(screen.getByLabelText('Event component'),{target:{value:'calendar'}})
  expect(screen.queryByText('queued')).toBeNull()
- expect(screen.getByText(/No events match/)).toBeTruthy()
+ expect(screen.getByText('No matching events.')).toBeTruthy()
 })
 it('does not fetch monitoring data for a nonowner',()=>{
  owner=false;const fetch=vi.fn();vi.stubGlobal('fetch',fetch);mount()

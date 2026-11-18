@@ -166,3 +166,26 @@
   .triage-page .keyboard-note { margin: 6px auto 4px; font-size: 11px; }
   .app-content:has(.triage-page) > .app-footer { padding: 4px 20px 6px; }
 }
+
+/* Sidebar identity: glowing mark, heavy italic two-tone wordmark, glowing version pill. */
+.sidebar .brand-header .brand-lockup { gap: 11px; }
+.sidebar .brand-mark { width: 36px; height: 36px; filter: drop-shadow(0 0 9px color-mix(in srgb, var(--primary) 55%, transparent)); }
+.sidebar .brand-word { flex: none; padding-right: .08em; font-size: 21px; font-style: italic; font-weight: 800; letter-spacing: -.045em; white-space: nowrap; color: var(--foreground); }
+.sidebar .brand-word span { color: var(--primary); font-weight: 800; text-shadow: 0 0 16px color-mix(in srgb, var(--primary) 40%, transparent); }
+.sidebar .brand-version { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--primary) 8%, var(--card)); color: var(--primary); font-size: 11px; font-weight: 600; letter-spacing: .01em; box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 0 8px color-mix(in srgb, var(--primary) 10%, transparent); }
+.sidebar .brand-version:hover { background: color-mix(in srgb, var(--primary) 14%, var(--card)); }
+:root[data-theme="light"] .sidebar .brand-word span { text-shadow: none; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .sidebar .brand-word span { text-shadow: none; } }
+/* Narrow sidebars stack the mark over a small version label. */
+.sidebar-collapsed .sidebar .brand-version { padding: 1px 4px; border-radius: 5px; font-size: 9px; box-shadow: none; }
+.sidebar-collapsed .sidebar .brand-mark { width: 34px; height: 34px; }
+@media (min-width: 701px) and (max-width: 900px) {
+  .sidebar .brand-version { padding: 1px 4px; border-radius: 5px; font-size: 9px; box-shadow: none; }
+  .sidebar .brand-mark { width: 34px; height: 34px; }
+}
+@media (min-width: 901px) and (max-width: 1150px) {
+  .sidebar .brand-header .brand-lockup { gap: 8px; }
+  .sidebar .brand-mark { width: 30px; height: 30px; }
+  .sidebar .brand-word { font-size: 18px; }
+  .sidebar .brand-version { padding: 2px 6px; font-size: 10px; }
+}

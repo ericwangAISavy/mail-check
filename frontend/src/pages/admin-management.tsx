@@ -29,13 +29,13 @@ export default function AdminManagement(){
     }
   }
   const open=async(wid:string)=>{
-    if(!window.confirm("Open this workspace? Finish or save any work in other tabs first. Pending operations remain in their original workspace."))return
+    if(!window.confirm("Open this workspace? Save work in other tabs first."))return
     setBusy(true);setError("");setNotice("")
     try{await api.post("/api/admin/switch",{workspace_id:wid});setWorkspaceIdentity();client.clear();window.location.assign("/")}
     catch(e){setError(e instanceof Error?e.message:"Could not switch workspace.");setBusy(false)}
   }
   if(!session?.is_owner)return <div className="page-wrap"><PageHeading title="Owner access required"/></div>
-  return <div className="page-wrap admin-management-page"><PageHeading title="Admin management" description="Create private workspaces and manage admin access. Suspended workspaces keep their data. Removing an admin ends access and retains their data offline. Online indicates a visible signed-in tab active within the last 90 seconds."/>
+  return <div className="page-wrap admin-management-page"><PageHeading title="Admin management" description="Create workspaces and manage admin access."/>
     {error&&<p role="alert" className="inline-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
     <Card className="owner-create-card"><h2>Add admin</h2><form className="owner-admin-form" onSubmit={async e=>{
       e.preventDefault();const form=e.currentTarget;const data=new FormData(form)

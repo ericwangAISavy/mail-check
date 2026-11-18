@@ -23,11 +23,10 @@ it('shows the exact update time on hover',()=>{
  render(<InboxRefreshStatus schedule={schedule()}/>)
  expect(screen.getByRole('status').querySelector('time')!.getAttribute('title')).toBe(new Date(ago(20)).toLocaleString())
 })
-it('keeps the explanation in a tooltip instead of a separate line',()=>{
+it('shows only the state and freshness, without explanations',()=>{
  render(<InboxRefreshStatus schedule={schedule()}/>)
- const hint=screen.getByRole('img',{name:/Refresh Inbox reloads saved messages/})
- expect(hint.getAttribute('title')).toMatch(/collected automatically/)
- expect(screen.queryByText(/Refresh Inbox reloads/)).toBeNull()
+ expect(bar().textContent).toBe('LiveUpdated 20 seconds ago')
+ expect(screen.queryByRole('img')).toBeNull()
 })
 it('falls back to the last live check when no Inbox-wide time is available',()=>{
  const value=schedule(null);value.live!.last_checked_at=ago(90)

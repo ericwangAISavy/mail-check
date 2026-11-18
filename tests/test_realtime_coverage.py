@@ -80,7 +80,7 @@ def test_scheduled_check_skips_covered_accounts_but_check_now_does_not(workspace
     monkeypatch.setattr(web, "_start_job", lambda work, **kwargs: work())
     web._run_check(web.CheckBody(), include_calendar=True, scheduled=True)
     assert calls == [("calendar", {other}), ("mail", {other})]
-    assert "1 kept current by real-time collection" in web._job["message"]
+    assert "1 live" in web._job["message"]
     calls.clear()
     web._run_check(web.CheckBody())
     assert calls == [("mail", None)]

@@ -22,7 +22,7 @@ export default function SourcingRoleFilters({initialAccountId}:{initialAccountId
     },
   })
   return <div className="form-stack">
-    <p className="form-hint">Removes new jobs when the Role contains any listed keyword or phrase for the selected email account. Matching ignores case, spaces and hyphens. Existing rows stay saved.</p>
+    <p className="form-hint">Removes new jobs whose role contains a listed keyword.</p>
     <label>Email account<select aria-label="Role filter email account" value={selectedId??""} disabled={query.isPending||save.isPending||!accounts.length} onChange={e=>{setSelected(Number(e.target.value));save.reset()}}>{accounts.map(a=><option key={a.id} value={a.id}>{a.label===a.email?a.email:`${a.label} · ${a.email}`}</option>)}</select></label>
     {!query.isPending&&!query.error&&!accounts.length&&<p>Connect an email account on the Accounts page first.</p>}
     <label htmlFor="blocked-role-keywords">Blocked role keywords · one keyword or phrase per line</label>

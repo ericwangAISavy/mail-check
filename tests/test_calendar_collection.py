@@ -203,7 +203,7 @@ class CheckDispatchTests(unittest.TestCase):
                      patch.object(web, "check_once", return_value=result):
                     web._run_check(web.CheckBody())
                 self.assertFalse(web._job['ok'])
-                self.assertIn('1 deferred; Ollama busy', web._job['message'])
+                self.assertIn('1 deferred', web._job['message'])
                 self.assertEqual(web._job['detail'], '\n'.join(errors))
 
 class CalendarDuplicateTests(unittest.TestCase):

@@ -23,9 +23,9 @@ export function InterviewJobMatches({ id }: { id: number }) {
   const matches = [...new Map((query.data?.pages || []).flatMap(page => page.matches || []).map(match => [match.row_id, match])).values()]
   return <section className="interview-job-matches" aria-label="Possible job matches">
     <h3>Possible job matches</h3>
-    <p className="form-hint">Best-effort suggestions from saved jobs. A match is not proof that this invitation relates to an application.</p>
+    <p className="form-hint">Suggestions from saved jobs.</p>
     {query.isPending ? <p role="status">Loading job matches…</p> : query.isError && !query.data ? <div><p role="alert" className="inline-error">Could not load job matches. {query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Retry job matches</Button></div> : <>
-      {query.isRefetchError && !query.isFetchNextPageError && <div><p role="alert" className="inline-error">Could not refresh job matches. Your loaded matches are still shown.</p><Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry job matches</Button></div>}
+      {query.isRefetchError && !query.isFetchNextPageError && <div><p role="alert" className="inline-error">Could not refresh job matches.</p><Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry job matches</Button></div>}
       {!matches.length && <p>No possible job matches found.</p>}
       <ul className="interview-job-match-list">{matches.map(match => {
         const url = safeJobUrl(match.link)
@@ -41,7 +41,7 @@ export function InterviewJobMatches({ id }: { id: number }) {
           {match.archived && <span className="form-hint">Archived job</span>}
         </li>
       })}</ul>
-      {query.isFetchNextPageError && <p role="alert" className="inline-error">Could not load more job matches. Your loaded matches are still shown.</p>}
+      {query.isFetchNextPageError && <p role="alert" className="inline-error">Could not load more job matches.</p>}
       {query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? "Loading more job matches…" : query.isFetchNextPageError ? "Retry loading more job matches" : "Load more job matches"}</Button>}
     </>}
   </section>

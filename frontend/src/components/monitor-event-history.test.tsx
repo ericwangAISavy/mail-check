@@ -31,7 +31,7 @@ it('handles empty filters and a selection that disappears on refresh',()=>{
  rerender(<MonitorEventHistory events={[events[0]]} names={new Map()}/> )
  expect(screen.getByText('queued')).toBeTruthy()
  rerender(<MonitorEventHistory events={[]} names={new Map()}/> )
- expect(screen.getByText(/No events match/)).toBeTruthy()
+ expect(screen.getByText('No matching events.')).toBeTruthy()
 })
 
 it('retains the selected event as live events extend the time range',()=>{

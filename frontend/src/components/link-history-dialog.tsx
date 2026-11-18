@@ -78,7 +78,7 @@ export default function LinkHistoryDialog({ accountId, accountLabel, onClose }: 
               <label>From<input type="date" value={start} max={end || undefined} disabled={busy || !!preview} onChange={event => setStart(event.target.value)} /></label>
               <label>Through<input type="date" value={end} min={start || undefined} disabled={busy || !!preview} onChange={event => setEnd(event.target.value)} /></label>
             </div>
-            <p className="form-hint">Leave dates empty to include all dates and undated links. Date ranges use the sourcing date.</p>
+            <p className="form-hint">Leave dates empty to include all links.</p>
             {preview && <div className="link-history-preview" role="status">
               <strong>{preview.link_count} link(s) selected for {selected?.name}</strong>
               <p>{preview.checked_count} checked link(s). Removing checked rows can change calculated application and payment totals. Saved payment records are retained.</p>

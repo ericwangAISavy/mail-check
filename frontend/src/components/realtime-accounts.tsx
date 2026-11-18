@@ -22,14 +22,12 @@ export default function RealtimeAccounts({accounts}:{accounts:Account[]}) {
     finally {setBusy(null)}
   }
   return <section aria-label="Automatic updates"><h2>Automatic updates</h2>
-    <p>Collect new email automatically and update open pages. Microsoft accounts also track calendar changes.</p>
-    {query.isPending?<p>Loading automatic update settings…</p>:query.isError?<p role="status">Automatic update status is temporarily unavailable. Manual checks remain available.</p>:!query.data?.configured?
-      <p>Automatic updates are not configured. Ask the owner to enable the background service.</p>:
+    <p>Collect new mail as it arrives.</p>
+    {query.isPending?<p>Loading automatic update settings…</p>:query.isError?<p role="status">Automatic update status is temporarily unavailable.</p>:!query.data?.configured?
+      <p>Automatic updates are not available.</p>:
       <Card>{accounts.map(account=>{
         const status=query.data.accounts?.find(item=>item.account_id===account.id)
         return <div className="account-row" key={account.id}><div className="account-info"><strong>{account.label}</strong>
-          <p>{account.provider==='outlook'&&query.data.public_ready?'Email and calendar notifications with recovery checks':account.provider==='outlook'?'Email and calendar recovery checks; notifications need a public connection':'Email polling every 30 seconds'}</p>
-          {status?.enabled&&<p>{status.subscription_status==='subscribed'?'Notifications connected':status.subscription_status==='pending'?'Connecting notifications; recovery checks are active':'Recovery checks are active'}</p>}
           {status?.last_error&&<p role="status">{status.last_error}</p>}</div>
           <Switch label={`Automatic updates for ${account.label}`} checked={!!status?.enabled} disabled={!account.enabled||busy!==null}
             onChange={enabled=>void change(account.id,enabled)} /></div>

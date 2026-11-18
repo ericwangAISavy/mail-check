@@ -67,7 +67,7 @@ it("saves the selected check range and retains fallback days",async()=>{
  mount()
  const mode=await screen.findByLabelText("Mail check range",{exact:false})
  fireEvent.change(mode,{target:{value:"since_last"}})
- expect(screen.getByText(/Each account resumes/)).toBeTruthy()
+ expect(screen.getByText('Each check continues from the last one.')).toBeTruthy()
  fireEvent.click(screen.getAllByRole("button",{name:"Save changes"})[0])
  await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/settings",expect.objectContaining({check_mode:"since_last",lookback_days:2})))
 })
@@ -81,7 +81,7 @@ it('saves separate owner and other-admin check intervals',async()=>{
  fireEvent.change(others,{target:{value:'5'}})
  fireEvent.click(screen.getAllByRole('button',{name:'Save changes'})[0])
  await waitFor(()=>expect(post).toHaveBeenCalledWith('/api/settings',expect.objectContaining({interval_minutes:2,other_interval_minutes:5})))
- expect(screen.getByText(/Fast live checks for active bidder Inboxes/)).toBeTruthy()
+ expect(screen.getByText('Every other admin workspace.')).toBeTruthy()
 })
 
 it('prevents saving an invalid check interval',async()=>{

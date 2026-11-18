@@ -56,8 +56,8 @@ function DeductionRuleEditor({ rule }: { rule?: DeductionRule }) {
     },
     onError: (error: Error) => toast(error.message, "error"),
   })
-  return <Card className="payment-deduction-rule"><h2>Daily deduction rule</h2><p>Applies to all bidders on completed weekdays with an active assignment. Today and future dates are excluded. A zero minimum disables the rule; a zero deduction keeps the minimum visible without reducing pay. Saved payments and manual confirmed amounts stay unchanged.</p>
-    {dirty && changedElsewhere && <p role="alert">Daily deduction rule changed elsewhere. Load the saved rule before saving your changes.</p>}
+  return <Card className="payment-deduction-rule"><h2>Daily deduction rule</h2><p>Applies to completed weekdays. Set the minimum to 0 to turn it off.</p>
+    {dirty && changedElsewhere && <p role="alert">The deduction rule changed elsewhere. Load it before saving.</p>}
     <form onSubmit={event => { event.preventDefault(); if (!save.isPending && !changedElsewhere) save.mutate({ minimum_daily: Number(minimum), deduction_amount: amount, expected_rule: base }) }}><label>Minimum daily checked applications<input type="number" min="0" max="100000" step="1" required value={minimum} disabled={save.isPending} onChange={event => { setMinimum(event.target.value); setDirty(true) }} /></label><label>Daily deduction (USD)<input type="number" min="0" max="1000000" step="0.01" required value={amount} disabled={save.isPending} onChange={event => { setAmount(event.target.value); setDirty(true) }} /></label><Button disabled={save.isPending || changedElsewhere}>{save.isPending ? "Saving…" : "Save deduction rule"}</Button>
     {dirty && changedElsewhere && <Button type="button" variant="outline" disabled={save.isPending} onClick={() => { loadSaved(); save.reset() }}>Load saved rule</Button>}</form>{save.error && <p role="alert" className="inline-error">{save.error.message}</p>}</Card>
 }
@@ -111,7 +111,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const refresh = useMutation({mutationFn: (mode: "refresh" | "rebuild") => api.post("/api/payments/refresh", {week: query.data!.week_start, mode}), onSuccess: async () => {
     await Promise.all(["payments", "sourcing-index", "sourcing-search", "dashboard"].map(key => client.invalidateQueries({queryKey: [key]})))
     window.dispatchEvent(new Event("mailcheck:check-completed"))
-    toast("Selected week refreshed. Checked applications and received replies recalculated.", "success")
+    toast("Week refreshed.", "success")
   }, onError: (error: Error) => toast(error.message, "error")})
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
   if (query.isPending) return <Loading label="Loading application totals…" />
@@ -138,7 +138,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     try{await copyPaymentReport(result.text);toast("Weekly payment report copied.","success")}catch(error){setCopyError(error instanceof Error?error.message:"Could not copy the report.")}finally{setCopying(false)}
   }
   return <div className="page-wrap payments-page">
-    <PageHeading title="Bidder management" description={showPayments ? "Checked applications and payments before / after daily deductions." : "Your checked application activity."} action={!readOnly && <div className="payment-report-actions"><Button variant="outline" disabled={refresh.isPending} title="Update matches and totals for this week while preserving existing checks" onClick={() => refresh.mutate("refresh")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Refresh this week</Button><Button variant="outline" disabled={refresh.isPending} title="Check unchecked links for this week. Existing checks, receipt bindings, confirmation dates, and saved payments are preserved." onClick={() => refresh.mutate("rebuild")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Fully rebuild this week</Button></div>} />
+    <PageHeading title="Bidder management" description={showPayments ? "" : "Your checked application activity."} action={!readOnly && <div className="payment-report-actions"><Button variant="outline" disabled={refresh.isPending} title="Refresh this week" onClick={() => refresh.mutate("refresh")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Refresh this week</Button><Button variant="outline" disabled={refresh.isPending} title="Check this week’s unchecked links" onClick={() => refresh.mutate("rebuild")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Fully rebuild this week</Button></div>} />
     <div className="payment-summary-bar">
     <div className="payment-overview">
       <Card><CalendarDays aria-hidden="true" /><div><span>{todayIndex >= 0 ? "Today" : "Selected week"}</span><strong>{(todayIndex >= 0 ? daily[todayIndex] : total).toLocaleString()}</strong><small>{todayIndex >= 0 ? shortDate(data.today) : `${shortDate(data.week_start)} – ${shortDate(data.week_end)}`}</small></div></Card>
@@ -153,7 +153,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     </div>
     {mutation.error && <p role="alert" className="inline-error">{mutation.error.message}</p>}
     {rateBidder&&!readOnly&&<PaymentRateEditor key={rateBidder.id} bidder={rateBidder} onClose={()=>setEditingRate(null)}/>}
-    {paymentBidder && !readOnly && <Card className="payment-entry"><h2>{paymentBidder.payment?"Edit payment":"Record payment"} for {paymentBidder.name}</h2><p>{applicationTotal(paymentBidder)} checked applications · {shortDate(data.week_start)} – {shortDate(data.week_end)}. {paymentBidder.payment?"Saving changes updates the recorded amount and count to this week’s current total. Previous values stay in edit history; the original payment date is kept.":"Save an amount for the report, or record a payment you made. Neither action transfers money."}</p>
+    {paymentBidder && !readOnly && <Card className="payment-entry"><h2>{paymentBidder.payment?"Edit payment":"Record payment"} for {paymentBidder.name}</h2><p>{applicationTotal(paymentBidder)} checked applications · {shortDate(data.week_start)} – {shortDate(data.week_end)}. {paymentBidder.payment?"Saving changes updates the recorded amount and count to this week’s current total. Previous values stay in edit history; the original payment date is kept.":""}</p>
       {paymentBidder.calculated_amount_cents!=null&&<p>Calculated: ${paymentBidder.pay_per_bid} × {applicationTotal(paymentBidder)} × {(1+Number(paymentBidder.adjustment_percent??20)/100).toLocaleString()} = {money(paymentBidder.gross_amount_cents ?? paymentBidder.calculated_amount_cents)}{(paymentBidder.deduction_total_cents ?? 0) > 0 && <> − {money(paymentBidder.deduction_total_cents!)} deductions = {money(paymentBidder.calculated_amount_cents)}{paymentBidder.deduction_total_cents! > (paymentBidder.gross_amount_cents ?? 0) ? " (minimum payment $0.00)" : ""}</>}</p>}
       {paymentBidder.payment?.application_count != null && paymentBidder.payment.application_count !== applicationTotal(paymentBidder) && <p>Recorded count: {paymentBidder.payment.application_count}; current checked total: {applicationTotal(paymentBidder)}. Saved payment unchanged.</p>}
       {paymentBidder.override_application_count != null && paymentBidder.override_application_count !== applicationTotal(paymentBidder) && <p>Saved amount reviewed at {paymentBidder.override_application_count} count; current checked total: {applicationTotal(paymentBidder)}.</p>}
@@ -181,7 +181,6 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
       {!readOnly && unallocatedTotal > 0 && <tr className="payment-unallocated"><th scope="row">Unallocated received replies<span>Shared accounts with no matched completions that day</span></th>{unallocated.map((count, i) => <td key={data.dates[i]}><CountPair showReplies={!readOnly} checked={0} replies={count} /></td>)}<td className="payment-total">0</td>{showPayments && <td>Awaiting checked links</td>}</tr>}
       </tbody><tfoot><tr><th scope="row">Total</th>{daily.map((count, i) => <td key={i}><CountPair showReplies={!readOnly} checked={count} replies={replyDaily[i]} /></td>)}<td>{total.toLocaleString()}</td>{showPayments && <td />}</tr></tfoot></table></div>}
     </Card>
-    {data.bidders.length > 0 && <p className="payment-mobile-hint">Swipe the table to see all days and payment status.</p>}
     {!readOnly && data.unassigned > 0 && <p className="payment-unassigned">{data.unassigned.toLocaleString()} received replies this week have no bidder assignment. <a href="/accounts#bidder-management">Assign their accounts with the correct dates on Accounts</a> to include them.</p>}
     <BidderActivity visibilityKey={readOnly ? String(Boolean(data.other_work_visible)) : "admin"} allowAccounts={!readOnly || !data.other_work_visible} readOnly={readOnly} week={data.week_start} selected={selected} onSelect={setSelected} />
 

@@ -18,5 +18,5 @@ it('requires an explicit account opt-in and reports sync health',async()=>{
 it('explains when automatic updates are not configured',async()=>{
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('{"configured":false,"accounts":[]}',{headers:{'Content-Type':'application/json'}})))
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><RealtimeAccounts accounts={[]} /></QueryClientProvider>)
-  expect(await screen.findByText(/Automatic updates are not configured/)).toBeTruthy()
+  expect(await screen.findByText('Automatic updates are not available.')).toBeTruthy()
 })

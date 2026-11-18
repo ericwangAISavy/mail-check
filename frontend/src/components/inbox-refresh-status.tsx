@@ -1,15 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { Info } from "lucide-react"
 import type { TriageData } from "@/lib/types"
 import { parseStamp, timeAgo } from "@/lib/relative-time"
 
 /** Real-time recovery checks run every 2 minutes; older than this is late. */
 const DELAYED_AFTER_SECONDS = 5 * 60
-const HINT = "Refresh Inbox reloads saved messages. New mail is collected automatically and appears here on its own; it may take a moment after it arrives. Hover the time for the exact update time."
 
 type Tone = "live" | "busy" | "warn" | "off"
 
-/** One compact, colour-coded line: a state pill, how fresh the Inbox is, and details on hover. */
+/** One compact, colour-coded line: a state pill and how fresh the Inbox is. */
 export function InboxRefreshStatus({ schedule, unavailable = false }: { schedule: TriageData["check_schedule"]; unavailable?: boolean }) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -49,6 +47,5 @@ export function InboxRefreshStatus({ schedule, unavailable = false }: { schedule
   return <section className={`inbox-live-status tone-${tone}`} aria-label="Inbox update schedule">
     <span className="inbox-live-pill"><span className="inbox-live-dot" aria-hidden="true" />{pill}</span>
     <p role="status">{detail}</p>
-    <span className="inbox-live-hint" role="img" aria-label={HINT} title={HINT}><Info size={14} aria-hidden="true" /></span>
   </section>
 }
