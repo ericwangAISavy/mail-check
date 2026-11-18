@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.6.3",
+    "date": "2026-11-18",
+    "title": "Full-width header",
+    "changes": [
+      "Move the OfferPath logo, title and version into a header that spans the full width, with the sidebar beneath it on the left."
+    ]
+  },
+  {
     "version": "3.6.2",
     "date": "2026-11-18",
     "title": "Brighter sidebar identity",

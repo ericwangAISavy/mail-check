@@ -167,25 +167,44 @@
   .app-content:has(.triage-page) > .app-footer { padding: 4px 20px 6px; }
 }
 
-/* Sidebar identity: glowing mark, heavy italic two-tone wordmark, glowing version pill. */
-.sidebar .brand-header .brand-lockup { gap: 11px; }
-.sidebar .brand-mark { width: 36px; height: 36px; filter: drop-shadow(0 0 9px color-mix(in srgb, var(--primary) 55%, transparent)); }
-.sidebar .brand-word { flex: none; padding-right: .08em; font-size: 21px; font-style: italic; font-weight: 800; letter-spacing: -.045em; white-space: nowrap; color: var(--foreground); }
-.sidebar .brand-word span { color: var(--primary); font-weight: 800; text-shadow: 0 0 16px color-mix(in srgb, var(--primary) 40%, transparent); }
-.sidebar .brand-version { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--primary) 8%, var(--card)); color: var(--primary); font-size: 11px; font-weight: 600; letter-spacing: .01em; box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 0 8px color-mix(in srgb, var(--primary) 10%, transparent); }
-.sidebar .brand-version:hover { background: color-mix(in srgb, var(--primary) 14%, var(--card)); }
-:root[data-theme="light"] .sidebar .brand-word span { text-shadow: none; }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .sidebar .brand-word span { text-shadow: none; } }
-/* Narrow sidebars stack the mark over a small version label. */
-.sidebar-collapsed .sidebar .brand-version { padding: 1px 4px; border-radius: 5px; font-size: 9px; box-shadow: none; }
-.sidebar-collapsed .sidebar .brand-mark { width: 34px; height: 34px; }
-@media (min-width: 701px) and (max-width: 900px) {
-  .sidebar .brand-version { padding: 1px 4px; border-radius: 5px; font-size: 9px; box-shadow: none; }
-  .sidebar .brand-mark { width: 34px; height: 34px; }
+/* App shell: a full-width header with the identity on the left; the sidebar and
+   page sit beneath it. */
+@media screen and (min-width: 701px) {
+  .app-frame, .app-frame.sidebar-collapsed { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .app-frame > .app-header { grid-column: 1 / -1; grid-row: 1; position: relative; top: 0; z-index: 20; border-radius: 0; }
+  .app-frame > .sidebar, .app-frame.sidebar-collapsed > .sidebar { grid-column: 1; grid-row: 2; position: relative; top: 0; height: auto; min-height: 0; overflow-y: auto; border-top: 0; }
+  .app-frame > .app-content { grid-column: 2; grid-row: 2; }
 }
-@media (min-width: 901px) and (max-width: 1150px) {
-  .sidebar .brand-header .brand-lockup { gap: 8px; }
-  .sidebar .brand-mark { width: 30px; height: 30px; }
-  .sidebar .brand-word { font-size: 18px; }
-  .sidebar .brand-version { padding: 2px 6px; font-size: 10px; }
+@media screen and (max-width: 700px) {
+  .app-frame, .app-frame.sidebar-collapsed { display: flex; flex-direction: column; align-items: stretch; }
+  .app-frame > .app-header { flex: none; position: relative; top: 0; }
+  .app-frame > .app-content { flex: 1 1 auto; height: auto; min-height: 0; }
+}
+
+/* Header identity: glowing mark, heavy italic two-tone wordmark, glowing version pill. */
+@media screen and (min-width: 701px) { .app-header { flex-wrap: nowrap; } }
+.app-header .brand-header { display: flex; flex: none; align-items: center; gap: 10px; height: auto; margin: 0; padding: 0; border: 0; }
+.app-header .brand-lockup { display: flex; align-items: center; gap: 11px; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+.app-header .brand-mark { width: 36px; height: 36px; filter: drop-shadow(0 0 9px color-mix(in srgb, var(--primary) 55%, transparent)); }
+.app-header .brand-word { flex: none; padding-right: .08em; font-family: var(--display-font); font-size: 22px; line-height: 1; font-style: italic; font-weight: 800; letter-spacing: -.045em; white-space: nowrap; color: var(--foreground); }
+.app-header .brand-word span { color: var(--primary); font-weight: 800; text-shadow: 0 0 16px color-mix(in srgb, var(--primary) 40%, transparent); }
+.app-header .brand-version { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--primary) 8%, var(--card)); color: var(--primary); font-size: 11px; font-weight: 600; letter-spacing: .01em; box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 0 8px color-mix(in srgb, var(--primary) 10%, transparent); }
+.app-header .brand-version:hover { background: color-mix(in srgb, var(--primary) 14%, var(--card)); }
+:root[data-theme="light"] .app-header .brand-word span { text-shadow: none; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .app-header .brand-word span { text-shadow: none; } }
+/* With an expanded sidebar, the breadcrumb lines up with the page column. */
+@media screen and (min-width: 901px) {
+  .app-frame:not(.sidebar-collapsed) > .app-header .brand-header { width: calc(var(--sidebar-width) - 24px); }
+}
+.app-header .top-left { flex: 1 1 auto; min-width: 0; }
+/* The identity lives in the header now: collapsing the sidebar must not hide or shrink it. */
+.app-frame .app-header .brand-word { display: inline-block; }
+.app-frame.sidebar-collapsed .app-header .brand-version { display: inline-block; padding: 3px 8px; border-radius: 9px; font-size: 11px; }
+.app-frame.sidebar-collapsed .app-header .brand-mark { width: 36px; height: 36px; }
+.sidebar .workspace-label { margin-top: 22px; }
+@media screen and (max-width: 700px) {
+  .app-header .brand-mark { width: 30px; height: 30px; }
+  .app-header .brand-word { font-size: 18px; }
+  .app-frame .app-header .brand-version { display: none; }
+  .app-frame .app-header .brand-mark { width: 30px; height: 30px; }
 }

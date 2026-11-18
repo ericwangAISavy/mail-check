@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.6.3 — 2026-11-18
+
+Full-width header
+
+- Move the OfferPath logo, title and version into a header that spans the full width, with the sidebar beneath it on the left.
+
 ## 3.6.2 — 2026-11-18
 
 Brighter sidebar identity
