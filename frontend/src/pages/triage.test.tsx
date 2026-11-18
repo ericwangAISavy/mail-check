@@ -398,7 +398,7 @@ it('refreshes bidder inbox through the scoped GET without starting a manual mail
   expect(requests.some(request => request.includes('/api/check'))).toBe(false)
 })
 
-it('polls visible bidder inbox every three seconds and refreshes immediately on visibility or focus', async () => {
+it('polls visible bidder inbox every twelve seconds and refreshes immediately on visibility or focus', async () => {
   vi.useFakeTimers()
   renderPage(true)
   await act(async () => { await vi.advanceTimersByTimeAsync(20) })
@@ -406,6 +406,8 @@ it('polls visible bidder inbox every three seconds and refreshes immediately on 
   try {
     const before = count()
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(count()).toBe(before)
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
     expect(count()).toBe(before + 1)
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
     fireEvent(document, new Event('visibilitychange'))

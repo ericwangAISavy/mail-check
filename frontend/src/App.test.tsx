@@ -173,11 +173,12 @@ describe("mail freshness", () => {
     expect(time.getAttribute("title")).toBe(new Date(stamp).toLocaleString())
   })
 
-  it("shows the schedule as a pressed toggle", async () => {
-    vi.spyOn(api, "status").mockResolvedValue({ ...scheduled, interval_minutes: 10 })
-    mount()
-    const toggle = await screen.findByRole("button", { name: "Auto-check on" })
-    expect(toggle.getAttribute("aria-pressed")).toBe("true")
+  it("keeps the automatic-check toggle out of the header", async () => {
+    vi.spyOn(api, "status").mockResolvedValue({ ...scheduled, interval_minutes: 10, updated_at: new Date().toISOString() })
+    const { container } = mount()
+    await waitFor(() => expect(freshness(container)).toBe("just now"))
+    expect(screen.queryByRole("button", { name: /Auto-check/ })).toBeNull()
+    expect(container.querySelector(".schedule-button")).toBeNull()
   })
 })
 

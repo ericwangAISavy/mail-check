@@ -9,6 +9,7 @@ import sqlite3
 
 from starlette.responses import JSONResponse
 
+from ..web.admission import RequestAdmission
 from ..workspaces import WorkspaceContext, bind_workspace, bind_commit_guard
 
 
@@ -87,7 +88,10 @@ def main():
     with InstanceLock(root/'shared-runtime'/'processes'/f'{slot}.lock'):
         reader = ControlReader(root, legacy)
         app = create_dispatcher(reader, os.environ['OFFERPATH_WORKER_TOKEN'], legacy)
-        server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=args.port, access_log=False))
+        server = uvicorn.Server(uvicorn.Config(
+            RequestAdmission(app, max_requests=24), host='127.0.0.1',
+            port=args.port, access_log=False, limit_concurrency=128,
+        ))
         stop_watch = supervise(server)
         try:
             server.run()

@@ -1,5 +1,87 @@
 [
   {
+    "version": "3.8.2",
+    "date": "2026-11-18",
+    "title": "Faster workspace loading and steadier traffic",
+    "changes": [
+      "Show workspace navigation while the page finishes loading and download smaller sign-in images.",
+      "Reduce repeated bidder Inbox requests and limit expensive database reads when a workspace is busy.",
+      "Return saved settings immediately and reload workspace schedules in the background."
+    ]
+  },
+  {
+    "version": "3.8.1",
+    "date": "2026-11-18",
+    "title": "Faster first load after updates",
+    "changes": [
+      "Compress the app's scripts and styles before sending them, so the first visit after an update loads about three times faster over the tunnel.",
+      "Show a calm 'Still opening OfferPath…' notice instead of a connection warning when the first load is slow; the app opens on its own as soon as it is ready."
+    ]
+  },
+  {
+    "version": "3.8.0",
+    "date": "2026-11-18",
+    "title": "Calendar sync with Check now and tidier header",
+    "changes": [
+      "Check now also collects calendar events, like scheduled checks; real-time updates already sync calendars with mail.",
+      "Keep the header on one tidy row at every desktop width, with a cleaner two-row layout on phones.",
+      "Remove the auto-check button from the header; automatic checks stay available in Settings and are off by default.",
+      "Calmer primary buttons, an icon-only sidebar collapse button in the sidebar's bottom-right corner, and aligned dashboard filter buttons."
+    ]
+  },
+  {
+    "version": "3.7.3",
+    "date": "2026-11-18",
+    "title": "Matching selects and buttons",
+    "changes": [
+      "Give dark-theme dropdowns and secondary buttons the same glass fill, gradient rim and hover glow as outline buttons."
+    ]
+  },
+  {
+    "version": "3.7.2",
+    "date": "2026-11-18",
+    "title": "Softer dark theme glow",
+    "changes": [
+      "Tone down the dark theme's gradient edges, glows and highlights for a calmer look."
+    ]
+  },
+  {
+    "version": "3.7.1",
+    "date": "2026-11-18",
+    "title": "Consistent hover and focus states",
+    "changes": [
+      "Keep dark-theme buttons, the active navigation item and tabs looking the same on hover and after, with smooth glow changes instead of flat or grey flashes.",
+      "Restore visible keyboard focus on dark-theme buttons, remove glow from disabled buttons, and keep borderless panels borderless.",
+      "Show red borders on invalid fields in both themes, including while hovered or focused."
+    ]
+  },
+  {
+    "version": "3.7.0",
+    "date": "2026-11-18",
+    "title": "Glowing dark theme",
+    "changes": [
+      "Refresh the dark theme with luminous gradient edges on panels and dialogs, cyan-to-blue borders, lit icon tiles and an ambient background glow.",
+      "Highlight the active navigation item, primary buttons, counts and focused fields with the brand glow. The light theme is unchanged."
+    ]
+  },
+  {
+    "version": "3.6.5",
+    "date": "2026-11-18",
+    "title": "Roomier header identity",
+    "changes": [
+      "Add more space between the logo, the OfferPath title and the version badge, scaling it to fit narrower sidebars."
+    ]
+  },
+  {
+    "version": "3.6.4",
+    "date": "2026-11-18",
+    "title": "Aligned header and sidebar collapse",
+    "changes": [
+      "Align the header breadcrumb with the page at every window width and sidebar state.",
+      "Move the sidebar collapse control from the header to the bottom of the sidebar."
+    ]
+  },
+  {
     "version": "3.6.3",
     "date": "2026-11-18",
     "title": "Full-width header",

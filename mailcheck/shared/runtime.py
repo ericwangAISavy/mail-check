@@ -323,7 +323,7 @@ def _execute_job(reader, legacy_paths, fields, *, handler=None):
                         web._run_calendar_analysis()
                     else:
                         body = web.CheckBody.model_validate(record['body'] if manual else {})
-                        web._run_check(body,include_calendar=kind=='scheduled-check',scheduled=kind=='scheduled-check')
+                        web._run_check(body,include_calendar=kind in {'scheduled-check','manual-check'},scheduled=kind=='scheduled-check')
                     if not web._job.get('ok',True):
                         raise RuntimeError('Workspace operation reported failure; retrying safely')
                 finally:

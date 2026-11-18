@@ -1,4 +1,4 @@
-import source from "../../public/assets/startup-recovery-v5.js?raw";
+import source from "../../public/assets/startup-recovery-v7.js?raw";
 import { afterEach, expect, it, vi } from "vitest";
 afterEach(() => { document.getElementById('root')?.remove(); document.querySelectorAll('[data-test-style]').forEach(link=>link.remove()); vi.runOnlyPendingTimers(); vi.restoreAllMocks(); vi.useRealTimers(); });
 function boot(url = 'https://example.test/applications?view=all#saved') {
@@ -30,7 +30,7 @@ it('stops recovery as soon as React replaces the startup marker', async () => {
 });
 it('offers a manual retry after 15 seconds without an automatic reload loop', () => {
   const { window, replace } = boot(); vi.advanceTimersByTime(15000);
-  expect(window.document.querySelector('[role="alert"]')!.textContent).toContain('taking longer'); expect(window.document.querySelector('[role="alert"] a')).not.toBeNull(); vi.advanceTimersByTime(60000); expect(replace).not.toHaveBeenCalled();
+  expect(window.document.querySelector('[role="status"]')!.textContent).toContain('Still opening OfferPath'); expect(window.document.querySelector('[role="alert"]')).toBeNull(); expect(window.document.querySelector('[role="status"] a')!.textContent).toBe('Load again'); vi.advanceTimersByTime(60000); expect(replace).not.toHaveBeenCalled();
 });
 it('keeps one curtain through intermediate loaders and reveals only the ready page', async () => {
   boot();
@@ -67,8 +67,8 @@ it('keeps a manual recovery available if React mounts but initial loading stalls
   const {replace}=boot();
   document.getElementById('root')!.innerHTML='<div class="loading-state">Waiting for a page module</div>';
   await Promise.resolve();vi.advanceTimersByTime(15000);
-  const alert=document.querySelector('[data-offerpath-startup][role="alert"]');
-  expect(alert?.textContent).toContain('taking longer');
+  const alert=document.querySelector('[data-offerpath-startup][role="status"]');
+  expect(alert?.textContent).toContain('first visit after an update');
   alert!.querySelector('a')!.click();
   expect(replace).toHaveBeenCalledTimes(1);
 });
@@ -93,7 +93,7 @@ it('reveals a page that finishes after the slow-start warning without requiring 
   const {replace}=boot();const root=document.getElementById('root')!;
   root.innerHTML='<div class="loading-state">Waiting</div>';
   await Promise.resolve();vi.advanceTimersByTime(15000);
-  expect(document.querySelector('[data-offerpath-startup][role="alert"]')).not.toBeNull();
+  expect(document.querySelector('[data-offerpath-startup][role="status"]')).not.toBeNull();
   root.innerHTML='<main>Finally ready</main>';
   await Promise.resolve();vi.advanceTimersByTime(400);
   expect(root.hasAttribute('inert')).toBe(false);
@@ -164,3 +164,13 @@ it('checks styles when the browser window-load event reports document as its tar
  const event=new Event('load');Object.defineProperty(event,'target',{value:document});window.dispatchEvent(event);
  expect(replace).toHaveBeenCalledTimes(1);link.remove();state.mockRestore();
 });
+
+it('reveals the workspace shell while its route query is still loading', async () => {
+  boot()
+  const root = document.getElementById('root')!
+  root.innerHTML = '<div data-offerpath-workspace><nav>Navigation</nav><div class="loading-state">Loading Inbox</div></div>'
+  await Promise.resolve()
+  vi.advanceTimersByTime(400)
+  expect(root.hasAttribute('inert')).toBe(false)
+  expect(document.querySelector('[data-offerpath-startup]')).toBeNull()
+})

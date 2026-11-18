@@ -2,6 +2,70 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.8.2 — 2026-11-18
+
+Faster workspace loading and steadier traffic
+
+- Show workspace navigation while the page finishes loading and download smaller sign-in images.
+- Reduce repeated bidder Inbox requests and limit expensive database reads when a workspace is busy.
+- Return saved settings immediately and reload workspace schedules in the background.
+
+## 3.8.1 — 2026-11-18
+
+Faster first load after updates
+
+- Compress the app's scripts and styles before sending them, so the first visit after an update loads about three times faster over the tunnel.
+- Show a calm 'Still opening OfferPath…' notice instead of a connection warning when the first load is slow; the app opens on its own as soon as it is ready.
+
+## 3.8.0 — 2026-11-18
+
+Calendar sync with Check now and tidier header
+
+- Check now also collects calendar events, like scheduled checks; real-time updates already sync calendars with mail.
+- Keep the header on one tidy row at every desktop width, with a cleaner two-row layout on phones.
+- Remove the auto-check button from the header; automatic checks stay available in Settings and are off by default.
+- Calmer primary buttons, an icon-only sidebar collapse button in the sidebar's bottom-right corner, and aligned dashboard filter buttons.
+
+## 3.7.3 — 2026-11-18
+
+Matching selects and buttons
+
+- Give dark-theme dropdowns and secondary buttons the same glass fill, gradient rim and hover glow as outline buttons.
+
+## 3.7.2 — 2026-11-18
+
+Softer dark theme glow
+
+- Tone down the dark theme's gradient edges, glows and highlights for a calmer look.
+
+## 3.7.1 — 2026-11-18
+
+Consistent hover and focus states
+
+- Keep dark-theme buttons, the active navigation item and tabs looking the same on hover and after, with smooth glow changes instead of flat or grey flashes.
+- Restore visible keyboard focus on dark-theme buttons, remove glow from disabled buttons, and keep borderless panels borderless.
+- Show red borders on invalid fields in both themes, including while hovered or focused.
+
+## 3.7.0 — 2026-11-18
+
+Glowing dark theme
+
+- Refresh the dark theme with luminous gradient edges on panels and dialogs, cyan-to-blue borders, lit icon tiles and an ambient background glow.
+- Highlight the active navigation item, primary buttons, counts and focused fields with the brand glow. The light theme is unchanged.
+
+## 3.6.5 — 2026-11-18
+
+Roomier header identity
+
+- Add more space between the logo, the OfferPath title and the version badge, scaling it to fit narrower sidebars.
+
+## 3.6.4 — 2026-11-18
+
+Aligned header and sidebar collapse
+
+- Align the header breadcrumb with the page at every window width and sidebar state.
+- Move the sidebar collapse control from the header to the bottom of the sidebar.
+
 ## 3.6.3 — 2026-11-18
 
 Full-width header

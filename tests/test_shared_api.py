@@ -255,3 +255,31 @@ def test_dispatcher_commit_guard_rejects_changed_workspace(tmp_path):
             result = await client.get('/check', headers={'x-offerpath-worker':'secret', 'x-offerpath-workspace':'legacy'})
             assert result.json() == {'blocked': True}
     asyncio.run(request())
+
+def test_expensive_sqlite_read_releases_session_at_deadline(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from mailcheck import db
+
+    path = tmp_path / 'deadline.db'
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(db, 'time', SimpleNamespace(monotonic=lambda: clock.now))
+
+    def advance_clock(value):
+        clock.now = 2.0
+        return value
+
+    with pytest.raises(db.ReadDeadlineExpired):
+        with db.session(path, read_deadline=1.0) as conn:
+            conn.create_function('advance_clock', 1, advance_clock)
+            conn.execute('''
+                WITH RECURSIVE steps(n) AS (
+                    SELECT 1 UNION ALL SELECT n + 1 FROM steps WHERE n < 100000
+                )
+                SELECT sum(advance_clock(n)) FROM steps
+            ''').fetchone()
+
+    with db.session(path) as conn:
+        assert conn.execute('SELECT 1').fetchone()[0] == 1

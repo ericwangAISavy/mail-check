@@ -79,6 +79,9 @@ function Freshness({ updatedAt }: { updatedAt: string }) {
   return <time className="tabular status-updated" dateTime={date.toISOString()} title={date.toLocaleString()} aria-live="off">{timeAgo(date, now)}</time>
 }
 
+/** The header auto-check toggle is hidden; automatic checks stay configurable in Settings. */
+const SHOW_AUTO_CHECK_TOGGLE = false
+
 function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
   const {session}=useAuth()
   const canManageSettings=!session?.workspace_id || !!session.is_owner
@@ -199,7 +202,7 @@ function JobStatus({ bootstrap }: { bootstrap: Bootstrap }) {
       {elapsed != null && <small className="tabular status-elapsed">{elapsed}s</small>}
       {!status?.running && status?.updated_at && <Freshness updatedAt={status.updated_at} />}
     </span>
-    <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} disabled={!canManageSettings} title={!canManageSettings ? "Automatic checking is managed by the owner." : status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>
+    {SHOW_AUTO_CHECK_TOGGLE && <button className={`schedule-button ${status?.auto ? "is-on" : ""}`} type="button" aria-pressed={Boolean(status?.auto)} aria-label={status?.auto ? "Auto-check on" : "Auto-check off"} onClick={toggle} disabled={!canManageSettings} title={!canManageSettings ? "Automatic checking is managed by the owner." : status?.auto ? `Checking automatically every ${status.interval_minutes ?? "?"} min. Click to turn off.` : "Turn on automatic checks"}><span className="sched-long">{status?.auto ? "Auto-check on" : "Auto-check off"}</span><span className="sched-short">{status?.auto ? "Auto on" : "Auto off"}</span></button>}
     <Button onClick={runCheck} disabled={status?.running || !bootstrap.readiness.accounts || (!calendarOnly && !bootstrap.readiness.model)}>{status?.running ? <LoaderCircle className="spin" /> : <Plus />}<span>{status?.running ? "Checking" : "Check now"}</span></Button>
   </div>
 }
@@ -225,10 +228,10 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   useEffect(() => { document.title = bootstrap.counts.actionable > 0 ? `(${bootstrap.counts.actionable}) OfferPath` : "OfferPath" }, [bootstrap.counts.actionable])
   const toggleSidebar = () => { const next = !collapsed; setCollapsed(next); writeBrowserPreference("mailcheck.sidebar", next ? "collapsed" : "expanded") }
 
-  return <div className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
+  return <div data-offerpath-workspace className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     <header className="topbar app-header">
       <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
-      <div className="top-left"><Button variant="ghost" size="icon" className="collapse-toggle" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
+      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
       <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/system-monitoring" && <JobStatus bootstrap={bootstrap} />}</div>
     </header>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
@@ -242,6 +245,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
           setMobileNav(false)
         }
       }} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      <button type="button" className="sidebar-collapse" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>
     </aside>
 
     <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
@@ -290,7 +294,7 @@ function ReadyApp() {
   const settingsRecovery=path==="/settings"&&role==="admin"&&(!session?.workspace_id||!!session.is_owner)
   const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: ({ signal }) => api.bootstrap(signal), retry: false, refetchInterval: 60_000, enabled: !controlPage })
   if (controlPage || settingsRecovery) return <Workspace bootstrap={settingsRecovery && data ? data : {readiness:{model:false,accounts:false,privacy_ack:true,outlook:false},counts:{},taxonomy:[],presets:[],last_run:"",account_count:0}} />
-  if (isPending) return <Loading />
+  if (isPending) return <div role="status" className="loading-state" data-offerpath-bootstrap>Connecting to your workspace…</div>
   if (!data && error) return <Recovery message={error.message} retry={() => void refetch()} retrying={isFetching} />
   // Keep the workspace at a stable position so refresh failures cannot discard
   // page state or unsaved input. A failed background read still has usable data.

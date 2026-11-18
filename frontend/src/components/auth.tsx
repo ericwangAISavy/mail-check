@@ -1,5 +1,5 @@
 import { PageStateProvider } from "@/lib/page-state"
-import signInMark from "@/assets/offerpath.png"
+import signInMark from "@/assets/offerpath-small.png"
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"

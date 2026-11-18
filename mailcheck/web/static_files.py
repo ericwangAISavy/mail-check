@@ -55,3 +55,31 @@ class PortableStaticFiles(StaticFiles):
             if getattr(exc,'winerror',None) in (123,161,206):
                 raise HTTPException(status_code=404) from None
             raise
+
+
+#: Text assets worth compressing; images and fonts are already compressed.
+_COMPRESSIBLE = ('.js', '.mjs', '.css', '.svg', '.json', '.map', '.txt', '.html', '.webmanifest')
+
+
+class CompressedStaticFiles:
+    """Gzip text assets on their way out.
+
+    Through a Cloudflare tunnel the hop from this server to Cloudflare can be
+    slow, and every new build starts with a cold edge cache: an uncompressed
+    560 KB bundle could take over a minute and trip the startup timeout.
+    Compressing cuts that to about a third, and Cloudflare caches the result.
+    Range requests are passed through untouched, since a gzip body cannot
+    satisfy a byte range of the original file.
+    """
+
+    def __init__(self, static_app, *, minimum_size=1024, compresslevel=6):
+        from starlette.middleware.gzip import GZipMiddleware
+        self.static_app = static_app
+        self.gzip = GZipMiddleware(static_app, minimum_size=minimum_size, compresslevel=compresslevel)
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] == 'http' and scope.get('path', '').lower().endswith(_COMPRESSIBLE) \
+                and not any(name == b'range' for name, _ in scope.get('headers', [])):
+            await self.gzip(scope, receive, send)
+        else:
+            await self.static_app(scope, receive, send)

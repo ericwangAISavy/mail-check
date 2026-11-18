@@ -109,7 +109,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   }, [])
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === "visible")
   const normalized = useMemo(() => {const next=triageParams(params.toString());if(bidderInbox)next.set("live","1");return next}, [params,bidderInbox])
-  const query = useQuery({ queryKey: ["triage", normalized.toString(), bidderInbox ? "bidder" : "admin"], queryFn: ({ signal }) => api.triage(normalized, signal), placeholderData: (previous) => previous, enabled:!bidderInbox || pageVisible, refetchInterval:bidderInbox ? () => document.visibilityState === "visible" ? 3000 : false : false, refetchOnWindowFocus:!bidderInbox })
+  const query = useQuery({ queryKey: ["triage", normalized.toString(), bidderInbox ? "bidder" : "admin"], queryFn: ({ signal }) => api.triage(normalized, signal), placeholderData: (previous) => previous, enabled:!bidderInbox || pageVisible, refetchInterval:bidderInbox ? () => document.visibilityState === "visible" ? 12_000 : false : false, refetchOnWindowFocus:!bidderInbox })
   const recovery = useReadRecovery({scope:normalized.toString(),error:query.error,errorUpdatedAt:query.errorUpdatedAt,isFetching:query.isFetching,isSuccess:query.isSuccess,retry:query.refetch,enabled:!bidderInbox})
   useEffect(() => {
     if (!bidderInbox) return

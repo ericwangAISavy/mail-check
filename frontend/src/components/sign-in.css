@@ -11,7 +11,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: #03172c url("../assets/sign-in-background.png") center center / cover no-repeat;
+  background: #03172c url("../assets/sign-in-background.jpg") center center / cover no-repeat;
   color: #f5f8ff;
   color-scheme: dark;
   --font-sans: 'Manrope Variable', sans-serif;

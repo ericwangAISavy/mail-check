@@ -18,7 +18,7 @@ from uuid import UUID
 from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
-from .static_files import PortableStaticFiles
+from .static_files import CompressedStaticFiles, PortableStaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
@@ -493,9 +493,16 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False, scheduled: bo
         if include_calendar:
             try:
                 with db.session() as conn:
+                    # Only Microsoft accounts have calendars; IMAP accounts are a
+                    # mail-only choice, not a calendar failure in a mail check.
+                    calendar_ids = {a.id for a in db.list_accounts(conn, only_enabled=True)
+                                    if a.provider == "outlook" and (not body.account or a.label == body.account)}
+                    if account_ids is not None:
+                        calendar_ids &= account_ids
                     calendar = interviews.collect_calendar_events(conn, cfg,
-                        account_label=body.account, since_days=body.since_days,defer_analysis=True,
-                        account_ids=account_ids, status=lambda message: _job.update(message=message))
+                        since_days=body.since_days, defer_analysis=True,
+                        account_ids=calendar_ids, status=lambda message: _job.update(message=message)
+                    ) if calendar_ids else {"changes": [], "errors": []}
                 calendar_changes = calendar['changes']
                 calendar_errors = calendar['errors']
             except Exception as exc:
@@ -828,9 +835,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     install_pipeline(app)
     # Register after the local frontend helper is defined below.
     trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
-    app.mount("/static", PortableStaticFiles(directory=str(HERE / "static")), name="static")
+    app.mount("/static", CompressedStaticFiles(PortableStaticFiles(directory=str(HERE / "static"))), name="static")
     if (FRONTEND_DIST / "assets").is_dir():
-        app.mount("/assets", PortableStaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+        app.mount("/assets", CompressedStaticFiles(PortableStaticFiles(directory=str(FRONTEND_DIST / "assets"))), name="assets")
 
     def frontend_page():
         index = FRONTEND_DIST / "index.html"
@@ -947,6 +954,16 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "DENY"
         return response
+
+    @app.exception_handler(db.ReadDeadlineExpired)
+    async def database_read_timeout(request: Request, exc: db.ReadDeadlineExpired):
+        return JSONResponse({"error": "This page took too long to load. Try again shortly."},
+                            status_code=504, headers={"Retry-After": "1", "Cache-Control": "no-store"})
+
+    def page_read_deadline(request: Request) -> float | None:
+        # Only the authenticated gateway may supply an upstream deadline.
+        value = request.headers.get("x-offerpath-read-deadline") if worker_secret else None
+        return min(float(value), time.monotonic() + 20) if value else None
 
     @app.post("/_internal/settings-updated")
     def shared_settings_updated():
@@ -1326,7 +1343,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         except ValidationError as exc:
             return _err(exc.errors()[0]["msg"])
         cfg = cfgmod.load()
-        with db.session() as conn:
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
             if request.state.role=='bidder':
                 filters=filters.model_copy(update={'bidder':request.state.bidder_id,'q':'','focus_date':None,'focus_category':None,'status':'all','action':'all'})
             return dashboard_data(conn, filters, retention_days=cfg.check.retain_days,graphs_only=request.state.role=='bidder')
@@ -1345,7 +1362,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         """Small, non-sensitive shell data shared by every React page."""
         if request.state.role == "bidder":
             return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[{"name":c.name,"label":c.label,"tier":c.tier} for c in CATEGORIES],"presets":[],"last_run":"","account_count":0}
-        with db.session() as conn:
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
             accounts = db.list_accounts(conn)
             summary = db.queue_counts(conn, since_iso=_default_since())
             state = _state(conn, accounts, summary)
@@ -1396,7 +1413,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                  if days == 0 else now - timedelta(days=days)).isoformat()
         handled = {"queue": False, "completed": True, "all": None}[view]
         viewer=request.state.bidder_id if request.state.role=='bidder' else None
-        with db.session() as conn:
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
             if viewer:
                 conn.execute('PRAGMA query_only=ON')
                 conn.execute('BEGIN')
@@ -1853,7 +1870,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err("The model endpoint is not configured yet.")
         if not _job_lock.acquire(blocking=False):
             return _err("A check is already running.", 409)
-        _run_check(body)
+        # Check now syncs calendar events with mail, like scheduled checks.
+        _run_check(body, include_calendar=True)
         return {"ok": True}
 
     @app.post("/api/reclassify")

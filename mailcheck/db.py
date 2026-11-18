@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -335,11 +336,32 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+class ReadDeadlineExpired(TimeoutError):
+    """A time-bounded SQLite read exceeded its request budget."""
+
+
 @contextmanager
-def session(path: Path | None = None) -> Iterator[sqlite3.Connection]:
+def session(path: Path | None = None, *, read_deadline: float | None = None) -> Iterator[sqlite3.Connection]:
+    if read_deadline is not None and time.monotonic() >= read_deadline:
+        raise ReadDeadlineExpired("Database read deadline expired.")
     conn = connect(path)
     try:
-        yield conn
+        if read_deadline is not None:
+            remaining_ms = int((read_deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                raise ReadDeadlineExpired("Database read deadline expired.")
+            conn.execute(f"PRAGMA busy_timeout = {min(5000, remaining_ms)}")
+            conn.set_progress_handler(lambda: time.monotonic() >= read_deadline, 1000)
+            try:
+                yield conn
+            except sqlite3.OperationalError as exc:
+                if exc.sqlite_errorcode == sqlite3.SQLITE_INTERRUPT:
+                    raise ReadDeadlineExpired("Database read deadline expired.") from exc
+                raise
+            finally:
+                conn.set_progress_handler(None, 0)
+        else:
+            yield conn
         conn.commit()
     finally:
         conn.close()

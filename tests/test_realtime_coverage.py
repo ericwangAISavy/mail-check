@@ -69,6 +69,7 @@ def test_a_housekeeping_wait_shortens_when_coverage_lapses_but_never_lengthens()
 def test_scheduled_check_skips_covered_accounts_but_check_now_does_not(workspace, background_service, monkeypatch):
     conn, inbox = workspace
     other = db.add_account(conn, label="other", email="other@example.test")
+    conn.execute("UPDATE accounts SET provider='outlook'")  # calendars exist only for Microsoft accounts
     live(conn, inbox, 30)
     conn.commit()
     calls = []

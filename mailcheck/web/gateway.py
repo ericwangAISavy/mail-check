@@ -14,7 +14,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from .static_files import PortableStaticFiles
+from .static_files import CompressedStaticFiles, PortableStaticFiles
 from starlette.requests import ClientDisconnect
 from pydantic import BaseModel, Field
 
@@ -110,6 +110,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     leases={}
     worker_clients={}
     pending_workers={}
+    settings_notifications={}
 
     def new_worker_client():
         # Connects are local; preserve long dispatched writes without allowing
@@ -117,7 +118,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # sockets before the worker's five-second HTTP keep-alive timeout.
         return httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(660, connect=WORKER_CONNECT_TIMEOUT, pool=2),
             cookies=CookieJar(policy=_NoWorkerCookies()),
-            limits=httpx.Limits(max_connections=None, max_keepalive_connections=64, keepalive_expiry=4))
+            limits=httpx.Limits(max_connections=64, max_keepalive_connections=32, keepalive_expiry=4))
 
     @asynccontextmanager
     async def worker_http_client():
@@ -164,6 +165,43 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             try:await asyncio.to_thread(backup_manager.run_due)
             except Exception:pass  # The manager retains the error and retries; never stop other workspaces.
 
+    async def notify_settings():
+        async def notify(workspace):
+            wid=workspace['id']
+            if wid=='legacy':
+                return
+            try:
+                member=await ready_workspace(wid)
+                headers={'x-offerpath-worker':member.token,'x-offerpath-workspace':wid}
+                async with worker_http_client() as client:
+                    result=await client.post(
+                        f'http://127.0.0.1:{member.port}/_internal/settings-updated',
+                        headers=headers, timeout=5,
+                    )
+                    result.raise_for_status()
+            except (httpx.HTTPError, RuntimeError, OSError, ValueError, sqlite3.Error):
+                logging.getLogger(__name__).warning('Could not reload schedule for workspace %s',wid)
+
+        while True:
+            loop=asyncio.get_running_loop()
+            _, pending=settings_notifications[loop]
+            pending.clear()
+            try:
+                workspaces=await asyncio.to_thread(store.enabled_workspaces)
+                await asyncio.gather(*(notify(workspace) for workspace in workspaces))
+            except (sqlite3.Error, OSError):
+                logging.getLogger(__name__).exception('Could not list workspaces for schedule reload.')
+            if not pending.is_set():
+                settings_notifications.pop(loop)
+                return
+
+    def schedule_settings_notification():
+        loop=asyncio.get_running_loop()
+        if loop in settings_notifications:
+            settings_notifications[loop][1].set()
+        else:
+            settings_notifications[loop]=(asyncio.create_task(notify_settings()),asyncio.Event())
+
     @asynccontextmanager
     async def lifespan(app):
         loop=asyncio.get_running_loop()
@@ -179,7 +217,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             finally:
                 if subscriber is not None and start_workers:
                     await subscriber.stop()
-                for task in (backups,monitor,recovery):
+                notification=settings_notifications.pop(loop,(None,None))[0]
+                for task in (notification,backups,monitor,recovery):
                     if task is None:continue
                     task.cancel()
                     try:await task
@@ -204,8 +243,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     internal_host=urlparse(gateway_url).hostname
     if internal_host:hosts.add(internal_host.lower())
     assets=HERE/'frontend_dist'/'assets'
-    if assets.is_dir():app.mount('/assets',PortableStaticFiles(directory=assets),name='assets')
-    app.mount('/static',PortableStaticFiles(directory=HERE/'static'),name='static')
+    if assets.is_dir():app.mount('/assets',CompressedStaticFiles(PortableStaticFiles(directory=assets)),name='assets')
+    app.mount('/static',CompressedStaticFiles(PortableStaticFiles(directory=HERE/'static')),name='static')
 
     def page():
         return FileResponse(HERE/'frontend_dist'/'index.html',headers={'Cache-Control':'no-store'})
@@ -516,6 +555,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         for name in ('accept','content-type'):
             if name in request.headers:headers[name]=request.headers[name]
         safe_read=request.method in ('GET','HEAD')
+        if safe_read and path.rstrip('/') in {'api/bootstrap','api/triage','api/dashboard'}:
+            # Workers share the host monotonic clock with the gateway.
+            headers['x-offerpath-read-deadline']=str(request.state.read_deadline-0.5)
         async with worker_http_client() as client:
             for attempt in range(2 if safe_read else 1):
                 if attempt:
@@ -549,16 +591,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                     import json
                     await asyncio.to_thread(bidder_access.rename,identity['workspace_id'],who,json.loads(body)['name'].strip())
         if path.rstrip('/') in ('api/settings','api/autocheck') and request.method=='POST' and result.is_success:
-            # Reload schedules without restarting workers or interrupting jobs.
-            async def notify(workspace):
-                if workspace['id']=='legacy':return
-                try:
-                    member=await ready_workspace(workspace['id'])
-                    async with worker_http_client() as client:
-                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token,'x-offerpath-workspace':workspace['id']},timeout=5)
-                except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
-            workspaces=await asyncio.to_thread(store.enabled_workspaces)
-            await asyncio.gather(*(notify(workspace) for workspace in workspaces))
+            schedule_settings_notification()
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
         return Response(result.content,status_code=result.status_code,headers=response_headers)

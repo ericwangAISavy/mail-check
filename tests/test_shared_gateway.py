@@ -48,3 +48,38 @@ def test_interview_sync_alias_enqueues_calendar_work_without_body(system):
             assert submit.call_args.args[4]=='manual-check'
             assert json.loads(submit.call_args.args[5])['mode']=='calendar'
     asyncio.run(scenario())
+
+def test_settings_save_returns_before_workspace_schedule_reload(system):
+    app, store, _ = system
+    wid = store.create_admin(store.owner_token, 'alice', 'Alice', 'temporary-pass-123')
+    original = httpx.AsyncClient
+
+    async def scenario():
+        reload_started = asyncio.Event()
+        allow_reload = asyncio.Event()
+        reload_completed = asyncio.Event()
+
+        async def worker(request):
+            if request.url.path == '/_internal/settings-updated':
+                assert request.headers['x-offerpath-workspace'] == wid
+                reload_started.set()
+                await allow_reload.wait()
+                reload_completed.set()
+            return httpx.Response(200, json={'ok': True})
+
+        async with original(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as browser:
+            with patch('mailcheck.web.gateway.httpx.AsyncClient',
+                       side_effect=lambda **kwargs: original(transport=httpx.MockTransport(worker), **kwargs)):
+                headers = {'cookie': f'offerpath_session={store.owner_token}', 'x-offerpath-workspace': 'legacy'}
+                save = asyncio.create_task(browser.post('/api/autocheck', json={}, headers=headers))
+                try:
+                    await asyncio.wait_for(reload_started.wait(), 2)
+                    response = await asyncio.wait_for(asyncio.shield(save), 1)
+                    assert response.status_code == 200
+                    assert not reload_completed.is_set()
+                finally:
+                    allow_reload.set()
+                    await save
+                await asyncio.wait_for(reload_completed.wait(), 2)
+
+    asyncio.run(scenario())
