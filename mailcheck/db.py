@@ -13,8 +13,6 @@ from typing import Iterator
 from . import config
 from .models import Classification, NormalizedMessage
 
-BIDDER_INBOX_CATEGORIES = ("info_request", "application_ack")
-
 # Version 39 was used by a later-reverted release; do not reuse it.
 SCHEMA_VERSION = 51
 
@@ -814,10 +812,10 @@ def _text_search(search: str | None) -> tuple[str, list[str]]:
 
 
 def bidder_info_scope(bidder_id):
-    """Bidder inbox access follows current account assignments and allowed categories."""
+    """Bidder inbox access follows current account assignments, never client filters."""
     from .payments import today
     day=today().isoformat()
-    return (""" AND c.category IN ('info_request','application_ack') AND a.enabled=1 AND EXISTS (
+    return (""" AND a.enabled=1 AND EXISTS (
         SELECT 1 FROM bidder_assignments ba JOIN bidders b ON b.id=ba.bidder_id
         WHERE ba.bidder_id=? AND b.removed_at IS NULL AND ba.account_id=m.account_id
         AND ba.start_date<=? AND (ba.end_date IS NULL OR ba.end_date>=?))""",[bidder_id,day,day])

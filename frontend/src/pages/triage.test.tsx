@@ -30,9 +30,9 @@ function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }))
 }
 
-function renderPage(bidderInbox=false) {
+function renderPage(bidderInbox=false, taxonomy=bootstrap.taxonomy) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bidderInbox ? {...bootstrap,readiness:{...bootstrap.readiness,model:false,accounts:false}} : bootstrap} bidderInbox={bidderInbox} /></ToastProvider></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bidderInbox ? {...bootstrap,taxonomy,readiness:{...bootstrap.readiness,model:false,accounts:false}} : bootstrap} bidderInbox={bidderInbox} /></ToastProvider></QueryClientProvider>)
 }
 
 function renderWithReader(message: Message, readOnly = false) {
@@ -339,7 +339,7 @@ it("submits text search with existing filters and clears it", async () => {
   expect(new URLSearchParams(window.location.search).has("q")).toBe(false)
 })
 
-it('reuses triage for bidder Info requests with reading and scoped Done only',async()=>{
+it('reuses triage for the bidder Inbox with all categories, reading and scoped Done only',async()=>{
  const base=vi.mocked(fetch).getMockImplementation()!
  window.history.replaceState({},'', '/inbox?category=offer')
  vi.mocked(fetch).mockImplementation(async(input,init)=>{
@@ -357,12 +357,12 @@ it('reuses triage for bidder Info requests with reading and scoped Done only',as
   }
   return response(data,res.status)
  })
- renderPage(true)
+ renderPage(true,[{name:'interview_invite',label:'Interview invite',tier:'act'},{name:'info_request',label:'Info request',tier:'reply'},{name:'application_ack',label:'Application received',tier:'info'}])
  expect(await screen.findByText('Your verification code is 123456')).toBeTruthy()
  expect(screen.getByText(/Next mail check:.*your local time/)).toBeTruthy()
  const triageRequests=requests.filter(url=>url.startsWith('GET /api/triage?'))
  expect(triageRequests.length).toBeGreaterThan(0)
- expect(triageRequests.some(url=>url.includes('category='))).toBe(false)
+ expect(triageRequests.every(url=>url.includes('category=offer')&&url.includes('live=1'))).toBe(true)
  expect(screen.queryByRole('button',{name:'Reply'})).toBeNull()
  expect(screen.queryByRole('link',{name:/Open in Outlook/})).toBeNull()
  expect(screen.queryByRole('button',{name:/Try classification again/})).toBeNull()
@@ -371,8 +371,7 @@ it('reuses triage for bidder Info requests with reading and scoped Done only',as
  fireEvent.click(screen.getByRole('button',{name:/Filters/}))
  const category=screen.getByLabelText('Category') as HTMLSelectElement
  expect(category.disabled).toBe(false)
- expect(category.value).toBe('')
- expect([...category.options].map(option=>option.value)).toEqual(['','info_request','application_ack'])
+ expect([...category.options].map(option=>option.value)).toEqual(['','info_request'])
  fireEvent.click(screen.getByRole('button',{name:'Done'}))
  await screen.findByText('Moved to Completed.')
  fireEvent.click(screen.getByRole('button',{name:'Undo'}))

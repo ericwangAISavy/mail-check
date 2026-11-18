@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.5.0 — 2026-11-18
+
+Show all mail in the bidder Inbox
+
+- Bidders now see classified mail in every category for their assigned accounts, not only info requests and application confirmations.
+- Filter the bidder Inbox by any category that has messages.
+
 ## 3.4.0 — 2026-11-18
 
 Application confirmations in bidder Inbox

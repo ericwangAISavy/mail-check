@@ -62,7 +62,7 @@ def test_live_api_heartbeat_is_explicit_and_preserves_inbox_visibility(workspace
         assert tracker.active()==set()
         response=client.get('/api/triage?live=1&category=interview_invite')
         assert response.status_code==200,response.text
-        assert response.json()['selected_category'] is None
+        assert response.json()['selected_category']=='interview_invite'
         assert response.json()['check_schedule']['live']['enabled'] is True
         assert tracker.active()=={1}
         assert web._live_assigned_accounts(conn)=={account}

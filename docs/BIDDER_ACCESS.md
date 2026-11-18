@@ -6,11 +6,12 @@ On the sign-in screen, choose **Bidder**, type **bidder username** in **Username
 
 Bidders can open **Dashboard** to see graphs for accounts assigned to them on the message’s Chicago receipt date. The dashboard has no message list, message reader, or account-status panel for bidders. Account filters list only their assigned accounts; changing URL parameters cannot select another bidder’s data.
 
-Bidders also have **Inbox**, which reuses the Triage list and reader but is fixed
-to the existing **Info request** category. Lists, search, counts, message bodies
+Bidders also have **Inbox**, which reuses the Triage list and reader and shows
+classified mail in every category, filterable by category. Lists, search, counts, message bodies
 and Done requests are restricted to currently active account assignments (Chicago
 calendar dates); future/ended assignments and disabled accounts do not grant access.
 This restriction is enforced at the gateway and worker, not just in the page filters.
+Reclassifying a message never removes it from the Inbox.
 Inbox refreshes every ten seconds. It adds no category and changes no classifier.
 
 Bidders may read messages and use the existing **Done / Restore** action. The
@@ -62,6 +63,6 @@ retain the shared job lock; a busy provider/model or running job can delay deliv
 
 Live scans use a recent 10-minute overlap and preserve normal collection
 checkpoints and retention windows. They do not alter classification or email
-visibility. The existing Info request-only Inbox and account permissions remain.
+visibility. The existing Inbox and account permissions remain.
 Automatic-check off remains off. **Refresh Inbox** reloads the view; it cannot
 bypass that setting or grant mailbox-management access.

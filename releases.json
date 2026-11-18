@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.5.0",
+    "date": "2026-11-18",
+    "title": "Show all mail in the bidder Inbox",
+    "changes": [
+      "Bidders now see classified mail in every category for their assigned accounts, not only info requests and application confirmations.",
+      "Filter the bidder Inbox by any category that has messages."
+    ]
+  },
+  {
     "version": "3.4.0",
     "date": "2026-11-18",
     "title": "Application confirmations in bidder Inbox",

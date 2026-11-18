@@ -1252,7 +1252,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def api_bootstrap(request: Request):
         """Small, non-sensitive shell data shared by every React page."""
         if request.state.role == "bidder":
-            return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[],"presets":[],"last_run":"","account_count":0}
+            return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[{"name":c.name,"label":c.label,"tier":c.tier} for c in CATEGORIES],"presets":[],"last_run":"","account_count":0}
         with db.session() as conn:
             accounts = db.list_accounts(conn)
             summary = db.queue_counts(conn, since_iso=_default_since())
@@ -1304,8 +1304,6 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                  if days == 0 else now - timedelta(days=days)).isoformat()
         handled = {"queue": False, "completed": True, "all": None}[view]
         viewer=request.state.bidder_id if request.state.role=='bidder' else None
-        if viewer and category not in db.BIDDER_INBOX_CATEGORIES:
-            category=None
         with db.session() as conn:
             if viewer:
                 conn.execute('PRAGMA query_only=ON')
@@ -1313,7 +1311,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             rows = db.query_triaged(
                 conn,
                 categories=([category] if category else
-                            db.BIDDER_INBOX_CATEGORIES if viewer else
+                            None if viewer else
                             ACTIONABLE_CATEGORIES if view == "queue" else None),
                 account_label=account,
                 since_iso=since,
