@@ -224,8 +224,15 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const location = useLocation()
   const navigate = useNavigate()
   useEffect(() => { setMobileNav(false) }, [location.pathname])
+  const queue = useQuery({
+    queryKey: ["bootstrap", "queue-counts"],
+    queryFn: ({signal}) => request<{actionable: number}>("/api/queue-counts", {signal}),
+    enabled: admin && bootstrap.counts.actionable === undefined && !["/settings", "/admin-management", "/system-monitoring"].includes(location.pathname),
+    refetchInterval: 60_000,
+  })
+  const actionable = bootstrap.counts.actionable ?? queue.data?.actionable ?? 0
   // The queue size in the tab title is visible from other tabs and the taskbar.
-  useEffect(() => { document.title = bootstrap.counts.actionable > 0 ? `(${bootstrap.counts.actionable}) OfferPath` : "OfferPath" }, [bootstrap.counts.actionable])
+  useEffect(() => { document.title = actionable > 0 ? `(${actionable}) OfferPath` : "OfferPath" }, [actionable])
   const toggleSidebar = () => { const next = !collapsed; setCollapsed(next); writeBrowserPreference("mailcheck.sidebar", next ? "collapsed" : "expanded") }
 
   return <div data-offerpath-workspace className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
@@ -244,7 +251,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
           event.preventDefault()
           setMobileNav(false)
         }
-      }} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && bootstrap.counts.actionable > 0 && <span className="nav-count">{bootstrap.counts.actionable}</span>}</NavLink>)}</nav>
+      }} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && actionable > 0 && <span className="nav-count">{actionable}</span>}</NavLink>)}</nav>
       <button type="button" className="sidebar-collapse" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>
     </aside>
 

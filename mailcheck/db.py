@@ -988,13 +988,15 @@ def get_triaged(conn: sqlite3.Connection, pk: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def queue_counts(
+def triage_counts(
     conn: sqlite3.Connection,
     *,
     since_iso: str | None = None,
     account_label: str | None = None,
     search: str | None = None,
-) -> dict[str, int]:
+    bidder_id: int | None = None,
+    handled: bool | None = None,
+) -> tuple[dict[str, int], dict[str, int]]:
     """Headline numbers for the action queue: actionable, informational, done.
 
     "Actionable" matches exactly what the queue view itself shows — including
@@ -1017,6 +1019,10 @@ def queue_counts(
         + " WHERE 1 = 1"
     )
     params: list = []
+    if bidder_id is not None:
+        scope, values = bidder_info_scope(bidder_id)
+        sql += scope
+        params.extend(values)
     search_sql, search_params = _text_search(search)
     sql += search_sql
     params.extend(search_params)
@@ -1028,15 +1034,30 @@ def queue_counts(
         params.append(account_label)
     sql += " GROUP BY c.category, done"
 
+    categories: dict[str, int] = {}
     actionable = informational = done = 0
     for row in conn.execute(sql, params):
+        category = row["category"]
+        if handled is None or bool(row["done"]) == handled:
+            categories[category] = categories.get(category, 0) + row["n"]
         if row["done"]:
             done += row["n"]
-        elif is_queue_category(row["category"]):
+        elif bidder_id is not None or is_queue_category(category):
             actionable += row["n"]
         else:
             informational += row["n"]
-    return {"actionable": actionable, "informational": informational, "done": done}
+    return categories, {"actionable": actionable, "informational": informational, "done": done}
+
+
+def queue_counts(
+    conn: sqlite3.Connection,
+    *,
+    since_iso: str | None = None,
+    account_label: str | None = None,
+    search: str | None = None,
+) -> dict[str, int]:
+    _, summary = triage_counts(conn, since_iso=since_iso, account_label=account_label, search=search)
+    return summary
 
 
 def messages_in_categories(

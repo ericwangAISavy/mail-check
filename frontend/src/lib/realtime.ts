@@ -4,16 +4,31 @@ import { useAuth } from '@/components/auth'
 import { getWorkspaceIdentity, getWorkspaceIdentityRevision, request, subscribeWorkspaceIdentity } from './api'
 
 /** SSE is only an invalidation hint; normal authenticated reads remain authoritative. */
-export function connectRealtime(workspace: string, changed: ()=>void, sessionEnded: ()=>void) {
+export function connectRealtime(workspace: string, changed: ()=>void | Promise<void>, sessionEnded: ()=>void) {
   if (typeof EventSource === 'undefined') return ()=>{}
   const revision = getWorkspaceIdentityRevision()
   const controller = new AbortController()
   let stream: EventSource | undefined
   let stopped = false, retry = 0, refresh = 0, attempts = 0, cursor = ''
   const current = () => !stopped && getWorkspaceIdentity() === workspace && getWorkspaceIdentityRevision() === revision
+  let refreshing = false
+  let pending = false
   const scheduleRefresh = () => {
-    if (!current() || refresh) return
-    refresh = window.setTimeout(()=>{refresh=0;if(current())changed()},200)
+    if (!current()) return
+    pending = true
+    if (refresh || refreshing) return
+    refresh = window.setTimeout(async () => {
+      refresh = 0
+      if (!current()) return
+      refreshing = true
+      pending = false
+      try {
+        await changed()
+      } finally {
+        refreshing = false
+        if (pending && current()) scheduleRefresh()
+      }
+    }, 200)
   }
   const stop = () => {
     stopped=true;controller.abort();stream?.close()
@@ -61,7 +76,7 @@ export function useRealtimeUpdates() {
       'sourcing-filters','sourcing-role-filters','sourcing-delete-preview','bidder-management','bidder-access','bidder-visibility','followups','reply-context',
       'interview-job','status','applications-today','realtime-accounts'])
     return connectRealtime(session.workspace_id,
-      ()=>{void client.invalidateQueries({predicate:query=>keys.has(String(query.queryKey[0]))})},
+      ()=>client.invalidateQueries({predicate:query=>keys.has(String(query.queryKey[0]))}),
       ()=>{void client.invalidateQueries({queryKey:['auth']})})
   },[client,session?.workspace_id,session?.user_id,session?.bidder_id,session?.role,session?.must_change_password])
 }

@@ -283,3 +283,20 @@ def test_expensive_sqlite_read_releases_session_at_deadline(tmp_path, monkeypatc
 
     with db.session(path) as conn:
         assert conn.execute('SELECT 1').fetchone()[0] == 1
+
+
+def test_monitor_probes_each_shared_process_once_per_sweep(tmp_path, monkeypatch):
+    from mailcheck.workspace_workers import WorkerPool
+
+    pool = SharedPool(SimpleNamespace(root=tmp_path), '', (), size=2)
+    records = [{'id': f'{n:032x}'} for n in range(100)]
+    backup, probe, ensure = Mock(), Mock(), Mock()
+    monkeypatch.setattr(pool, '_backup', backup)
+    monkeypatch.setattr(WorkerPool, 'check_health', probe)
+    monkeypatch.setattr(WorkerPool, 'ensure', ensure)
+    asyncio.run(pool._monitor_workspaces(records))
+    backup.assert_called_once()
+    assert len(pool.assignments) == 100
+    slots = sorted(set(pool.assignments.values()))
+    assert sorted(call.args[0] for call in probe.call_args_list) == slots
+    assert sorted(call.args[0]['id'] for call in ensure.call_args_list) == slots

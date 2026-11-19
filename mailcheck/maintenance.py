@@ -1,7 +1,7 @@
 """Installation-wide shared writer locks and exclusive offline maintenance."""
 from __future__ import annotations
 
-from functools import wraps
+from functools import lru_cache, wraps
 import hashlib
 import os
 from pathlib import Path
@@ -41,6 +41,24 @@ def journal_path(path: Path) -> Path:
     return Path(str(path) + '.restore-journal.json')
 
 
+@lru_cache(maxsize=1)
+def _windows_lock_api():
+    import ctypes
+    from ctypes import wintypes
+    class OVERLAPPED(ctypes.Structure):
+        _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
+                    ('Offset', wintypes.DWORD), ('OffsetHigh', wintypes.DWORD),
+                    ('hEvent', wintypes.HANDLE)]
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    unlock = kernel.UnlockFileEx
+    unlock.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                             wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
+    acquire = kernel.LockFileEx
+    acquire.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                        wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
+    return OVERLAPPED, acquire, unlock
+
+
 class MaintenanceLock:
     def __init__(self, path: Path, exclusive=False, allow_journal=False):
         self.path = Path(path)
@@ -54,20 +72,9 @@ class MaintenanceLock:
         try:
             if os.name == 'nt':
                 import ctypes
-                from ctypes import wintypes
                 import msvcrt
-                class OVERLAPPED(ctypes.Structure):
-                    _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
-                                ('Offset', wintypes.DWORD), ('OffsetHigh', wintypes.DWORD),
-                                ('hEvent', wintypes.HANDLE)]
-                self._overlapped = OVERLAPPED()
-                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
-                self._unlock = kernel.UnlockFileEx
-                self._unlock.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                                         wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
-                acquire = kernel.LockFileEx
-                acquire.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                                    wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
+                overlapped, acquire, self._unlock = _windows_lock_api()
+                self._overlapped = overlapped()
                 self._handle = msvcrt.get_osfhandle(self.file.fileno())
                 if not acquire(self._handle, 1 | (2 if self.exclusive else 0), 0, 1, 0,
                                ctypes.byref(self._overlapped)):

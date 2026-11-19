@@ -381,7 +381,7 @@ def _state(conn=None, accounts=None, summary=None) -> dict:
         "llm_ready": cfg.is_llm_ready(),
         "has_accounts": any(a.enabled for a in accounts),
         "account_count": len(accounts),
-        "urgent_count": summary["actionable"],
+        "urgent_count": summary.get("actionable", 0),
         "auto_check": cfg.watch.auto_check,
         # Seeds the countdown so it reads correctly before the first status poll.
         "next_in": max(0, int(due - time.time())) if due else None,
@@ -1348,26 +1348,34 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 filters=filters.model_copy(update={'bidder':request.state.bidder_id,'q':'','focus_date':None,'focus_category':None,'status':'all','action':'all'})
             return dashboard_data(conn, filters, retention_days=cfg.check.retain_days,graphs_only=request.state.role=='bidder')
 
+    @app.get("/api/queue-counts")
+    def api_queue_counts(request: Request):
+        if request.state.role != "admin":
+            return _err("Admin access required.", 403)
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            return db.queue_counts(conn, since_iso=_default_since())
+
     @app.get("/api/applications/today")
     def api_applications_today(request: Request):
         # Header count must work even when Settings or Admin management is used
         # to recover invalid configuration. This path never loads model settings.
-        with db.session() as conn:
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
             if request.state.role=='bidder':
                 return {'applications_today':payments.checked_today(conn,bidder_id=request.state.bidder_id)}
             return {"applications_today": payments.checked_today(conn)}
 
     @app.get("/api/bootstrap", response_model=BootstrapResponse)
-    def api_bootstrap(request: Request):
+    def api_bootstrap(request: Request, include_counts: bool = True):
         """Small, non-sensitive shell data shared by every React page."""
         if request.state.role == "bidder":
             return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[{"name":c.name,"label":c.label,"tier":c.tier} for c in CATEGORIES],"presets":[],"last_run":"","account_count":0}
         with db.session(read_deadline=page_read_deadline(request)) as conn:
             accounts = db.list_accounts(conn)
-            summary = db.queue_counts(conn, since_iso=_default_since())
+            summary = db.queue_counts(conn, since_iso=_default_since()) if include_counts else {}
             state = _state(conn, accounts, summary)
             run = db.last_run(conn)
-            summary["applications_today"] = payments.checked_today(conn)
+            if include_counts:
+                summary["applications_today"] = payments.checked_today(conn)
         return {
             "readiness": {
                 "model": state["llm_ready"],
@@ -1391,9 +1399,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             +db.LATEST_CLASSIFICATION+" WHERE m.id=?"+scope,[pk,*values]).fetchone() is not None
 
     def bidder_inbox_summary(conn,viewer,*,since=None,account=None,search=None):
-        pending=sum(db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=False,search=search).values())
-        completed=sum(db.category_counts(conn,bidder_id=viewer,since_iso=since,account_label=account,handled=True,search=search).values())
-        return {'actionable':pending,'informational':0,'done':completed}
+        _, summary = db.triage_counts(conn, bidder_id=viewer, since_iso=since, account_label=account, search=search)
+        return summary
 
     @app.get('/inbox')
     def bidder_inbox_page():
@@ -1429,11 +1436,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 search=q,
                 bidder_id=viewer,
             ) if viewer or view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
-            counts = db.category_counts(conn, since_iso=since, account_label=account,
+            counts, summary = db.triage_counts(conn, since_iso=since, account_label=account,
                                         handled=handled, search=q,bidder_id=viewer)
             if view == "queue" and not viewer:
                 counts = {name: count for name, count in counts.items() if is_queue_category(name)}
-            summary = bidder_inbox_summary(conn,viewer,since=since,account=account,search=q) if viewer else db.queue_counts(conn, since_iso=since, account_label=account, search=q)
             if viewer:
                 day=payments.today().isoformat()
                 ids={r[0] for r in conn.execute("SELECT account_id FROM bidder_assignments WHERE bidder_id=? AND start_date<=? AND (end_date IS NULL OR end_date>=?)",(viewer,day,day))}

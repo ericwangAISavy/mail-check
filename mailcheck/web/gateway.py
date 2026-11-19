@@ -39,6 +39,14 @@ RETRYABLE_READ_TRANSPORT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, htt
 _worker_control_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='offerpath-control')
 
 
+class CompressedPageResponse(Response):
+    """Negotiate compression for large, buffered page data at the public gateway."""
+
+    async def __call__(self, scope, receive, send):
+        from starlette.middleware.gzip import GZipMiddleware
+        await GZipMiddleware(super().__call__, minimum_size=2048, compresslevel=1)(scope, receive, send)
+
+
 class _NoWorkerCookies(DefaultCookiePolicy):
     """Connections are shared across ports/workspaces; credentials never are."""
     def set_ok(self, cookie, request):
@@ -555,7 +563,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         for name in ('accept','content-type'):
             if name in request.headers:headers[name]=request.headers[name]
         safe_read=request.method in ('GET','HEAD')
-        if safe_read and path.rstrip('/') in {'api/bootstrap','api/triage','api/dashboard'}:
+        if safe_read and path.rstrip('/') in {'api/bootstrap','api/triage','api/dashboard','api/queue-counts','api/applications/today'}:
             # Workers share the host monotonic clock with the gateway.
             headers['x-offerpath-read-deadline']=str(request.state.read_deadline-0.5)
         async with worker_http_client() as client:
@@ -594,7 +602,10 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             schedule_settings_notification()
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
-        return Response(result.content,status_code=result.status_code,headers=response_headers)
+        response_type = Response
+        if safe_read and result.is_success and result.headers.get('content-type','').startswith('application/json'):
+            response_type = CompressedPageResponse
+        return response_type(result.content,status_code=result.status_code,headers=response_headers)
 
     async def proxy_impl(path:str,request:Request):
         if request.method not in ('GET','HEAD'):

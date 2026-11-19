@@ -13,7 +13,7 @@ def test_shared_gateway_forwards_server_selected_workspace(system,monkeypatch):
     original=httpx.AsyncClient
     async def worker(request):
         seen.append(request.headers['x-offerpath-workspace'])
-        return httpx.Response(200,json={'ok':True})
+        return httpx.Response(200,json={'items':['example']*1000})
     def client(**kwargs):
         return original(transport=httpx.MockTransport(worker),**kwargs)
     async def scenario():
@@ -21,6 +21,8 @@ def test_shared_gateway_forwards_server_selected_workspace(system,monkeypatch):
             with patch('mailcheck.web.gateway.httpx.AsyncClient',side_effect=client):
                 result=await browser.get('/api/bootstrap',headers={'cookie':f'offerpath_session={store.owner_token}','x-offerpath-workspace':'legacy'})
             assert result.status_code==200
+            assert result.headers['content-encoding']=='gzip'
+            assert result.json()['items']==['example']*1000
     asyncio.run(scenario())
     assert seen==['legacy']
 

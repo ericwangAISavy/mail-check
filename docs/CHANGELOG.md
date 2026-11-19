@@ -2,6 +2,25 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.8.5 — 2026-11-18
+
+Reduce repeated inbox and realtime reads
+
+- Compute Inbox totals and category counts together, and coalesce realtime updates while a refresh is running.
+
+## 3.8.4 — 2026-11-18
+
+Scale worker health checks by process
+
+- Check each shared API worker once per sweep so a temporary slowdown cannot trigger repeated health failures from different workspaces in that sweep.
+- Reduce repeated Windows lock setup during database access.
+
+## 3.8.3 — 2026-11-18
+
+Load workspace pages before header totals
+
+- Open pages without waiting for Inbox and application totals, and compress large page responses over the gateway.
+
 ## 3.8.2 — 2026-11-18
 
 Faster workspace loading and steadier traffic

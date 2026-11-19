@@ -147,6 +147,44 @@ class SharedPool(WorkerPool):
             return {wid: self.workers[slot].started_at for wid, slot in self.assignments.items() if slot in self.workers}
 
 
+    async def _monitor_workspaces(self, workspaces):
+        # Health failures belong to a process. Probing once per tenant could
+        # exhaust the three-strike restart threshold within a single sweep.
+        groups = {}
+        with self._lock:
+            for workspace in workspaces:
+                wid = workspace['id']
+                if self.closing or wid in self.stopped:
+                    continue
+                slot = self.slot(wid)
+                self.assignments[wid] = slot
+                groups.setdefault(slot, []).append(wid)
+
+        if not groups:
+            return
+        try:
+            await asyncio.to_thread(self._backup)
+        except (RuntimeError, OSError, ValueError) as exc:
+            for members in groups.values():
+                for wid in members:
+                    self.errors[wid] = str(exc)
+            return
+
+        limit = asyncio.Semaphore(4)
+        async def inspect_slot(slot, members):
+            async with limit:
+                try:
+                    await asyncio.to_thread(super(SharedPool, self).check_health, slot)
+                    await asyncio.to_thread(super(SharedPool, self).ensure, {'id': slot})
+                except (RuntimeError, OSError, ValueError) as exc:
+                    for wid in members:
+                        self.errors[wid] = str(exc)
+                else:
+                    for wid in members:
+                        self.errors.pop(wid, None)
+
+        await asyncio.gather(*(inspect_slot(slot, members) for slot, members in groups.items()))
+
     async def _monitor_jobs(self):
         while True:
             try:

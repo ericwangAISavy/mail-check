@@ -123,7 +123,7 @@ export const api = {
   session: (signal?: AbortSignal) => request<Session>("/api/auth/session", { signal }),
   login: (role: "admin" | "bidder", password: string, bidder_id?: number, username="owner") => request<Session>("/api/auth/login", { method: "POST", body: JSON.stringify({ role, password, username, ...(role==="bidder"?{bidder_id}: {}) }) }),
   dashboardAccounts: (signal?: AbortSignal) => request<{ accounts: { label: string }[]; bidders?: { id: number; name: string }[] }>("/api/dashboard/accounts", { signal }),
-  bootstrap: (signal?: AbortSignal) => request<Bootstrap>("/api/bootstrap", { signal }),
+  bootstrap: (signal?: AbortSignal) => request<Bootstrap>("/api/bootstrap?include_counts=false", { signal }),
   applicationsToday: (signal?: AbortSignal) => request<{applications_today:number}>("/api/applications/today", { signal }),
   triage: (params: URLSearchParams, signal?: AbortSignal) => request<TriageData>(`/api/triage?${params}`, { signal }),
   reader: (pk: number, signal?: AbortSignal) => request<{ message: import("./types").Message; body_html: string; original_html?: string | null; replies?: import("./types").SentReply[] }>(`/api/messages/${pk}`, { signal }),

@@ -1,5 +1,30 @@
 [
   {
+    "version": "3.8.5",
+    "date": "2026-11-18",
+    "title": "Reduce repeated inbox and realtime reads",
+    "changes": [
+      "Compute Inbox totals and category counts together, and coalesce realtime updates while a refresh is running."
+    ]
+  },
+  {
+    "version": "3.8.4",
+    "date": "2026-11-18",
+    "title": "Scale worker health checks by process",
+    "changes": [
+      "Check each shared API worker once per sweep so a temporary slowdown cannot trigger repeated health failures from different workspaces in that sweep.",
+      "Reduce repeated Windows lock setup during database access."
+    ]
+  },
+  {
+    "version": "3.8.3",
+    "date": "2026-11-18",
+    "title": "Load workspace pages before header totals",
+    "changes": [
+      "Open pages without waiting for Inbox and application totals, and compress large page responses over the gateway."
+    ]
+  },
+  {
     "version": "3.8.2",
     "date": "2026-11-18",
     "title": "Faster workspace loading and steadier traffic",

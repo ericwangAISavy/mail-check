@@ -283,11 +283,14 @@ class WorkerPool:
                 logging.getLogger(__name__).exception('Workspace discovery failed; monitor will retry.')
                 continue
             self.errors.pop('_monitor', None)
-            for workspace in workspaces:
-                try:
-                    await asyncio.to_thread(self.check_health,workspace['id'])
-                    await asyncio.to_thread(self.ensure,workspace)
-                except (RuntimeError,OSError,ValueError) as exc:self.errors[workspace["id"]]=str(exc) if isinstance(exc,RuntimeError) else "Workspace startup failed."
+            await self._monitor_workspaces(workspaces)
+
+    async def _monitor_workspaces(self, workspaces):
+        for workspace in workspaces:
+            try:
+                await asyncio.to_thread(self.check_health,workspace['id'])
+                await asyncio.to_thread(self.ensure,workspace)
+            except (RuntimeError,OSError,ValueError) as exc:self.errors[workspace["id"]]=str(exc) if isinstance(exc,RuntimeError) else "Workspace startup failed."
 
 
 def main():

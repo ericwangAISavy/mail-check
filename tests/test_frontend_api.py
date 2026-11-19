@@ -38,6 +38,14 @@ class FrontendApiTests(unittest.TestCase):
         self.client = TestClient(create_app())
         self.addCleanup(self.client.close)
 
+    def test_lightweight_bootstrap_skips_both_header_aggregations(self):
+        with patch.object(db, "queue_counts", side_effect=AssertionError("mail aggregate")), \
+             patch.object(web_app.payments, "checked_today", side_effect=AssertionError("payment aggregate")):
+            response = self.client.get("/api/bootstrap?include_counts=false")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"], {})
+        self.assertIn("actionable", self.client.get("/api/queue-counts").json())
+
     def test_concurrent_settings_updates_preserve_unrelated_fields(self):
         import threading
         from concurrent.futures import ThreadPoolExecutor

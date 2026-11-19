@@ -102,3 +102,28 @@ it('refreshes active business views and filters after committed changes',async()
     keys.forEach(key=>expect(client.getQueryData([key])).toBe('updated'))
   } finally {view.unmount();stops.forEach(stop=>stop());client.clear()}
 })
+
+
+it('finishes a slow refresh and replays one update for hints received during it', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('EventSource', Stream)
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"configured":true}', {headers:{'Content-Type':'application/json'}})))
+  setWorkspaceIdentity('legacy','owner')
+  let finish!: () => void
+  const changed = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+  const stop = connectRealtime('legacy', changed, vi.fn())
+  try {
+    await vi.waitFor(() => expect(Stream.all).toHaveLength(1))
+    Stream.all[0].emit('changed')
+    await vi.advanceTimersByTimeAsync(200)
+    for (let i = 0; i < 5; i++) {
+      Stream.all[0].emit('changed')
+      await vi.advanceTimersByTimeAsync(250)
+    }
+    expect(changed).toHaveBeenCalledTimes(1)
+    finish()
+    await vi.advanceTimersByTimeAsync(201)
+    expect(changed).toHaveBeenCalledTimes(2)
+    finish()
+  } finally { stop() }
+})
