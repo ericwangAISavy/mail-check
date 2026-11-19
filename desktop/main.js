@@ -3,6 +3,7 @@
 const { app, BrowserWindow, Menu, shell, screen } = require("electron")
 const fs = require("node:fs")
 const path = require("node:path")
+const { countFromTitle, updateBadge } = require("./badge")
 
 const APP_URL = process.env.OFFERPATH_URL || "https://app.offerpath.bid"
 const APP_ORIGIN = new URL(APP_URL).origin
@@ -73,6 +74,9 @@ function createWindow() {
       <a href="${url.replace(/"/g, "")}" style="color:#67d6f3">Try again</a></div></body>`
     void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(page))
   })
+
+  // The web app titles itself "(5) OfferPath" when items need attention.
+  win.on("page-title-updated", (_event, title) => updateBadge(app, win, countFromTitle(title)))
 
   win.on("close", () => saveBounds(win))
   void win.loadURL(APP_URL)
