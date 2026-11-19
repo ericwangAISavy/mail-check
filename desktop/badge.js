@@ -17,42 +17,64 @@ const GLYPHS = {
   "+": ["00000", "00100", "00100", "11111", "00100", "00100", "00000"],
 }
 
-const SIZE = 32 // drawn at 2x for a 16px overlay
+const OVERLAY = 16 // overlay size in logical px
+const DISC = 11 // badge diameter in logical px, matching Slack's taskbar badge
 const RED = [0xe0, 0x1e, 0x5a] // r, g, b
+// Display scales to draw pixel-exact. Without an exact match Windows resamples
+// the bitmap (e.g. 32px -> 20px at 125%), which blurs the digits.
+const SCALES = [1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+
+/** BGRA (premultiplied) bitmap of the badge at one display scale. */
+function drawBadge(text, scaleFactor) {
+  const SIZE = Math.round(OVERLAY * scaleFactor)
+  const px = Buffer.alloc(SIZE * SIZE * 4)
+  const set = (x, y, [r, g, b], a) => {
+    if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return
+    const i = (y * SIZE + x) * 4
+    px[i] = Math.round(b * a); px[i + 1] = Math.round(g * a); px[i + 2] = Math.round(r * a); px[i + 3] = Math.round(255 * a)
+  }
+  // Windows stretches the overlay to fill its square, so draw a Slack-sized
+  // badge in the top-right corner and leave the rest transparent.
+  const disc = Math.round(DISC * scaleFactor)
+  // Whole-pixel glyph blocks keep the digits crisp (7px tall at 100-175%).
+  const scale = Math.max(1, Math.floor((disc * 0.65) / 7))
+  // Bold: each 5px glyph is smeared one column right, so it is 6 columns wide.
+  const width = text.length * 6 * scale + (text.length - 1) * scale
+  const pillH = disc, pillW = Math.min(SIZE, Math.max(disc, width + 2 * Math.round(2 * scaleFactor)))
+  const x0 = SIZE - pillW, y0 = 0
+  // Disc (or pill for two characters) with 4x4 supersampled edges.
+  const r = pillH / 2, cy = y0 + r, segL = x0 + r, segR = x0 + pillW - r
+  for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+    let inside = 0
+    for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
+      const px_ = x + (sx + 0.5) / 4, py = y + (sy + 0.5) / 4
+      const dx = px_ - Math.min(Math.max(px_, segL), segR), dy = py - cy
+      if (dx * dx + dy * dy <= r * r) inside++
+    }
+    if (inside) set(x, y, RED, inside / 16)
+  }
+  let left = x0 + Math.round((pillW - width) / 2)
+  const top = y0 + Math.round((pillH - 7 * scale) / 2)
+  for (const ch of text) {
+    GLYPHS[ch].forEach((row, gy) => {
+      for (let gx = 0; gx < 6; gx++) {
+        if (row[gx] !== "1" && row[gx - 1] !== "1") continue
+        for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++)
+          set(left + gx * scale + dx, top + gy * scale + dy, [255, 255, 255], 1)
+      }
+    })
+    left += 7 * scale
+  }
+  return { buffer: px, width: SIZE, height: SIZE }
+}
 
 /** NativeImage for the given count, or null for no badge. */
 function badgeImage(count) {
   if (!Number.isFinite(count) || count <= 0) return null
   const text = count > 9 ? "9+" : String(count)
-  const px = Buffer.alloc(SIZE * SIZE * 4) // BGRA, premultiplied
-  const set = (x, y, [r, g, b], a) => {
-    const i = (y * SIZE + x) * 4
-    px[i] = Math.round(b * a); px[i + 1] = Math.round(g * a); px[i + 2] = Math.round(r * a); px[i + 3] = Math.round(255 * a)
-  }
-  // Disc with 4x4 supersampled edges.
-  const c = SIZE / 2, radius = SIZE / 2 - 0.5
-  for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
-    let inside = 0
-    for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
-      const dx = x + (sx + 0.5) / 4 - c, dy = y + (sy + 0.5) / 4 - c
-      if (dx * dx + dy * dy <= radius * radius) inside++
-    }
-    if (inside) set(x, y, RED, inside / 16)
-  }
-  // White glyphs, each glyph pixel a 3x3 block (2px for two characters).
-  const scale = text.length > 1 ? 2 : 3
-  const width = text.length * 5 * scale + (text.length - 1) * scale
-  let left = Math.round((SIZE - width) / 2)
-  const top = Math.round((SIZE - 7 * scale) / 2)
-  for (const ch of text) {
-    GLYPHS[ch].forEach((row, gy) => [...row].forEach((on, gx) => {
-      if (on !== "1") return
-      for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++)
-        set(left + gx * scale + dx, top + gy * scale + dy, [255, 255, 255], 1)
-    }))
-    left += 6 * scale
-  }
-  return nativeImage.createFromBitmap(px, { width: SIZE, height: SIZE, scaleFactor: 2 })
+  const image = nativeImage.createEmpty()
+  for (const scaleFactor of SCALES) image.addRepresentation({ scaleFactor, ...drawBadge(text, scaleFactor) })
+  return image
 }
 
 /** "(5) OfferPath" -> 5; anything else -> 0. */
