@@ -1,7 +1,7 @@
 {
   "name": "offerpath-desktop",
   "productName": "OfferPath",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OfferPath desktop app: opens the OfferPath web workspace in its own window.",
   "main": "main.js",
   "private": true,
@@ -10,7 +10,7 @@
     "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "33.2.1",
+    "electron": "45.2.2",
     "electron-builder": "25.1.8"
   },
   "build": {
