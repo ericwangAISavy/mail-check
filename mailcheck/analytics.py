@@ -34,6 +34,7 @@ class DashboardFilters(BaseModel):
     action: Literal["all", "yes", "no"] = "all"
     q: str = Field(default="", max_length=200)
     sort: Literal["newest", "oldest"] = "newest"
+    include_messages: bool = True
     page: int = Field(default=1, ge=1, le=1_000_000)
     page_size: int = Field(default=50, ge=1, le=100)
     focus_date: date | None = None
@@ -229,7 +230,9 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         day += timedelta(days=1)
 
     list_scope, list_params = _scope(filters, focus=True)
-    total = conn.execute("SELECT COUNT(*) " + _FROM + list_scope, list_params).fetchone()[0]
+    total = summary["total"]
+    if filters.focus_date or filters.focus_category:
+        total = conn.execute("SELECT COUNT(*) " + _FROM + list_scope, list_params).fetchone()[0]
     total_pages = (total + filters.page_size - 1) // filters.page_size
     page = min(filters.page, max(1, total_pages))
     direction = "DESC" if filters.sort == "newest" else "ASC"
@@ -239,7 +242,7 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         "c.company, c.role, c.category, c.summary, c.retryable, c.action_required "
         + _FROM + list_scope + f" ORDER BY {_INSTANT} {direction}, m.id {direction} LIMIT ? OFFSET ?",
         [*list_params, filters.page_size, (page - 1) * filters.page_size],
-    ).fetchall()
+    ).fetchall() if filters.include_messages else []
     items = []
     for row in message_rows:
         item = dict(row)

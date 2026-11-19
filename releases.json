@@ -1,5 +1,37 @@
 [
   {
+    "version": "3.9.3",
+    "date": "2026-11-18",
+    "title": "Restore Dashboard compatibility across workspace workers",
+    "changes": [
+      "Open the Dashboard even when a workspace worker runs an older version during an update."
+    ]
+  },
+  {
+    "version": "3.9.2",
+    "date": "2026-11-18",
+    "title": "Load Dashboard totals before optional details",
+    "changes": [
+      "Start loading Dashboard history without waiting for the chart and reader bundles, and load message rows when the explorer is opened."
+    ]
+  },
+  {
+    "version": "3.9.1",
+    "date": "2026-11-18",
+    "title": "Start OfferPath from a fresh Windows session",
+    "changes": [
+      "Prompt for the local RabbitMQ password when a cold-start launcher has no AMQP_URL, and check the connection before startup."
+    ]
+  },
+  {
+    "version": "3.9.0",
+    "date": "2026-11-18",
+    "title": "One-click Windows server restart",
+    "changes": [
+      "Double-click restart.bat to restart the running OfferPath server or start it when stopped."
+    ]
+  },
+  {
     "version": "3.8.5",
     "date": "2026-11-18",
     "title": "Reduce repeated inbox and realtime reads",

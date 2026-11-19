@@ -1,8 +1,8 @@
 import { usePageState } from "@/lib/page-state"
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import ApplicationActivityChart from "@/components/application-activity-chart"
+
 import { ArrowRight, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, FilterX, HelpCircle, LoaderCircle, Mail, RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Bootstrap, Message } from "@/lib/types"
@@ -10,9 +10,12 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { EmptyState, Loading, PageHeading, useToast } from "@/components/common"
-import { Reader } from "@/pages/triage"
+
 import { useDoneMutation } from "@/components/common"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+
+const ApplicationActivityChart = lazy(() => import("@/components/application-activity-chart"))
+const Reader = lazy(() => import("@/pages/triage").then(module => ({ default: module.Reader })))
 
 const colors = Array.from({length:10},(_,index)=>`var(--category-color-${index})`)
 const isoToday = () => new Intl.DateTimeFormat("en-CA").format(new Date())
@@ -43,8 +46,8 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     value.set("page_size", "50")
     return value
   }, [search, zone, deferredSearch])
-  const { data, isPending, isFetching, error, refetch } = useQuery({ queryKey: ["dashboard", params.toString()], queryFn: ({ signal }) => api.dashboard(params, signal), placeholderData: (previous) => previous })
-  const accountDetails = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal), enabled: !readOnly })
+  const { data, isPending, isFetching, error, refetch } = useQuery({ queryKey: ["dashboard", params.toString(), explorerOpen], queryFn: ({ signal }) => api.dashboard(params, signal, explorerOpen), placeholderData: (previous) => previous })
+  const accountDetails = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal), enabled: !readOnly && !!data })
   const { data: accounts } = useQuery({ queryKey: ["dashboard-accounts"], queryFn: ({ signal }) => api.dashboardAccounts(signal) })
   const update = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(search)
@@ -117,7 +120,6 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       summary: row.summary || "", source: "llm", open_url: null, open_label: "",
     })
   }
-  if (isPending && !data) return <div className="page-wrap"><Loading label="Gathering your local mail history…" /></div>
   if (error && !data) return <div className="page-wrap"><EmptyState title="Dashboard is unavailable" description={error instanceof Error ? error.message : "Try loading this dashboard again."} action={<div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void refetch()}>Try again</Button>{search.toString()&&<Button variant="outline" onClick={clear}>Clear filters</Button>}</div>} /></div>
   return <div className="page-wrap analytics-page">
     <PageHeading title="Dashboard" description="A little perspective on the applications in motion." action={!readOnly && <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refresh()}>{isFetching ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}Refresh</Button>} />
@@ -131,6 +133,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       {!readOnly && <Button variant={advanced ? "secondary" : "outline"} size="sm" aria-expanded={advanced} onClick={() => setAdvanced((value) => !value)}><SlidersHorizontal size={14} />More</Button>}
       {filterCount > 0 && <Button variant="ghost" size="sm" onClick={clear}><FilterX size={14} />Reset</Button>}</div>
     {!readOnly && advanced && <div className="advanced-filters"><label>Action<select value={params.get("action") || "all"} onChange={(e) => update({ action: e.target.value === "all" ? null : e.target.value })}><option value="all">All actions</option><option value="yes">Action required</option><option value="no">No action required</option></select></label><span className="filter-caption">Select categories below to narrow the timeline.</span></div>}
+    {isPending && !data ? <Loading label={"Gathering your local mail history\u2026"} /> : <>
     <div className={`dashboard-layout${readOnly ? " graphs-only" : ""}`}><div className="dashboard-primary">
     <div className="stat-grid">{[
       { label: "Messages collected", value: summary?.total, Icon: Mail },
@@ -141,7 +144,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     {focusDate || focusCategory ? <div className="focus-banner"><span>Focused on {focusDate || "all dates"}{focusCategory ? ` · ${categories.find((category) => category.name === focusCategory)?.label || focusCategory}` : ""}</span><Button variant="ghost" size="sm" onClick={() => update({ focus_date: null, focus_category: null })}>Clear focus</Button></div> : null}
     <div className="analytics-main-grid"><Card className="chart-card activity-chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{readOnly ? "Application activity for your assigned accounts." : params.get("interval") === "week" ? "Select a segment to focus its first visible day." : ""}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
       <div className="timeline-ranges" role="group" aria-label="Timeline range">{[["7", "1 week"], ["14", "2 weeks"], ["30", "1 month"], ["90", "3 months"]].map(([days, label]) => <Button key={days} type="button" size="sm" variant={!params.has("start") && params.get("days") === days ? "secondary" : "ghost"} aria-pressed={!params.has("start") && params.get("days") === days} onClick={() => update({ days, start: null, end: null })}>{label}</Button>)}</div>
-      <ApplicationActivityChart rows={intervalRows} categories={categories} colors={colors} onFocus={focusChart}/>
+      <Suspense fallback={<Loading label="Loading chart..." />}><ApplicationActivityChart rows={intervalRows} categories={categories} colors={colors} onFocus={focusChart}/></Suspense>
       <div className="chart-legend">{categories.filter((category) => category.count).map((category) => <button key={category.name} onClick={() => toggleCategory(category.name)}><span style={{ backgroundColor: colors[categories.findIndex((item) => item.name === category.name) % colors.length] }} />{category.label}<b>{category.count}</b></button>)}</div>
       <details className="accessible-chart-data"><summary>View chart data as a table</summary><div className="table-scroll"><table><thead><tr><th>Date</th>{categories.map((c) => <th key={c.name}>{c.label}</th>)}<th>Total</th></tr></thead><tbody>{intervalRows.map((row: any) => <tr key={row.date}><th>{row.date}{row.partial ? " *" : ""}</th>{categories.map((c) => <td key={c.name}>{row.counts?.[c.name] || 0}</td>)}<td>{row.total}</td></tr>)}</tbody></table></div></details>
     </Card>
@@ -158,9 +161,10 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
       </aside>}</div>
     {!readOnly && <details id="message-explorer" className="explorer cyber-panel" open={explorerOpen} onToggle={(event) => setExplorerOpen(event.currentTarget.open)}><summary className="explorer-toggle"><span>Messages <span className="explorer-total">{pageInfo?.total ?? 0} matching</span></span><span>{explorerOpen ? "Hide messages" : "Show messages"}<ChevronDown size={18} /></span></summary><div className="explorer-body"><div className="explorer-heading"><div><p className="eyebrow">MESSAGE EXPLORER</p><h2>Find a message</h2><p className="page-description">Search and read mail already collected on this computer.</p></div><label className="search-field explorer-search"><Search size={16} /><input value={searchInput} onChange={(e) => { setSearchInput(e.target.value); update({ q: e.target.value || null }) }} placeholder="Search subject, sender, company…" aria-label="Search stored mail" /></label></div>
       <div className="category-pills" aria-label="Filter categories"><button className={!params.getAll("category").length ? "pill-active" : ""} onClick={() => update({ category: null })}>All categories</button>{categories.map((c) => <button key={c.name} className={params.getAll("category").includes(c.name) ? "pill-active" : ""} onClick={() => toggleCategory(c.name)}>{c.label}<span className="category-count">{c.count}</span></button>)}</div>
-      {pageInfo?.items.length ? <><div className="table-scroll explorer-table"><table><thead><tr><th>Message</th><th>Category</th><th>Account</th><th>Received</th></tr></thead><tbody>{pageInfo.items.map((row) => <tr key={row.pk} tabIndex={0} onClick={() => openMessage(row)} onKeyDown={(event) => { if (event.key === "Enter") openMessage(row) }}><td><strong>{row.company || row.from_name || row.from_addr}</strong><span>{row.subject}</span></td><td><Badge variant="muted">{row.category_label}</Badge></td><td>{row.account_label}</td><td>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</td></tr>)}</tbody></table></div><div className="pagination"><span>{pageInfo.total ? `${(pageInfo.page - 1) * pageInfo.page_size + 1}–${Math.min(pageInfo.page * pageInfo.page_size, pageInfo.total)} of ${pageInfo.total}` : "0 messages"}</span><div><Button variant="outline" size="sm" aria-label="Previous page" disabled={pageInfo.page <= 1} onClick={() => update({ page: String(pageInfo.page - 1) })}><ChevronLeft size={15} />Previous</Button><Button variant="outline" size="sm" aria-label="Next page" disabled={pageInfo.page >= pageInfo.total_pages} onClick={() => update({ page: String(pageInfo.page + 1) })}>Next<ChevronRight size={15} /></Button></div></div></> : <EmptyState title="No messages match" description="Try another search, filter or date range." action={<Button variant="outline" onClick={clear}>Clear filters</Button>} />}
+      {explorerOpen && isFetching && !pageInfo?.items.length ? <Loading label="Loading messages..." /> : pageInfo?.items.length ? <><div className="table-scroll explorer-table"><table><thead><tr><th>Message</th><th>Category</th><th>Account</th><th>Received</th></tr></thead><tbody>{pageInfo.items.map((row) => <tr key={row.pk} tabIndex={0} onClick={() => openMessage(row)} onKeyDown={(event) => { if (event.key === "Enter") openMessage(row) }}><td><strong>{row.company || row.from_name || row.from_addr}</strong><span>{row.subject}</span></td><td><Badge variant="muted">{row.category_label}</Badge></td><td>{row.account_label}</td><td>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(row.received_at))}</td></tr>)}</tbody></table></div><div className="pagination"><span>{pageInfo.total ? `${(pageInfo.page - 1) * pageInfo.page_size + 1}–${Math.min(pageInfo.page * pageInfo.page_size, pageInfo.total)} of ${pageInfo.total}` : "0 messages"}</span><div><Button variant="outline" size="sm" aria-label="Previous page" disabled={pageInfo.page <= 1} onClick={() => update({ page: String(pageInfo.page - 1) })}><ChevronLeft size={15} />Previous</Button><Button variant="outline" size="sm" aria-label="Next page" disabled={pageInfo.page >= pageInfo.total_pages} onClick={() => update({ page: String(pageInfo.page + 1) })}>Next<ChevronRight size={15} /></Button></div></div></> : <EmptyState title="No messages match" description="Try another search, filter or date range." action={<Button variant="outline" onClick={clear}>Clear filters</Button>} />}
       {data?.daily?.some((row: any) => row.partial) && <p className="partial-note">* Some dates have partial history.</p>}
     </div></details>}
-    {!readOnly && <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by OfferPath.</DialogDescription></DialogHeader>{reader && <Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={!readOnly && bootstrap.readiness.model} readOnly={readOnly} />}</DialogContent></Dialog>}
+    {!readOnly && <Dialog open={Boolean(reader)} onOpenChange={(open) => !open && setReader(null)}><DialogContent className="dashboard-reader-dialog"><DialogHeader><DialogTitle>Stored message</DialogTitle><DialogDescription>Read-only mail collected by OfferPath.</DialogDescription></DialogHeader>{reader && <Suspense fallback={<Loading label="Loading message..." />}><Reader message={reader} mobile={true} onBack={() => setReader(null)} onDone={() => done.mutate({ message: reader, done: !reader.handled_at })} busy={done.isPending} canRetry={!readOnly && bootstrap.readiness.model} readOnly={readOnly} /></Suspense>}</DialogContent></Dialog>}
+    </>}
   </div>
 }

@@ -1,6 +1,10 @@
 """Bounded recovery for the foreground on-premises HTTP origin."""
 from __future__ import annotations
 import argparse
+from contextlib import contextmanager
+import hashlib
+from pathlib import Path
+import signal
 from http.client import HTTPConnection, HTTPException
 import logging
 from logging.handlers import RotatingFileHandler
@@ -44,12 +48,50 @@ def stop(process):
         process.kill();process.wait(timeout=5)
 
 
-def supervise(command,host,port,logger):
+@contextmanager
+def restart_event(port):
+    """One auto-reset Windows event per checkout, console session and port."""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateEventW
+    create.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    create.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.SetEvent.argtypes = [wintypes.HANDLE]
+    checkout = str(Path(__file__).resolve()).casefold().encode()
+    name = f"Local\\OfferPathRestart-{hashlib.sha256(checkout).hexdigest()[:24]}-{port}"
+    ctypes.set_last_error(0)
+    handle = create(None, False, False, name)
+    existing = ctypes.get_last_error() == 183
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    def send():
+        if not kernel.SetEvent(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        yield existing, send, lambda: kernel.WaitForSingleObject(handle, 0) == 0
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def drain_origin(process):
+    if process.poll() is None:
+        try:
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+            process.wait(timeout=45)
+        except (OSError, subprocess.TimeoutExpired):
+            stop(process)
+
+
+def supervise(command,host,port,logger,restart_requested=None):
     budget=RestartBudget()
     process=None
     try:
         while True:
-            process=subprocess.Popen(command)
+            options = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if restart_requested else {}
+            process=subprocess.Popen(command, **options)
             began=time.monotonic();ready=False;missed=0;restart=False
             logger.info('Started origin PID %s on %s:%s',process.pid if hasattr(process,'pid') else '?',host,port)
             while True:
@@ -60,6 +102,10 @@ def supervise(command,host,port,logger):
                         return code
                     logger.error('Origin PID %s exited unexpectedly: status %s',process.pid if hasattr(process,'pid') else '?',code)
                     restart=True;break
+                if restart_requested and restart_requested():
+                    logger.info("Restart requested. Stopping the current origin before starting its replacement.")
+                    drain_origin(process)
+                    break
                 state=origin_state(host,port)
                 if state=='ready':
                     if not ready:logger.info('Origin local HTTP health check is ready.')
@@ -84,7 +130,9 @@ def supervise(command,host,port,logger):
                 if '--no-open' not in command:command=[*command,'--no-open']
     except KeyboardInterrupt:
         logger.info('Stopped by user; automatic recovery is disabled for this shutdown.')
-        if process is not None:
+        if process is not None and restart_requested:
+            drain_origin(process)
+        elif process is not None:
             try:process.wait(timeout=10)
             except (subprocess.TimeoutExpired,KeyboardInterrupt):stop(process)
         return 130
@@ -92,8 +140,48 @@ def supervise(command,host,port,logger):
         if process is not None:stop(process)
 
 
+def prepare_broker():
+    """Reuse the terminal configuration or prompt for the local OfferPath broker."""
+    import getpass
+    import os
+    from urllib.parse import quote
+
+    if os.environ.get("AMQP_URL"):
+        return True
+    try:
+        password = getpass.getpass("RabbitMQ password for offerpath: ")
+    except (EOFError, KeyboardInterrupt):
+        return False
+    if not password:
+        return False
+    import pika
+    url = "amqp://offerpath:" + quote(password, safe="") + "@127.0.0.1:5672/offerpath"
+    try:
+        params = pika.URLParameters(url)
+        params.socket_timeout = 5
+        params.stack_timeout = 10
+        connection = pika.BlockingConnection(params)
+        connection.close()
+    except (pika.exceptions.AMQPError, OSError):
+        print("Could not connect to local RabbitMQ. Check the service and the offerpath password.", file=sys.stderr)
+        return False
+    os.environ["AMQP_URL"] = url
+    return True
+
+
 def main():
     arguments=sys.argv[1:]
+    if "--prompt-broker" in arguments:
+        arguments.remove("--prompt-broker")
+        if not prepare_broker():
+            return 1
+    if arguments == ["--request-restart"] and sys.platform == "win32":
+        with restart_event(52400) as (existing, send, _):
+            if not existing:
+                return 3
+            send()
+            print("Restart requested. The server window will show startup progress.")
+            return 0
     if any(arg in ('--help','--single-admin') for arg in arguments):
         return subprocess.call([sys.executable,'-m','mailcheck','web',*arguments])
     parser=argparse.ArgumentParser(add_help=False,allow_abbrev=False)
@@ -116,7 +204,14 @@ def main():
     if origin_state(options.host,options.port) in ('ready','busy'):
         logger.error('An HTTP origin is already running on this port. Keep its terminal open; no second server was started.')
         return 1
-    return supervise([sys.executable,'-m','mailcheck','web',*arguments],options.host,options.port,logger)
+    command = [sys.executable,'-m','mailcheck','web',*arguments]
+    if sys.platform == 'win32':
+        with restart_event(options.port) as (existing, _, requested):
+            if existing:
+                logger.error("A supervisor is already running. Use restart.bat.")
+                return 1
+            return supervise(command, options.host, options.port, logger, requested)
+    return supervise(command, options.host, options.port, logger)
 
 
 if __name__=='__main__':raise SystemExit(main())

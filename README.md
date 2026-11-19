@@ -1,5 +1,12 @@
 # OfferPath
 
+### Start or restart the Windows server
+
+Double-click **restart.bat** in this folder to restart OfferPath, or to start it if stopped. Keep the server window open. The running supervisor uses its existing RabbitMQ connection settings when restarting. For a cold start, the launcher uses the current terminal's `AMQP_URL` if available. Otherwise it prompts for the local RabbitMQ `offerpath` password and checks the connection before starting. The password is kept only for the running process and its children.
+
+When upgrading from a version without this launcher, press **Ctrl+C** in the old server window once and wait for it to exit before double-clicking **restart.bat**. You can also use **start.bat** for a normal foreground start.
+
+
 **Every application, a step forward.**
 
 OfferPath brings job sourcing, application tracking, email replies, interview

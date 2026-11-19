@@ -50,7 +50,7 @@ it("keeps all four metrics and uses actual account inclusion state", async () =>
   mount()
   await screen.findByText("Messages collected")
   expect(screen.getByText("Unclassified")).toBeTruthy()
-  expect(screen.getByText("Paused")).toBeTruthy()
+  expect(await screen.findByText("Paused")).toBeTruthy()
   expect(screen.queryByText("Connected", { exact: true })).toBeNull()
   expect(screen.queryByText(/\+12%/)).toBeNull()
 })
@@ -227,4 +227,13 @@ it("opens explicit message links despite a saved collapse and still allows colla
   } finally {
     sessionStorage.clear()
   }
+})
+
+it("shows filters and skips explorer rows while the initial history read is pending", async () => {
+  vi.mocked(api.dashboard).mockReturnValue(new Promise(() => {}))
+  mount()
+  expect(await screen.findByLabelText("Date range")).toBeTruthy()
+  await lastParam("include_messages", null)
+  expect(vi.mocked(api.dashboard).mock.lastCall?.[2]).toBe(false)
+  expect(screen.queryByText("Messages collected")).toBeNull()
 })

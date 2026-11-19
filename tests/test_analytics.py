@@ -47,6 +47,15 @@ class AnalyticsTests(unittest.TestCase):
         return dashboard_data(self.conn, DashboardFilters(
             start="2026-09-14", end="2026-09-16", tz="UTC", **kwargs), retention_days=90)
 
+    def test_closed_explorer_preserves_totals_and_skips_message_rows(self):
+        self.add("a")
+        statements = []
+        self.conn.set_trace_callback(statements.append)
+        result = self.data(include_messages=False)
+        self.assertEqual(result["messages"]["total"], 1)
+        self.assertEqual(result["messages"]["items"], [])
+        self.assertFalse(any("m.subject" in sql for sql in statements))
+
     def test_global_counts_latest_classification_and_zero_days(self):
         pk = self.add("a", category="interview_invite", action=True)
         self.add("b", done=True)
@@ -217,6 +226,12 @@ class AnalyticsTests(unittest.TestCase):
             response = client.get("/api/dashboard?start=2026-09-14&end=2026-09-16&tz=UTC")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["summary"]["total"], 1)
+            self.assertEqual(len(response.json()["messages"]["items"]), 1)
+            overview = client.get("/api/dashboard?start=2026-09-14&end=2026-09-16&tz=UTC",
+                                  headers={"Prefer": "offerpath-overview"})
+            self.assertEqual(overview.status_code, 200)
+            self.assertEqual(overview.json()["messages"]["total"], 1)
+            self.assertEqual(overview.json()["messages"]["items"], [])
             self.assertEqual(client.get("/api/dashboard?days=91").status_code, 400)
             self.assertEqual(client.get("/api/dashboard?bidder=bad").status_code, 400)
             self.assertEqual(client.get("/api/dashboard/accounts").json()["bidders"], [])

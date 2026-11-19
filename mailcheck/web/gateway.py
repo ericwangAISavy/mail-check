@@ -566,6 +566,11 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if safe_read and path.rstrip('/') in {'api/bootstrap','api/triage','api/dashboard','api/queue-counts','api/applications/today'}:
             # Workers share the host monotonic clock with the gateway.
             headers['x-offerpath-read-deadline']=str(request.state.read_deadline-0.5)
+        dashboard_read = safe_read and path.rstrip("/") == "api/dashboard"
+        if dashboard_read:
+            worker_start = asyncio.get_running_loop().time()
+            if request.headers.get("prefer") == "offerpath-overview":
+                headers["prefer"] = "offerpath-overview"
         async with worker_http_client() as client:
             for attempt in range(2 if safe_read else 1):
                 if attempt:
@@ -602,6 +607,14 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             schedule_settings_notification()
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
+        if dashboard_read:
+            now = asyncio.get_running_loop().time()
+            arrival = request.state.read_deadline - READ_REQUEST_TIMEOUT
+            prep_ms = (worker_start - arrival) * 1000
+            worker_ms = (now - worker_start) * 1000
+            response_headers["Server-Timing"] = f"gateway;dur={prep_ms:.1f}, worker;dur={worker_ms:.1f}"
+            if now - arrival >= 3:
+                logging.getLogger(__name__).warning("Slow Dashboard request: gateway=%.0fms worker=%.0fms", prep_ms, worker_ms)
         response_type = Response
         if safe_read and result.is_success and result.headers.get('content-type','').startswith('application/json'):
             response_type = CompressedPageResponse

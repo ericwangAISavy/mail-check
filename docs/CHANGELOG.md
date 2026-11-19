@@ -2,6 +2,30 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.9.3 — 2026-11-18
+
+Restore Dashboard compatibility across workspace workers
+
+- Open the Dashboard even when a workspace worker runs an older version during an update.
+
+## 3.9.2 — 2026-11-18
+
+Load Dashboard totals before optional details
+
+- Start loading Dashboard history without waiting for the chart and reader bundles, and load message rows when the explorer is opened.
+
+## 3.9.1 — 2026-11-18
+
+Start OfferPath from a fresh Windows session
+
+- Prompt for the local RabbitMQ password when a cold-start launcher has no AMQP_URL, and check the connection before startup.
+
+## 3.9.0 — 2026-11-18
+
+One-click Windows server restart
+
+- Double-click restart.bat to restart the running OfferPath server or start it when stopped.
+
 ## 3.8.5 — 2026-11-18
 
 Reduce repeated inbox and realtime reads

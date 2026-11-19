@@ -1336,6 +1336,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/dashboard")
     def api_dashboard(request: Request):
         values = dict(request.query_params)
+        if request.headers.get("prefer") == "offerpath-overview":
+            values.setdefault("include_messages", False)
         values.pop("category", None)
         values["categories"] = request.query_params.getlist("category")
         try:

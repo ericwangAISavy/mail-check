@@ -130,7 +130,11 @@ export const api = {
   accounts: (signal?: AbortSignal) => request<{ accounts: Account[]; outlook_ready: boolean }>("/api/accounts", { signal }),
   settings: (signal?: AbortSignal) => request<{ settings: Settings; rules: { category: string; sender: string | null; sender_domain: string | null; subject_contains: string | null }[]; categories: { name: string; label: string }[]; config_path: string; db_path: string }>("/api/settings", { signal }),
   activeModel: (signal?: AbortSignal) => request<{ model: string | null; loaded: boolean; message: string }>("/api/settings/model", { signal }),
-  dashboard: (params: URLSearchParams, signal?: AbortSignal) => request<Record<string, any>>(`/api/dashboard?${params}`, { signal }),
+  dashboard: (params: URLSearchParams, signal?: AbortSignal, includeMessages = true) =>
+    request<Record<string, any>>(`/api/dashboard?${params}`, {
+      signal,
+      headers: includeMessages ? undefined : { Prefer: "offerpath-overview" },
+    }),
   status: (signal?: AbortSignal) => request<{ running: boolean; background?: boolean; completion_id: number; auto: boolean; interval_minutes?: number; next_in: number | null; updated_at?: string | null; message: string; detail: string; ok: boolean; stage_elapsed: number | null; interview_changes?: { id: number; company: string | null; status: string; start_at: string | null }[] }>("/api/status", { signal }),
   post: <T,>(url: string, body?: unknown) => request<T>(url, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
 }

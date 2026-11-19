@@ -60,3 +60,54 @@ def test_process_exit_between_poll_and_terminate_is_harmless():
     process.terminate.side_effect=ProcessLookupError('already exited')
     supervisor.stop(process)
     process.kill.assert_not_called()
+
+
+def test_windows_restart_signal_crosses_processes_and_resets():
+    import os
+    import subprocess
+    import sys
+    import pytest
+    if sys.platform != 'win32':
+        pytest.skip('Windows launcher')
+    key = 100000 + os.getpid()
+    with supervisor.restart_event(key) as (existing, _, requested):
+        assert not existing
+        command = (
+            'from mailcheck.web.supervisor import restart_event\n'
+            f'with restart_event({key}) as (existing, send, _):\n'
+            '    assert existing\n'
+            '    send()'
+        )
+        subprocess.run([sys.executable, '-c', command], check=True)
+        assert requested()
+        assert not requested()
+
+
+def test_requested_restart_waits_for_owned_origin_then_relaunches():
+    import sys
+    import pytest
+    if sys.platform != 'win32':
+        pytest.skip('Windows launcher')
+    child = Mock()
+    child.poll.return_value = None
+    with patch.object(supervisor.subprocess, 'Popen', side_effect=[child, Process([0])]) as spawn:
+        code = supervisor.supervise(['python', 'server'], '127.0.0.1', 52400, Mock(), lambda: True)
+    assert code == 0 and spawn.call_count == 2
+    child.send_signal.assert_called_once_with(supervisor.signal.CTRL_BREAK_EVENT)
+    child.wait.assert_called_once_with(timeout=45)
+
+
+def test_cold_start_prompts_only_without_an_inherited_broker(monkeypatch):
+    import os
+    import sys
+    pika = Mock()
+    monkeypatch.setitem(sys.modules, "pika", pika)
+    from urllib.parse import unquote, urlsplit
+    monkeypatch.delenv('AMQP_URL', raising=False)
+    with patch('getpass.getpass', return_value='special@:/%') as prompt, patch.object(pika, 'BlockingConnection') as connect:
+        assert supervisor.prepare_broker()
+        url = urlsplit(os.environ['AMQP_URL'])
+        assert (url.username, unquote(url.password), url.hostname, url.port, url.path) == ('offerpath', 'special@:/%', '127.0.0.1', 5672, '/offerpath')
+        assert supervisor.prepare_broker()
+        prompt.assert_called_once()
+        connect.assert_called_once()

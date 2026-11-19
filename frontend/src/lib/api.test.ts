@@ -191,3 +191,20 @@ it.each([401, 409])("does not publish session events from a canceled response th
     window.removeEventListener("offerpath:workspace-changed", expired)
   }
 })
+
+it("uses a worker-optional header for Dashboard previews and preserves workspace filters", async () => {
+  const {api} = await import("./api")
+  const fetcher = vi.fn(async (_url: string, _init: RequestInit) =>
+    new Response("{}", {headers: {"Content-Type": "application/json"}}))
+  vi.stubGlobal("fetch", fetcher)
+  setWorkspaceIdentity("selected-admin")
+  const params = new URLSearchParams("days=7&category=offer&category=rejection")
+  await api.dashboard(params, undefined, false)
+  await api.dashboard(params, undefined, true)
+  const [[previewUrl, preview], [fullUrl, full]] = fetcher.mock.calls
+  expect(previewUrl).toBe("/api/dashboard?days=7&category=offer&category=rejection")
+  expect(fullUrl).toBe(previewUrl)
+  expect(new Headers(preview.headers).get("prefer")).toBe("offerpath-overview")
+  expect(new Headers(preview.headers).get("x-offerpath-workspace")).toBe("selected-admin")
+  expect(new Headers(full.headers).has("prefer")).toBe(false)
+})
