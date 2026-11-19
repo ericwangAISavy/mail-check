@@ -1,3 +1,4 @@
+import "./dashboard-metrics.css"
 import { usePageState } from "@/lib/page-state"
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
@@ -135,12 +136,17 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
     {!readOnly && advanced && <div className="advanced-filters"><label>Action<select value={params.get("action") || "all"} onChange={(e) => update({ action: e.target.value === "all" ? null : e.target.value })}><option value="all">All actions</option><option value="yes">Action required</option><option value="no">No action required</option></select></label><span className="filter-caption">Select categories below to narrow the timeline.</span></div>}
     {isPending && !data ? <Loading label={"Gathering your local mail history\u2026"} /> : <>
     <div className={`dashboard-layout${readOnly ? " graphs-only" : ""}`}><div className="dashboard-primary">
-    <div className="stat-grid">{[
+    <dl className="dashboard-metrics" aria-label="Mail summary">{[
       { label: "Messages collected", value: summary?.total, Icon: Mail },
       { label: "Need your attention", value: summary?.pending_attention, Icon: Clock3 },
       { label: "Completed", value: summary?.completed, Icon: CheckCircle2 },
       { label: "Unclassified", value: summary?.unclassified, Icon: HelpCircle },
-    ].map(({ label, value, Icon }, index) => <div key={label} className={`stat-card stat-${index + 1}`} title={label}><span className="sr-only">{label}</span><span className="stat-icon-wrap" aria-hidden="true"><Icon className="stat-icon" size={26} /></span><strong className="stat-value tabular">{value == null ? "—" : value.toLocaleString()}</strong></div>)}</div>
+    ].map(({ label, value, Icon }) => (
+      <div className="dashboard-metric" key={label}>
+        <dt><Icon size={17} aria-hidden="true" />{label}</dt>
+        <dd>{value == null ? "—" : value.toLocaleString()}</dd>
+      </div>
+    ))}</dl>
     {focusDate || focusCategory ? <div className="focus-banner"><span>Focused on {focusDate || "all dates"}{focusCategory ? ` · ${categories.find((category) => category.name === focusCategory)?.label || focusCategory}` : ""}</span><Button variant="ghost" size="sm" onClick={() => update({ focus_date: null, focus_category: null })}>Clear focus</Button></div> : null}
     <div className="analytics-main-grid"><Card className="chart-card activity-chart-card"><div className="card-title-row"><div><p className="eyebrow">ACTIVITY</p><h2>Applications over time</h2><p className="page-description">{readOnly ? "Application activity for your assigned accounts." : params.get("interval") === "week" ? "Select a segment to focus its first visible day." : ""}</p></div><label className="chart-group"><span className="sr-only">Chart grouping</span><select aria-label="Chart grouping" value={params.get("interval") || "day"} onChange={(event) => update({ interval: event.target.value })}><option value="day">By day</option><option value="week">By week</option></select></label></div>
       <div className="timeline-ranges" role="group" aria-label="Timeline range">{[["7", "1 week"], ["14", "2 weeks"], ["30", "1 month"], ["90", "3 months"]].map(([days, label]) => <Button key={days} type="button" size="sm" variant={!params.has("start") && params.get("days") === days ? "secondary" : "ghost"} aria-pressed={!params.has("start") && params.get("days") === days} onClick={() => update({ days, start: null, end: null })}>{label}</Button>)}</div>

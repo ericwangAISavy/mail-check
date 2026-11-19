@@ -9,7 +9,7 @@ vi.mock("./sourcing-progress",()=>({default:()=>null,useSourcingProgress:()=>({p
 afterEach(()=>{cleanup();sessionStorage.clear();vi.clearAllMocks()})
 function draw(id:number){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
- return render(<PageStateProvider scope="sheet-test"><QueryClientProvider client={client}><SourcingEditor key={id} tab={{id,account_id:null,title:"Jobs",header_row:1,refreshed_at:1}} initialDay="2026-10-15" onDirty={()=>undefined}/></QueryClientProvider></PageStateProvider>)
+ return render(<PageStateProvider scope="sheet-test"><QueryClientProvider client={client}><SourcingEditor fullToolbar key={id} tab={{id,account_id:null,title:"Jobs",header_row:1,refreshed_at:1}} initialDay="2026-10-15" onDirty={()=>undefined}/></QueryClientProvider></PageStateProvider>)
 }
 it("restores sheet filters and sorting only for their original tab",async()=>{
  draw(1)

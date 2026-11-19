@@ -13,6 +13,9 @@ import { InterviewDetails } from "@/components/interview-details"
 import InterviewCalendar from "@/components/interview-calendar"
 import "./interviews.css"
 
+/** Only Check now is shown beside the calendar; Refresh stays available behind this flag. */
+const SHOW_CALENDAR_REFRESH = false
+
 export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const toast = useToast(), client = useQueryClient()
   const [params, setParams] = useSearchParams()
@@ -41,7 +44,7 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const analysisQuery = useQuery({queryKey:['interviews','analysis'],queryFn:({ signal }) =>request<CalendarAnalysisProgress>('/api/interviews/analysis', { signal }),refetchInterval:query=>query.state.data?.pending?5000:30000})
   const analysis = analysisQuery.data?.pending !== undefined ? analysisQuery.data : query.data?.analysis
   const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label></Card>
-  const actions = <div className="interview-actions"><Button variant="outline" size="sm" onClick={()=>void refresh()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}><RefreshCw size={16}/>Refresh</Button><Button size="sm" onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>
+  const actions = <div className="interview-actions">{SHOW_CALENDAR_REFRESH && <Button variant="outline" size="sm" onClick={()=>void refresh()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}><RefreshCw size={16}/>Refresh</Button>}<Button size="sm" onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>
   return <div className="page-wrap interviews-page">
 
 

@@ -173,7 +173,9 @@
   .app-frame, .app-frame.sidebar-collapsed { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .app-frame > .app-header { grid-column: 1 / -1; grid-row: 1; position: relative; top: 0; z-index: 20; border-radius: 0; }
   .app-frame > .sidebar, .app-frame.sidebar-collapsed > .sidebar { grid-column: 1; grid-row: 2; position: relative; top: 0; height: auto; min-height: 0; overflow-y: auto; border-top: 0; }
-  .app-frame > .app-content { grid-column: 2; grid-row: 2; }
+  /* The grid row sets the height; an explicit 100% can resolve to the whole
+     window when a page's content is tall, pushing its bottom off screen. */
+  .app-frame > .app-content { grid-column: 2; grid-row: 2; height: auto; min-height: 0; }
 }
 @media screen and (max-width: 700px) {
   .app-frame, .app-frame.sidebar-collapsed { display: flex; flex-direction: column; align-items: stretch; }
@@ -301,3 +303,15 @@
 }
 /* Filter-row buttons match the 42px selects beside them (small buttons are 32px). */
 .dashboard-filters > .btn.btn { height: 42px; min-height: 42px; }
+
+/* Route progress: a slim bar along the header's bottom edge while a clicked page
+   loads. It waits briefly so instant navigations never flash it. */
+.app-header { position: relative; }
+.route-progress { position: absolute; inset: auto 0 -1px; z-index: 30; height: 2px; overflow: hidden; pointer-events: none; opacity: 0; animation: route-progress-in 0s linear .12s forwards; }
+.route-progress::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 2px; background: var(--primary); box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 60%, transparent); animation: route-progress-run 1.1s ease-in-out infinite; }
+@keyframes route-progress-in { to { opacity: 1; } }
+@keyframes route-progress-run { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+@media (prefers-reduced-motion: reduce) { .route-progress::before { width: 100%; animation: none; opacity: .7; } }
+/* The clicked item is highlighted at once; a soft pulse marks it as loading. */
+@media (prefers-reduced-motion: no-preference) { .sidebar .side-link.is-pending { animation: nav-pending 1s ease-in-out infinite; } }
+@keyframes nav-pending { 50% { opacity: .78; } }

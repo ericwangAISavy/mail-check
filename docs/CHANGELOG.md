@@ -2,6 +2,50 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.9.10 — 2026-11-18
+
+Less explanatory text on Bidder management
+
+- Remove the activity chart caption, the deduction rule description and the unallocated-replies subtitle to save space.
+
+## 3.9.9 — 2026-11-18
+
+Simpler Sourcing toolbar
+
+- Keep only the previous/next day, date and Today controls on Sourcing, moved into the top toolbar; the second tool row is removed and the toolbar wraps neatly on smaller screens.
+
+## 3.9.8 — 2026-11-18
+
+Simpler Interview calendar toolbar
+
+- Remove the calendar's top tool row and keep Check now at the end of the date row, which is now the calendar's top row.
+
+## 3.9.7 — 2026-11-18
+
+Instant page navigation feedback
+
+- Highlight the page you click in the sidebar and header immediately, with a slim progress bar while it opens, instead of appearing to do nothing.
+- Start loading a page as soon as you point at or focus its link, so most pages open without waiting.
+
+## 3.9.6 — 2026-11-18
+
+Round status indicators
+
+- Fix the grey square around status and footer dots, and restore theme glows on buttons, dialogs and counts that the dark theme had overridden.
+
+## 3.9.5 — 2026-11-18
+
+Sourcing sheet fits the window
+
+- Keep the Sourcing sheet and its account tabs within the window at every header height.
+- Give dark-theme table headers a solid background so rows no longer show through them while scrolling.
+
+## 3.9.4 — 2026-11-18
+
+Readable Dashboard metrics
+
+- Show a visible label beside each Dashboard metric icon and arrange the four totals to fit the available space.
+
 ## 3.9.3 — 2026-11-18
 
 Restore Dashboard compatibility across workspace workers

@@ -10,6 +10,7 @@ export default function SourcingDays({
   onAssign,
   canAssign,
   readOnly=false,
+  compact=false,
 }: {
   day: string;
   onChange: (day: string) => void;
@@ -18,6 +19,8 @@ export default function SourcingDays({
   onAssign: () => void;
   canAssign: boolean;
   readOnly?:boolean;
+  /** Only previous/next day, the date picker and Today. */
+  compact?: boolean;
 }) {
   const counts = new Map<string, number>();
   snapshot?.rows.slice(1).forEach((row, index) => {
@@ -66,7 +69,7 @@ export default function SourcingDays({
       >
         Today
       </Button>
-      <Button
+      {!compact && <><Button
         size="sm"
         variant="ghost"
         disabled={disabled}
@@ -97,7 +100,8 @@ export default function SourcingDays({
       <span className="sheet-day-count">
         {counts.get(day) || 0} jobs · Chicago
       </span>
-      {!readOnly && <Button
+      </>}
+      {!readOnly && !compact && <Button
         className="sheet-assign-date"
         size="sm"
         variant="ghost"

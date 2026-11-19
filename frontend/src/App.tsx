@@ -3,8 +3,8 @@ import { PageQueryBoundary } from "@/lib/page-state"
 import ReleaseHistory from "@/components/release-history"
 import ChangePassword from "@/components/change-password"
 import { OfferPathMark } from "@/components/offerpath-mark"
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom"
+import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { Navigate, NavLink, Route, Routes, UNSAFE_DataRouterContext, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
 import { api, request } from "@/lib/api"
@@ -16,17 +16,41 @@ import type { Bootstrap } from "@/lib/types"
 import { AuthGate, useAuth } from "@/components/auth"
 import { useRealtimeUpdates } from "@/lib/realtime"
 
-const TriagePage = lazy(() => import("@/pages/triage"))
-const SourcingPage = lazy(() => import("@/pages/sourcing"))
-const DashboardPage = lazy(() => import("@/pages/dashboard"))
-const PaymentsPage = lazy(() => import("@/pages/payments"))
-const InterviewsPage = lazy(() => import("@/pages/interviews"))
-const InterviewPipelinePage = lazy(() => import("@/pages/interview-pipeline"))
-const InterviewProcessesPage = lazy(() => import("@/pages/interview-processes"))
-const AccountsPage = lazy(() => import("@/pages/accounts"))
-const SystemMonitoring = lazy(() => import("@/pages/system-monitoring"))
-const AdminManagement = lazy(() => import("@/pages/admin-management"))
-const SettingsPage = lazy(() => import("@/pages/settings"))
+// Each page's code downloads on demand. Navigation can start that download
+// early (hover, focus, press) so a click rarely waits for the network.
+const pageImports = {
+  triage: () => import("@/pages/triage"),
+  sourcing: () => import("@/pages/sourcing"),
+  dashboard: () => import("@/pages/dashboard"),
+  payments: () => import("@/pages/payments"),
+  interviews: () => import("@/pages/interviews"),
+  interviewPipeline: () => import("@/pages/interview-pipeline"),
+  interviewProcesses: () => import("@/pages/interview-processes"),
+  accounts: () => import("@/pages/accounts"),
+  systemMonitoring: () => import("@/pages/system-monitoring"),
+  adminManagement: () => import("@/pages/admin-management"),
+  settings: () => import("@/pages/settings"),
+}
+const routeImports: Record<string, () => Promise<unknown>> = {
+  "/": pageImports.triage, "/inbox": pageImports.triage, "/sourcing": pageImports.sourcing,
+  "/dashboard": pageImports.dashboard, "/payments": pageImports.payments, "/interviews": pageImports.interviews,
+  "/interview-processes": pageImports.interviewPipeline, "/interview-processes/legacy": pageImports.interviewProcesses,
+  "/accounts": pageImports.accounts, "/system-monitoring": pageImports.systemMonitoring,
+  "/admin-management": pageImports.adminManagement, "/settings": pageImports.settings,
+}
+/** Start downloading a page's code; failures are left to the real navigation. */
+function preloadRoute(path: string) { void routeImports[path]?.().catch(() => undefined) }
+const TriagePage = lazy(pageImports.triage)
+const SourcingPage = lazy(pageImports.sourcing)
+const DashboardPage = lazy(pageImports.dashboard)
+const PaymentsPage = lazy(pageImports.payments)
+const InterviewsPage = lazy(pageImports.interviews)
+const InterviewPipelinePage = lazy(pageImports.interviewPipeline)
+const InterviewProcessesPage = lazy(pageImports.interviewProcesses)
+const AccountsPage = lazy(pageImports.accounts)
+const SystemMonitoring = lazy(pageImports.systemMonitoring)
+const AdminManagement = lazy(pageImports.adminManagement)
+const SettingsPage = lazy(pageImports.settings)
 
 const sections = [
   { to: "/", label: "Triage", icon: Inbox },
@@ -224,6 +248,21 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const location = useLocation()
   const navigate = useNavigate()
   useEffect(() => { setMobileNav(false) }, [location.pathname])
+  // A navigation renders as a transition: React keeps the old page until the new
+  // one is ready. Reflect the click immediately instead of looking unresponsive.
+  const [pendingPath, setPendingPath] = useState<string | null>(null)
+  useEffect(() => { setPendingPath(null) }, [location.pathname])
+  useEffect(() => {
+    if (!pendingPath) return
+    const timer = window.setTimeout(() => setPendingPath(null), 20000)
+    return () => window.clearTimeout(timer)
+  }, [pendingPath])
+  // A blocked navigation (for example unsaved Sourcing edits) never changes the
+  // location, so drop the optimistic highlight as soon as a blocker holds it.
+  const dataRouter = useContext(UNSAFE_DataRouterContext)?.router
+  useEffect(() => dataRouter?.subscribe((state) => {
+    if ([...state.blockers.values()].some((blocker) => blocker.state === "blocked")) setPendingPath(null)
+  }), [dataRouter])
   const queue = useQuery({
     queryKey: ["bootstrap", "queue-counts"],
     queryFn: ({signal}) => request<{actionable: number}>("/api/queue-counts", {signal}),
@@ -238,8 +277,9 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   return <div data-offerpath-workspace className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     <header className="topbar app-header">
       <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
-      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === location.pathname || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
+      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === (pendingPath ?? location.pathname) || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
       <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/system-monitoring" && <JobStatus bootstrap={bootstrap} />}</div>
+      {pendingPath && <div className="route-progress" role="progressbar" aria-label="Opening page" />}
     </header>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
@@ -247,11 +287,16 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
       <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management", "/system-monitoring"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
         // Keep the current URL, including filters updated through browser history.
         // Modified clicks retain the link's normal browser behavior.
-        if (to === location.pathname && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+        const plain = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+        if (plain && to === location.pathname) {
           event.preventDefault()
           setMobileNav(false)
+        } else if (plain) {
+          setPendingPath(to)
+          setMobileNav(false)
         }
-      }} end={to === "/"} className={({ isActive }) => `side-link ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && actionable > 0 && <span className="nav-count">{actionable}</span>}</NavLink>)}</nav>
+      }} onPointerEnter={() => preloadRoute(to)} onFocus={() => preloadRoute(to)} onPointerDown={() => preloadRoute(to)}
+      end={to === "/"} className={({ isActive }) => `side-link ${(pendingPath ? pendingPath === to : isActive) ? "active" : ""}${pendingPath === to ? " is-pending" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && actionable > 0 && <span className="nav-count">{actionable}</span>}</NavLink>)}</nav>
       <button type="button" className="sidebar-collapse" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>
     </aside>
 

@@ -66,7 +66,9 @@ export function isPageDate(value: string, allowEmpty = false): boolean {
 
 const queryKeys: Record<string, readonly string[]> = {
   "/dashboard": ["q", "days", "interval", "tz", "start", "end", "account", "bidder", "status", "action", "sort", "focus_date", "focus_category", "category", "page"],
-  "/interviews": ["account", "status", "company", "calendar_view", "calendar_date", "calendar_tz"],
+  // Filters and the view have no visible controls on Interview, so they are not
+  // restored from earlier visits; links that include them still apply.
+  "/interviews": ["calendar_date", "calendar_tz"],
   "/sourcing": ["tab", "q", "account"],
   "/": ["view", "q", "account", "category", "days"],
   "/inbox": ["view", "q", "account", "category", "days"],

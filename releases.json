@@ -1,5 +1,63 @@
 [
   {
+    "version": "3.9.10",
+    "date": "2026-11-18",
+    "title": "Less explanatory text on Bidder management",
+    "changes": [
+      "Remove the activity chart caption, the deduction rule description and the unallocated-replies subtitle to save space."
+    ]
+  },
+  {
+    "version": "3.9.9",
+    "date": "2026-11-18",
+    "title": "Simpler Sourcing toolbar",
+    "changes": [
+      "Keep only the previous/next day, date and Today controls on Sourcing, moved into the top toolbar; the second tool row is removed and the toolbar wraps neatly on smaller screens."
+    ]
+  },
+  {
+    "version": "3.9.8",
+    "date": "2026-11-18",
+    "title": "Simpler Interview calendar toolbar",
+    "changes": [
+      "Remove the calendar's top tool row and keep Check now at the end of the date row, which is now the calendar's top row."
+    ]
+  },
+  {
+    "version": "3.9.7",
+    "date": "2026-11-18",
+    "title": "Instant page navigation feedback",
+    "changes": [
+      "Highlight the page you click in the sidebar and header immediately, with a slim progress bar while it opens, instead of appearing to do nothing.",
+      "Start loading a page as soon as you point at or focus its link, so most pages open without waiting."
+    ]
+  },
+  {
+    "version": "3.9.6",
+    "date": "2026-11-18",
+    "title": "Round status indicators",
+    "changes": [
+      "Fix the grey square around status and footer dots, and restore theme glows on buttons, dialogs and counts that the dark theme had overridden."
+    ]
+  },
+  {
+    "version": "3.9.5",
+    "date": "2026-11-18",
+    "title": "Sourcing sheet fits the window",
+    "changes": [
+      "Keep the Sourcing sheet and its account tabs within the window at every header height.",
+      "Give dark-theme table headers a solid background so rows no longer show through them while scrolling."
+    ]
+  },
+  {
+    "version": "3.9.4",
+    "date": "2026-11-18",
+    "title": "Readable Dashboard metrics",
+    "changes": [
+      "Show a visible label beside each Dashboard metric icon and arrange the four totals to fit the available space."
+    ]
+  },
+  {
     "version": "3.9.3",
     "date": "2026-11-18",
     "title": "Restore Dashboard compatibility across workspace workers",

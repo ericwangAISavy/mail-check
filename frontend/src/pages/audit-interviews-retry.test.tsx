@@ -38,7 +38,7 @@ it("retries a failed interview list read without starting calendar collection",a
   mount()
   await screen.findByText("list unavailable")
   fireEvent.click(screen.getByRole("button",{name:"Try again"}))
-  await screen.findByRole("button",{name:"Month"})
+  await screen.findByRole("button",{name:"Check now"})
   expect(listReads).toBe(2)
   expect(api.post).not.toHaveBeenCalled()
   expect(screen.queryByText("list unavailable")).toBeNull()

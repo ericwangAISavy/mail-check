@@ -111,7 +111,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-function mount() {
+// Most tests exercise the editor's tool row, which the app hides by default.
+function mount(fullToolbar = true) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -119,11 +120,26 @@ function mount() {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <SourcingPage />
+        <SourcingPage fullToolbar={fullToolbar} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+it("shows only the day controls, in the top toolbar, by default", async () => {
+  mount(false);
+  const date = (await screen.findByLabelText("Job date")) as HTMLInputElement;
+  const toolbar = date.closest(".sourcing-toolbar");
+  expect(toolbar).not.toBeNull();
+  for (const name of ["Previous day", "Next day", "Today"]) expect(toolbar!.querySelector(`[aria-label="${name}"], button`)).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Today" }).closest(".sourcing-toolbar")).toBe(toolbar);
+  for (const name of ["Undo edit", "Redo edit", "Find and filter sheet", "Import CSV", "Export CSV", "Refresh sheet"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  for (const name of [/Delete rows/, /Check applications/, /^Rows$/, /Undated/, /Assign date/]) expect(screen.queryByRole("button", { name })).toBeNull();
+  expect(screen.queryByLabelText("Saved job days")).toBeNull();
+  expect(document.querySelector(".sourcing-command-bar")).toBeNull();
+  const before = date.value;
+  fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+  await waitFor(() => expect((screen.getByLabelText("Job date") as HTMLInputElement).value).not.toBe(before));
+});
 it("keeps failed-save drafts visible and prevents tab changes", async () => {
   vi.spyOn(api, "post").mockRejectedValue(
     new Error("Another person changed this cell."),

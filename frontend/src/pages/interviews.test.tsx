@@ -28,33 +28,20 @@ beforeEach(()=>{
 afterEach(()=>{vi.useRealTimers();cleanup();clients.splice(0).forEach(c=>c.clear());vi.clearAllMocks()})
 function ChangeInterview() { const navigate=useNavigate(); return <button data-testid="other-interview" onClick={()=>navigate("/interviews?event=2")}>Navigate to another interview</button> }
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client);render(<QueryClientProvider client={client}><MemoryRouter><ChangeInterview/><ToastProvider><InterviewsPage bootstrap={bootstrap}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
-it("renders real records in month, week, and day views with date navigation",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
-  expect(screen.getByRole("button",{name:"Work week"}).getAttribute("aria-pressed")).toBe("true")
-  fireEvent.click(screen.getByRole("button",{name:"Month"}))
-  await waitFor(()=>expect(document.querySelectorAll('.calendar-day').length).toBe(42))
-  expect(document.querySelector('.calendar-day .interview-event')).toBeTruthy()
-  fireEvent.click(screen.getByRole("button",{name:"Week"}));expect(document.querySelectorAll('.calendar-day').length).toBe(7)
-  fireEvent.click(screen.getByRole("button",{name:"Day"}));expect(document.querySelectorAll('.calendar-day').length).toBe(1)
+it("renders real records in the work week with date navigation",async()=>{
+  mount();await screen.findByRole("button",{name:"Check now"})
+  await waitFor(()=>expect(document.querySelectorAll('.calendar-day').length).toBe(5))
   const day=document.querySelector('.calendar-day')!.getAttribute('aria-label')
   fireEvent.click(screen.getByRole("button",{name:"Next calendar period"}));expect(document.querySelector('.calendar-day')!.getAttribute('aria-label')).not.toBe(day)
   fireEvent.click(screen.getByRole("button",{name:"Today"}));expect(document.querySelector('.calendar-day')!.getAttribute('aria-label')).toBe(day)
 })
-it("filters real account, company, and status and collects calendar events without a model",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
-  fireEvent.click(screen.getByRole("button",{name:"Filter"}))
-  fireEvent.change(screen.getByLabelText("Account"),{target:{value:"personal"}})
-  await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes("account=personal"))).toBe(true))
-  await screen.findByRole("button",{name:"Month"})
-  fireEvent.change(screen.getByLabelText("Status"),{target:{value:"Cancelled"}})
-  await screen.findByRole("button",{name:"Month"})
-  fireEvent.change(screen.getByLabelText("Company"),{target:{value:"Acme"}})
-  await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes('account=personal')&&url.includes('status=Cancelled')&&url.includes('company=Acme'))).toBe(true))
-  fireEvent.click(screen.getByRole("button",{name:"Check now"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/interviews/sync"))
-  expect(screen.queryByRole("button",{name:"Import saved invitations"})).toBeNull()
+it("keeps only Check now beside the calendar date row",async()=>{
+  mount();await screen.findByRole("button",{name:"Check now"})
+  for(const name of ["Month","Week","Day","Work week","Split view","Filter","Print","Refresh"])expect(screen.queryByRole("button",{name})).toBeNull()
+  expect(screen.getByRole("button",{name:"Check now"}).closest(".outlook-date-bar")).not.toBeNull()
 })
 it("opens event details and persists only fields explicitly corrected",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   await within(dialog).findByRole("button",{name:"Edit details"})
@@ -68,7 +55,7 @@ it("opens event details and persists only fields explicitly corrected",async()=>
 it("protects interview corrections during a pending save and preserves a failed draft",async()=>{
   let rejectSave!:(error:Error)=>void
   vi.mocked(api.post).mockImplementation(()=>new Promise((_,reject)=>{rejectSave=reject}))
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -83,7 +70,7 @@ it("protects interview corrections during a pending save and preserves a failed 
 })
 it("shows only dated calendar events without upcoming or review panels",async()=>{
   current={...event(),start_at:null,end_at:null,display_status:'Needs review',needs_review:true}
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   expect(document.querySelector('.calendar-day .interview-event')).toBeNull()
   expect(document.querySelector('.interview-agenda')).toBeNull()
   expect(document.querySelector('.interview-summary')).toBeNull()
@@ -92,7 +79,7 @@ it("shows only dated calendar events without upcoming or review panels",async()=
 })
 it("sends the editor timezone when correcting a date with missing original timezone",async()=>{
   current={...event(),timezone:null}
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -107,7 +94,7 @@ it("sends the editor timezone when correcting a date with missing original timez
 it("resets editing and drafts when navigation selects another event",async()=>{
   const original=vi.mocked(request).getMockImplementation()!
   vi.mocked(request).mockImplementation(async(url,...rest)=>url==='/api/interviews/2'?{event:{...event(),id:2,company:'Second Company'},sources:[]} as any:original(url,...rest))
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   let dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -119,7 +106,7 @@ it("resets editing and drafts when navigation selects another event",async()=>{
   expect((within(dialog).getByLabelText('Company') as HTMLInputElement).value).toBe('Second Company')
 })
 it("does not protect an unchanged end time when only the start is corrected",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -130,7 +117,7 @@ it("does not protect an unchanged end time when only the start is corrected",asy
 })
 
 it('shows only useful details and the linked email account',async()=>{
- mount();await screen.findByRole('button',{name:'Month'})
+ mount();await screen.findByRole('button',{name:'Check now'})
  fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
  const dialog=await screen.findByRole('dialog')
  await within(dialog).findByText('Email account')
@@ -144,7 +131,7 @@ it('shows only useful details and the linked email account',async()=>{
 })
 it("removes a saved event and closes its details", async () => {
   mount()
-  await screen.findByRole("button", {name:"Month"})
+  await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button", {name:/Acme, Technical Interview/})[0])
   const dialog = await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button", {name:"Edit details"}))
@@ -155,7 +142,7 @@ it("removes a saved event and closes its details", async () => {
 it("keeps the event details open if removal fails", async () => {
   vi.mocked(api.post).mockRejectedValueOnce(new Error("Could not remove event"))
   mount()
-  await screen.findByRole("button", {name:"Month"})
+  await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button", {name:/Acme, Technical Interview/})[0])
   const dialog = await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button", {name:"Edit details"}))
@@ -164,9 +151,9 @@ it("keeps the event details open if removal fails", async () => {
   expect((within(dialog).getByRole("button", {name:"Remove from calendar"}) as HTMLButtonElement).disabled).toBe(false)
 })
 
-it('Refresh requests a real Outlook calendar sync',async()=>{
-  mount();await screen.findByRole('button',{name:'Month'})
-  fireEvent.click(screen.getByRole('button',{name:'Refresh'}))
+it('Check now requests a real Outlook calendar sync',async()=>{
+  mount();await screen.findByRole('button',{name:'Check now'})
+  fireEvent.click(screen.getByRole('button',{name:'Check now'}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/sync'))
 })
 
@@ -181,7 +168,7 @@ it('deduplicates native accounts and contacts without treating the event title a
   if(url==='/api/interviews/1')return {event:current,sources:[1,2].map(id=>({id,account_id:1,message_pk:null,account_label:'work',account_email:id===1?'work@example.test':'WORK@example.test',source_subject:current.company}))} as any
   return base(url,init)
  })
- mount();await screen.findByRole('button',{name:'Month'})
+ mount();await screen.findByRole('button',{name:'Check now'})
  fireEvent.click(screen.getAllByRole('button',{name:/CONFIRMED - VIDEO Interview/})[0])
  const dialog=await screen.findByRole('dialog')
  await within(dialog).findByText('Email account')
@@ -198,7 +185,7 @@ it('deduplicates native accounts and contacts without treating the event title a
 it('shows extracted interviewers instead of treating every attendee as an interviewer',async()=>{
  current.interviewers=['Rebecca Moore <rebecca@airbus.com>']
  current.participants=['scheduler@airbus.com','candidate@example.test']
- mount();await screen.findByRole('button',{name:'Month'})
+ mount();await screen.findByRole('button',{name:'Check now'})
  fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
  const dialog=await screen.findByRole('dialog')
  await within(dialog).findByText('Rebecca Moore <rebecca@airbus.com>')
@@ -211,7 +198,7 @@ it('shows extracted interviewers instead of treating every attendee as an interv
 })
 it('keeps explicitly cleared interviewers empty instead of restoring unrelated attendees',async()=>{
  current.interviewers=[];current.manual_fields=['interviewers']
- mount();await screen.findByRole('button',{name:'Month'})
+ mount();await screen.findByRole('button',{name:'Check now'})
  fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
  const dialog=await screen.findByRole('dialog')
  await within(dialog).findByText('Interviewer / contact')

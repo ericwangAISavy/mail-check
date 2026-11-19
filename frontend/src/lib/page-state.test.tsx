@@ -83,10 +83,10 @@ it("applies an optional domain validator to saved primitives",()=>{
  function Domain(){const [value]=usePageState('domain','tab','all',value=>['all','active'].includes(value));return <output>{value}</output>}
  render(<PageStateProvider scope="a"><Domain/></PageStateProvider>);expect(screen.getByText('all')).toBeTruthy()
 })
-it("restores calendar mode, date and timezone without event detail or duplicate loss",async()=>{
- let view=router('/interviews?calendar_view=week&calendar_date=2026-11-09&calendar_tz=UTC&calendar_tz=America%2FChicago&event=5&reply=1');view.unmount()
+it("restores the calendar date and timezone, but not hidden filters or view",async()=>{
+ let view=router('/interviews?calendar_view=week&account=work&status=Cancelled&company=Acme&calendar_date=2026-11-09&calendar_tz=UTC&calendar_tz=America%2FChicago&event=5&reply=1');view.unmount()
  view=router('/interviews')
- await waitFor(()=>expect(screen.getByText('/interviews?calendar_view=week&calendar_date=2026-11-09&calendar_tz=UTC&calendar_tz=America%2FChicago')).toBeTruthy())
+ await waitFor(()=>expect(screen.getByText('/interviews?calendar_date=2026-11-09&calendar_tz=UTC&calendar_tz=America%2FChicago')).toBeTruthy())
  view.unmount()
 })
 

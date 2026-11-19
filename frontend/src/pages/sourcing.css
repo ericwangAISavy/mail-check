@@ -338,8 +338,9 @@
 .sourcing-grid .sheet-highlight-row {
   background: color-mix(in srgb, var(--primary) 14%, var(--background));
 }
+/* The header sits above the content area, so the frame's grid row (not the
+   window height) sets this area's height. */
 .sourcing-workspace {
-  height: 100dvh !important;
   min-height: 0 !important;
   overflow: hidden;
 }
@@ -667,3 +668,21 @@
 .sheet-verification-details summary {cursor:pointer; color:var(--muted-foreground);}
 .sheet-verification-details ul {margin:.75rem 0 0; padding-left:1.25rem;}
 .sheet-verification-details li {margin:.4rem 0; overflow-wrap:anywhere;}
+
+/* Day controls sit in the top toolbar after the workbook name; the editor's own
+   tool row is hidden. Empty when no sheet is open. */
+.sourcing-toolbar-days:empty { display: none; }
+.sourcing-toolbar-days { display: flex; flex: none; align-items: center; min-width: 0; }
+.sourcing-toolbar-days .sheet-days { display: flex; align-items: center; gap: 4px; min-height: 0; padding: 0 0 0 12px; border: 0; border-left: 1px solid var(--border); background: transparent; }
+.sourcing-toolbar-days .sheet-days > svg { display: none; }
+.sourcing-toolbar-days .sheet-days input { width: 132px; height: 34px; }
+.sourcing-toolbar .sourcing-book-title { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 1150px) {
+  .sourcing-toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .sourcing-toolbar .sourcing-search { margin-left: 0; flex: 1 1 260px; max-width: none; }
+}
+@media (max-width: 700px) {
+  .sourcing-toolbar-days { flex: 1 1 100%; }
+  .sourcing-toolbar-days .sheet-days { padding-left: 0; border-left: 0; }
+  .sourcing-toolbar-days .sheet-days input { flex: 1 1 auto; width: auto; min-width: 0; }
+}

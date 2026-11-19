@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { UNSAFE_DataRouterContext } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   Check,
   Download,
@@ -77,6 +78,8 @@ export default function SourcingEditor({
   highlightRow,
   initialDay,
   onDayChange,
+  daySlot = null,
+  fullToolbar = false,
 }: {
   tab: Tab;
   onDirty: (dirty: boolean) => void;
@@ -84,6 +87,10 @@ export default function SourcingEditor({
   highlightRow?: number;
   initialDay?: string;
   onDayChange?: (day: string) => void;
+  /** Page toolbar element that hosts the day controls. */
+  daySlot?: HTMLElement | null;
+  /** Show the editor's own tool row (undo, rows, filters, checks, import/export). */
+  fullToolbar?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [changes, setChanges] = useState<Change[]>([]),
@@ -628,7 +635,22 @@ export default function SourcingEditor({
       {dataRouter && (
         <SourcingDraftGuard dirty={dirty || saving} saving={saving} />
       )}
-      <div className="sourcing-command-bar">
+      {!fullToolbar && daySlot && createPortal(
+        <SourcingDays
+          compact
+          day={day}
+          onChange={(next) => {
+            history.current = [];
+            future.current = [];
+            setDay(next);
+            setView(defaultView);
+          }}
+          disabled={locked || dirty || loading || !!structureOpen}
+          snapshot={snapshot}
+          onAssign={openAssign}
+          canAssign={selectedJobs.length > 0 && selectedJobs.length <= 1000}
+        />, daySlot)}
+      {fullToolbar && <div className="sourcing-command-bar">
       <SourcingDays
         day={day}
         onChange={(next) => {
@@ -736,7 +758,7 @@ export default function SourcingEditor({
           <RefreshCw size={16} />
         </Button>
       </div>
-      </div>
+      </div>}
       {snapshot?.verification?.day===day && Boolean(snapshot.verification.unmatched_count) && (
         <details className="sheet-verification-details">
           <summary>{snapshot.verification.unmatched_count} {snapshot.verification.unmatched_count===1?"link remains":"links remain"} unchecked — view reasons</summary>

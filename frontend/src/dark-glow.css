@@ -3,14 +3,14 @@
 
    State rules follow three standards:
    1. Rest, hover and focus share the same layers. Hover only animates the
-      registered --glow intensity, so entering and leaving look the same and
+      registered --glow-level intensity, so entering and leaving look the same and
       never swap a gradient for a flat fill.
    2. Interactive selectors list their own :hover state, so older theme hover
       rules cannot replace a gradient or recolour a gradient rim mid-hover.
    3. Panels and fields use :where() (lowest specificity), so page-specific
       states such as error borders and borderless panels keep winning. */
 
-@property --glow {
+@property --glow-level {
   syntax: "<number>";
   inherits: false;
   initial-value: 0;
@@ -57,18 +57,18 @@
   border-right: 1px solid rgb(103 214 243 / .13);
 }
 .dark .sidebar .side-link:hover:not(.active) { background: rgb(103 214 243 / .07); }
-/* Active item: one gradient fill and rim in every state; hover only raises --glow. */
+/* Active item: one gradient fill and rim in every state; hover only raises --glow-level. */
 .dark .sidebar .side-link.active,
 .dark .sidebar .side-link.active:hover {
   color: #fff;
   border: 1px solid transparent;
   background:
-    linear-gradient(90deg, rgb(34 211 238 / calc(.16 + var(--glow) * .06)), rgb(59 130 246 / calc(.08 + var(--glow) * .04)) 70%, rgb(59 130 246 / .04)) padding-box,
-    linear-gradient(90deg, rgb(103 232 249 / calc(.38 + var(--glow) * .18)), rgb(59 130 246 / .16) 60%, rgb(103 214 243 / .10)) border-box;
-  box-shadow: 0 0 20px -8px rgb(34 211 238 / calc(.22 + var(--glow) * .14));
-  transition: --glow var(--glow-ease), color var(--glow-ease);
+    linear-gradient(90deg, rgb(34 211 238 / calc(.16 + var(--glow-level) * .06)), rgb(59 130 246 / calc(.08 + var(--glow-level) * .04)) 70%, rgb(59 130 246 / .04)) padding-box,
+    linear-gradient(90deg, rgb(103 232 249 / calc(.38 + var(--glow-level) * .18)), rgb(59 130 246 / .16) 60%, rgb(103 214 243 / .10)) border-box;
+  box-shadow: 0 0 20px -8px rgb(34 211 238 / calc(.22 + var(--glow-level) * .14));
+  transition: --glow-level var(--glow-ease), color var(--glow-ease);
 }
-.dark .sidebar .side-link.active:hover { --glow: 1; }
+.dark .sidebar .side-link.active:hover { --glow-level: 1; }
 /* The existing left indicator is the single accent bar; give it the glow. */
 .dark .sidebar .side-link.active::before { background: var(--glow-ice); box-shadow: 0 0 6px rgb(34 211 238 / .6); }
 .dark .sidebar .side-link.active > svg { color: var(--glow-ice); background: rgb(34 211 238 / .11); filter: drop-shadow(0 0 4px rgb(34 211 238 / .3)); }
@@ -94,7 +94,7 @@
 .dark :where(.section-symbol, .reader-empty-icon, .account-icon) { color: var(--glow-ice); }
 
 /* Buttons. Each variant lists its hover state so older hover rules cannot
-   flatten the gradient or recolour the rim; hover only animates --glow. */
+   flatten the gradient or recolour the rim; hover only animates --glow-level. */
 .dark .btn[data-variant="default"],
 .dark .btn[data-variant="default"]:hover:not(:disabled) {
   color: #062a2f;
@@ -102,13 +102,13 @@
   border-color: transparent;
   /* A muted sea-glass teal: cool and calm rather than saturated blue. */
   background: linear-gradient(180deg, #6fc7cf 0%, #4ea9b3 100%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 0 0 1px rgb(160 226 230 / calc(.22 + var(--glow) * .14)), 0 6px 16px -10px rgb(78 169 179 / calc(.35 + var(--glow) * .2));
-  filter: brightness(calc(1 + var(--glow) * .05));
-  transition: --glow var(--glow-ease), opacity var(--glow-ease);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 0 0 1px rgb(160 226 230 / calc(.22 + var(--glow-level) * .14)), 0 6px 16px -10px rgb(78 169 179 / calc(.35 + var(--glow-level) * .2));
+  filter: brightness(calc(1 + var(--glow-level) * .05));
+  transition: --glow-level var(--glow-ease), opacity var(--glow-ease);
 }
 /* One control surface for outline buttons, secondary (pressed) buttons and every
    select: dark glass fill, cyan-to-blue gradient rim, glow on hover. The fill and
-   rim are repeated per rule because they read each element's own --glow. */
+   rim are repeated per rule because they read each element's own --glow-level. */
 .dark .btn:is([data-variant="outline"], [data-variant="secondary"]),
 .dark .btn:is([data-variant="outline"], [data-variant="secondary"]):hover:not(:disabled),
 .dark .sidebar-collapse,
@@ -116,19 +116,19 @@
   color: var(--foreground);
   border: 1px solid transparent;
   background:
-    linear-gradient(180deg, rgb(calc(15 + var(--glow) * 6) calc(28 + var(--glow) * 12) calc(44 + var(--glow) * 16) / .94), rgb(calc(9 + var(--glow) * 4) calc(18 + var(--glow) * 8) calc(30 + var(--glow) * 10) / .94)) padding-box,
-    linear-gradient(135deg, rgb(103 214 243 / calc(.20 + var(--glow) * .24)), rgb(59 130 246 / calc(.07 + var(--glow) * .12)) 45%, rgb(103 214 243 / calc(.16 + var(--glow) * .2))) border-box;
-  box-shadow: 0 0 16px -8px rgb(34 211 238 / calc(var(--glow) * .32));
-  transition: --glow var(--glow-ease), color var(--glow-ease), opacity var(--glow-ease);
+    linear-gradient(180deg, rgb(calc(15 + var(--glow-level) * 6) calc(28 + var(--glow-level) * 12) calc(44 + var(--glow-level) * 16) / .94), rgb(calc(9 + var(--glow-level) * 4) calc(18 + var(--glow-level) * 8) calc(30 + var(--glow-level) * 10) / .94)) padding-box,
+    linear-gradient(135deg, rgb(103 214 243 / calc(.20 + var(--glow-level) * .24)), rgb(59 130 246 / calc(.07 + var(--glow-level) * .12)) 45%, rgb(103 214 243 / calc(.16 + var(--glow-level) * .2))) border-box;
+  box-shadow: 0 0 16px -8px rgb(34 211 238 / calc(var(--glow-level) * .32));
+  transition: --glow-level var(--glow-ease), color var(--glow-ease), opacity var(--glow-ease);
 }
 /* Secondary marks a pressed/expanded control: it stays at the hover level. */
-.dark .btn[data-variant="secondary"] { --glow: 1; }
+.dark .btn[data-variant="secondary"] { --glow-level: 1; }
 .dark .btn[data-variant="ghost"]:hover:not(:disabled) { background: rgb(103 214 243 / .08); border-color: transparent; color: var(--foreground); }
-.dark :is(.btn:is([data-variant="default"], [data-variant="outline"]), .sidebar-collapse):hover:not(:disabled) { --glow: 1; }
+.dark :is(.btn:is([data-variant="default"], [data-variant="outline"]), .sidebar-collapse):hover:not(:disabled) { --glow-level: 1; }
 .dark .sidebar-collapse:hover { color: var(--glow-ice); }
 .dark .sidebar-collapse:focus-visible { outline: 2px solid var(--glow-ice); outline-offset: 2px; }
 /* Disabled controls never glow. */
-.dark .btn:is([data-variant="default"], [data-variant="outline"], [data-variant="secondary"]):disabled { --glow: 0; box-shadow: none; filter: none; }
+.dark .btn:is([data-variant="default"], [data-variant="outline"], [data-variant="secondary"]):disabled { --glow-level: 0; box-shadow: none; filter: none; }
 
 /* Selects share the same surface; the chevron stays as the top background layer.
    :root.dark outranks page toolbars that recolour select borders. */
@@ -138,15 +138,15 @@
   border: 1px solid transparent;
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2367d6f3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center / 16px,
-    linear-gradient(180deg, rgb(calc(15 + var(--glow) * 6) calc(28 + var(--glow) * 12) calc(44 + var(--glow) * 16) / .94), rgb(calc(9 + var(--glow) * 4) calc(18 + var(--glow) * 8) calc(30 + var(--glow) * 10) / .94)) padding-box,
-    linear-gradient(135deg, rgb(103 214 243 / calc(.20 + var(--glow) * .24)), rgb(59 130 246 / calc(.07 + var(--glow) * .12)) 45%, rgb(103 214 243 / calc(.16 + var(--glow) * .2))) border-box;
-  box-shadow: 0 0 16px -8px rgb(34 211 238 / calc(var(--glow) * .32));
-  transition: --glow var(--glow-ease), color var(--glow-ease), opacity var(--glow-ease);
+    linear-gradient(180deg, rgb(calc(15 + var(--glow-level) * 6) calc(28 + var(--glow-level) * 12) calc(44 + var(--glow-level) * 16) / .94), rgb(calc(9 + var(--glow-level) * 4) calc(18 + var(--glow-level) * 8) calc(30 + var(--glow-level) * 10) / .94)) padding-box,
+    linear-gradient(135deg, rgb(103 214 243 / calc(.20 + var(--glow-level) * .24)), rgb(59 130 246 / calc(.07 + var(--glow-level) * .12)) 45%, rgb(103 214 243 / calc(.16 + var(--glow-level) * .2))) border-box;
+  box-shadow: 0 0 16px -8px rgb(34 211 238 / calc(var(--glow-level) * .32));
+  transition: --glow-level var(--glow-ease), color var(--glow-ease), opacity var(--glow-ease);
 }
-:root.dark body select:not([multiple]):hover:not(:disabled) { --glow: 1; }
+:root.dark body select:not([multiple]):hover:not(:disabled) { --glow-level: 1; }
 :root.dark body select:not([multiple]):focus { outline: none; }
-:root.dark body select:not([multiple]):focus-visible { --glow: 1; outline: 2px solid var(--glow-ice); outline-offset: 2px; }
-:root.dark body select:not([multiple]):disabled { --glow: 0; box-shadow: none; }
+:root.dark body select:not([multiple]):focus-visible { --glow-level: 1; outline: 2px solid var(--glow-ice); outline-offset: 2px; }
+:root.dark body select:not([multiple]):disabled { --glow-level: 0; box-shadow: none; }
 /* Error borders keep priority over the rim in every state. */
 :root.dark body select:not([multiple])[aria-invalid="true"],
 :root.dark body select:not([multiple])[aria-invalid="true"]:is(:hover, :focus):not(:disabled) { border-color: var(--destructive); }
@@ -169,8 +169,9 @@
   outline: none;
 }
 
-/* Tables: a faint lit header row. */
-.dark :where(table thead th, .rdg-header-row) { background: linear-gradient(180deg, rgb(34 211 238 / .045), rgb(34 211 238 / .012)); }
+/* Tables: a faint lit header row. The tint sits on a solid fill, because header
+   rows are often pinned and rows scroll beneath them. */
+.dark :where(table thead th, .rdg-header-row) { background: linear-gradient(180deg, rgb(34 211 238 / .045), rgb(34 211 238 / .012)), #0c1726; }
 
 /* Dialogs share the panel treatment. */
 .dark :where([role="dialog"]) {

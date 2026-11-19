@@ -33,7 +33,10 @@ interface SearchResult {
   row: number;
   refreshed_at: number;
 }
-export default function SourcingPage() {
+/** fullToolbar shows the sheet editor's own tool row; the app keeps it hidden. */
+export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: boolean } = {}) {
+  // The sheet editor renders its day controls into this top-toolbar slot.
+  const [daySlot, setDaySlot] = useState<HTMLDivElement | null>(null);
   const { role } = useAuth(),
     admin = role === "admin";
   const [params, setParams] = useSearchParams(),
@@ -127,6 +130,7 @@ export default function SourcingPage() {
           ))}
         </select>
         <span className="sourcing-book-title">{book?.title}</span>
+        <div className="sourcing-toolbar-days" ref={setDaySlot} />
         {missingLinks.length > 0 && <div className="sourcing-missing-links" role="status" aria-live="polite">
           <TriangleAlert size={16} aria-hidden="true" />
           <span><strong>No job links · {workDay}:</strong> {missingLinks.map(book => book.name).join(", ")}</span>
@@ -239,6 +243,8 @@ export default function SourcingPage() {
           initialDay={workDay}
           onDirty={updateDirty}
           onDayChange={setWorkDay}
+          daySlot={daySlot}
+          fullToolbar={fullToolbar}
           highlightId={params.get("row_id") || undefined}
           highlightRow={
             params.has("row") ? Number(params.get("row")) : undefined
