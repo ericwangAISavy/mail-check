@@ -2,6 +2,16 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.10.0 — 2026-11-19
+
+Graph-based system monitoring
+
+- System monitoring now shows graphs for traffic, server errors, response time, job outcomes and queue backlog over the last 1, 6 or 24 hours.
+- Key numbers (requests, error rate, p95 response time, jobs completed, retries and failures, backlog) appear as tiles with trend lines.
+- Service health is a compact strip with ready counts, and a per-stage table shows failure rates, job time and live queues.
+- Recent problems lists retries and failures; the long explanations and dot timeline are gone.
+- Job activity is recorded more reliably and with less disk work.
+
 ## 3.9.10 — 2026-11-18
 
 Less explanatory text on Bidder management

@@ -94,13 +94,28 @@ def read_redis(settings, workspace_ids):
     return result
 
 
+def queue_totals(snapshot):
+    """Queue depth per stage across workspaces, as the page shows it."""
+    if snapshot.get('architecture') == 'shared':
+        return snapshot.get('global_queues') or []
+    totals = {}
+    for workspace in snapshot.get('workspaces', []):
+        for queue in workspace.get('queues', []):
+            row = totals.setdefault(queue['kind'], dict(kind=queue['kind'], pending=0, retry=0, dead=0))
+            for key in ('pending', 'retry', 'dead'):
+                row[key] += queue[key]
+    return list(totals.values())
+
+
 class Monitor:
     def __init__(self, store, pool, model_activity=None):
+        from .monitoring_metrics import QueueHistory
         self.store, self.pool = store, pool
         self.model_activity = model_activity
         self._lock = threading.Lock()
         self._cached = None
         self._expires = 0
+        self.queue_history = QueueHistory()
 
     def snapshot(self):
         # Multiple tabs share probe work without spawning unbounded jobs.
@@ -109,7 +124,16 @@ class Monitor:
                 return self._cached
             result = self._collect()
             self._cached, self._expires = result, time.monotonic()+2
+            queues = queue_totals(result)
+            if queues:
+                self.queue_history.record(queues)
             return result
+
+    def job_minutes(self, since_minute):
+        from .monitoring_metrics import read_job_minutes
+        if not getattr(self.pool, 'amqp_url', None):
+            return {}
+        return read_job_minutes(Path(self.store.root)/'shared-runtime'/'metrics.json', since_minute)
 
     def _collect(self):
         if getattr(self.pool,'amqp_url',None):
@@ -183,10 +207,57 @@ class Monitor:
                     event_retention=1000)
 
 
-def install(app, store, pool, owner, model_activity=None):
+def _sample_queues(reference, stop):
+    """Keep queue-depth history while nobody is watching the page."""
+    from .monitoring_metrics import QUEUE_SAMPLE_SECONDS
+    while not stop.wait(QUEUE_SAMPLE_SECONDS):
+        monitor = reference()
+        if monitor is None:
+            return
+        try:
+            monitor.snapshot()
+        except Exception:
+            pass
+        del monitor
+
+
+def install(app, store, pool, owner, model_activity=None, sample_queues=None):
+    import weakref
+    from fastapi import HTTPException
+    from .monitoring_metrics import RANGES, build_series
+    from .traffic_metrics import TrafficMetrics, TrafficMiddleware
     monitor = Monitor(store, pool, model_activity)
+    traffic = TrafficMetrics()
+    app.add_middleware(TrafficMiddleware, metrics=traffic)
+    app.state.traffic_metrics = traffic
+    app.state.system_monitor = monitor
+    if sample_queues is None:
+        sample_queues = bool(getattr(pool, 'amqp_url', None))
+    if sample_queues:
+        stop = threading.Event()
+        app.state.monitoring_stop = stop
+        threading.Thread(target=_sample_queues, args=(weakref.ref(monitor), stop),
+                         daemon=True, name='monitor-queue-sampler').start()
+    series_cache, series_lock = {}, threading.Lock()
 
     @app.get('/api/admin/system-monitoring')
     def snapshot(request: Request):
         owner(request)
         return monitor.snapshot()
+
+    @app.get('/api/admin/system-monitoring/metrics')
+    def metrics(request: Request, range: str = '1h'):
+        owner(request)
+        if range not in RANGES:
+            raise HTTPException(422, 'Choose a range of 1h, 6h or 24h.')
+        with series_lock:
+            cached = series_cache.get(range)
+            if cached and time.monotonic() < cached[0]:
+                return cached[1]
+            step, count = RANGES[range]
+            since = int((time.time() - step * (count + 1)) // 60)
+            jobs_tracked = bool(getattr(pool, 'amqp_url', None))
+            result = build_series(range, traffic.rows(since), monitor.job_minutes(since),
+                                  monitor.queue_history.rows(since), jobs_tracked=jobs_tracked)
+            series_cache[range] = (time.monotonic() + 5, result)
+            return result

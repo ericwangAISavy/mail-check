@@ -1,5 +1,17 @@
 [
   {
+    "version": "3.10.0",
+    "date": "2026-11-19",
+    "title": "Graph-based system monitoring",
+    "changes": [
+      "System monitoring now shows graphs for traffic, server errors, response time, job outcomes and queue backlog over the last 1, 6 or 24 hours.",
+      "Key numbers (requests, error rate, p95 response time, jobs completed, retries and failures, backlog) appear as tiles with trend lines.",
+      "Service health is a compact strip with ready counts, and a per-stage table shows failure rates, job time and live queues.",
+      "Recent problems lists retries and failures; the long explanations and dot timeline are gone.",
+      "Job activity is recorded more reliably and with less disk work."
+    ]
+  },
+  {
     "version": "3.9.10",
     "date": "2026-11-18",
     "title": "Less explanatory text on Bidder management",
