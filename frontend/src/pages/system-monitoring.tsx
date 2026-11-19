@@ -100,7 +100,7 @@ export default function SystemMonitoring(){
  return <div className="page-wrap system-monitoring-page">
   <PageHeading title="System monitoring"/>
   <div className="monitor-toolbar">
-   <div className="monitor-ranges" role="group" aria-label="Time range">{RANGES.map(r=><button key={r.value} type="button" aria-pressed={range===r.value} onClick={()=>setRange(r.value)}>{r.label}</button>)}</div>
+   <div className="monitor-ranges" role="group" aria-label="Time range">{RANGES.map(r=><button key={r.value} type="button" aria-pressed={range===r.value} disabled={paused} title={paused?'Resume live updates to change the range':undefined} onClick={()=>setRange(r.value)}>{r.label}</button>)}</div>
    <span className={`monitor-live${live.isError&&!paused?' is-error':''}`}>{paused?'Paused':live.isError?'Connection lost':'Live'}{data&&<span className="muted"> · {new Date(data.checked_at*1000).toLocaleTimeString()}</span>}</span>
    <Button variant="outline" size="sm" onClick={()=>{if(!paused)setFrozen({snapshot:live.data,metrics:series.data});setPaused(!paused)}}>{paused?<Play size={15}/>:<Pause size={15}/>} {paused?'Resume live updates':'Pause live updates'}</Button>
    <Button variant="outline" size="sm" disabled={live.isFetching||paused} onClick={()=>{void live.refetch();void series.refetch()}} aria-label="Refresh monitoring"><RefreshCw size={15}/></Button>

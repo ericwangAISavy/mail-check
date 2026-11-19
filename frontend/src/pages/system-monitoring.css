@@ -17,7 +17,8 @@
 .monitor-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:4px 0 16px}
 .monitor-ranges{display:inline-flex;padding:3px;gap:2px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
 .monitor-ranges button{border:0;background:transparent;color:var(--muted-foreground);font:inherit;font-size:12.5px;font-weight:550;padding:6px 12px;border-radius:7px;cursor:pointer}
-.monitor-ranges button:hover{color:var(--foreground);background:var(--mon-track)}
+.monitor-ranges button:hover:not(:disabled){color:var(--foreground);background:var(--mon-track)}
+.monitor-ranges button:disabled{cursor:not-allowed;opacity:.55}
 .monitor-ranges button[aria-pressed="true"]{color:var(--foreground);background:color-mix(in srgb,var(--mon-blue) 22%,transparent)}
 .monitor-ranges button:focus-visible{outline:2px solid var(--mon-blue);outline-offset:1px}
 .monitor-live{display:inline-flex;align-items:center;gap:6px;margin-right:auto;font-size:13px;font-weight:600}

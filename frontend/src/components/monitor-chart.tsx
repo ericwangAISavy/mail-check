@@ -26,7 +26,7 @@ const isolated=(values:(number|null)[])=>values.flatMap((v,i)=>present(v)&&!pres
 
 function MonitorChart({title,buckets,step,series,format,height=180,summary}:Props){
  const wrap=useRef<HTMLDivElement>(null)
- const [width,setWidth]=useState(0),[active,setActive]=useState<number|null>(null),[table,setTable]=useState(false)
+ const [width,setWidth]=useState(0),[hover,setActive]=useState<number|null>(null),[table,setTable]=useState(false)
  useLayoutEffect(()=>{
   const node=wrap.current;if(!node)return
   setWidth(node.clientWidth)
@@ -34,6 +34,8 @@ function MonitorChart({title,buckets,step,series,format,height=180,summary}:Prop
   observer.observe(node);return()=>observer.disconnect()
  },[])
  const count=buckets.length,bars=series.filter(s=>s.type==='bar'),lines=series.filter(s=>s.type==='line')
+ // A range switch changes the bucket count; never point past the new end.
+ const active=hover!==null&&hover<count?hover:null
  const top=useMemo(()=>{
   let max=0
   for(let i=0;i<count;i++){
@@ -68,9 +70,9 @@ function MonitorChart({title,buckets,step,series,format,height=180,summary}:Prop
    </span>
   </figcaption>
   {table?<div className="monitor-chart-table"><table><thead><tr><th>Time</th>{series.map(s=><th key={s.key}>{s.label}</th>)}</tr></thead><tbody>{buckets.map((at,i)=>series.some(s=>(s.values[i]??0)>0)&&<tr key={at}><td>{time(at)}</td>{series.map(s=><td key={s.key}>{s.values[i]===null?'—':format(s.values[i] as number)}</td>)}</tr>)}</tbody></table>{empty&&<p className="monitor-chart-empty">No activity in this range.</p>}</div>:
-  <div ref={wrap} className="monitor-chart-plot" style={{height}} tabIndex={0} role="img" aria-label={`${title}. Use the left and right arrow keys to read values.`}
+  <div ref={wrap} className="monitor-chart-plot" style={{height}} tabIndex={0} role="group" aria-label={`${title}. Use the left and right arrow keys to read values.`}
    onPointerMove={(e:PointerEvent)=>pick(e.clientX)} onPointerLeave={()=>setActive(null)} onKeyDown={onKey} onBlur={()=>setActive(null)}>
-   {width>0&&<svg width={width} height={height} aria-hidden="true">
+   {width>0&&<svg width={width} height={height} aria-hidden="true" focusable="false">
     {ticks.map(t=><g key={t}><line x1={PAD.left} x2={PAD.left+plotW} y1={y(t)} y2={y(t)} className={t===0?'monitor-axis':'monitor-grid'}/><text x={PAD.left-8} y={y(t)+4} textAnchor="end" className="monitor-tick">{format(t)}</text></g>)}
     {buckets.map((at,i)=>i%every===0&&<text key={at} x={x(i)} y={height-6} textAnchor="middle" className="monitor-tick">{time(at)}</text>)}
     {bars.length>0&&buckets.map((_,i)=>{
@@ -88,7 +90,7 @@ function MonitorChart({title,buckets,step,series,format,height=180,summary}:Prop
     {active!==null&&lines.map(s=>s.values[active]!==null&&<circle key={s.key} cx={x(active)} cy={y(s.values[active] as number)} r={4} fill={s.color} className="monitor-dot"/>)}
    </svg>}
    {empty&&width>0&&<p className="monitor-chart-empty">No activity in this range.</p>}
-   {active!==null&&<div className="monitor-tooltip" style={{left:tipLeft}} role="status">
+   {active!==null&&<div className="monitor-tooltip" style={{left:tipLeft}} role="status" aria-live="polite">
     <span className="monitor-tooltip-time">{time(buckets[active])} – {time(buckets[active]+step)}</span>
     {series.map(s=><span key={s.key} className="monitor-tooltip-row"><i className={s.type==='line'?'is-line':''} style={{background:s.color}} aria-hidden="true"/><strong>{s.values[active]===null?'—':format(s.values[active] as number)}</strong><span>{s.label}</span></span>)}
    </div>}

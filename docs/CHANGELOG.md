@@ -2,6 +2,15 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.10.1 — 2026-11-19
+
+Monitoring reliability fixes
+
+- Job activity is no longer lost on Windows when the monitoring page reads its files at the moment a worker saves them.
+- Workers save monitoring counts at most every 10 seconds instead of rewriting the whole day's file for each event.
+- The monitoring page's own refreshes are no longer counted as traffic.
+- Chart values are announced to screen readers, hover stays valid after switching the range, and the range is locked while live updates are paused.
+
 ## 3.10.0 — 2026-11-19
 
 Graph-based system monitoring

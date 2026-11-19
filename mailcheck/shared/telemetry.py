@@ -71,10 +71,33 @@ def _duration(event):
     return None
 
 
-def _merge_metrics(path,events):
+FLUSH_SECONDS=10
+# root -> minute -> kind -> {action: count, 'duration': [bins]}; written to
+# metrics.json at most every FLUSH_SECONDS, so busy workers do not rewrite the
+# 24-hour file for every event.
+_pending={}
+_last_flush=0.0
+
+
+def _count(events_by_root):
+    for root,items in events_by_root.items():
+        minutes=_pending.setdefault(root,{})
+        for event,seconds in items:
+            row=minutes.setdefault(str(int(event['at']//60)),{}).setdefault(event['component'],{})
+            row[event['action']]=row.get(event['action'],0)+1
+            if seconds is not None:
+                row.setdefault('duration',[0]*DURATION_BINS)[duration_bin(seconds)]+=1
+
+
+def _int(value):
+    return value if type(value) is int and value>=0 else 0
+
+
+def _merge_metrics(path,additions):
+    """Add counts into the shared file; malformed rows are repaired, not fatal."""
     lock=OperationLock(path.with_suffix('.lock'))
     if not lock.acquire(True,LOCK_WAIT):
-        return
+        return False
     try:
         try:
             data=json.loads(path.read_text())
@@ -83,19 +106,56 @@ def _merge_metrics(path,events):
                 minutes={}
         except (FileNotFoundError,ValueError,OSError):
             minutes={}
-        for event,seconds in events:
-            row=minutes.setdefault(str(int(event['at']//60)),{}).setdefault(event['component'],{})
-            row[event['action']]=int(row.get(event['action'],0))+1
-            if seconds is not None:
-                histogram=row.get('duration')
-                if not isinstance(histogram,list) or len(histogram)!=DURATION_BINS:
-                    histogram=row['duration']=[0]*DURATION_BINS
-                histogram[duration_bin(seconds)]+=1
+        for minute,kinds in additions.items():
+            stored=minutes.get(minute)
+            if not isinstance(stored,dict):
+                stored=minutes[minute]={}
+            for kind,counts in kinds.items():
+                row=stored.get(kind)
+                if not isinstance(row,dict):
+                    row=stored[kind]={}
+                for action,value in counts.items():
+                    if action=='duration':
+                        histogram=row.get('duration')
+                        if not isinstance(histogram,list) or len(histogram)!=DURATION_BINS:
+                            histogram=[0]*DURATION_BINS
+                        row['duration']=[_int(a)+b for a,b in zip(histogram,value)]
+                    else:
+                        row[action]=_int(row.get(action))+value
         cutoff=int(time.time()//60)-METRIC_MINUTES
-        minutes={key:value for key,value in minutes.items() if key.isdigit() and int(key)>cutoff}
+        minutes={key:value for key,value in minutes.items() if isinstance(key,str) and key.isdigit() and int(key)>cutoff}
         atomic_json(path,{'version':1,'minutes':minutes})
+        return True
     finally:
         lock.release()
+
+
+def _flush_metrics():
+    global _last_flush
+    _last_flush=time.monotonic()
+    for root in list(_pending):
+        additions=_pending.pop(root)
+        try:
+            if not _merge_metrics(root/'metrics.json',additions):
+                _requeue(root,additions)
+        except Exception:
+            _requeue(root,additions)
+
+
+def _requeue(root,additions):
+    """Keep counts for the next flush (bounded to a day of minutes)."""
+    minutes=_pending.setdefault(root,{})
+    for minute,kinds in additions.items():
+        for kind,counts in kinds.items():
+            row=minutes.setdefault(minute,{}).setdefault(kind,{})
+            for action,value in counts.items():
+                if action=='duration':
+                    row['duration']=[a+b for a,b in zip(row.get('duration',[0]*DURATION_BINS),value)]
+                else:
+                    row[action]=row.get(action,0)+value
+    if len(minutes)>METRIC_MINUTES:
+        for minute in sorted(minutes,key=int)[:len(minutes)-METRIC_MINUTES]:
+            del minutes[minute]
 
 
 def _append_events(path,events):
@@ -114,15 +174,14 @@ def _append_events(path,events):
         lock.release()
 
 
-def _write(batch):
+def _write(batch,flush=True):
     by_root={}
     for root,event in batch:
         by_root.setdefault(root,[]).append((event,_duration(event)))
+    _count(by_root)
+    if flush or time.monotonic()-_last_flush>=FLUSH_SECONDS:
+        _flush_metrics()
     for root,items in by_root.items():
-        try:
-            _merge_metrics(root/'metrics.json',items)
-        except Exception:
-            pass
         workspaces={}
         for event,_seconds in items:
             workspaces.setdefault(event['workspace'],[]).append(event)
@@ -135,14 +194,24 @@ def _write(batch):
 
 def _run():
     while True:
-        batch=[_queue.get()]
+        try:
+            # Wake at least once per flush interval so quiet periods still
+            # publish counts that arrived just before them.
+            batch=[_queue.get(timeout=FLUSH_SECONDS)]
+        except queue.Empty:
+            if _pending:
+                try:
+                    _flush_metrics()
+                except Exception:
+                    pass
+            continue
         while len(batch)<256:
             try:
                 batch.append(_queue.get_nowait())
             except queue.Empty:
                 break
         try:
-            _write(batch)
+            _write(batch,flush=False)
         except Exception:
             pass
         finally:

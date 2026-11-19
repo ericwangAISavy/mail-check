@@ -17,6 +17,7 @@ BINS = len(LATENCY_BOUNDS_MS) + 1
 REQUESTS, CLIENT, SERVER, THROTTLED, LATENCY = 0, 1, 2, 3, 4
 # Long-lived streams would only add their connection lifetime as "latency".
 STREAM_PATHS = ('/api/realtime/events',)
+IGNORED_PREFIXES = ('/assets/', '/static/', '/_internal/', '/api/admin/system-monitoring')
 
 
 def latency_bin(ms: float) -> int:
@@ -80,8 +81,9 @@ class TrafficMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get('path', '') if scope['type'] == 'http' else ''
-        # Static files and worker control traffic are not user traffic.
-        if scope['type'] != 'http' or path.startswith(('/assets/', '/static/', '/_internal/')):
+        # Static files, worker control traffic and the monitoring page's own
+        # polling are not user traffic (watching must not change the graphs).
+        if scope['type'] != 'http' or path.startswith(IGNORED_PREFIXES):
             return await self.app(scope, receive, send)
         started = time.perf_counter()
         status = {'code': None}

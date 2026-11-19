@@ -145,14 +145,57 @@ def test_gateway_metrics_endpoint(system, monkeypatch):
         assert client.get('/api/admin/system-monitoring/metrics').status_code == 401
         login(client)
         for _ in range(3):
-            client.get('/api/admin/system-monitoring')
+            client.get('/api/admin/system-monitoring')       # its own polling is not traffic
+            client.get('/api/auth/session')
         response = client.get('/api/admin/system-monitoring/metrics?range=6h')
         assert response.status_code == 200
         data = response.json()
         assert data['range'] == '6h' and len(data['buckets']) == 72
         assert data['jobs_tracked'] is False      # no shared workers in this gateway
-        assert data['summary']['requests'] >= 4 and data['summary']['p95'] is not None
+        assert 3 <= data['summary']['requests'] < 9 and data['summary']['p95'] is not None
         assert client.get('/api/admin/system-monitoring/metrics?range=7d').status_code == 422
         login(client, 'alice', 'temporary-pass-123')
         client.post('/api/auth/password', json={'password': 'alice-final-pass-123'})
         assert client.get('/api/admin/system-monitoring/metrics').status_code == 403
+
+
+def test_monitoring_requests_are_not_counted_as_traffic():
+    metrics = TrafficMetrics()
+    app = traffic_app(metrics)
+
+    @app.get('/api/admin/system-monitoring')
+    def monitoring():
+        return {}
+
+    client = TestClient(app)
+    client.get('/api/admin/system-monitoring')
+    client.get('/api/ok')
+    assert sum(row[REQUESTS] for row in metrics.rows(0).values()) == 1
+
+
+def test_atomic_json_retries_while_a_reader_holds_the_file(tmp_path):
+    import threading
+    from mailcheck.shared.state import atomic_json
+    path = tmp_path / 'metrics.json'
+    atomic_json(path, {'v': 1})
+    reader = path.open('rb')
+    threading.Timer(0.1, reader.close).start()   # e.g. a monitoring read
+    atomic_json(path, {'v': 2})
+    assert json.loads(path.read_text()) == {'v': 2}
+
+
+def test_telemetry_buffers_metric_writes_and_repairs_malformed_rows(tmp_path, monkeypatch):
+    monkeypatch.setattr(telemetry, '_started', {})
+    monkeypatch.setattr(telemetry, '_pending', {})
+    root = Path(tmp_path)
+    minute = str(int(time.time() // 60))
+    (root / 'metrics.json').write_text(json.dumps({'minutes': {minute: 'corrupt', '7': {'mail': {'completed': 1}}}}))
+    event = dict(id='a', at=time.time(), workspace='legacy', component='mail', action='completed', job_id='1', status='healthy')
+    monkeypatch.setattr(telemetry, '_last_flush', time.monotonic())
+    telemetry._write([(root, event)], flush=False)            # buffered: file unchanged
+    assert json.loads((root / 'metrics.json').read_text())['minutes'][minute] == 'corrupt'
+    assert telemetry._pending
+    telemetry._flush_metrics()
+    minutes = json.loads((root / 'metrics.json').read_text())['minutes']
+    assert minutes[minute] == {'mail': {'completed': 1}} and '7' not in minutes   # repaired; old minute pruned
+    assert not telemetry._pending

@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.10.1",
+    "date": "2026-11-19",
+    "title": "Monitoring reliability fixes",
+    "changes": [
+      "Job activity is no longer lost on Windows when the monitoring page reads its files at the moment a worker saves them.",
+      "Workers save monitoring counts at most every 10 seconds instead of rewriting the whole day's file for each event.",
+      "The monitoring page's own refreshes are no longer counted as traffic.",
+      "Chart values are announced to screen readers, hover stays valid after switching the range, and the range is locked while live updates are paused."
+    ]
+  },
+  {
     "version": "3.10.0",
     "date": "2026-11-19",
     "title": "Graph-based system monitoring",

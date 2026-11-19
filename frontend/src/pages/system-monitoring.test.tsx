@@ -44,7 +44,7 @@ it('reads chart values from the crosshair, the keyboard and the table view',asyn
  vi.stubGlobal('fetch',serve())
  mount()
  const traffic=await screen.findByRole('figure',{name:'Traffic'})
- const plot=within(traffic).getByRole('img')
+ const plot=within(traffic).getByRole('group',{name:/Traffic/})
  fireEvent.keyDown(plot,{key:'ArrowRight'})
  const tip=within(traffic).getByRole('status')
  expect(within(tip).getByText('111')).toBeTruthy()          // successful = 120 - 6 - 3
@@ -119,6 +119,7 @@ it('freezes the displayed snapshot when an in-flight refresh finishes after paus
  await waitFor(()=>expect(calls).toBe(2))
  fireEvent.click(screen.getByRole('button',{name:'Pause live updates'}))
  expect(screen.getByRole('button',{name:'Resume live updates'})).toBeTruthy()
+ expect(screen.getByRole('button',{name:'24 hours'})).toHaveProperty('disabled',true)
  await act(async()=>{finish(json({...snapshot,components:[{id:'changed',name:'Changed gateway',status:'healthy',detail:'Updated.'}]}));await new Promise(resolve=>setTimeout(resolve,30))})
  expect(screen.queryByText('Changed gateway')).toBeNull()
  expect(screen.getByText('Gateway')).toBeTruthy()

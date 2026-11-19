@@ -70,7 +70,16 @@ def atomic_json(path, value):
             json.dump(value, stream)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        # Windows refuses to replace a file another process has open (a
+        # monitoring read, an antivirus scan); such holds last milliseconds.
+        for attempt in range(25):
+            try:
+                os.replace(name, path)
+                break
+            except PermissionError:
+                if attempt == 24:
+                    raise
+                time.sleep(0.02)
     finally:
         if os.path.exists(name):
             os.unlink(name)
