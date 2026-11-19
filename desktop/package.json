@@ -1,7 +1,7 @@
 {
   "name": "offerpath-desktop",
   "productName": "OfferPath",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "OfferPath desktop app: opens the OfferPath web workspace in its own window.",
   "main": "main.js",
   "private": true,

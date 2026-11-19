@@ -77,7 +77,7 @@ function createWindow() {
   })
 
   // The web app titles itself "(5) OfferPath" when items need attention.
-  win.on("page-title-updated", (_event, title) => updateBadge(app, win, countFromTitle(title)))
+  win.on("page-title-updated", (_event, title) => { updateBadge(app, win, countFromTitle(title)).catch(() => {}) })
 
   win.on("close", () => saveBounds(win))
   void win.loadURL(APP_URL)
