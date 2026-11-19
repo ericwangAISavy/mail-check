@@ -1,13 +1,17 @@
 {
   "name": "offerpath-desktop",
   "productName": "OfferPath",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "OfferPath desktop app: opens the OfferPath web workspace in its own window.",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "release": "python publish.py"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   },
   "devDependencies": {
     "electron": "45.2.2",
@@ -17,7 +21,12 @@
     "appId": "bid.offerpath.desktop",
     "productName": "OfferPath",
     "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "badge.js", "preload.js", "package.json"],
+    "files": ["main.js", "badge.js", "updater.js", "preload.js", "package.json"],
+    "artifactName": "OfferPath-Setup-${version}.${ext}",
+    "publish": [{
+      "provider": "generic",
+      "url": "https://github.com/ericwangAISavy/mail-check/releases/latest/download"
+    }],
     "win": { "target": "nsis", "icon": "build/icon.png" },
     "nsis": {
       "oneClick": false,

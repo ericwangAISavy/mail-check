@@ -4,6 +4,7 @@ const { app, BrowserWindow, Menu, shell, screen } = require("electron")
 const fs = require("node:fs")
 const path = require("node:path")
 const { countFromTitle, updateBadge } = require("./badge")
+const { setupUpdates, checkForUpdates } = require("./updater")
 
 const APP_URL = process.env.OFFERPATH_URL || "https://app.offerpath.bid"
 const APP_ORIGIN = new URL(APP_URL).origin
@@ -95,11 +96,14 @@ if (!app.requestSingleInstanceLock()) {
   })
   app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: "OfferPath", submenu: [{ role: "reload" }, { role: "forceReload" }, { type: "separator" }, { role: "quit" }] },
+      { label: "OfferPath", submenu: [{ role: "reload" }, { role: "forceReload" }, { type: "separator" },
+        { label: "Check for updates…", click: () => checkForUpdates() }, { label: `Version ${app.getVersion()}`, enabled: false },
+        { type: "separator" }, { role: "quit" }] },
       { role: "editMenu" },
       { label: "View", submenu: [{ role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, { role: "toggleDevTools" }] },
     ]))
     mainWindow = createWindow()
+    setupUpdates(() => mainWindow)
     app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow() })
   })
   app.on("window-all-closed", () => app.quit())

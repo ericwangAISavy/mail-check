@@ -8,14 +8,29 @@ automatically.
 - Keeps sign-in between launches and remembers the window size and position.
 - A second launch focuses the existing window.
 - Shows a "Try again" page when the server cannot be reached.
+- Shows the web app's attention count as a taskbar badge.
+- Updates itself from the GitHub release marked "Latest": it checks at start
+  and every 4 hours, downloads in the background, then offers "Restart now"
+  or installs the next time OfferPath closes. Menu: OfferPath → Check for updates…
 
 ## Build the Windows installer
 
 ```powershell
 cd desktop
 npm install
-npm run dist        # -> dist\OfferPath Setup <version>.exe
+npm run dist        # -> dist\OfferPath-Setup-<version>.exe, .blockmap, latest.yml
 ```
+
+## Release an update
+
+1. Raise `version` in `package.json` (patch for fixes, minor for features).
+2. `npm run dist`, then commit and push.
+3. `python publish.py --note "What changed"` (repeat `--note` for more).
+
+`publish.py` creates the `desktop-v<version>` release at the pushed commit,
+uploads the installer, blockmap and `latest.yml`, and marks it "Latest".
+Installed apps only see an update once all three files are on the Latest
+release, so don't create desktop releases by hand or push only the tag.
 
 Run without installing: `npm start`. Point at another server with the
 `OFFERPATH_URL` environment variable.
