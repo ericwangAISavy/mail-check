@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.11.5 — 2026-11-20
+
+Tidier accounts and bidder forms
+
+- Account rows read Outlook and Updated 10s ago, so the sync time is always visible, and only paused accounts show a status badge.
+- Bidder payment, wallet and assignment fields no longer overlap or push Save buttons out of view, and the add bidder box has room to type.
+
 ## 3.11.4 — 2026-11-19
 
 Reliable sync failure reasons

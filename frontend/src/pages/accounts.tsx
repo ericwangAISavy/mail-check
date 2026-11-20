@@ -16,6 +16,7 @@ import "./accounts.css"
 import BidderManagement from "@/components/bidder-management"
 import { AccountSync } from "@/components/realtime-accounts"
 import LinkHistoryDialog from "@/components/link-history-dialog"
+import { parseStamp, shortAgo } from "@/lib/relative-time"
 
 function AccountSectionHeading({ icon: Icon, eyebrow, title, detail }: { icon: LucideIcon; eyebrow: string; title: string; detail?: React.ReactNode }) {
   return <div className="settings-section-title account-section-heading">
@@ -40,9 +41,9 @@ function AccountRow({ account, onRefresh, onReconnect }: { account: Account; onR
     finally { setBusy("") }
   }
   const label = encodeURIComponent(account.label)
-  return <><div className="account-row"><div className="account-icon">{account.provider === "outlook" ? <Mail size={19} /> : <UserRound size={19} />}</div><div className="account-info"><div className="account-name-line"><h3>{account.label}</h3><Badge variant={account.provider === "outlook" ? "default" : "outline"}>{account.provider === "outlook" ? "Microsoft" : "IMAP"}</Badge><Badge variant={account.enabled ? "muted" : "outline"}>{account.enabled ? "Active" : "Paused"}</Badge>{account.live && (account.sync_error
+  return <><div className="account-row"><div className="account-icon">{account.provider === "outlook" ? <Mail size={19} /> : <UserRound size={19} />}</div><div className="account-info"><div className="account-name-line"><h3>{account.label}</h3><Badge variant={account.provider === "outlook" ? "default" : "outline"}>{account.provider === "outlook" ? "Microsoft" : "IMAP"}</Badge>{!account.enabled && <Badge variant="outline">Paused</Badge>}{account.live && (account.sync_error
   ? <Badge variant="warning" className="live-badge is-failing" title={account.sync_error}><AlertTriangle size={12} aria-hidden="true" />Live · failing</Badge>
-  : <Badge variant="default" className="live-badge" title="Real-time collection is on: new mail is collected as it arrives."><span className="live-dot" aria-hidden="true" />Live</Badge>)}{account.provider === "outlook" && !!account.pending_read_updates && <Badge variant="warning" className="read-update-badge" role="status" title={readUpdateHint(account)} aria-label={readUpdateHint(account)}>{account.pending_read_updates}</Badge>}</div><p>{account.email}{account.provider === "imap" ? ` · ${account.imap_host} · ${account.folder}` : " · Personal Microsoft account"} · {lastSynced(account)}</p>{account.live && account.sync_error && <p className="account-sync-error" role="status"><AlertTriangle size={13} aria-hidden="true" /><span><strong>Sync failing:</strong> {account.sync_error}{account.last_synced_at ? ` Last good sync ${new Date(account.last_synced_at).toLocaleString()}.` : ""}</span></p>}</div><div className="account-actions"><AccountSync account={account} onChanged={onRefresh} disabled={Boolean(busy)} /><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void change("test", `/api/accounts/${label}/test`)}>{busy === "test" ? <LoaderCircle className="spin" /> : <Wifi size={14} />}Test</Button>{account.provider === "imap" && <Button variant="outline" size="sm" onClick={()=>setOutgoingOpen(true)} disabled={Boolean(busy)}>Outgoing mail</Button>}<Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)} disabled={Boolean(busy)}>Link history</Button><Button variant="outline" size="sm" onClick={onReconnect} disabled={Boolean(busy)}>Reconnect</Button><Button variant="ghost" size="icon" className="account-remove" title={`Remove ${account.label}`} disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Remove ${account.label}? Its local message history will stay until normal retention cleanup.`)) void change("remove", `/api/accounts/${label}/delete`) }}><Trash2 size={15} /></Button></div></div>{historyOpen && <LinkHistoryDialog accountId={account.id} accountLabel={account.label} onClose={() => setHistoryOpen(false)} />}<OutgoingDialog open={outgoingOpen} onOpenChange={setOutgoingOpen} label={account.label} onSaved={onRefresh}/></>
+  : <Badge variant="default" className="live-badge" title="Real-time collection is on: new mail is collected as it arrives."><span className="live-dot" aria-hidden="true" />Live</Badge>)}{account.provider === "outlook" && !!account.pending_read_updates && <Badge variant="warning" className="read-update-badge" role="status" title={readUpdateHint(account)} aria-label={readUpdateHint(account)}>{account.pending_read_updates}</Badge>}</div><p className="account-meta">{account.email.toLocaleLowerCase() !== account.label.toLocaleLowerCase() && <>{account.email} · </>}{account.provider === "imap" ? `${account.imap_host} · ${account.folder}` : "Outlook"} · <SyncedAt account={account} /></p>{account.live && account.sync_error && <p className="account-sync-error" role="status"><AlertTriangle size={13} aria-hidden="true" /><span><strong>Sync failing:</strong> {account.sync_error}{account.last_synced_at ? ` Last good sync ${new Date(account.last_synced_at).toLocaleString()}.` : ""}</span></p>}</div><div className="account-actions"><AccountSync account={account} onChanged={onRefresh} disabled={Boolean(busy)} /><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void change("test", `/api/accounts/${label}/test`)}>{busy === "test" ? <LoaderCircle className="spin" /> : <Wifi size={14} />}Test</Button>{account.provider === "imap" && <Button variant="outline" size="sm" onClick={()=>setOutgoingOpen(true)} disabled={Boolean(busy)}>Outgoing mail</Button>}<Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)} disabled={Boolean(busy)}>Link history</Button><Button variant="outline" size="sm" onClick={onReconnect} disabled={Boolean(busy)}>Reconnect</Button><Button variant="ghost" size="icon" className="account-remove" title={`Remove ${account.label}`} disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Remove ${account.label}? Its local message history will stay until normal retention cleanup.`)) void change("remove", `/api/accounts/${label}/delete`) }}><Trash2 size={15} /></Button></div></div>{historyOpen && <LinkHistoryDialog accountId={account.id} accountLabel={account.label} onClose={() => setHistoryOpen(false)} />}<OutgoingDialog open={outgoingOpen} onOpenChange={setOutgoingOpen} label={account.label} onSaved={onRefresh}/></>
 }
 
 function AddImapDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; refresh: () => void }) {
@@ -113,10 +114,18 @@ function ReconnectImapDialog({account,onClose,refresh}:{account:Account|null;onC
 }
 
 
-function lastSynced(account: Account) {
-  // The latest of a full mail check and real-time collection.
-  const stamp = account.last_synced_at ?? account.last_checked_at
-  return stamp ? `Last synced: ${new Date(stamp).toLocaleString()}` : "Not synced yet"
+/** "Updated 10s ago": the latest full check or real-time collection. Only this
+ *  label ticks, so the rest of the page is not re-rendered every 10 seconds. */
+function SyncedAt({ account }: { account: Account }) {
+  const [now, setNow] = useState(() => Date.now())
+  const stamp = parseStamp(account.last_synced_at ?? account.last_checked_at)
+  useEffect(() => {
+    if (!stamp) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 10_000)
+    return () => window.clearInterval(timer)
+  }, [stamp?.getTime()])
+  return stamp ? <time dateTime={stamp.toISOString()} title={`Last synced ${stamp.toLocaleString()}`}>Updated {shortAgo(stamp, now)}</time> : <>Not synced yet</>
 }
 
 function readUpdateHint(account: Account) {
@@ -132,7 +141,8 @@ export default function AccountsPage({canManageSettings=true}:{canManageSettings
   const [outlookOpen, setOutlookOpen] = useState(false)
   const [reconnectLabel, setReconnectLabel] = useState<string>()
   const queryClient = useQueryClient()
-  const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal) })
+  // Sync times also arrive by live update; poll as a backstop so "Updated …" stays true.
+  const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal), refetchInterval: 60_000 })
   const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bidder-management"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); void queryClient.invalidateQueries({ queryKey: ["dashboard-accounts"] }) }, [queryClient])
   if (isPending) return <div className="page-wrap"><Loading /></div>
   return <div className="page-wrap accounts-page"><PageHeading title="Accounts" description="Connect the inboxes behind your next opportunity." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect mailbox</Button>} />

@@ -169,17 +169,27 @@ it("shows Gmail app-password guidance and prevents duplicate reconnect submissio
 it("shows one last-synced time covering full checks and real-time collection",async()=>{
  accounts[0].last_checked_at="2026-11-01T12:34:56Z"
  accounts[0].last_synced_at="2026-11-01T12:40:00Z"
+ accounts[0].last_synced_at=new Date(Date.now()-10_000).toISOString()
  mount()
- expect(await screen.findByText(/Last synced:/)).toBeTruthy()
- expect(screen.getByText(/Last synced:/).textContent).toContain(new Date("2026-11-01T12:40:00Z").toLocaleString())
- expect(screen.queryByText(/Last mail check/)).toBeNull()
+ const updated=await screen.findByText(/^Updated /)
+ expect(updated.textContent).toMatch(/^Updated 1[01]s ago$/)  // allow a slow test run
+ expect(updated.getAttribute("title")).toBe(`Last synced ${new Date(accounts[0].last_synced_at!).toLocaleString()}`)
+ expect(screen.queryByText(/Last synced:|Last mail check|Personal Microsoft account/)).toBeNull()
+ expect(document.querySelector(".account-meta")?.textContent).toMatch(/^me@example\.test · imap\.example\.test · INBOX · Updated 1[01]s ago$/)
+})
+
+it("labels Microsoft accounts Outlook and does not repeat an email used as the name",async()=>{
+ Object.assign(accounts[0],{provider:"outlook",label:"me@example.test",last_synced_at:new Date(Date.now()-120_000).toISOString()})
+ mount()
+ await screen.findByText(/^Updated /)
+ expect(document.querySelector(".account-meta")?.textContent).toBe("Outlook · Updated 2m ago")
 })
 
 it("falls back to the full-check time and marks live accounts",async()=>{
  accounts[0].last_checked_at="2026-11-01T12:34:56Z"
  accounts[0].live=true
  mount()
- expect((await screen.findByText(/Last synced:/)).textContent).toContain(new Date("2026-11-01T12:34:56Z").toLocaleString())
+ expect((await screen.findByText(/^Updated /)).getAttribute("title")).toBe(`Last synced ${new Date("2026-11-01T12:34:56Z").toLocaleString()}`)
  expect(screen.getByText("Live").closest(".live-badge")?.getAttribute("title")).toMatch(/collected as it arrives/)
 })
 

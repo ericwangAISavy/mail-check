@@ -185,8 +185,9 @@
 .bidder-avatar.is-large{width:40px;height:40px;font-size:14px}
 .bidder-list-item[aria-current="true"] .bidder-avatar{background:var(--primary);color:var(--primary-foreground,#fff)}
 .bidder-list-empty{padding:4px 16px}
-.bidder-add{display:flex;gap:6px;margin-top:auto;padding:10px 12px 12px;border-top:1px solid var(--border)}
-.payment-management .bidder-add input{flex:1;min-width:0;min-height:32px;padding:5px 9px;font-size:13px}
+.bidder-add{display:grid;gap:8px;margin-top:auto;padding:12px;border-top:1px solid var(--border)}
+.payment-management .bidder-add input{width:100%;min-width:0;min-height:34px;padding:6px 10px;font-size:13px}
+.bidder-add .btn{width:100%;justify-content:center}
 .bidder-detail{min-width:0;padding:18px 22px 22px}
 .bidder-editor-head{display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--border)}
 .bidder-editor-head h3{margin:0;font-size:17px;font-weight:650}
@@ -210,3 +211,9 @@
 .bidder-editor-group .bidder-access{margin:0;padding:0;border:0}
 .bidder-editor-group .bidder-access .payment-section-heading{padding:0;margin:0}
 .bidder-editor-group .bidder-access>.payment-muted{margin:8px 0 0;font-size:12px}
+
+/* Fields shrink with their column: without this an input keeps its natural
+   width and slides under the next field or pushes Save buttons out of view. */
+.bidder-detail .payment-inline-form :is(input,select){width:100%;min-width:0;box-sizing:border-box}
+.bidder-detail .payment-inline-form>label{min-width:140px}
+.bidder-detail .payment-inline-form>.btn{flex:none}

@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.11.5",
+    "date": "2026-11-20",
+    "title": "Tidier accounts and bidder forms",
+    "changes": [
+      "Account rows read Outlook and Updated 10s ago, so the sync time is always visible, and only paused accounts show a status badge.",
+      "Bidder payment, wallet and assignment fields no longer overlap or push Save buttons out of view, and the add bidder box has room to type."
+    ]
+  },
+  {
     "version": "3.11.4",
     "date": "2026-11-19",
     "title": "Reliable sync failure reasons",
