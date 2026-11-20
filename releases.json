@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.12.1",
+    "date": "2026-11-20",
+    "title": "Modern calendar event bars",
+    "changes": [
+      "Calendar events are calm rounded cards with a soft tint and a gentle lift on hover.",
+      "Past events are shown lightly transparent while upcoming ones stay bright; dashed outlines are gone, and unknown end times fade out softly at the bottom."
+    ]
+  },
+  {
     "version": "3.12.0",
     "date": "2026-11-20",
     "title": "Choose calendar colors per account",

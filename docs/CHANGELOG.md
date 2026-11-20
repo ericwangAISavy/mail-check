@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.12.1 — 2026-11-20
+
+Modern calendar event bars
+
+- Calendar events are calm rounded cards with a soft tint and a gentle lift on hover.
+- Past events are shown lightly transparent while upcoming ones stay bright; dashed outlines are gone, and unknown end times fade out softly at the bottom.
+
 ## 3.12.0 — 2026-11-20
 
 Choose calendar colors per account

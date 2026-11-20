@@ -125,3 +125,16 @@ it('hides the command bar by default and shows actions in the date row',()=>{
  expect(document.querySelector('.outlook-command-bar')).toBeNull()
  expect(screen.getByRole('button',{name:'Check now'}).closest('.outlook-date-bar')).not.toBeNull()
 })
+
+it('fades only events that are over, including unanalyzed ones',()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,9,15,10,30))
+ const past={...event(3,'personal'),company:'Past Co',start_at:new Date(2026,9,15,8).toISOString(),end_at:new Date(2026,9,15,9).toISOString()}
+ const current={...event(4,'personal'),company:'Current Co'}                       // 10:00-11:00, in progress
+ const pending={...event(5,'work'),company:'Pending Co',display_status:'Needs review',start_at:new Date(2026,9,15,13).toISOString(),end_at:new Date(2026,9,15,14).toISOString()}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[past,current,pending]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ const card=(name:string)=>screen.getByRole('button',{name:new RegExp(`^${name}`)})
+ expect(card('Past Co').classList.contains('is-past')).toBe(true)
+ expect(card('Current Co').classList.contains('is-past')).toBe(false)
+ expect(card('Pending Co').classList.contains('is-past')).toBe(false)
+ expect(card('Pending Co').classList.contains('needs-review')).toBe(true)
+})

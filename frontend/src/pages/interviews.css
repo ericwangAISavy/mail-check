@@ -417,3 +417,60 @@
 .calendar-colors-menu .calendar-color-reset { display:inline; width:auto; justify-self:end; border:0; background:none; padding:0; font:inherit; font-size:11.5px; color:var(--primary); cursor:pointer; }
 .calendar-colors-menu .calendar-color-reset:hover { text-decoration:underline; background:none; }
 .calendar-color-reset.is-auto { color:var(--muted-foreground); cursor:default; text-decoration:none; }
+
+/* ---- Event bars: calm glass cards with a soft tint (kept last so it wins). ---- */
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event) {
+  --ev-tint: color-mix(in srgb, var(--oc-event-accent) 16%, var(--oc-event));
+  border: 1px solid color-mix(in srgb, var(--oc-event-edge) 55%, transparent);
+  border-left-width: 1px;
+  border-radius: 7px;
+  /* A barely-there diagonal tint and a lit top edge; the accent is an inset
+     bar so the rounded corners stay clean. */
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / .05), transparent 38%),
+    linear-gradient(135deg, var(--ev-tint), var(--oc-event) 70%);
+  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 1px 2px rgb(0 0 0 / .28), 0 4px 12px -6px rgb(0 0 0 / .45);
+  padding-left: 9px;
+  transition: transform .14s ease, box-shadow .14s ease, opacity .14s ease, filter .14s ease;
+}
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event) > strong { letter-spacing: .005em; }
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event):hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / .07), transparent 40%),
+    linear-gradient(135deg, color-mix(in srgb, var(--oc-event-accent) 24%, var(--oc-event)), var(--oc-event) 72%);
+  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 2px 4px rgb(0 0 0 / .3), 0 10px 22px -10px color-mix(in srgb, var(--oc-event-accent) 45%, transparent);
+  transform: translateY(-1px);
+  filter: none;
+}
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event):focus-visible {
+  outline: 2px solid var(--oc-event-accent); outline-offset: 1px;
+}
+/* No dashed outlines: states read through tone, not texture. */
+.outlook-calendar .outlook-time-event:is(.rescheduled, .needs-review, .duration-unknown),
+.outlook-calendar .outlook-month-event:is(.rescheduled, .needs-review) { border-style: solid; }
+/* Past events (already over): the same card, lightly transparent. */
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past { opacity: .5; box-shadow: inset 3px 0 0 var(--oc-event-accent); }
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past:hover,
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past:focus-visible { opacity: .92; }
+/* Unknown end time: the card softly fades out at the bottom instead. */
+.outlook-calendar .outlook-time-event.duration-unknown { -webkit-mask-image: linear-gradient(180deg, #000 62%, rgb(0 0 0 / .35)); mask-image: linear-gradient(180deg, #000 62%, rgb(0 0 0 / .35)); }
+.outlook-calendar :is(.outlook-time-event, .outlook-month-event).cancelled:not(.is-past) { opacity: .7; }
+@media (prefers-reduced-motion: reduce) {
+  .outlook-calendar :is(.outlook-time-event, .outlook-month-event) { transition: none; }
+  .outlook-calendar :is(.outlook-time-event, .outlook-month-event):hover { transform: none; }
+}
+:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event) {
+  --ev-tint: color-mix(in srgb, var(--oc-event-accent) 10%, var(--oc-event));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / .55), transparent 40%),
+    linear-gradient(135deg, var(--ev-tint), var(--oc-event) 72%);
+  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 1px 2px rgb(15 35 60 / .08), 0 4px 10px -6px rgb(15 35 60 / .18);
+}
+:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event):hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / .6), transparent 42%),
+    linear-gradient(135deg, color-mix(in srgb, var(--oc-event-accent) 16%, var(--oc-event)), var(--oc-event) 74%);
+  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 2px 4px rgb(15 35 60 / .1), 0 10px 20px -10px color-mix(in srgb, var(--oc-event-accent) 40%, transparent);
+}
+:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past { opacity: .55; }
+
