@@ -294,6 +294,10 @@ class TriageResponse(BaseModel):
     total: int
 
 
+class CalendarColorBody(BaseModel):
+    color: int | None = None
+
+
 class PublicAccount(BaseModel):
     pending_read_updates: int = 0
     read_updates_need_permission: bool = False
@@ -1104,11 +1108,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             sources = interviews.event_sources_many(conn, (event['id'] for event in events))
             for event in events:
                 event["account_labels"] = sorted({source["account_label"] for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]})
-            accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
+            from ..calendar_colors import colors as calendar_colors
+            chosen = calendar_colors(conn)
+            accounts = [{"id":a.id,"label":a.label,"email":a.email,"calendar_color":chosen.get(a.id)} for a in db.list_accounts(conn, only_enabled=True)]
             companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
             from ..calendar_queue import progress
             analysis = progress(conn)
         return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES,"analysis":analysis}
+
+    @app.post("/api/interviews/account-colors/{account_id}")
+    def set_calendar_color(account_id: int, body: CalendarColorBody):
+        """Pick one of the calendar's palette colors for an account (null = automatic)."""
+        from ..calendar_colors import set_color
+        try:
+            with db.session() as conn:
+                set_color(conn, account_id, body.color)
+        except LookupError as exc:
+            return _err(str(exc), 404)
+        except ValueError as exc:
+            return _err(str(exc), 422)
+        return {"ok": True, "account_id": account_id, "color": body.color}
 
     @app.get('/api/interviews/analysis')
     def calendar_analysis_progress():

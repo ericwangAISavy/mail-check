@@ -369,6 +369,21 @@ class FrontendApiTests(unittest.TestCase):
         read_marking._set_needs_permission(SimpleNamespace(id=self.account_id), 'me@example.test', True)
         self.assertIs(self.client.get('/api/accounts').json()['accounts'][0]['read_updates_need_permission'], True)
 
+    def test_calendar_account_colors_are_chosen_from_the_palette(self):
+        def color():
+            data = self.client.get("/api/interviews").json()
+            return next(a for a in data["accounts"] if a["id"] == self.account_id)["calendar_color"]
+        self.assertIsNone(color())                                    # automatic by default
+        response = self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": 6})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(color(), 6)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": 8}).status_code, 422)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": -1}).status_code, 422)
+        self.assertEqual(self.client.post("/api/interviews/account-colors/9999", json={"color": 1}).status_code, 404)
+        self.assertEqual(color(), 6)
+        self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": None})
+        self.assertIsNone(color())                                    # back to automatic
+
     def test_account_api_reports_why_live_collection_is_failing(self):
         from unittest.mock import patch
         from mailcheck.outlook_auth import ReconnectRequired

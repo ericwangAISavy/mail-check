@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.12.0 — 2026-11-20
+
+Choose calendar colors per account
+
+- The interview calendar has a Colors menu: pick one of eight colors for each account, or reset it to the automatic color.
+- The chosen colors are saved for the workspace, so the browser and desktop app show the same colors.
+
 ## 3.11.5 — 2026-11-20
 
 Tidier accounts and bidder forms

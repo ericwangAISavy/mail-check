@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.12.0",
+    "date": "2026-11-20",
+    "title": "Choose calendar colors per account",
+    "changes": [
+      "The interview calendar has a Colors menu: pick one of eight colors for each account, or reset it to the automatic color.",
+      "The chosen colors are saved for the workspace, so the browser and desktop app show the same colors."
+    ]
+  },
+  {
     "version": "3.11.5",
     "date": "2026-11-20",
     "title": "Tidier accounts and bidder forms",
