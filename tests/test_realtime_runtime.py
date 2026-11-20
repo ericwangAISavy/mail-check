@@ -458,3 +458,101 @@ def test_outbox_publish_does_not_acknowledge_concurrent_replacement(setup, monke
     with db.session(path) as conn:
         rows = storage.pending_outbox(conn)
         assert len(rows) == 1 and rows[0]['topic'] == 'accounts'
+
+
+def test_collection_failure_is_recorded_safely_and_cleared_by_the_next_sync(setup, monkeypatch):
+    from mailcheck.outlook_auth import ReconnectRequired
+    from mailcheck.realtime.sync_status import failure_reason
+    runtime, path, aid, broker = setup
+    def expired(*args):
+        raise ReconnectRequired('token for person@example.com rejected by login.example.net')
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', expired)
+    with pytest.raises(ReconnectRequired):
+        runtime.collect_mail(aid)          # the job still fails, so the broker retries it
+    with db.session(path) as conn:
+        row = conn.execute('SELECT last_error,last_sync FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()
+    assert failure_reason(row['last_error']) == 'Microsoft sign-in expired. Reconnect this mailbox.'
+    assert 'person@example.com' not in row['last_error'] and 'login.example.net' not in row['last_error']
+    assert row['last_sync'] is None
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [])
+    runtime.collect_mail(aid)
+    with db.session(path) as conn:
+        row = conn.execute('SELECT last_error,last_sync FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()
+    assert failure_reason(row['last_error']) is None and row['last_sync']
+
+
+def test_busy_or_disabled_collection_is_not_reported_as_a_failure(setup, monkeypatch):
+    from mailcheck.realtime.runtime import WorkDeferred
+    from mailcheck.realtime.sync_status import failure_reason
+    runtime, path, aid, broker = setup
+    monkeypatch.setattr(runtime, '_collect_mail', lambda *a: (_ for _ in ()).throw(WorkDeferred('busy')))
+    with pytest.raises(WorkDeferred):
+        runtime.collect_mail(aid)
+    with db.session(path) as conn:
+        row = conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()
+    assert failure_reason(row['last_error'] if row else '') is None
+
+
+@pytest.mark.parametrize('error,expected', [
+    (TimeoutError(), 'did not respond in time'),
+    (ConnectionResetError(), 'could not be reached'),
+    (PermissionError('C:/private/token.bin'), "saved sign-in"),
+    (ValueError('secret detail'), 'stopped unexpectedly (ValueError)'),
+])
+def test_failure_reasons_use_fixed_wording(error, expected):
+    from mailcheck.realtime.sync_status import describe
+    reason = describe(error)
+    assert expected in reason and 'secret detail' not in reason and 'token.bin' not in reason
+
+
+def test_calendar_success_and_other_job_errors_keep_the_mail_failure_reason(setup, monkeypatch):
+    from mailcheck.outlook_auth import ReconnectRequired
+    from mailcheck.realtime.sync_status import failure_reason, set_other_status
+    runtime, path, aid, broker = setup
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: (_ for _ in ()).throw(ReconnectRequired('x')))
+    with pytest.raises(ReconnectRequired):
+        runtime.collect_mail(aid)
+    with db.session(path) as conn:
+        set_other_status(conn, aid)                                   # a calendar success
+        set_other_status(conn, aid, error='Classification unavailable; retrying.')
+        reason = failure_reason(conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()[0])
+    assert reason == 'Microsoft sign-in expired. Reconnect this mailbox.'
+    # Without a mail failure, other jobs still record and clear their own status.
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [])
+    runtime.collect_mail(aid)
+    with db.session(path) as conn:
+        set_other_status(conn, aid, error='Calendar collection unavailable; retrying.')
+        assert conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()[0] == 'Calendar collection unavailable; retrying.'
+        set_other_status(conn, aid)
+        assert conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()[0] == ''
+
+
+def test_failure_after_mail_was_collected_is_not_a_sync_failure(setup, monkeypatch):
+    from mailcheck.realtime.sync_status import failure_reason
+    runtime, path, aid, broker = setup
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: [message(aid)])
+    monkeypatch.setattr('mailcheck.realtime.runtime.prefilter.apply', lambda *a: None)
+    def broken_enqueue(*args, **kwargs):
+        raise ConnectionError('queue down')
+    monkeypatch.setattr(broker, 'enqueue', broken_enqueue)
+    with pytest.raises(ConnectionError):
+        runtime.collect_mail(aid)              # mail saved, classification hint failed
+    with db.session(path) as conn:
+        row = conn.execute('SELECT last_error,last_sync FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()
+    assert row['last_sync'] and failure_reason(row['last_error']) is None
+
+
+def test_a_successful_calendar_job_does_not_erase_the_mail_failure(setup, monkeypatch):
+    from mailcheck.outlook_auth import ReconnectRequired
+    from mailcheck.realtime.sync_status import failure_reason
+    runtime, path, aid, broker = setup
+    with db.session(path) as conn:
+        conn.execute("UPDATE accounts SET provider='outlook' WHERE id=?", (aid,))
+    monkeypatch.setattr('mailcheck.realtime.runtime.pipeline.fetch_account', lambda *a: (_ for _ in ()).throw(ReconnectRequired('x')))
+    with pytest.raises(ReconnectRequired):
+        runtime.collect_mail(aid)
+    monkeypatch.setattr('mailcheck.realtime.runtime.interviews.collect_calendar_events', lambda *a, **k: {})
+    runtime.collect_calendar(aid)              # calendar still works for this account
+    with db.session(path) as conn:
+        error = conn.execute('SELECT last_error FROM realtime_accounts WHERE account_id=?', (aid,)).fetchone()[0]
+    assert failure_reason(error) == 'Microsoft sign-in expired. Reconnect this mailbox.'

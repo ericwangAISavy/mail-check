@@ -897,7 +897,6 @@ export default function SourcingEditor({
           highlightRow={focusRow}
           view={scopedView}
           onSelection={next => {setSelection(next); setRowDeleteNotice("")}}
-          onDeleteRows={rows => void deleteSelectedRows(rows)}
           onResize={resize}
           onEditingChange={setTyping}
           onPaste={() => {compactAfterPaste.current = true}}

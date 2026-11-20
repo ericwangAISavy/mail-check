@@ -300,6 +300,8 @@ class PublicAccount(BaseModel):
     last_checked_at: str | None = None
     last_synced_at: str | None = None
     live: bool = False
+    # Why automatic collection is failing, in safe fixed wording; None when fine.
+    sync_error: str | None = None
     id: int
     label: str
     email: str
@@ -1529,7 +1531,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         except replies.ReplyError as exc: return _err(str(exc),exc.status)
 
     def _realtime_sync_state(conn):
-        """{account_id: (live, last real-time sync)}; live needs the background service."""
+        """{account_id: (live, last real-time sync, failure reason)}; live needs the background service."""
+        from ..realtime.sync_status import failure_reason
         from ..realtime import storage as realtime_storage
         from ..realtime.settings import Settings as RealtimeSettings
         try:
@@ -1548,7 +1551,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     stamp = datetime.fromtimestamp(float(row["last_sync"]), timezone.utc)
                 except (TypeError, ValueError, OverflowError, OSError):
                     stamp = None
-            state[row["account_id"]] = (configured and bool(row["enabled"]), stamp)
+            state[row["account_id"]] = (configured and bool(row["enabled"]), stamp, failure_reason(row["last_error"]))
         return state
 
     def _latest(*stamps):
@@ -1574,8 +1577,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 "folder": a.folder, "enabled": a.enabled,
                 "last_checked_at": last_checks[a.id].isoformat() if last_checks[a.id] else None,
                 # One "last synced" time: the latest full check or real-time collection.
-                "last_synced_at": _latest(last_checks[a.id], synced.get(a.id, (False, None))[1]),
-                "live": bool(a.enabled and synced.get(a.id, (False, None))[0]),
+                "last_synced_at": _latest(last_checks[a.id], synced.get(a.id, (False, None, None))[1]),
+                "live": bool(a.enabled and synced.get(a.id, (False, None, None))[0]),
+                "sync_error": synced.get(a.id, (False, None, None))[2] if a.enabled and synced.get(a.id, (False, None, None))[0] else None,
                 "pending_read_updates": pending_reads.get((a.id, a.email.casefold()), 0) if a.provider == "outlook" else 0,
                 "read_updates_need_permission": bool(
                     a.provider == "outlook" and pending_reads.get((a.id, a.email.casefold()))

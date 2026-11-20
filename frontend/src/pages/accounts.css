@@ -30,3 +30,12 @@
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); }
 @media (prefers-reduced-motion: no-preference) { .live-dot { animation: live-pulse 2s ease-in-out infinite; } }
 @keyframes live-pulse { 50% { opacity: .45; } }
+
+/* Automatic collection is on but failing: say so and why, without hiding the badge. */
+.live-badge.is-failing{gap:4px}
+.account-sync-error{display:flex;align-items:flex-start;gap:6px;margin-top:4px;font-size:12.5px;line-height:1.45;color:var(--warning-foreground,#b45309);white-space:normal}
+.dark .account-sync-error{color:#f5c66a}
+.account-sync-error svg{flex:none;margin-top:2px}
+
+/* Sync replaces "Include in checks": label and switch stay together. */
+.account-sync{display:inline-flex;align-items:center;gap:10px}

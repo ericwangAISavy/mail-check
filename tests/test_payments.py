@@ -12,6 +12,18 @@ from mailcheck.web.app import create_app
 from tests.web_client import TestClient
 
 
+def mark_checked(conn, tab_id, link_prefix):
+    """Test fixture: check the tab's jobs whose link starts with link_prefix."""
+    conn.execute("""INSERT INTO native_cells(row_id,column_id,value)
+        SELECT r.id, cc.id, 'true' FROM native_rows r
+        JOIN native_columns lc ON lc.tab_id=r.tab_id AND lc.kind='link'
+        JOIN native_cells l ON l.row_id=r.id AND l.column_id=lc.id AND l.value LIKE ? || '%'
+        JOIN native_columns cc ON cc.tab_id=r.tab_id AND cc.kind='check'
+        WHERE r.tab_id=?
+        ON CONFLICT(row_id,column_id) DO UPDATE SET value='true'""", (link_prefix, tab_id))
+    conn.commit()
+
+
 class PaymentTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -237,8 +249,11 @@ class PaymentTests(unittest.TestCase):
         tab_id = existing[0] if existing else sheets.create_tab(self.conn, book, account, "Applications")
         tab = sheets.owned(self.conn, tab_id, {"role": "admin"})
         base = sheets.snapshot(self.conn, tab)
+        prefix = f"https://jobs.test/{who}/{account}/{base['revision']}/"
         sheets.append(self.conn, tab, f"checks-{who}-{account}-{base['revision']}", base["revision"],
-            [["Acme", "Engineer", f"https://jobs.test/{who}/{account}/{base['revision']}/{i}", "true"] for i in range(count)], work_date=day)
+            [["Acme", "Engineer", f"{prefix}{i}"] for i in range(count)], work_date=day)
+        # Pasted rows never carry a check, so mark these jobs checked directly.
+        mark_checked(self.conn, tab_id, prefix)
 
     def test_shared_receipts_are_allocated_by_account_day_weights_and_rounded_to_total(self):
         self.assign(); self.assign(who=2)

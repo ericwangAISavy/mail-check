@@ -14,8 +14,14 @@ class IncomingFilterTests(unittest.TestCase):
         return [r for r in snap['rows'][1:] if any(str(c['value']).strip() for c in r)]
 
     def add(self,rows,op='add',tab=None):
+        from tests.test_payments import mark_checked
         tab=tab or self.tab()
-        return self.native.append(self.conn,tab,op,self.native.snapshot(self.conn,tab)['revision'],rows)
+        result=self.native.append(self.conn,tab,op,self.native.snapshot(self.conn,tab)['revision'],rows)
+        # Pasted rows never carry a check; mark historical checked jobs directly.
+        for row in rows:
+            if len(row)>3 and row[3]=='true':
+                mark_checked(self.conn,tab['id'],row[2])
+        return result
 
     def test_duplicate_account_history_and_incoming_batch_are_compacted(self):
         self.add([['Acme','Engineer','https://jobs.test/1?utm_source=old']], 'old')

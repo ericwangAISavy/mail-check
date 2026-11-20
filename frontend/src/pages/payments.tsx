@@ -108,10 +108,11 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   }, [query.data, selected])
   useEffect(()=>{setReportPreview(null);setCopyError("")},[week,query.data])
   const mutation = useMutation({ mutationFn: ({ url, body }: { url: string; body: unknown }) => api.post(url, body), onSuccess: async () => { setPaying(null); await client.invalidateQueries({ queryKey: ["payments"] }); toast("Saved.", "success") } })
-  const refresh = useMutation({mutationFn: (mode: "refresh" | "rebuild") => api.post("/api/payments/refresh", {week: query.data!.week_start, mode}), onSuccess: async () => {
+  const refresh = useMutation({mutationFn: () => api.post<{changed?: number}>("/api/payments/refresh", {week: query.data!.week_start, mode: "refresh"}), onSuccess: async (result) => {
     await Promise.all(["payments", "sourcing-index", "sourcing-search", "dashboard"].map(key => client.invalidateQueries({queryKey: [key]})))
     window.dispatchEvent(new Event("mailcheck:check-completed"))
-    toast("Week refreshed.", "success")
+    const found = Number(result?.changed) || 0
+    toast(found ? `Week refreshed · ${found.toLocaleString()} new ${found === 1 ? "check" : "checks"}.` : "Week refreshed · no new matches.", "success")
   }, onError: (error: Error) => toast(error.message, "error")})
   const write = (url: string, body: unknown) => mutation.mutateAsync({ url, body })
   if (query.isPending) return <Loading label="Loading application totals…" />
@@ -138,7 +139,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
     try{await copyPaymentReport(result.text);toast("Weekly payment report copied.","success")}catch(error){setCopyError(error instanceof Error?error.message:"Could not copy the report.")}finally{setCopying(false)}
   }
   return <div className="page-wrap payments-page">
-    <PageHeading title="Bidder management" description={showPayments ? "" : "Your checked application activity."} action={!readOnly && <div className="payment-report-actions"><Button variant="outline" disabled={refresh.isPending} title="Refresh this week" onClick={() => refresh.mutate("refresh")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Refresh this week</Button><Button variant="outline" disabled={refresh.isPending} title="Check this week’s unchecked links" onClick={() => refresh.mutate("rebuild")}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Fully rebuild this week</Button></div>} />
+    <PageHeading title="Bidder management" description={showPayments ? "" : "Your checked application activity."} action={!readOnly && <div className="payment-report-actions"><Button variant="outline" disabled={refresh.isPending} title="Match this week’s confirmation emails to unchecked links" onClick={() => refresh.mutate()}><RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />Refresh this week</Button></div>} />
     <div className="payment-summary-bar">
     <div className="payment-overview">
       <Card><CalendarDays aria-hidden="true" /><div><span>{todayIndex >= 0 ? "Today" : "Selected week"}</span><strong>{(todayIndex >= 0 ? daily[todayIndex] : total).toLocaleString()}</strong><small>{todayIndex >= 0 ? shortDate(data.today) : `${shortDate(data.week_start)} – ${shortDate(data.week_end)}`}</small></div></Card>

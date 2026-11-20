@@ -68,17 +68,16 @@ it("tests the selected account and prevents a concurrent toggle", async () => {
   const post = vi.spyOn(api, "post").mockImplementation(() => new Promise((resolve) => { finish = resolve as typeof finish }))
   mount(); fireEvent.click(await screen.findByRole("button", { name: "Test" }))
   expect(post).toHaveBeenCalledWith("/api/accounts/personal/test")
-  expect((screen.getByRole("switch", { name: "Include personal in checks" }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole("button", { name: "Reconnect" }) as HTMLButtonElement).disabled).toBe(true)
   await act(async () => finish({ message: "Connection OK." }))
   await screen.findByText("Connection OK.")
-  expect((screen.getByRole("switch", { name: "Include personal in checks" }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole("button", { name: "Reconnect" }) as HTMLButtonElement).disabled).toBe(false)
 })
-it("updates inclusion state through the existing account toggle API", async () => {
-  const post = vi.spyOn(api, "post").mockImplementation(async () => { accounts[0].enabled = false; return { message: "Paused personal." } as any })
-  mount(); fireEvent.click(await screen.findByRole("switch", { name: "Include personal in checks" }))
-  await screen.findByText("Paused", { exact: true })
-  expect(post).toHaveBeenCalledWith("/api/accounts/personal/toggle?enabled=false")
-  expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false")
+it("puts the Sync switch in each account row instead of Include in checks", async () => {
+  mount()
+  expect(await screen.findByRole("switch", { name: "Sync personal" })).toBeTruthy()
+  expect(screen.queryByText("Include in checks")).toBeNull()
+  expect(screen.queryByRole("region", { name: "Automatic updates" })).toBeNull()
 })
 it("respects removal confirmation and refreshes the account list", async () => {
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
@@ -182,6 +181,16 @@ it("falls back to the full-check time and marks live accounts",async()=>{
  mount()
  expect((await screen.findByText(/Last synced:/)).textContent).toContain(new Date("2026-11-01T12:34:56Z").toLocaleString())
  expect(screen.getByText("Live").closest(".live-badge")?.getAttribute("title")).toMatch(/collected as it arrives/)
+})
+
+it("says why live collection is failing instead of only Not synced yet",async()=>{
+ accounts[0].live=true
+ accounts[0].sync_error="Microsoft sign-in expired. Reconnect this mailbox."
+ mount()
+ const status=await screen.findByRole("status")
+ expect(status.textContent).toContain("Sync failing: Microsoft sign-in expired. Reconnect this mailbox.")
+ expect(screen.getByText("Live · failing").closest(".live-badge")?.className).toContain("is-failing")
+ expect(screen.queryByText("Live")).toBeNull()
 })
 
 it("shows Not synced yet and no Live marker by default",async()=>{

@@ -108,7 +108,8 @@ class WorkspaceOperations(Runtime):
         self.job_lock = OperationLock(runtime_root(context)/'job.lock')
         self._stop = threading.Event()
 
-    def collect_mail(self, account_id, processing=None):
+    def _collect_mail(self, account_id, processing=None):
+        # Runtime.collect_mail wraps this and records failures on the account.
         with self.broker.lease(account_id) as lease:
             if not lease:
                 raise WorkDeferred('Collection is busy')

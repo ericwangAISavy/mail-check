@@ -38,6 +38,14 @@ def insert_rows(conn, tab_id, count, at=None, work_date="all"):
     return new
 
 
+def has_input_row(conn, tab_id):
+    """An undated row with no job content (Check values do not count)."""
+    return conn.execute("""SELECT 1 FROM native_rows r WHERE r.tab_id=? AND r.work_date IS NULL AND NOT EXISTS (
+        SELECT 1 FROM native_cells c JOIN native_columns col ON col.id=c.column_id
+        WHERE c.row_id=r.id AND COALESCE(col.kind,'')!='check'
+          AND trim(c.value, char(9)||char(10)||char(13)||' ')!='') LIMIT 1""", (tab_id,)).fetchone() is not None
+
+
 def check_revision(conn, tab_id, revision):
     current = conn.execute(
         "SELECT revision FROM native_tabs WHERE id=?", (tab_id,)
@@ -75,7 +83,9 @@ def structure(conn, tab, operation, revision, command):
                     "DELETE FROM native_rows WHERE id=? AND tab_id=?",
                     [(key, tab["id"]) for key in set(ids)],
                 )
-                if len(rows) == len(set(ids)):
+                # Every day's view shows the undated blank input row; without
+                # one, a day whose jobs were all deleted has nowhere to paste.
+                if not has_input_row(conn, tab["id"]):
                     insert_rows(conn, tab["id"], 1)
                 reorder(conn, ordered_rows(conn, tab["id"]))
             elif action == "move_date":
@@ -177,6 +187,10 @@ def append_cells(conn, tab, rows, *, validated_import=False, work_date="all"):
         raise ValueError("Each cell must be text with at most 50,000 characters.")
     from .sourcing_filters import normalize_job_cell
     rows = [[normalize_job_cell(value,columns[c]["kind"]) for c,value in enumerate(row)] for row in rows]
+    if not validated_import:
+        # Pasted rows start unchecked: a copied check belongs to another
+        # sheet's account and is not evidence for this one.
+        rows = [["" if columns[c]["kind"] == "check" else value for c,value in enumerate(row)] for row in rows]
     rows = [row for row in rows if any(value.strip() for value in row)]
     if not rows:
         sheets.compact_blank_rows(conn, tab["id"])

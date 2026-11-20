@@ -131,6 +131,22 @@ class Runtime:
         return check
 
     def collect_mail(self, account_id, processing=None):
+        """Collect mail; on failure, save a safe reason on the account, then re-raise."""
+        started = time.time()
+        try:
+            return self._collect_mail(account_id, processing)
+        except (WorkDeferred, AccountDisabled):
+            raise  # busy or switched off: not a collection failure
+        except Exception as exc:
+            from .sync_status import record_failure
+            try:
+                with db.session(self.db_path) as conn:
+                    record_failure(conn, account_id, exc, since=started)
+            except Exception:
+                pass
+            raise
+
+    def _collect_mail(self, account_id, processing=None):
         with self.broker.lease(account_id, lane='collection') as lease:
             if not lease:
                 raise WorkDeferred('Collection is busy')
@@ -210,8 +226,10 @@ class Runtime:
                 check()
                 # last_sync means "mail was collected": scheduled and live Inbox
                 # checks skip accounts whose mail real-time keeps current, so a
-                # calendar success must never make failing mail look fresh.
-                storage.set_status(conn, account_id)
+                # calendar success must never make failing mail look fresh,
+                # nor clear the reason mail collection is failing.
+                from .sync_status import set_other_status
+                set_other_status(conn, account_id)
 
     def classify_account(self, account_id, processing=None):
         if not self.job_lock.acquire(blocking=False):
@@ -281,10 +299,12 @@ class Runtime:
                     except AccountDisabled:
                         self.broker.ack(kind, message_id, consumer=consumer)
                     except Exception as exc:
-                        if not isinstance(exc, WorkDeferred):
+                        # Mail failures already carry a specific reason (collect_mail).
+                        if not isinstance(exc, WorkDeferred) and kind != 'mail':
+                            from .sync_status import set_other_status
                             with db.session(self.db_path) as conn:
                                 if self._account(conn, account_id):
-                                    storage.set_status(conn, account_id, error={
+                                    set_other_status(conn, account_id, error={
                                         'mail': 'Mail collection unavailable; retrying.',
                                         'calendar': 'Calendar collection unavailable; retrying.',
                                         'classify': 'Classification unavailable; retrying.'}[kind])

@@ -6,6 +6,11 @@ from mailcheck.models import Classification, NormalizedMessage
 from tests import test_native_sourcing as fixtures
 
 
+
+def checked_state(value):
+    """Blank and "false" both mean unchecked; compare the state, not the text."""
+    return "true" if value == "true" else "false"
+
 class SourcingVerificationTests(unittest.TestCase):
     setUp = fixtures.NativeSheetTests.setUp
     tab = fixtures.NativeSheetTests.tab
@@ -38,7 +43,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("wrong-category", "Beta", "2026-10-20T12:00:00+00:00", category="interview_invite")
         self.conn.commit()
         result = verification.verify(self.conn, self.tab(), "verify", base["revision"], "2026-10-20")
-        self.assertEqual([r[3]["value"] for r in result["rows"][1:4]], ["true", "false", "false"])
+        self.assertEqual([checked_state(r[3]["value"]) for r in result["rows"][1:4]], ["true", "false", "false"])
         self.assertEqual(result["verification"]["checked"], 1)
         repeated = verification.verify(self.conn, self.tab(), "verify", base["revision"], "2026-10-20")
         self.assertEqual(repeated["revision"], result["revision"])
@@ -62,10 +67,10 @@ class SourcingVerificationTests(unittest.TestCase):
         db.save_classification(self.conn, pk, Classification(category="other", company="Acme"), "test", "1")
         self.conn.commit()
         result = verification.verify(self.conn, self.tab(), "again", first["revision"], "2026-10-20")
-        self.assertEqual(result["rows"][1][3]["value"], "true")
+        self.assertEqual(checked_state(result["rows"][1][3]["value"]), "true")
         self.assertEqual(result["verification"]["checked"], 1)
         verification.verify_all(self.conn)
-        self.assertEqual(self.snapshot()["rows"][1][3]["value"], "true")
+        self.assertEqual(checked_state(self.snapshot()["rows"][1][3]["value"]), "true")
 
     def test_verified_row_rejects_value_and_format_edits_but_can_move_day(self):
         from mailcheck import sourcing_verification as verification
@@ -88,7 +93,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(after["revision"], first["revision"])
         moved = self.native.structure(self.conn, self.tab(), "move", first["revision"], {
             "action": "move_date", "ids": [first["row_ids"][1]], "work_date": "2026-10-21"})
-        self.assertEqual(moved["rows"][1][3]["value"], "true")
+        self.assertEqual(checked_state(moved["rows"][1][3]["value"]), "true")
 
     def test_initial_save_can_check_row_before_its_job_details(self):
         base = self.snapshot()
@@ -118,7 +123,7 @@ class SourcingVerificationTests(unittest.TestCase):
                 self.native.save(self.conn, self.tab(), "clear-" + value, [{
                     "row_id": checked["row_ids"][1], "column_id": checked["columns"][3]["id"],
                     "expected_version": checked["rows"][1][3]["version"], "value": value}])
-        self.assertEqual(self.snapshot()["rows"][1][3]["value"], "true")
+        self.assertEqual(checked_state(self.snapshot()["rows"][1][3]["value"]), "true")
 
     def test_role_mismatch_is_rejected_but_missing_receipt_role_matches_company(self):
         from mailcheck import sourcing_verification as verification
@@ -129,9 +134,9 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("correct", "Other", "2026-10-20T12:00:00+00:00", role="  ENGINEER  ")
         self.conn.commit()
         manual = verification.verify(self.conn, self.tab(), "roles", base["revision"], "2026-10-20")
-        self.assertEqual([r[3]["value"] for r in manual["rows"][1:4]], ["false", "true", "true"])
+        self.assertEqual([checked_state(r[3]["value"]) for r in manual["rows"][1:4]], ["false", "true", "true"])
         verification.verify_all(self.conn)
-        self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["false", "true", "true"])
+        self.assertEqual([checked_state(r[3]["value"]) for r in self.snapshot()["rows"][1:4]], ["false", "true", "true"])
 
     def test_automatic_company_only_fallback_still_requires_account_and_window(self):
         from mailcheck import sourcing_verification as verification
@@ -142,7 +147,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("outside-window", "Other", "2026-10-30T05:00:00+00:00", role=None)
         self.conn.commit()
         verification.verify_all(self.conn)
-        self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
+        self.assertEqual([checked_state(r[3]["value"]) for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
 
     def test_missing_sheet_role_does_not_match_and_role_normalization_is_conservative(self):
         from mailcheck import sourcing_verification as verification
@@ -153,7 +158,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("match", "Acme", "2026-10-20T12:00:00+00:00")
         self.conn.commit()
         verification.verify_all(self.conn)
-        self.assertEqual(self.snapshot()["rows"][1][3]["value"], "false")
+        self.assertEqual(checked_state(self.snapshot()["rows"][1][3]["value"]), "false")
         self.assertEqual(verification.role_key("Senior—Software Engineer"), "senior software engineer")
         self.assertNotEqual(verification.role_key("C++ Engineer"), verification.role_key("C# Engineer"))
         self.assertNotEqual(verification.role_key("Senior Engineer"), verification.role_key("Engineer"))
@@ -188,7 +193,7 @@ class SourcingVerificationTests(unittest.TestCase):
             else:
                 verification.verify_all(self.conn)
             result = self.native.snapshot(self.conn, tab)
-            self.assertEqual(result["rows"][1][3]["value"], "true" if mode == "manual" else "false", mode)
+            self.assertEqual(checked_state(result["rows"][1][3]["value"]), "true" if mode == "manual" else "false", mode)
 
     def test_receipt_company_survives_message_cleanup(self):
         from mailcheck import sourcing_verification as verification
@@ -197,7 +202,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.execute("DELETE FROM messages WHERE id=?", (pk,))
         self.conn.commit()
         result = verification.verify(self.conn, self.tab(), "after-cleanup", base["revision"], "2026-10-20")
-        self.assertEqual(result["rows"][1][3]["value"], "true")
+        self.assertEqual(checked_state(result["rows"][1][3]["value"]), "true")
 
     def test_ten_day_window_handles_fall_back_offset_change(self):
         from mailcheck import sourcing_verification as verification
@@ -206,7 +211,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("next-midnight", "Beta", "2026-11-11T06:00:00+00:00")
         self.conn.commit()
         result = verification.verify(self.conn, self.tab(), "dst", base["revision"], "2026-11-01")
-        self.assertEqual([row[3]["value"] for row in result["rows"][1:3]], ["true", "false"])
+        self.assertEqual([checked_state(row[3]["value"]) for row in result["rows"][1:3]], ["true", "false"])
 
     def test_automatic_verification_does_not_reuse_receipts_across_books_and_dates(self):
         from mailcheck import sourcing_verification as verification
@@ -228,7 +233,7 @@ class SourcingVerificationTests(unittest.TestCase):
         summary = verification.verify_all(self.conn)
         self.assertEqual(summary["tabs"], 3)
         self.assertEqual(summary["checked"], 1)
-        self.assertEqual(self.snapshot()["rows"][1][3]["value"], "false")
+        self.assertEqual(checked_state(self.snapshot()["rows"][1][3]["value"]), "false")
         other_tab = self.native.owned(self.conn, second_tab, self.principal)
         self.assertEqual(self.native.snapshot(self.conn, other_tab)["rows"][1][3]["value"], "true")
         revisions = {row["id"]: row["revision"] for row in self.conn.execute("SELECT id,revision FROM native_tabs")}
@@ -250,7 +255,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt("too-early", "Other", "2026-10-20T04:59:59+00:00")
         self.conn.commit()
         verification.verify_all(self.conn)
-        self.assertEqual([r[3]["value"] for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
+        self.assertEqual([checked_state(r[3]["value"]) for r in self.snapshot()["rows"][1:4]], ["true", "false", "false"])
 
     def test_bounded_refresh_matches_eight_day_old_job(self):
         from mailcheck import sourcing_verification as verification
@@ -258,7 +263,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('eight-days-later', 'Acme', '2026-10-28T12:00:00+00:00')
         self.conn.commit()
         verification.verify_all(self.conn, refresh_since=date(2026, 10, 28), refresh_until=date(2026, 10, 28))
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
 
     def test_late_confirmation_credits_receipt_day_even_across_payment_weeks(self):
         from mailcheck import sourcing_verification as verification
@@ -302,7 +307,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['from'],'2026-10-19')
         refreshed = self.snapshot()
-        self.assertEqual(refreshed['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(refreshed['rows'][1][3]['value']),'true')
         self.assertEqual(refreshed['rows'][1][3]['checked_at'],"2026-10-22T20:00:00+00:00")
         sign_in_bidder(self.client,1)
         self.assertEqual(self.client.post('/api/payments/refresh',json={}).status_code,403)
@@ -319,7 +324,7 @@ class SourcingVerificationTests(unittest.TestCase):
             web._start_job(work, failed="Check failed")
             runner = thread.call_args.kwargs["target"]
             runner()
-            self.assertEqual(self.snapshot()["rows"][1][3]["value"], "true")
+            self.assertEqual(checked_state(self.snapshot()["rows"][1][3]["value"]), "true")
             self.assertEqual(web._job["completion_id"], 1)
             self.assertTrue(web._job["ok"], web._job["detail"])
             self.assertIn("sourcing", web._job["message"])
@@ -336,7 +341,7 @@ class SourcingVerificationTests(unittest.TestCase):
         bidder = response.json()['bidders'][0]
         self.assertEqual(bidder['daily'][2], 1)
         self.assertEqual(bidder['checked_daily'][2], 1)
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
 
     def test_bounded_refresh_includes_older_links_with_receipts_in_window(self):
         from mailcheck import sourcing_verification as verification
@@ -344,7 +349,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('last-valid-day', 'Acme', '2026-10-20T14:00:00+00:00')
         self.conn.commit()
         verification.verify_all(self.conn, refresh_since=date(2026,10,20), refresh_until=date(2026,10,26))
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
 
     def test_bounded_refresh_keeps_earliest_match_before_reporting_window(self):
         from mailcheck import sourcing_verification as verification
@@ -372,14 +377,25 @@ class SourcingVerificationTests(unittest.TestCase):
         response = self.client.post('/api/payments/refresh', json={'week':'2026-10-21', 'mode':'refresh'})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual((response.json()['from'], response.json()['through']), ('2026-10-19', '2026-10-25'))
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
         response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
         self.assertEqual(response.status_code, 200, response.text)
         after = self.snapshot()
-        self.assertEqual([r[3]['value'] for r in after['rows'][1:4]], ['true', 'true', 'true'])
+        self.assertEqual([checked_state(r[3]['value']) for r in after['rows'][1:4]], ['true', 'true', 'true'])
         self.assertEqual(after['rows'][1][3]['checked_at'], '2026-10-21T14:00:00+00:00')
         again = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
         self.assertEqual(again.json()['changed'], 0)
+
+    def test_week_refresh_without_matches_does_not_touch_open_sheets(self):
+        self.jobs('2026-10-20')
+        before = self.snapshot()
+        response = self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'refresh'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['changed'], 0)
+        after = self.snapshot()
+        # No "false" rewrites of blank checks: the revision an editor holds stays valid.
+        self.assertEqual(after['revision'], before['revision'])
+        self.assertEqual([checked_state(r[3]['value']) for r in after['rows'][1:]], [checked_state(r[3]['value']) for r in before['rows'][1:]])
 
     def test_manual_check_remains_manual_after_matching_and_rebuild(self):
         from mailcheck import sourcing_verification as verification
@@ -396,7 +412,7 @@ class SourcingVerificationTests(unittest.TestCase):
         db.save_classification(self.conn, pk, Classification(category='other', company='Acme'), 'test', '1')
         self.conn.commit()
         self.client.post('/api/payments/refresh', json={'week':'2026-10-19', 'mode':'rebuild'})
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
 
     def test_week_refresh_leaves_other_week_receipt_metadata_untouched(self):
         self.receipt('outside-metadata', 'Acme', '2026-10-28T14:00:00+00:00')
@@ -492,7 +508,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
         self.conn.commit()
         verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'true')
         self.assertEqual(self.snapshot()['rows'][1][3]['checked_at'],'2026-10-20T15:00:00+00:00')
 
     def test_manual_check_from_today_also_checks_future_rows(self):
@@ -503,7 +519,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         with patch.object(payments,'today',return_value=date(2026,10,20)):
             verification.verify(self.conn,self.tab(),'early-manual',base['revision'],'2026-10-20')
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'true')
 
     def test_manual_check_on_future_date_finds_early_confirmation(self):
         from unittest.mock import patch
@@ -513,7 +529,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         with patch.object(payments,'today',return_value=date(2026,10,20)):
             verification.verify(self.conn,self.tab(),'early-future',base['revision'],'2026-11-20')
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'true')
 
     def test_future_completion_is_counted_on_actual_receipt_day(self):
         from mailcheck import sourcing_verification as verification
@@ -537,7 +553,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         with patch.object(payments,'today',return_value=date(2026,10,20)):
             verification.verify_all(self.conn)
-        self.assertEqual([r[3]['value'] for r in self.snapshot()['rows'][1:4]],['false','false','false'])
+        self.assertEqual([checked_state(r[3]['value']) for r in self.snapshot()['rows'][1:4]],['false','false','false'])
 
     def test_company_only_reply_does_not_check_multiple_roles(self):
         from mailcheck import sourcing_verification as verification
@@ -549,15 +565,15 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('company-only', 'Nscale', '2026-10-20T12:00:00Z', role=None)
         self.conn.commit()
         checked = verification.verify(self.conn, self.tab(), 'manual-ambiguous', jobs['revision'], '2026-10-20')
-        self.assertEqual([row[3]['value'] for row in checked['rows'][1:3]], ['false', 'false'])
+        self.assertEqual([checked_state(row[3]['value']) for row in checked['rows'][1:3]], ['false', 'false'])
         self.assertEqual(checked['verification']['unmatched_count'],2)
         self.assertTrue(all('2 eligible jobs' in item['reason'] for item in checked['verification']['unmatched']))
         verification.verify_all(self.conn, sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]], ['false', 'false'])
+        self.assertEqual([checked_state(row[3]['value']) for row in self.snapshot()['rows'][1:3]], ['false', 'false'])
         self.receipt('specific-role', 'Nscale', '2026-10-20T12:01:00Z', role='Developer Experience Engineer')
         self.conn.commit()
         verification.verify_all(self.conn, sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]], ['true', 'false'])
+        self.assertEqual([checked_state(row[3]['value']) for row in self.snapshot()['rows'][1:3]], ['true', 'false'])
 
     def test_manual_check_sees_competing_jobs_in_another_bidder_tab(self):
         from mailcheck import sourcing_verification as verification
@@ -570,7 +586,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('one-receipt', 'Acme', '2026-10-20T12:00:00Z')
         self.conn.commit()
         checked = verification.verify(self.conn, self.tab(), 'cross-tab-check', base['revision'], '2026-10-20')
-        self.assertEqual(checked['rows'][1][3]['value'], 'false')
+        self.assertEqual(checked_state(checked['rows'][1][3]['value']), 'false')
 
     def test_reserved_receipt_is_not_reused_and_unchanged_refresh_has_no_writes(self):
         from mailcheck import sourcing_verification as verification
@@ -582,8 +598,8 @@ class SourcingVerificationTests(unittest.TestCase):
         self.native.append(self.conn, self.tab(), 'another-acme', snap['revision'], [['Acme', 'Engineer', 'https://jobs.test/another']], work_date='2026-10-20')
         verification.verify_all(self.conn, sample=False)
         rows = self.snapshot()['rows']
-        self.assertEqual(rows[1][3]['value'], 'true')
-        self.assertEqual(rows[4][3]['value'], 'false')
+        self.assertEqual(checked_state(rows[1][3]['value']), 'true')
+        self.assertEqual(checked_state(rows[4][3]['value']), 'false')
         self.conn.commit()
         before = self.conn.total_changes
         verification.verify_all(self.conn, sample=False)
@@ -595,10 +611,10 @@ class SourcingVerificationTests(unittest.TestCase):
         pk = self.receipt('corrected-company', 'Acme', '2026-10-20T12:00:00Z')
         self.conn.commit()
         verification.verify_all(self.conn, sample=False)
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'], 'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
         db.save_classification(self.conn,pk,Classification(category='application_ack',company='Beta',role='Engineer'),'test','1')
         verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:4]], ['true','false','false'])
+        self.assertEqual([checked_state(row[3]['value']) for row in self.snapshot()['rows'][1:4]], ['true','false','false'])
 
     def test_rebuild_adds_new_matches_without_touching_saved_cells_or_proofs(self):
         from mailcheck import sourcing_verification as verification
@@ -620,7 +636,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['changed'],1)
         after = self.snapshot()
-        self.assertEqual([r[3]['value'] for r in after['rows'][1:4]],['true']*3)
+        self.assertEqual([checked_state(r[3]['value']) for r in after['rows'][1:4]],['true']*3)
         for index in (1,3):
             self.assertEqual(after['rows'][index][3],before['rows'][index][3])
         self.assertEqual([tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(i,)).fetchone()) for i in ids],proofs)
@@ -665,12 +681,12 @@ class SourcingVerificationTests(unittest.TestCase):
                 for index in (1,3):
                     self.assertEqual(after['rows'][index][3],before['rows'][index][3])
                 self.assertEqual([tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(i,)).fetchone()) for i in ids],proofs)
-                self.assertEqual(after['rows'][2][3]['value'],'true')
+                self.assertEqual(checked_state(after['rows'][2][3]['value']),'true')
                 self.assertEqual(payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily'],[0,1,1,1,0,0,0])
         # Even a future rule that produces no matches must preserve credited rows.
         with patch.object(verification,'_matching_plan',return_value={}):
             verification.verify_all(self.conn,sample=False)
-            self.assertEqual([r[3]['value'] for r in self.snapshot()['rows'][1:4]],['true']*3)
+            self.assertEqual([checked_state(r[3]['value']) for r in self.snapshot()['rows'][1:4]],['true']*3)
 
     def test_inspira_company_and_role_containment_check_the_application(self):
         from mailcheck import sourcing_verification as verification
@@ -679,7 +695,7 @@ class SourcingVerificationTests(unittest.TestCase):
             ['Inspira Financial','Principal AI Operations Engineer','https://jobs.test/inspira']],work_date='2026-10-20')
         self.receipt('inspira-confirmation','Inspira Financial Trust, LLC','2026-10-20T12:00:00Z',role='Principal AI Operations Engineer (Remote)')
         self.conn.commit();verification.verify_all(self.conn,sample=False)
-        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'true')
 
     def test_manual_matching_accepts_shorter_email_company_and_role(self):
         from mailcheck import sourcing_verification as verification
@@ -689,7 +705,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('short-names','Inspira Financial','2026-10-20T12:00:00Z',role='AI Operations Engineer')
         self.conn.commit()
         result=verification.verify(self.conn,self.tab(),'short-name-check',jobs['revision'],'2026-10-20')
-        self.assertEqual(result['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(result['rows'][1][3]['value']),'true')
 
     def test_contained_role_does_not_choose_between_multiple_eligible_titles(self):
         from mailcheck import sourcing_verification as verification
@@ -699,7 +715,7 @@ class SourcingVerificationTests(unittest.TestCase):
             ['Inspira Financial Trust LLC','Principal Software Engineer','https://jobs.test/principal']],work_date='2026-10-20')
         self.receipt('ambiguous-containment','Inspira Financial Trust LLC','2026-10-20T12:00:00Z',role='Software Engineer')
         self.conn.commit();verification.verify_all(self.conn,sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]],['false','false'])
+        self.assertEqual([checked_state(row[3]['value']) for row in self.snapshot()['rows'][1:3]],['false','false'])
 
     def test_containment_does_not_match_word_fragments_or_conflicting_role_tokens(self):
         from mailcheck import sourcing_verification as verification
@@ -710,7 +726,7 @@ class SourcingVerificationTests(unittest.TestCase):
         for key,company,role in [('meta','Meta','Engineer'),('level','Levels','Engineer II'),('language','Languages','C# Engineer'),('title','Titles','Engineer')]:
             self.receipt(key,company,'2026-10-20T12:00:00Z',role=role)
         self.conn.commit();verification.verify_all(self.conn,sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:5]],['false']*4)
+        self.assertEqual([checked_state(row[3]['value']) for row in self.snapshot()['rows'][1:5]],['false']*4)
 
     def test_company_only_containment_remains_ambiguous_without_an_exact_company(self):
         from mailcheck import sourcing_verification as verification
@@ -720,7 +736,7 @@ class SourcingVerificationTests(unittest.TestCase):
             ['Inspira Financial Trust LLC','Analyst','https://jobs.test/analyst']],work_date='2026-10-20')
         self.receipt('company-only-contained','Inspira Financial','2026-10-20T12:00:00Z',role=None)
         self.conn.commit();verification.verify_all(self.conn,sample=False)
-        self.assertEqual([row[3]['value'] for row in self.snapshot()['rows'][1:3]],['false','false'])
+        self.assertEqual([checked_state(row[3]['value']) for row in self.snapshot()['rows'][1:3]],['false','false'])
 
     def test_out_of_window_exact_role_does_not_block_eligible_containment(self):
         from mailcheck import sourcing_verification as verification
@@ -735,8 +751,8 @@ class SourcingVerificationTests(unittest.TestCase):
         checks=dict(self.conn.execute("""SELECT r.work_date,c.value FROM native_rows r
             JOIN native_cells c ON c.row_id=r.id JOIN native_columns col ON col.id=c.column_id
             WHERE col.kind='check' AND r.work_date IS NOT NULL"""))
-        self.assertEqual(checks['2026-10-01'],'false')
-        self.assertEqual(checks['2026-10-20'],'true')
+        self.assertEqual(checked_state(checks.get('2026-10-01','')),'false')
+        self.assertEqual(checked_state(checks.get('2026-10-20','')),'true')
 
     def test_expanded_company_aliases_do_not_remove_a_legacy_exact_check_on_rebuild(self):
         from mailcheck import sourcing_verification as verification
@@ -744,7 +760,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.receipt('legacy-exact','Acme','2026-10-21T14:00:00Z')
         self.conn.commit();verification.verify_all(self.conn,sample=False)
         base=self.snapshot()
-        self.assertEqual(base['rows'][1][3]['value'],'true')
+        self.assertEqual(checked_state(base['rows'][1][3]['value']),'true')
         # Older activity records may have a counted time without a receipt ID.
         self.conn.execute('UPDATE sourcing_check_activity SET message_id=NULL WHERE row_id=?',(base['row_ids'][1],))
         self.conn.commit()
@@ -753,8 +769,8 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=True,sample=False)
         snap=self.snapshot()
-        self.assertEqual(snap['rows'][1][3]['value'],'true')
-        self.assertEqual(snap['rows'][4][3]['value'],'false')
+        self.assertEqual(checked_state(snap['rows'][1][3]['value']),'true')
+        self.assertEqual(checked_state(snap['rows'][4][3]['value']),'false')
 
 
     def test_broad_matches_add_credit_without_relocating_existing_checks(self):
@@ -782,7 +798,7 @@ class SourcingVerificationTests(unittest.TestCase):
                     self.assertEqual(response.status_code,200,response.text)
                 after = self.snapshot()
                 self.assertEqual(after['rows'][1][3],base['rows'][1][3])
-                self.assertEqual(after['rows'][4][3]['value'],'true')
+                self.assertEqual(checked_state(after['rows'][4][3]['value']),'true')
                 self.assertEqual(tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(row_id,)).fetchone()),proof)
                 self.assertEqual(payments.report(self.conn,date(2026,10,19),read_only=True)['checked_daily'],[0,0,1,1,0,0,0])
 
@@ -823,11 +839,11 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         before=self.snapshot()
         after=verification.verify(self.conn,self.tab(),'hp-manual',before['revision'],'2026-10-20')
-        self.assertEqual([r[3]['value']=='true' for r in after['rows'][1:3]],[False,True])
+        self.assertEqual([checked_state(r[3]['value'])=='true' for r in after['rows'][1:3]],[False,True])
         proof=tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(after['row_ids'][2],)).fetchone())
         for rebuild in (False,True):
             verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=rebuild,sample=False)
-            self.assertEqual([r[3]['value']=='true' for r in self.snapshot()['rows'][1:3]],[False,True])
+            self.assertEqual([checked_state(r[3]['value'])=='true' for r in self.snapshot()['rows'][1:3]],[False,True])
             self.assertEqual(tuple(self.conn.execute('SELECT * FROM sourcing_check_activity WHERE row_id=?',(after['row_ids'][2],)).fetchone()),proof)
 
     def test_hp_checked_job_does_not_block_an_unbound_company_only_confirmation(self):
@@ -845,7 +861,7 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         verification.verify_all(self.conn,sample=False)
         after=self.snapshot()
-        self.assertEqual([r[3]['value'] for r in after['rows'][1:3]],['true','true'])
+        self.assertEqual([checked_state(r[3]['value']) for r in after['rows'][1:3]],['true','true'])
         self.assertEqual(before['rows'][1][3],after['rows'][1][3])
 
     def test_hp_delayed_confirmation_prefers_latest_unchecked_source_day(self):
@@ -860,13 +876,13 @@ class SourcingVerificationTests(unittest.TestCase):
         self.conn.commit()
         verification.verify_all(self.conn,sample=False)
         snap=self.snapshot()
-        self.assertEqual([r[3]['value'] for r in snap['rows'][1:3]],['false','true'])
+        self.assertEqual([checked_state(r[3]['value']) for r in snap['rows'][1:3]],['false','true'])
         self.assertEqual(snap['rows'][2][3]['checked_at'],'2026-10-21T14:00:00+00:00')
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM sourcing_check_activity WHERE message_id=?',('next-day-hp',)).fetchone()[0],1)
         for rebuild in (False,True):
             verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,rebuild=rebuild,sample=False)
             self.assertEqual(self.snapshot()['rows'][2][3],snap['rows'][2][3])
-            self.assertEqual(self.snapshot()['rows'][1][3]['value'],'false')
+            self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'false')
 
     def test_unchecked_reason_identifies_a_confirmation_already_used_elsewhere(self):
         from mailcheck import sourcing_verification as verification
@@ -883,5 +899,5 @@ class SourcingVerificationTests(unittest.TestCase):
         result=verification.verify(self.conn,self.tab(),'explain-bound',base['revision'],'2026-10-20')
         self.assertEqual(result['verification']['unmatched_count'],1)
         self.assertIn('already linked to a checked job',result['verification']['unmatched'][0]['reason'])
-        self.assertEqual(result['rows'][2][3]['value'],'false')
+        self.assertEqual(checked_state(result['rows'][2][3]['value']),'false')
         self.assertEqual(result['rows'][1][3],base['rows'][1][3])

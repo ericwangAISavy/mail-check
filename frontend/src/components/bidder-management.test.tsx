@@ -84,25 +84,29 @@ it('saves a bidder-specific rate and adjustment percentage',async()=>{
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/payments/bidders/1/rate',{pay_per_bid:'0.05',adjustment_percent:'20'}))
 })
 
-it('opens one bidder editor at a time and preserves drafts when switching', async () => {
+it('lists every bidder in one panel and shows the selected bidder beside it', async () => {
   const report = data()
   report.bidders.push({ ...report.bidders[0], id: 2, name: 'Blair', assignments: [] })
   vi.mocked(request).mockResolvedValue(report)
   mount()
   fireEvent.click(await screen.findByText('Manage bidders and account assignments'))
-  const alex = await screen.findByRole('button', { name: 'Alex' })
-  const blair = screen.getByRole('button', { name: 'Blair' })
-  expect(alex.getAttribute('aria-expanded')).toBe('true')
-  expect(blair.getAttribute('aria-expanded')).toBe('false')
+  const list = await screen.findByRole('navigation', { name: 'Bidders' })
+  const alex = within(list).getByRole('button', { name: 'Alex' })
+  const blair = within(list).getByRole('button', { name: 'Blair' })
+  expect(alex.getAttribute('aria-current')).toBe('true')
+  expect(blair.getAttribute('aria-current')).toBeNull()
+  expect(screen.getByRole('region', { name: 'Alex details' })).toBeTruthy()
   fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Alex draft' } })
   fireEvent.click(blair)
-  expect(alex.getAttribute('aria-expanded')).toBe('false')
-  expect(blair.getAttribute('aria-expanded')).toBe('true')
+  expect(blair.getAttribute('aria-current')).toBe('true')
+  expect(screen.getByRole('region', { name: 'Blair details' })).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Alex details' })).toBeNull()
   expect(screen.getAllByRole('button', { name: 'Save name' })).toHaveLength(1)
+  // Switching back keeps the unsaved draft; choosing the shown bidder again keeps it open.
   fireEvent.click(alex)
   expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('Alex draft')
   fireEvent.click(alex)
-  expect(screen.queryByRole('button', { name: 'Save name' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Save name' })).toBeTruthy()
 })
 
 

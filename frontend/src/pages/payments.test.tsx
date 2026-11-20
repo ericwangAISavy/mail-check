@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { api, request } from "@/lib/api"
 import PaymentsPage from "./payments"
 vi.mock("@/lib/api", () => ({ api: { post: vi.fn() }, request: vi.fn() }))
-vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title, action }: { title: string; action?: any }) => <><h1>{title}</h1>{action}</>, useToast: () => vi.fn() }))
+const toastSpy = vi.hoisted(() => vi.fn())
+vi.mock("@/components/common", () => ({ Loading: ({ label }: { label: string }) => <div>{label}</div>, PageHeading: ({ title, action }: { title: string; action?: any }) => <><h1>{title}</h1>{action}</>, useToast: () => toastSpy }))
 const clients: QueryClient[] = []
 const data = () => ({ payment_visible:true, week_start: "2026-10-12", week_end: "2026-10-18", today: "2026-10-20", timezone: "America/Chicago", currency: "USD", dates: ["2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18"], daily: [3,0,0,0,0,0,0], unassigned: 0, accounts: [{ id: 1, label: "Work inbox" }], bidders: [{ id: 1, name: "Alex", assignments: [{ id: 10, account_id: 1, account_label: "Work inbox", start_date: "2026-10-12", end_date: null }], daily: [3,0,0,0,0,0,0], total: 3, checked_daily: [3,0,0,0,0,0,0], payment: null }] })
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
@@ -192,10 +193,13 @@ it('defaults the blue confirmed amount to the estimate until manually changed',a
  expect(within(row).queryByText(/Calculated amount|Paid ·|Manual amount|previous values|×/)).toBeNull()
 })
 
-it("offers full rebuild for the displayed week", async () => {
+it("refreshes the displayed week with one button and reports new checks", async () => {
+  vi.mocked(api.post).mockResolvedValueOnce({changed: 3} as never)
   mount(); await screen.findByRole("rowheader", {name:/Alex/})
-  fireEvent.click(screen.getByRole("button", {name:"Fully rebuild this week"}))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"rebuild"}))
+  expect(screen.queryByRole("button", {name:"Fully rebuild this week"})).toBeNull()
+  fireEvent.click(screen.getByRole("button", {name:"Refresh this week"}))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/payments/refresh", {week:"2026-10-12",mode:"refresh"}))
+  await waitFor(() => expect(toastSpy).toHaveBeenCalledWith("Week refreshed · 3 new checks.", "success"))
 })
 
 it('explains missing Nifemi rates and saves a rate during an in-progress week',async()=>{

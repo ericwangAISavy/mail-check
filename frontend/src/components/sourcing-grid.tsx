@@ -34,7 +34,6 @@ export function SheetGrid({
   onEditingChange,
   onPaste,
   onAppendRows,
-  onDeleteRows,
 }: {
   snapshot: Snapshot;
   changes: Change[];
@@ -47,7 +46,6 @@ export function SheetGrid({
   onEditingChange?: (active: boolean) => void;
   onPaste?: () => void;
   onAppendRows?: (rows: string[][]) => void;
-  onDeleteRows?: (rows: number[]) => void;
 }) {
   const grid = useRef<DataGridHandle>(null),
     anchor = useRef({ row: 0, col: 0 }),
@@ -157,6 +155,43 @@ export function SheetGrid({
           result.push({ row: visible[r], col: c, value: "" });
     return result;
   };
+  /** Copied rows start unchecked: blank every Check column value. */
+  const withoutChecks = (matrix: string[][], offset: number) =>
+    matrix.map(r => r.map((value, ci) => snapshot.columns[offset + ci]?.kind === "check" ? "" : value));
+  // With no job rows there is no cell to paste into (the field names are
+  // fixed headings), so a paste into the empty table adds the copied rows.
+  const empty = rows.length === 0 && !disabled && !!onAppendRows;
+  const pasteIntoEmptyDay = (event: {clipboardData: DataTransfer | null; defaultPrevented: boolean; preventDefault: () => void}) => {
+    if (!empty || !onAppendRows || event.defaultPrevented || !event.clipboardData) return;
+    event.preventDefault();
+    let matrix: string[][];
+    try {
+      matrix = parseClipboardRows(event.clipboardData.getData("text/plain"), event.clipboardData.getData("text/html")).filter(values => values.some(value => value.trim()));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not read the copied rows. Try copying them again.");
+      return;
+    }
+    if (!matrix.length) return;
+    if (matrix.reduce((n, r) => n + r.length, 0) > 10000) {window.alert("Paste up to 10,000 cells at a time."); return;}
+    if (matrix.some(r => r.length > count)) {window.alert("The copied rows have more columns than this sheet."); return;}
+    if (changes.length) {window.alert("Save current edits before appending pasted rows."); return;}
+    onAppendRows(withoutChecks(matrix, 0));
+  };
+  const pasteRef = useRef(pasteIntoEmptyDay);
+  pasteRef.current = pasteIntoEmptyDay;
+  // Ctrl+V after clicking the empty table area (which holds no focusable
+  // cell) lands on the page body; treat it as a paste into this empty day.
+  useEffect(() => {
+    if (!empty) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("input,textarea,select,[contenteditable=''],[contenteditable='true'],[role='dialog']")) return;
+      if (target && target !== document.body && !target.closest?.(".sheet-grid-paste")) return;
+      pasteRef.current(event);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [empty]);
   const columns: Column<Row>[] = [
     {
       key: "id",
@@ -240,6 +275,7 @@ export function SheetGrid({
         <i>fx</i>
         <span>{String(rows[position.row]?.[String(position.col)] ?? "")}</span>
       </div>
+      <div className="sheet-grid-paste" style={{display: "contents"}} onPaste={pasteIntoEmptyDay}>
       <DataGrid
         ref={grid}
         aria-label="Job sourcing spreadsheet"
@@ -252,6 +288,14 @@ export function SheetGrid({
           return rowOffsets[index + 1] - rowOffsets[index];
         }}
         headerRowHeight={28}
+        renderers={empty ? {noRowsFallback: (
+          <div role="row" className="sheet-paste-row">
+            <div role="gridcell" tabIndex={0} className="sheet-paste-target" aria-label="Paste copied job rows here"
+              onClick={(event) => event.currentTarget.focus()}>
+              Paste copied job rows here <kbd>Ctrl</kbd>+<kbd>V</kbd>
+            </div>
+          </div>
+        )} : undefined}
         rowClass={(row) => {
           const index = indices.get(row.id) ?? -1;
           return [row.id === highlightRow ? "sheet-highlight-row" : "", checkedRows.has(row.id)?"sheet-checked-row":"",
@@ -389,7 +433,7 @@ export function SheetGrid({
           if (matrix.length + start > rows.length && Number(column.key) === 0 &&
               snapshot.columns.every((_, c) => !String(row[String(c)] ?? "").trim()) && onAppendRows) {
             if (changes.length) {window.alert("Save current edits before appending pasted rows."); return row;}
-            onAppendRows(matrix);
+            onAppendRows(withoutChecks(matrix, 0));
             return row;
           }
           if (
@@ -406,13 +450,13 @@ export function SheetGrid({
           }
           const values: Change[] = [];
           matrix.forEach((r, ri) =>
-            r.forEach((value, ci) =>
-              values.push({
-                row: visible[start + ri],
-                col: Number(column.key) + ci,
-                value,
-              }),
-            ),
+            r.forEach((value, ci) => {
+              const col = Number(column.key) + ci;
+              // A copied check belongs to the source account; this row is
+              // checked only by its own confirmation or a deliberate click.
+              if (snapshot.columns[col]?.kind === "check") return;
+              values.push({row: visible[start + ri], col, value});
+            }),
           );
           onPaste?.();
           apply(values);
@@ -425,19 +469,17 @@ export function SheetGrid({
             !args.column
           )
             return;
-          if ((event.key === "Delete" || event.key === "Backspace") && onDeleteRows) {
+          // Delete clears the selected rows' contents but keeps the rows, so
+          // there is always room to paste the next batch of links.
+          if (event.key === "Delete" || event.key === "Backspace") {
             event.preventDefault();
             event.preventGridDefault();
             if (event.repeat) return;
-            onDeleteRows(visible.slice(Math.min(anchor.current.row, selected.current.row), Math.max(anchor.current.row, selected.current.row) + 1).filter(row => row > 0));
-            return;
-          }
-          if (event.key === "Delete" || event.key === "Backspace") {
-            event.preventDefault();
             apply(range());
           }
         }}
       />
+      </div>
     </>
   );
 }

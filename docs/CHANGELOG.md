@@ -2,6 +2,60 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.11.4 — 2026-11-19
+
+Reliable sync failure reasons
+
+- A mailbox's Sync failing reason now stays visible until mail collection succeeds; a successful calendar sync no longer hides it.
+- Mail that was collected is no longer reported as failing when only a follow-up step had a problem.
+
+## 3.11.3 — 2026-11-19
+
+Sync switch on each account
+
+- Each connected account now has a Sync switch for collecting new mail as it arrives, replacing the separate Automatic updates list and the Include in checks switch.
+- Turning Sync on for a paused account also includes it in checks again.
+
+## 3.11.2 — 2026-11-19
+
+Cleaner bidder management
+
+- Bidders are now managed in one panel: the bidder list on the left and the selected bidder's profile, payment, wallet, web access and accounts on the right, so switching bidders takes one click and no longer pushes the page around.
+
+## 3.11.1 — 2026-11-19
+
+Clean reply editor focus
+
+- The email reply editor shows one clean focus outline instead of a doubled line.
+
+## 3.11.0 — 2026-11-19
+
+See why automatic updates fail
+
+- When automatic mail collection fails for a mailbox, its card now shows Live · failing and a short reason, such as an expired Microsoft sign-in, instead of only Not synced yet.
+- The next successful collection clears the warning automatically.
+
+## 3.10.4 — 2026-11-19
+
+Clearer weekly refresh
+
+- Refresh this week now says how many new checks it found, and the duplicate Fully rebuild this week button is gone (it ran the same refresh).
+- Refreshing a week no longer rewrites blank Check cells, so people editing a sheet while Payments is open no longer get a sheet changed error.
+
+## 3.10.3 — 2026-11-19
+
+Pasted job rows start unchecked
+
+- Copying job rows to another sheet no longer copies their Check status; pasted rows start unchecked and are checked by that account's own confirmations.
+
+## 3.10.2 — 2026-11-19
+
+Keep job sourcing rows for pasting
+
+- Delete in Job sourcing now clears the selected rows' contents and keeps the rows, so you can paste the next batch of links into them.
+- Pasting into a day that has no job rows adds the copied rows to that day.
+- Deleting a day's rows always leaves a blank input row, so other days are never left without a row to paste into.
+
 ## 3.10.1 — 2026-11-19
 
 Monitoring reliability fixes

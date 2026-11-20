@@ -322,6 +322,23 @@ class NativeSheetTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.native.save(self.conn, self.tab(), "deleted-row", [change])
 
+    def test_deleting_a_days_rows_keeps_an_input_row_for_pasting(self):
+        from mailcheck.sourcing_structure import has_input_row
+        base = self.snapshot()
+        # Two days of jobs; the sheet's blank input row is then filled on day one.
+        day_one = self.native.append(self.conn, self.tab(), "a1", base["revision"],
+                                     [["Acme", "Engineer", "https://jobs.test/1"]], work_date="2026-11-18")
+        day_two = self.native.append(self.conn, self.tab(), "a2", day_one["revision"],
+                                     [["Beta", "Designer", "https://jobs.test/2"]], work_date="2026-11-19")
+        ids = [row_id for row_id, day in zip(day_two["row_ids"], day_two["row_dates"])
+               if row_id and day in ("2026-11-19", None)]
+        result = self.native.structure(self.conn, self.tab(), "delete-day", day_two["revision"],
+                                       {"action": "delete_rows", "ids": ids})
+        # Day one's job survives, and an undated blank row is there for the next paste.
+        self.assertTrue(has_input_row(self.conn, self.tab()["id"]))
+        self.assertIn(None, result["row_dates"][1:])
+        self.assertIn("2026-11-18", result["row_dates"][1:])
+
     def test_append_is_atomic_and_idempotent(self):
         base = self.snapshot()
         first = self.native.append(
@@ -340,6 +357,14 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.assertEqual(first["row_ids"], second["row_ids"])
         self.assertEqual(second["rows"][1][0]["value"], "Acme")
+
+    def test_pasted_rows_never_bring_a_check_from_another_sheet(self):
+        base = self.snapshot()
+        result = self.native.append(self.conn, self.tab(), "paste-checked", base["revision"],
+                                    [["Acme", "Engineer", "https://jobs.test/1", "true"]])
+        check = next(i for i, column in enumerate(result["columns"]) if column["kind"] == "check")
+        row = next(r for r in result["rows"][1:] if r[0]["value"] == "Acme")
+        self.assertNotEqual(row[check]["value"], "true")
 
     def test_required_columns_cannot_be_deleted_but_custom_columns_can(self):
         base = self.snapshot()

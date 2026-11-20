@@ -42,40 +42,85 @@ it("removes blank pasted rows before appending jobs beyond the input row", () =>
   const append = vi.fn();
   render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onAppendRows={append}/>);
   const grid = screen.getByRole("grid", {name: "Job sourcing spreadsheet"});
-  fireEvent.paste(grid, {clipboardData: {getData: () => "Acme\tEngineer\thttps://jobs.test/1\n\t\t\nBeta\tEngineer\thttps://jobs.test/2\n\t\t"}});
-  expect(append).toHaveBeenCalledWith([["Acme", "Engineer", "https://jobs.test/1"], ["Beta", "Engineer", "https://jobs.test/2"]]);
+  fireEvent.paste(grid, {clipboardData: {getData: () => "Acme\tEngineer\thttps://jobs.test/1\ttrue\n\t\t\nBeta\tEngineer\thttps://jobs.test/2\n\t\t"}});
+  // The copied "true" Check value is dropped: appended jobs start unchecked.
+  expect(append).toHaveBeenCalledWith([["Acme", "Engineer", "https://jobs.test/1", ""], ["Beta", "Engineer", "https://jobs.test/2"]]);
+});
+it("never copies a Check value from another sheet when pasting in place", () => {
+  const data = snapshot(); data.rows.push([cell(""),cell(""),cell(""),cell("")]); data.row_ids.push("row2");
+  const change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change}/>);
+  fireEvent.click(screen.getByRole("gridcell", {name: "Acme"}));
+  fireEvent.paste(screen.getByRole("grid"), {clipboardData: {getData: (type:string) => type==="text/plain" ? "Beta\tDesigner\thttps://jobs.test/2\ttrue" : ""}});
+  const pasted = change.mock.calls.at(-1)?.[0] as {col:number;value:string}[];
+  expect(pasted.map(c=>c.value)).toEqual(expect.arrayContaining(["Beta","Designer","https://jobs.test/2"]));
+  expect(pasted.some(c=>c.col===3)).toBe(false);
 });
 it("deletes all dragged rows with Delete instead of clearing cell values", () => {
   const data = snapshot();
   data.rows.push([cell("Beta"),cell("Designer"),cell("https://jobs.test/2"),cell("false")]);
   data.row_ids.push("row2");
-  const remove = vi.fn(), change = vi.fn();
-  render(<SheetGrid snapshot={data} changes={[]} onChange={change} onDeleteRows={remove}/>);
+  const change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change}/>);
   const first = screen.getByRole("gridcell", {name: "Acme"});
   const last = screen.getByRole("gridcell", {name: "Designer"});
   fireEvent.mouseDown(first, {button:0, buttons:1});
   fireEvent.mouseMove(last, {buttons:1});
   fireEvent.mouseUp(document);
   fireEvent.keyDown(screen.getByRole("grid"), {key:"Delete"});
-  expect(remove).toHaveBeenCalledWith([1,2]);
-  expect(change).not.toHaveBeenCalled();
+  // Delete clears the rows' contents and keeps the rows for the next paste.
+  const cleared = change.mock.calls.at(-1)?.[0] as {row:number;col:number;value:string}[];
+  expect(new Set(cleared.map(c=>c.row))).toEqual(new Set([1,2]));
+  expect(cleared.every(c=>c.value==="")).toBe(true);
 });
 it("uses the filtered job identity for keyboard deletion", () => {
   const data = snapshot();
   data.rows.push([cell("Beta"),cell("Designer"),cell("https://jobs.test/2"),cell("false")]); data.row_ids.push("row2");
-  const remove = vi.fn();
-  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onDeleteRows={remove}
+  const change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change}
     view={{find:"Beta",filterColumn:0,filter:"",sortColumn:0,direction:"none"}}/>);
   fireEvent.keyDown(screen.getByRole("grid"), {key:"Delete"});
-  expect(remove).toHaveBeenCalledWith([2]);
+  const cleared = change.mock.calls.at(-1)?.[0] as {row:number}[];
+  expect(new Set(cleared.map(c=>c.row))).toEqual(new Set([2]));
 });
-it("keeps Delete inside a text editor from deleting job rows", () => {
-  const remove = vi.fn();
-  render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()} onDeleteRows={remove}/>);
+it("keeps Delete inside a text editor from clearing whole rows", () => {
+  const change = vi.fn();
+  render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change}/>);
   fireEvent.doubleClick(screen.getByRole("gridcell", {name:"Acme"}));
   const input = screen.getByRole("textbox", {name:"Edit cell"});
   fireEvent.keyDown(input, {key:"Delete"});
-  expect(remove).not.toHaveBeenCalled();
+  expect(change).not.toHaveBeenCalled();
+});
+it("adds pasted rows when the day has no job rows to paste into", () => {
+  const data = snapshot();
+  data.rows = data.rows.slice(0,1); data.row_ids = data.row_ids.slice(0,1);
+  const append = vi.fn(), change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change} onAppendRows={append}/>);
+  expect(screen.getAllByRole("gridcell").map(cell => cell.getAttribute("aria-label"))).toEqual(["Paste copied job rows here"]);
+  fireEvent.paste(screen.getByRole("columnheader", {name: "Company"}), {clipboardData: {getData: (type:string) => type==="text/plain" ? "Acme\tEngineer\thttps://jobs.test/1\nBeta\tDesigner\thttps://jobs.test/2" : ""}});
+  expect(append).toHaveBeenCalledWith([["Acme","Engineer","https://jobs.test/1"],["Beta","Designer","https://jobs.test/2"]]);
+  expect(change).not.toHaveBeenCalled();
+});
+it("offers a focusable paste row on an empty day and accepts a page-level paste", () => {
+  const data = snapshot();
+  data.rows = data.rows.slice(0,1); data.row_ids = data.row_ids.slice(0,1);
+  const append = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onAppendRows={append}/>);
+  const target = screen.getByRole("gridcell", {name: "Paste copied job rows here"});
+  fireEvent.paste(target, {clipboardData: {getData: (type:string) => type==="text/plain" ? "Acme\tEngineer\thttps://jobs.test/1" : ""}});
+  expect(append).toHaveBeenLastCalledWith([["Acme","Engineer","https://jobs.test/1"]]);
+  // Clicking the blank area leaves focus on the page; Ctrl+V still adds the rows.
+  fireEvent.paste(document.body, {clipboardData: {getData: (type:string) => type==="text/plain" ? "Beta\tDesigner\thttps://jobs.test/2" : ""}});
+  expect(append).toHaveBeenLastCalledWith([["Beta","Designer","https://jobs.test/2"]]);
+  expect(append).toHaveBeenCalledTimes(2);
+});
+it("ignores page-level pastes into text fields and on days that already have rows", () => {
+  const append = vi.fn();
+  render(<><input aria-label="Search"/><SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()} onAppendRows={append}/></>);
+  fireEvent.paste(document.body, {clipboardData: {getData: () => "Beta\tDesigner\thttps://jobs.test/2"}});
+  fireEvent.paste(screen.getByRole("textbox", {name: "Search"}), {clipboardData: {getData: () => "x"}});
+  expect(append).not.toHaveBeenCalled();
+  expect(screen.queryByRole("gridcell", {name: "Paste copied job rows here"})).toBeNull();
 });
 
 it("prevents clearing an already checked job", () => {
@@ -148,12 +193,14 @@ it("rejects pasting over checked row cells",()=>{
  expect(change).not.toHaveBeenCalled()
 })
 
-it("deletes a row selected using its row number",()=>{
- const remove=vi.fn()
- render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={vi.fn()} onDeleteRows={remove}/>)
+it("clears a row selected using its row number and keeps the row",()=>{
+ const change=vi.fn()
+ render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change}/>)
  fireEvent.mouseDown(screen.getByRole("gridcell",{name:"1"}),{button:0,buttons:1});fireEvent.mouseUp(document)
  fireEvent.keyDown(screen.getByRole("grid"),{key:"Delete"})
- expect(remove).toHaveBeenCalledWith([1])
+ const cleared=change.mock.calls.at(-1)?.[0] as {row:number;value:string}[]
+ expect(cleared.length).toBeGreaterThan(0)
+ expect(cleared.every(c=>c.row===1&&c.value==="")).toBe(true)
 })
 
 it("keeps copying selected editor text from copying the entire job row", () => {

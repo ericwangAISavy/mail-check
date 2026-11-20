@@ -369,6 +369,26 @@ class FrontendApiTests(unittest.TestCase):
         read_marking._set_needs_permission(SimpleNamespace(id=self.account_id), 'me@example.test', True)
         self.assertIs(self.client.get('/api/accounts').json()['accounts'][0]['read_updates_need_permission'], True)
 
+    def test_account_api_reports_why_live_collection_is_failing(self):
+        from unittest.mock import patch
+        from mailcheck.outlook_auth import ReconnectRequired
+        from mailcheck.realtime import settings as realtime_settings, storage as realtime_storage
+        from mailcheck.realtime.sync_status import record_failure
+        realtime_storage.set_account(self.conn, self.account_id, True)
+        record_failure(self.conn, self.account_id, ReconnectRequired("raw provider detail"))
+        configured = realtime_settings.Settings(amqp_url="amqp://broker.test/")
+        with patch.object(realtime_settings.Settings, "from_env", classmethod(lambda cls: configured)):
+            row = self.client.get("/api/accounts").json()["accounts"][0]
+            self.assertIs(row["live"], True)
+            self.assertEqual(row["sync_error"], "Microsoft sign-in expired. Reconnect this mailbox.")
+            self.assertNotIn("raw provider detail", str(row))
+            # Read-marking warnings after a successful sync are not a collection failure.
+            realtime_storage.set_status(self.conn, self.account_id, error="Read marking pending.", last_sync=1.0)
+            self.assertIsNone(self.client.get("/api/accounts").json()["accounts"][0]["sync_error"])
+        # Without the background service there is no live collection to report on.
+        record_failure(self.conn, self.account_id, ReconnectRequired("x"))
+        self.assertIsNone(self.client.get("/api/accounts").json()["accounts"][0]["sync_error"])
+
     def test_account_api_reports_latest_sync_and_live_collection(self):
         from datetime import datetime, timedelta, timezone
         from unittest.mock import patch

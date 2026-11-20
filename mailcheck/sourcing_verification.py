@@ -361,7 +361,10 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                     changed_tabs.add(row['tab_id'])
             checked_count += int(checked)
             value = str(checked).lower()
-            if row["checked"] == value:
+            # Blank and "false" both mean unchecked. Rewriting one as the other
+            # would bump the sheet revision and make an open editor's next save
+            # fail with "the sheet changed" though nothing visible did.
+            if row["checked"] == value or (not checked and (row["checked"] or "") in ("", "false")):
                 continue
             conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
                 ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1""",
