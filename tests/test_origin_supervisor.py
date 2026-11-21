@@ -111,3 +111,36 @@ def test_cold_start_prompts_only_without_an_inherited_broker(monkeypatch):
         assert supervisor.prepare_broker()
         prompt.assert_called_once()
         connect.assert_called_once()
+
+
+def test_second_ctrl_c_while_draining_stops_the_origin_without_a_traceback():
+    import sys
+    import pytest
+    if sys.platform != 'win32':
+        pytest.skip('Windows launcher')
+    child = Mock()
+    child.poll.return_value = None
+    child.terminate.side_effect = lambda: setattr(child.poll, 'return_value', -15)
+    calls = []
+    def wait(timeout=None):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise KeyboardInterrupt          # the second Ctrl+C, during the 45 s graceful wait
+        return -15
+    child.wait.side_effect = wait
+    logger = Mock()
+    with patch.object(supervisor.subprocess, 'Popen', return_value=child), patch.object(supervisor, 'origin_state', return_value='ready'),          patch.object(supervisor.time, 'sleep', side_effect=KeyboardInterrupt):   # the first Ctrl+C
+        code = supervisor.supervise(['python', 'server'], '127.0.0.1', 52400, logger, lambda: False)
+    assert code == 130
+    assert calls[0] == 45
+    child.terminate.assert_called()
+    assert any('Interrupted again' in str(call.args[0]) for call in logger.warning.call_args_list)
+
+
+def test_ctrl_c_while_stopping_kills_instead_of_waiting():
+    child = Mock()
+    child.poll.return_value = None
+    child.wait.side_effect = [KeyboardInterrupt, 0]
+    supervisor.stop(child)
+    child.terminate.assert_called_once()
+    child.kill.assert_called_once()

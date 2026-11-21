@@ -8,9 +8,13 @@ import signal
 from http.client import HTTPConnection, HTTPException
 import logging
 from logging.handlers import RotatingFileHandler
+import os
 import subprocess
 import sys
 import time
+
+from .. import process_diagnostics as diagnostics
+from ..console_logs import ConsoleLogFollower
 
 
 class RestartBudget:
@@ -44,7 +48,8 @@ def stop(process):
     except OSError:
         if process.poll() is None:raise
     try:process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired,KeyboardInterrupt):
+        # Slow to exit, or the user is impatient: do not wait any longer.
         process.kill();process.wait(timeout=5)
 
 
@@ -77,12 +82,16 @@ def restart_event(port):
 
 
 def drain_origin(process):
+    """Let the origin finish its requests (up to 45 s). Another Ctrl+C means stop now."""
     if process.poll() is None:
         try:
             process.send_signal(signal.CTRL_BREAK_EVENT)
             process.wait(timeout=45)
         except (OSError, subprocess.TimeoutExpired):
             stop(process)
+        except KeyboardInterrupt:
+            stop(process)
+            raise
 
 
 def supervise(command,host,port,logger,restart_requested=None):
@@ -98,9 +107,12 @@ def supervise(command,host,port,logger,restart_requested=None):
                 code=process.poll()
                 if code is not None:
                     if code in (0,130,-2,3221225786) or not ready:
-                        logger.info('Origin exited with status %s; no restart for shutdown or failed startup.',code)
+                        if code in (0,130,-2,3221225786):
+                            logger.info('Origin exited with status %s; no restart for shutdown or failed startup.',code)
+                        else:
+                            logger.error('Origin stopped before it was ready: %s. The messages above show the cause; no restart for a failed startup.',diagnostics.describe_exit(code))
                         return code
-                    logger.error('Origin PID %s exited unexpectedly: status %s',process.pid if hasattr(process,'pid') else '?',code)
+                    logger.error('Origin PID %s exited unexpectedly: %s. Its last output is above.',process.pid if hasattr(process,'pid') else '?',diagnostics.describe_exit(code))
                     restart=True;break
                 if restart_requested and restart_requested():
                     logger.info("Restart requested. Stopping the current origin before starting its replacement.")
@@ -131,7 +143,10 @@ def supervise(command,host,port,logger,restart_requested=None):
     except KeyboardInterrupt:
         logger.info('Stopped by user; automatic recovery is disabled for this shutdown.')
         if process is not None and restart_requested:
-            drain_origin(process)
+            logger.info('Waiting up to 45 seconds for running requests to finish. Press Ctrl+C again to stop immediately.')
+            try:drain_origin(process)
+            except KeyboardInterrupt:
+                logger.warning('Interrupted again: stopped the server without waiting for its requests to finish.')
         elif process is not None:
             try:process.wait(timeout=10)
             except (subprocess.TimeoutExpired,KeyboardInterrupt):stop(process)
@@ -205,13 +220,21 @@ def main():
         logger.error('An HTTP origin is already running on this port. Keep its terminal open; no second server was started.')
         return 1
     command = [sys.executable,'-m','mailcheck','web',*arguments]
+
+    def run_supervised(*extra):
+        # Workers have no console; show their warnings and errors in this window.
+        follower=ConsoleLogFollower(folder,level=os.environ.get('OFFERPATH_CONSOLE_LOG','warning'),exclude={'origin-supervisor.log'})
+        follower.start()
+        try:return supervise(command, options.host, options.port, logger, *extra)
+        finally:follower.stop()
+
     if sys.platform == 'win32':
         with restart_event(options.port) as (existing, _, requested):
             if existing:
                 logger.error("A supervisor is already running. Use restart.bat.")
                 return 1
-            return supervise(command, options.host, options.port, logger, requested)
-    return supervise(command, options.host, options.port, logger)
+            return run_supervised(requested)
+    return run_supervised()
 
 
 if __name__=='__main__':raise SystemExit(main())

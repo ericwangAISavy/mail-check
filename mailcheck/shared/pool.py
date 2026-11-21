@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from ..workspace_workers import Worker, WorkerPool
+from ..workspace_workers import Worker, WorkerPool, _log_size
 
 
 class SharedPool(WorkerPool):
@@ -96,7 +96,7 @@ class SharedPool(WorkerPool):
         except BaseException:
             log.close()
             raise
-        worker = Worker(slot, port, token, process, log)
+        worker = Worker(slot, port, token, process, log, log_start=_log_size(log))
         self.workers[slot] = worker
         self.failures[slot] = recent + [time.time()]
         return worker

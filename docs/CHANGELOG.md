@@ -2,6 +2,33 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.16.0 — 2026-11-21
+
+Server window shows warnings and crashes
+
+- The server window now shows warnings, errors and full tracebacks from every server process, labelled with the process name, instead of only startup lines. Everything is still saved in the log files.
+- When a worker process dies on its own, the window reports it with the exit code explained in words (for example access violation, stack overflow or forcibly ended) and what the worker wrote before it stopped.
+- Uncaught errors in any process, Python warnings and hard native crashes (with every thread's stack) are now recorded. Set OFFERPATH_CONSOLE_LOG to info, error or off to change how much the window shows.
+
+## 3.15.5 — 2026-11-20
+
+Clean shutdown on repeated Ctrl+C
+
+- Pressing Ctrl+C again while the server is shutting down now stops it immediately with a short message instead of crashing with a traceback.
+
+## 3.15.4 — 2026-11-20
+
+Compact job matches on calendar events
+
+- Possible job matches on a calendar event now show just the job title with its date, a Saved by or Applied by badge with the bidder's name, and the link; the match reasons, account and verification lines are gone.
+
+## 3.15.3 — 2026-11-20
+
+One profile quality chart
+
+- Profile quality shows every account in a single chart, one line per account, with a switch between interview rate and rejection rate instead of a separate chart for each account.
+- A table under the chart lists each account's applications and exact rates, doubles as the legend, and shows or hides an account's line when selected; the chart axis fits typical values so one thin week cannot flatten the lines.
+
 ## 3.15.2 — 2026-11-20
 
 Profile quality from saved records

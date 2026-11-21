@@ -494,6 +494,8 @@ def web(
 
         threading.Timer(1.0, lambda: webbrowser.open(browser_url)).start()
     from .web.server import run
+    from . import process_diagnostics
+    process_diagnostics.configure_process('server')
 
     if single_admin:
         application=create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies)

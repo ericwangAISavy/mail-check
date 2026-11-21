@@ -73,6 +73,8 @@ def create_dispatcher(reader, worker_secret, legacy_paths, app=None):
 def main():
     import argparse
     import uvicorn
+    from .. import process_diagnostics
+    process_diagnostics.configure_process('shared-api')
     from .control import ControlReader
     from .lifecycle import supervise
     from ..workspace_workers import InstanceLock

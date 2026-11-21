@@ -14,13 +14,18 @@ it("shows multiple job links and historical bidders",async()=>{
  mount();expect(await screen.findByRole("link",{name:"https://jobs.example/1"})).toBeTruthy()
  expect(screen.getByRole("link",{name:"https://jobs.example/2"})).toBeTruthy()
  expect(screen.getByText("Applied by Alex")).toBeTruthy();expect(screen.getByText("Applied by Sam")).toBeTruthy()
- expect(screen.getAllByText("Work account")).toHaveLength(2);expect(screen.getByText("Archived job")).toBeTruthy()
- expect(screen.getByText("Strong match")).toBeTruthy();expect(screen.getByText("Possible match")).toBeTruthy()
+ expect(screen.getByText("Archived")).toBeTruthy()
+ // Only the title, date, who saved it and the link: no account, match strength or reasons.
+ for(const gone of ["Work account","Strong match","Possible match","Company name matches",/Recorded application date/,/not verified/])expect(screen.queryByText(gone)).toBeNull()
+ const first=screen.getAllByText("Acme · Engineer",{selector:"strong"})[0].closest("li")!
+ expect(first.querySelector("time")!.getAttribute("datetime")).toBe("2026-10-15")
 })
 it("explains saved rows and never activates unsafe links",async()=>{
  fetchMatches.mockResolvedValue({matches:[match(1,{link:"javascript:alert(1)",applied:false,application_date:null,work_date:"2026-10-14"}),match(2,{link:"data:text/html,unsafe",application_date:null})],total:2,next_cursor:null})
- mount();expect(await screen.findByText("Saved by Alex")).toBeTruthy();expect(screen.getByText("Application not verified")).toBeTruthy()
- expect(screen.getByText("Source date: 2026-10-14")).toBeTruthy();expect(screen.getByText("Recorded application date unknown")).toBeTruthy();expect(screen.queryAllByRole("link")).toHaveLength(0)
+ mount();expect(await screen.findByText("Saved by Alex")).toBeTruthy()
+ // A saved (unconfirmed) job shows the date it was saved; an unknown date shows none.
+ const times=document.querySelectorAll("time");expect(times).toHaveLength(1);expect(times[0].getAttribute("datetime")).toBe("2026-10-14")
+ expect(screen.queryAllByRole("link")).toHaveLength(0);expect(screen.getAllByText("Job link unavailable")).toHaveLength(2)
 })
 it("shows loading and an empty result",async()=>{
  let finish!:(value:unknown)=>void;fetchMatches.mockImplementation(()=>new Promise(resolve=>{finish=resolve}) as ReturnType<typeof request>)

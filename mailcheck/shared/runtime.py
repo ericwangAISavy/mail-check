@@ -545,6 +545,8 @@ def main():
     import argparse
     import secrets
     import uvicorn
+    from .. import process_diagnostics
+    process_diagnostics.configure_process('shared-job')
     from contextlib import asynccontextmanager
     from fastapi import FastAPI,Request,HTTPException
     from .control import ControlReader

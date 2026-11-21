@@ -81,6 +81,13 @@ class Worker:
     started_at: float = field(default_factory=time.time)
     health_failures: int = 0
     startup_at: float = field(default_factory=time.monotonic)
+    exit_reported: bool = False
+    log_start: int = 0  # size of its log when it started, so a crash report shows only its own output
+
+
+def _log_size(log):
+    try:return os.fstat(log.fileno()).st_size
+    except (OSError,ValueError):return 0
 
 
 class WorkerPool:
@@ -128,6 +135,7 @@ class WorkerPool:
                 worker=current
             else:
                 if current:
+                    self._report_exit(current)
                     current.log.close();self.workers.pop(wid,None)
                 worker=self._spawn(workspace)
         # Concurrent first requests share the same process and independently
@@ -199,7 +207,7 @@ class WorkerPool:
         except BaseException:
             log.close()
             raise
-        worker=Worker(wid,port,token,process,log)
+        worker=Worker(wid,port,token,process,log,log_start=_log_size(log))
         self.workers[wid]=worker;self.failures[wid]=recent+[time.time()]
         return worker
 
@@ -209,7 +217,28 @@ class WorkerPool:
                 if wid not in self.stopped and secrets.compare_digest(worker.token,token) and worker.process.poll() is None:return wid
         return None
 
+    def _report_exit(self,worker):
+        """Say once, loudly, that a worker process died on its own, and why.
+
+        Workers have no console, so without this a crash only showed up as the
+        process quietly coming back. Intentional stops are not reported."""
+        with self._lock:
+            code=worker.process.poll()
+            if code is None or worker.exit_reported or self.closing or worker.workspace_id in self._retiring:return
+            worker.exit_reported=True
+        from . import process_diagnostics as diagnostics
+        name=getattr(worker.log,'name',None)
+        last=diagnostics.tail_lines(name,start=worker.log_start) if name else ''
+        logging.getLogger(__name__).error(
+            'Worker %s exited unexpectedly after %s: %s.%s',worker.workspace_id,
+            diagnostics.format_duration(time.time()-worker.started_at),diagnostics.describe_exit(code),
+            f'\nIts output since it started ({name}):\n{last}' if last else (f' It wrote nothing to its log ({name}) before it stopped.' if name else ''))
+
     def check_health(self,wid):
+        with self._lock:
+            worker=self.workers.get(wid)
+            exited=bool(worker) and worker.process.poll() is not None
+        if exited:self._report_exit(worker)
         with self._lock:
             worker=self.workers.get(wid)
             if self.closing or not worker or not worker.ready or worker.process.poll() is not None:return
@@ -297,6 +326,8 @@ def main():
     import argparse
     import urllib.error
     import urllib.request
+    from . import process_diagnostics
+    process_diagnostics.configure_process('workspace-worker')
     from .web.app import create_app
     from .web.server import run
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,required=True);args=parser.parse_args()

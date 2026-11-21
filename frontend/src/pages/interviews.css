@@ -396,7 +396,10 @@
 .interview-job-match-list { list-style:none; margin:16px 0; padding:0; display:grid; gap:12px; }
 .interview-job-match-list > li { display:grid; gap:6px; padding:14px; border:1px solid var(--border); border-radius:8px; min-width:0; }
 .interview-job-match-list a { overflow-wrap:anywhere; color:var(--primary); }
-.interview-job-match-reasons { padding-left:18px; color:var(--muted-foreground); font-size:var(--text-small); }
+.interview-job-match-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
+.interview-job-match-head > strong { min-width:0; overflow-wrap:anywhere; }
+.interview-job-match-head > time { flex:none; color:var(--muted-foreground); font-size:var(--text-small); font-variant-numeric:tabular-nums; }
+.interview-job-match-meta { display:flex; flex-wrap:wrap; gap:6px; }
 /* Check now sits at the end of the date row, which is now the calendar's top row. */
 .outlook-date-bar > .interview-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: 12px; }
 @media (max-width: 700px) { .outlook-date-bar > .interview-actions { margin: 6px 0 0 auto; } }
