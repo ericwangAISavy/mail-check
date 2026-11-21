@@ -146,3 +146,10 @@ def test_stops_the_pool_asked_for_are_not_reported_as_crashes(tmp_path, caplog):
         with caplog.at_level(logging.ERROR):
             pool.check_health("slot")
         assert not [r for r in caplog.records if "exited unexpectedly" in r.getMessage()], state
+
+
+def test_a_second_ctrl_c_while_stopping_does_not_escape(tmp_path):
+    f, _ = follower(tmp_path)
+    f.start()
+    f._thread.join = lambda timeout=None: (_ for _ in ()).throw(KeyboardInterrupt())
+    f.stop()                                     # must return quietly

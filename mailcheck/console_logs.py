@@ -151,9 +151,11 @@ class ConsoleLogFollower:
     def stop(self) -> None:
         self._stop.set()
         if self._thread:
-            self._thread.join(timeout=3)
             try:
+                self._thread.join(timeout=3)
                 self.tick()  # whatever was written while stopping
-            except Exception:
+                self._flush_hidden()
+            except (Exception, KeyboardInterrupt):
+                # Shutting down: a second Ctrl+C or a read error here must not
+                # turn into a traceback or hide the server's own exit code.
                 pass
-            self._flush_hidden()

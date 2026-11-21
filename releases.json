@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.16.3",
+    "date": "2026-11-21",
+    "title": "Clean second Ctrl+C",
+    "changes": [
+      "Pressing Ctrl+C again while the server is stopping no longer prints a traceback from the log follower"
+    ]
+  },
+  {
     "version": "3.16.2",
     "date": "2026-11-21",
     "title": "Clearer shared worker logs",

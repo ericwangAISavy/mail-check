@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.16.3 — 2026-11-21
+
+Clean second Ctrl+C
+
+- Pressing Ctrl+C again while the server is stopping no longer prints a traceback from the log follower
+
 ## 3.16.2 — 2026-11-21
 
 Clearer shared worker logs
