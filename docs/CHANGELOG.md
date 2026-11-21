@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.16.1 — 2026-11-21
+
+Calendar saves survive a busy database
+
+- Calendar events are no longer lost when another worker is writing; the database wait is longer and a locked save is retried
+
 ## 3.16.0 — 2026-11-21
 
 Server window shows warnings and crashes

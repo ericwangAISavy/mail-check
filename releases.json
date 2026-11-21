@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.16.1",
+    "date": "2026-11-21",
+    "title": "Calendar saves survive a busy database",
+    "changes": [
+      "Calendar events are no longer lost when another worker is writing; the database wait is longer and a locked save is retried"
+    ]
+  },
+  {
     "version": "3.16.0",
     "date": "2026-11-21",
     "title": "Server window shows warnings and crashes",

@@ -280,7 +280,9 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             if existing.execute('PRAGMA user_version').fetchone()[0] not in (50, SCHEMA_VERSION):
                 raise RuntimeError('Shared workers require the existing database schema; no automatic migration was performed.')
     from .maintenance import connect_database
-    conn = connect_database(path)
+    # Several worker processes write this file; SQLite's 5-second default gave up
+    # ("database is locked") whenever another worker held a write a little longer.
+    conn = connect_database(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL lets the console read while a check is writing, instead of the two

@@ -543,20 +543,28 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                     details = analysis if analysis and analysis.is_interview_event else None
                     # The model enriches meaning only; provider identity, schedule,
                     # cancellation and meeting URLs remain authoritative.
-                    conn.execute("SAVEPOINT calendar_invitation")
-                    try:
-                        change = _save_calendar_booking(conn,account,booking,details,analysis_enabled=analyzer.enabled)
-                        seen.add(booking.provider_id)
-                        if change:
-                            changes.append(change)
-                        conn.execute("RELEASE calendar_invitation")
-                        conn.commit()
-                    except Exception:
-                        conn.execute("ROLLBACK TO calendar_invitation")
-                        conn.execute("RELEASE calendar_invitation")
-                        complete = False
-                        errors.append(f"[{account.label}] Could not save a calendar event.")
-                        log.exception("Calendar event persistence failed")
+                    for attempt in range(3):
+                        conn.execute("SAVEPOINT calendar_invitation")
+                        try:
+                            change = _save_calendar_booking(conn,account,booking,details,analysis_enabled=analyzer.enabled)
+                            seen.add(booking.provider_id)
+                            if change:
+                                changes.append(change)
+                            conn.execute("RELEASE calendar_invitation")
+                            conn.commit()
+                            break
+                        except Exception as exc:
+                            conn.execute("ROLLBACK TO calendar_invitation")
+                            conn.execute("RELEASE calendar_invitation")
+                            if attempt < 2 and "locked" in str(exc).lower():
+                                # Another worker was writing; wait briefly, then try this event again.
+                                log.warning("Calendar event save waited on a busy database; retrying (%s of 2).", attempt + 1)
+                                time.sleep(2 * (attempt + 1))
+                                continue
+                            complete = False
+                            errors.append(f"[{account.label}] Could not save a calendar event.")
+                            log.exception("Calendar event persistence failed")
+                            break
                 # Absence is authoritative only after every calendar/page succeeded.
                 # Keep source times separately so local time corrections cannot move
                 # a booking into or out of the provider snapshot window.

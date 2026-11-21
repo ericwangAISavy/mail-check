@@ -41,6 +41,29 @@ class NativeCalendarTests(unittest.TestCase):
         with patch.object(pipeline,"build_source",return_value=source),patch.object(source,"fetch_unread",side_effect=AssertionError("Do not read mail")),patch.object(interviews.LLMClient,"from_config",side_effect=AssertionError("Do not classify or analyze mail")):
             return interviews.collect_calendar_events(self.conn,config.Config(),account_label=label)
 
+    def test_a_busy_database_is_retried_instead_of_failing_the_event(self):
+        import sqlite3
+        real=interviews._save_calendar_booking
+        calls=[]
+        def flaky(*args,**kwargs):
+            calls.append(1)
+            if len(calls)==1:
+                raise sqlite3.OperationalError("database is locked")
+            return real(*args,**kwargs)
+        with patch.object(interviews,"_save_calendar_booking",flaky),patch.object(interviews.time,"sleep") as sleep:
+            result=self.collect(self.source([event("busy-1")]))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(result['changes']),1)
+        self.assertEqual(len(calls),2)
+        sleep.assert_called_once()
+
+    def test_a_database_that_stays_locked_reports_the_event_as_unsaved(self):
+        import sqlite3
+        with patch.object(interviews,"_save_calendar_booking",side_effect=sqlite3.OperationalError("database is locked")),patch.object(interviews.time,"sleep"):
+            result=self.collect(self.source([event("busy-2")]))
+        self.assertEqual(len(result['errors']),1)
+        self.assertFalse(result['changes'])
+
     def test_all_booking_kinds_use_calendar_events_only(self):
         kinds=[("teams","https://teams.microsoft.com/l/meetup-join/ABC","teamsForBusiness","Microsoft Teams"),
             ("google","https://meet.google.com/abc-defg-hij","unknown","Google Meet"),
