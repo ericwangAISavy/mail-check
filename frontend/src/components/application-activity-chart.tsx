@@ -6,7 +6,7 @@ type Category={name:string;label:string;count:number}
 type ActivityRow={date:string;total:number;counts:Record<string,number>;partial?:boolean}
 const calendarDate=(value:string)=>{const [year,month,day]=value.slice(0,10).split("-").map(Number);return new Date(year,month-1,day)}
 
-export default function ApplicationActivityChart({rows,categories,colors,onFocus}:{rows:ActivityRow[];categories:Category[];colors:string[];onFocus:(day:string,category?:string)=>void}) {
+export default function ApplicationActivityChart({rows,categories,colors}:{rows:ActivityRow[];categories:Category[];colors:string[]}) {
  const id=`activity-${useId().replace(/[^a-zA-Z0-9_-]/g,"")}`
  const [width,setWidth]=useState(0)
  const stackOrder=[...categories.map((category,index)=>({category,index})).filter(item=>item.category.name!=="application_ack"),...categories.map((category,index)=>({category,index})).filter(item=>item.category.name==="application_ack")]
@@ -53,7 +53,7 @@ export default function ApplicationActivityChart({rows,categories,colors,onFocus
      return <div className="activity-tooltip"><div className="activity-tooltip-heading"><span>{new Intl.DateTimeFormat(undefined,{dateStyle:"medium"}).format(calendarDate(String(label)))}</span><strong>{row.total.toLocaleString()} total</strong></div>{categories.map((category,index)=>Number(row.counts[category.name])>0&&<div key={category.name} className="activity-tooltip-item"><span className="activity-series-dot" style={{backgroundColor:colors[index%colors.length]}}/><span>{category.label}</span><strong>{row.counts[category.name].toLocaleString()}</strong></div>)}</div>
     }}/>
     <Area type="monotone" dataKey="total" name="Total" tooltipType="none" stroke={`url(#${id}-trend)`} strokeWidth={1.5} fill={`url(#${id}-wash)`} isAnimationActive={false} dot={false} activeDot={false} style={{pointerEvents:"none"}}/>
-    {stackOrder.map(({category,index})=><Bar key={category.name} dataKey={`counts.${category.name}`} name={category.label} stackId="mail" fill={colors[index%colors.length]} maxBarSize={64} shape={(props:any)=>segment(props,index)} isAnimationActive={false} style={{cursor:"pointer"}} onClick={(item:any)=>{if(item?.date)onFocus(item.date,category.name)}}/>)}
+    {stackOrder.map(({category,index})=><Bar key={category.name} dataKey={`counts.${category.name}`} name={category.label} stackId="mail" fill={colors[index%colors.length]} maxBarSize={64} shape={(props:any)=>segment(props,index)} isAnimationActive={false}/>)}
    </ComposedChart>
   </ResponsiveContainer>
  </div>

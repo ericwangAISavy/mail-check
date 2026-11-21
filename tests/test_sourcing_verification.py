@@ -503,11 +503,13 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(self.snapshot()['row_dates'][1],'2026-11-20')
 
     def test_selected_week_refresh_includes_future_pre_registered_rows(self):
+        from unittest.mock import patch
         from mailcheck import sourcing_verification as verification
         self.jobs('2026-11-20')
         self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
         self.conn.commit()
-        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
+        with patch.object(payments,'today',return_value=date(2026,10,20)):   # 11-20 is "future" only relative to a fixed clock
+            verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
         self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'true')
         self.assertEqual(self.snapshot()['rows'][1][3]['checked_at'],'2026-10-20T15:00:00+00:00')
 
@@ -532,13 +534,15 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']),'true')
 
     def test_future_completion_is_counted_on_actual_receipt_day(self):
+        from unittest.mock import patch
         from mailcheck import sourcing_verification as verification
         self.jobs('2026-11-20')
         self.receipt('early-acme','Acme','2026-10-20T15:00:00+00:00')
         self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')",(self.account_id,))
         self.conn.commit()
-        verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
-        table=payments.report(self.conn,date(2026,10,19))
+        with patch.object(payments,'today',return_value=date(2026,10,20)):   # keep 11-20 in the future whatever today is
+            verification.verify_all(self.conn,refresh_since=date(2026,10,19),refresh_until=date(2026,10,25),week_only=True,sample=False)
+            table=payments.report(self.conn,date(2026,10,19))
         self.assertEqual(table['bidders'][0]['checked_daily'][1],1)
         self.assertEqual(table['bidders'][0]['daily'][1],1)
 

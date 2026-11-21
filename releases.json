@@ -1,5 +1,144 @@
 [
   {
+    "version": "3.15.2",
+    "date": "2026-11-20",
+    "title": "Profile quality from saved records",
+    "changes": [
+      "Each account's interview rate is interview emails divided by received application emails, and its rejection rate is rejection emails divided by received application emails.",
+      "The status is calculated from permanently saved records, not from mail received recently, so it no longer goes empty when an account has had no new mail for a week; it matches the application counts in Payments.",
+      "Interview and rejection emails are now saved permanently from now on, and the page shows the day the comparison starts from.",
+      "Redesigned the account cards with two rate tiles and the counts behind them, smooth area and bar charts, weekly grouping by default, and a clear message when an account has no application emails yet."
+    ]
+  },
+  {
+    "version": "3.15.1",
+    "date": "2026-11-20",
+    "title": "Profile quality across all stored history",
+    "changes": [
+      "Profile quality ratios and daily, weekly and monthly charts now cover the entire stored mail history for the selected accounts."
+    ]
+  },
+  {
+    "version": "3.15.0",
+    "date": "2026-11-20",
+    "title": "Profile quality chart styles",
+    "changes": [
+      "Switch each profile's quality trends between line and bar charts with the same interview and rejection email ratios."
+    ]
+  },
+  {
+    "version": "3.14.0",
+    "date": "2026-11-20",
+    "title": "Profile quality trends",
+    "changes": [
+      "Compare interview-related and rejection email rates for each account by day, week or month in place of the dashboard message explorer."
+    ]
+  },
+  {
+    "version": "3.13.4",
+    "date": "2026-11-20",
+    "title": "Full-height sourcing spreadsheet",
+    "changes": [
+      "The Job sourcing grid fills the available workspace even on empty days or sheets with only a few rows."
+    ]
+  },
+  {
+    "version": "3.13.3",
+    "date": "2026-11-20",
+    "title": "More frequent shooting stars",
+    "changes": [
+      "Twelve staggered shooting stars bring a new streak to the sign-in sky every second."
+    ]
+  },
+  {
+    "version": "3.13.2",
+    "date": "2026-11-20",
+    "title": "Brighter shooting star trails",
+    "changes": [
+      "Shooting stars on the sign-in screen are slightly brighter and leave longer trails."
+    ]
+  },
+  {
+    "version": "3.13.1",
+    "date": "2026-11-20",
+    "title": "Shooting stars on sign-in",
+    "changes": [
+      "Tiny tapered star fragments cross the mountain sky on staggered diagonal paths."
+    ]
+  },
+  {
+    "version": "3.13.0",
+    "date": "2026-11-20",
+    "title": "Ambient lights on sign-in",
+    "changes": [
+      "Tiny points of light drift slowly across the sign-in background when motion is enabled."
+    ]
+  },
+  {
+    "version": "3.12.9",
+    "date": "2026-11-20",
+    "title": "Align the sign-in role selector",
+    "changes": [
+      "The Admin and Bidder selector uses the full rounded field and a single focus outline."
+    ]
+  },
+  {
+    "version": "3.12.8",
+    "date": "2026-11-20",
+    "title": "Single focus outline",
+    "changes": [
+      "Text fields and shared buttons show a single clear keyboard focus outline."
+    ]
+  },
+  {
+    "version": "3.12.7",
+    "date": "2026-11-20",
+    "title": "Clearer form interaction feedback",
+    "changes": [
+      "Mail filters highlight the focused field and show when results are updating. Buttons give a subtle press response."
+    ]
+  },
+  {
+    "version": "3.12.6",
+    "date": "2026-11-20",
+    "title": "Dropdown hover feedback",
+    "changes": [
+      "Dropdowns and the calendar timezone picker smoothly highlight their borders on hover."
+    ]
+  },
+  {
+    "version": "3.12.5",
+    "date": "2026-11-20",
+    "title": "Subtle button and tab transitions",
+    "changes": [
+      "Buttons and tabs ease into their hover colors over 140 milliseconds. Inactive profile tabs also softly highlight their lower edge."
+    ]
+  },
+  {
+    "version": "3.12.4",
+    "date": "2026-11-20",
+    "title": "Show stripes for unanalyzed calendar bookings",
+    "changes": [
+      "The left stripe now follows each booking’s analysis status, including bookings with no review message."
+    ]
+  },
+  {
+    "version": "3.12.3",
+    "date": "2026-11-20",
+    "title": "Hatched calendar event accent",
+    "changes": [
+      "Calendar events awaiting detail analysis show diagonal stripes inside their left accent bar."
+    ]
+  },
+  {
+    "version": "3.12.2",
+    "date": "2026-11-20",
+    "title": "Fit the sourcing table to the workspace",
+    "changes": [
+      "Default text columns share the available width, and long job sheets scroll inside the table."
+    ]
+  },
+  {
     "version": "3.12.1",
     "date": "2026-11-20",
     "title": "Modern calendar event bars",

@@ -54,6 +54,7 @@
   font-size: 13px;
 }
 .sheet-editor {
+  min-width: 0;
   min-height: 0;
   flex: 1;
   display: flex;
@@ -109,10 +110,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sourcing-grid {
-  flex: 1;
-  height: 100%;
-  min-height: 100px;
+.sheet-editor .sourcing-grid {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
   border: none;
   font-size: 13px;
   --rdg-color: var(--foreground);
@@ -644,7 +648,7 @@
   .sourcing-missing-links { flex: 1 1 240px; }
 }
 .sourcing-viewer .sheet-edit-toolbar { justify-content: space-between; flex-wrap: wrap; padding: 10px 16px; }
-.sourcing-viewer-scroll { overflow: auto; max-height: 65vh; }
+.sourcing-viewer-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .sourcing-viewer-table { width: 100%; border-collapse: collapse; font-size: 13px; user-select: text; }
 .sourcing-viewer-table th,.sourcing-viewer-table td { border: 1px solid var(--border); padding: 9px 12px; vertical-align: top; white-space: pre-wrap; }
 .sourcing-viewer-table thead th { position: sticky; top: 0; background: var(--card); text-align: left; z-index: 1; }

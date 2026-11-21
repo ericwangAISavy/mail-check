@@ -2,6 +2,111 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.15.2 — 2026-11-20
+
+Profile quality from saved records
+
+- Each account's interview rate is interview emails divided by received application emails, and its rejection rate is rejection emails divided by received application emails.
+- The status is calculated from permanently saved records, not from mail received recently, so it no longer goes empty when an account has had no new mail for a week; it matches the application counts in Payments.
+- Interview and rejection emails are now saved permanently from now on, and the page shows the day the comparison starts from.
+- Redesigned the account cards with two rate tiles and the counts behind them, smooth area and bar charts, weekly grouping by default, and a clear message when an account has no application emails yet.
+
+## 3.15.1 — 2026-11-20
+
+Profile quality across all stored history
+
+- Profile quality ratios and daily, weekly and monthly charts now cover the entire stored mail history for the selected accounts.
+
+## 3.15.0 — 2026-11-20
+
+Profile quality chart styles
+
+- Switch each profile's quality trends between line and bar charts with the same interview and rejection email ratios.
+
+## 3.14.0 — 2026-11-20
+
+Profile quality trends
+
+- Compare interview-related and rejection email rates for each account by day, week or month in place of the dashboard message explorer.
+
+## 3.13.4 — 2026-11-20
+
+Full-height sourcing spreadsheet
+
+- The Job sourcing grid fills the available workspace even on empty days or sheets with only a few rows.
+
+## 3.13.3 — 2026-11-20
+
+More frequent shooting stars
+
+- Twelve staggered shooting stars bring a new streak to the sign-in sky every second.
+
+## 3.13.2 — 2026-11-20
+
+Brighter shooting star trails
+
+- Shooting stars on the sign-in screen are slightly brighter and leave longer trails.
+
+## 3.13.1 — 2026-11-20
+
+Shooting stars on sign-in
+
+- Tiny tapered star fragments cross the mountain sky on staggered diagonal paths.
+
+## 3.13.0 — 2026-11-20
+
+Ambient lights on sign-in
+
+- Tiny points of light drift slowly across the sign-in background when motion is enabled.
+
+## 3.12.9 — 2026-11-20
+
+Align the sign-in role selector
+
+- The Admin and Bidder selector uses the full rounded field and a single focus outline.
+
+## 3.12.8 — 2026-11-20
+
+Single focus outline
+
+- Text fields and shared buttons show a single clear keyboard focus outline.
+
+## 3.12.7 — 2026-11-20
+
+Clearer form interaction feedback
+
+- Mail filters highlight the focused field and show when results are updating. Buttons give a subtle press response.
+
+## 3.12.6 — 2026-11-20
+
+Dropdown hover feedback
+
+- Dropdowns and the calendar timezone picker smoothly highlight their borders on hover.
+
+## 3.12.5 — 2026-11-20
+
+Subtle button and tab transitions
+
+- Buttons and tabs ease into their hover colors over 140 milliseconds. Inactive profile tabs also softly highlight their lower edge.
+
+## 3.12.4 — 2026-11-20
+
+Show stripes for unanalyzed calendar bookings
+
+- The left stripe now follows each booking’s analysis status, including bookings with no review message.
+
+## 3.12.3 — 2026-11-20
+
+Hatched calendar event accent
+
+- Calendar events awaiting detail analysis show diagonal stripes inside their left accent bar.
+
+## 3.12.2 — 2026-11-20
+
+Fit the sourcing table to the workspace
+
+- Default text columns share the available width, and long job sheets scroll inside the table.
+
 ## 3.12.1 — 2026-11-20
 
 Modern calendar event bars

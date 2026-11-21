@@ -355,6 +355,15 @@
 .outlook-zone-selector { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--text-small); color:var(--muted-foreground); }
  .timezone-picker { position:relative; width:260px; max-width:100%; }
 .timezone-picker-input { position:relative; }
+.timezone-picker-input input[role="combobox"] {
+  transition: border-color var(--control-fade), background-color var(--control-fade);
+}
+@media (hover: hover) {
+  .timezone-picker-input input[role="combobox"]:enabled:hover {
+    border-color: var(--ring);
+    background-color: color-mix(in srgb, var(--primary) 8%, var(--oc-toolbar));
+  }
+}
 .timezone-picker-input input { width:100%; min-height:36px; padding:7px 30px 7px 10px; border:1px solid var(--oc-line); border-radius:8px; background:var(--oc-toolbar); color:var(--oc-text); font:inherit; }
 .timezone-picker-input input:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
 .timezone-picker-input > svg { position:absolute; right:10px; top:50%; transform:translateY(-50%); pointer-events:none; }
@@ -474,3 +483,12 @@
 }
 :root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past { opacity: .55; }
 
+.outlook-calendar .outlook-month-event.analysis-deferred { position: relative; }
+.outlook-calendar .interview-event.analysis-deferred::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--oc-event-accent) 0 2px, var(--oc-event) 2px 4px);
+}

@@ -58,7 +58,14 @@ function SignInViewport({children}:{children:ReactNode}) {
       roots.forEach((root,index)=>previous[index].forEach(({property,value,priority})=>{if(value)root.style.setProperty(property,value,priority);else root.style.removeProperty(property)}))
     }
   },[])
-  return <main ref={pageRef} className="sign-in-page offerpath-login"><div ref={layoutRef} className="login-layout">{children}</div></main>
+  return <main ref={pageRef} className="sign-in-page offerpath-login">
+    <div className="login-lights" aria-hidden="true">
+      {[30, 88, 54, 104, 19, 73, 42, 96, 12, 63, 81, 48].map((left, i) =>
+        <span key={left} style={{left: `${left}%`, animationDelay: `-${i + 1}s`}} />
+      )}
+    </div>
+    <div ref={layoutRef} className="login-layout">{children}</div>
+  </main>
 }
 
 export function AuthGate({children}:{children:ReactNode}) {

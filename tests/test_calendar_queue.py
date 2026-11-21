@@ -26,12 +26,17 @@ class QueueTests(unittest.TestCase):
         cfg,result=self.collect([event('one'),event('two'),event('three')])
         self.assertEqual(result['analysis_pending'],3)
         self.assertEqual(queue.progress(self.conn)['pending'],3)
+        ids = [row[0] for row in self.conn.execute('SELECT id FROM interview_events')]
+        def pending_sources():
+            return sum(source['analysis_pending'] for source in interviews.event_sources_many(self.conn, ids)[ids[0]])
+        self.assertGreater(pending_sources(), 0)
         self.conn.close();self.conn=db.connect(self.path);self.addCleanup(self.conn.close)
         with patch.object(pipeline,'build_source',side_effect=AssertionError('No calendar refetch')):
             first=interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=self.Model(),limit=1)
             second=interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=self.Model(),limit=3)
         self.assertEqual((first['done'],first['pending']),(1,2))
         self.assertEqual((second['done'],second['pending']),(3,0))
+        self.assertEqual(pending_sources(), 0)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analysis_tasks WHERE booking IS NOT NULL').fetchone()[0],0)
 
     def test_failed_event_backs_off_and_does_not_starve_untried_events(self):

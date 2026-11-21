@@ -66,12 +66,24 @@
 .offerpath-login .login-input-wrap > svg { flex-shrink: 0; color: #b9d0e3; stroke-width: 1.5; }
 .offerpath-login .login-input-wrap input { min-width: 0; width: 100%; height: 100%; border: 0; border-radius: 0; background: transparent; color: #fff; padding: 0; box-shadow: none; outline: none; font-size: 15px; font-weight: 450; letter-spacing: -.01em; }
 .offerpath-login .login-input-wrap input::placeholder { color: #92a3b6; opacity: 1; font-weight: 400; }
-:root body .offerpath-login .login-role-wrap select:not([multiple]) { min-width: 0; flex: 1; width: 100%; height: 100%; padding: 0 23px 0 0; border: 0; border-radius: 0; background-color: transparent; color: #f5f8ff; font-size: 15px; font-weight: 550; letter-spacing: -.01em; box-shadow: none; }
+.offerpath-login .login-role-wrap { position: relative; padding: 0; }
+.offerpath-login .login-role-wrap > svg { position: absolute; left: 23px; pointer-events: none; }
+.offerpath-login .login-role-wrap::after {
+  content: ""; position: absolute; right: 23px; width: 7px; height: 7px;
+  border: solid currentColor; border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-2px) rotate(45deg); pointer-events: none;
+}
+:root body .offerpath-login .setting-field .login-role-wrap select:not([multiple]):is(:enabled, :disabled) {
+  appearance: none; width: 100%; min-width: 0; height: 100%; padding: 0 48px 0 60px;
+  border: 0; border-radius: inherit; background: transparent; outline: none; box-shadow: none;
+  color: #f5f8ff; color-scheme: dark; font-size: 15px; font-weight: 550; letter-spacing: -.01em;
+}
 .offerpath-login .login-role-wrap select option { background: #152839; }
 .offerpath-login .login-input-wrap:focus-within { outline: 2px solid #8cdfff; outline-offset: 3px; }
+.offerpath-login .login-role-wrap:focus-within { outline-offset: -1px; }
 .offerpath-login .login-input-wrap input:focus-visible { outline: none; }
 .offerpath-login .login-password-toggle { display: grid; place-items: center; background: transparent; border: 0; color: #d4e4f3; cursor: pointer; padding: 4px; border-radius: 5px; }
-.offerpath-login button:focus-visible, .offerpath-login select:focus-visible { outline: 2px solid #a2e7ff; outline-offset: 4px; }
+.offerpath-login button:focus-visible { outline: 2px solid #a2e7ff; outline-offset: 4px; }
 .offerpath-login .login-help { color: #bdd0e7; font-size: 13px; line-height: 1.5; margin: -8px 0 0; }
 .offerpath-login .login-submit { min-height: 52px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 16px; border-radius: 32px; background: linear-gradient(180deg, #eefaff 0%, #a8ddfb 22%, #53b1ea 70%, #9ddaff 100%); color: #001728; border: 1px solid #e5f7ff; font-size: 17px; font-weight: 650; letter-spacing: -.015em; box-shadow: 0 0 18px #65ceff52, inset 0 1px 5px #ffffffd9, inset 0 -1px 5px #d9f4ff; margin-top: 14px; transition: filter .15s; }
 .offerpath-login .login-submit:hover:not(:disabled) { filter: brightness(1.1); }
@@ -93,3 +105,24 @@
   .offerpath-login .login-security { font-size: 12px; margin-inline: -12px; }
 }
 @media (prefers-reduced-motion: reduce) { .offerpath-login * { transition: none !important; } }
+.login-lights { display: none; }
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .login-lights { display: block; position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .login-lights > span {
+    --trajectory: 120deg;
+    position: absolute; top: -8px; width: 26px; height: 2px;
+    background: linear-gradient(90deg, transparent, #b4dfff88 76%, #fff2cf);
+    clip-path: polygon(0 50%, 92% 0, 100% 50%, 92% 100%);
+    animation: login-light-fall 12s linear infinite;
+  }
+  .login-lights > span:nth-child(even) { --trajectory: 112deg; width: 35px; }
+  .login-lights > span::after {
+    content: ""; position: absolute; right: 1px; width: 3px; height: 2px;
+    background: #fff9e8;
+  }
+  @keyframes login-light-fall {
+    0% { opacity: 0; transform: rotate(var(--trajectory)) translateX(0); }
+    4%, 18% { opacity: .82; }
+    25%, 100% { opacity: 0; transform: rotate(var(--trajectory)) translateX(104dvh); }
+  }
+}

@@ -1107,7 +1107,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] >= 2 and event["start_at"]]
             sources = interviews.event_sources_many(conn, (event['id'] for event in events))
             for event in events:
-                event["account_labels"] = sorted({source["account_label"] for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]})
+                active_sources = [source for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]]
+                event["account_labels"] = sorted({source["account_label"] for source in active_sources})
+                event["analysis_pending"] = any(source["analysis_pending"] for source in active_sources if not account or source["account_label"] == account)
             from ..calendar_colors import colors as calendar_colors
             chosen = calendar_colors(conn)
             accounts = [{"id":a.id,"label":a.label,"email":a.email,"calendar_color":chosen.get(a.id)} for a in db.list_accounts(conn, only_enabled=True)]

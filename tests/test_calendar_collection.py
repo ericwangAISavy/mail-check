@@ -413,7 +413,7 @@ class CalendarPerformanceTests(unittest.TestCase):
         self.conn.execute('UPDATE interview_sources SET source_received_at=NULL WHERE id=(SELECT MIN(id) FROM interview_sources)')
         old=interviews.event_sources(self.conn,identity)
         bulk=interviews.event_sources_many(self.conn,[identity])[identity]
-        self.assertEqual(old,[{key:value for key,value in source.items() if key!='calendar_present'} for source in bulk])
+        self.assertEqual(old,[{key:value for key,value in source.items() if key not in ('calendar_present','analysis_pending')} for source in bulk])
         self.assertEqual(len(bulk),2)
 
 class InterviewCalendarFilteringTests(unittest.TestCase):

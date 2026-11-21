@@ -42,6 +42,7 @@ export type Settings = {
 export type ApiResult<T> = T
 
 export type InterviewEvent = {
+  analysis_pending?: boolean
   id: number; account_labels?: string[]; calendar_uid: string | null; company: string | null; role: string | null
   stage: string; status: string; display_status: string; start_at: string | null; end_at: string | null
   timezone: string | null; meeting_platform: string | null; meeting_url: string | null; location: string | null

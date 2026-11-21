@@ -61,7 +61,8 @@ def test_calendar_account_palette_remains_readable_in_each_theme(mode):
     css = (ROOT/'pages/interviews.css').read_text()
     prefix = r'^' if mode == 'dark' else r':root\[data-theme="light"\] '
     rules = re.findall(prefix+r'\.outlook-calendar \.interview-event\.account-color-(\d) \{([^}]*)\}', css, re.M)
-    assert {int(index) for index, _ in rules} == set(range(6))
+    # Eight palette colors (calendar-colors.ts offers the same eight); each must stay readable.
+    assert {int(index) for index, _ in rules} == set(range(8))
     for _, rule in rules:
         colors = dict(re.findall(r'(--[\w-]+)\s*:\s*([^;]+);',rule))
         foreground = colors.get('--oc-event-text','#ffffff')

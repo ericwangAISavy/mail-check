@@ -86,6 +86,59 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(self.data()["summary"]["pending_attention"], 0)
         self.assertEqual(self.data(status="done")["summary"]["total"], 1)
 
+    def test_profile_quality_compares_replies_with_received_applications(self):
+        for name, category in (("ack-1", "application_ack"), ("ack-2", "application_ack"), ("interview", "interview_invite"),
+                               ("rejection", "rejection"), ("other", "unclassified")):
+            self.add(name, category=category)
+        self.add("work-ack", account=self.other, category="application_ack")
+        self.add("work-offer", account=self.other, category="offer")
+        result = self.data(categories=["rejection"], include_messages=False)
+        # Other mail (unclassified, offers) is not part of the comparison.
+        self.assertEqual(result["profile_quality"], {
+            "personal": {"2026-09-15": {"applications": 2, "interview": 1, "rejection": 1}},
+            "work": {"2026-09-15": {"applications": 1, "interview": 0, "rejection": 0}},
+        })
+        self.assertEqual(self.data(account="work")["profile_quality"].keys(), {"work"})
+        self.add("older", category="interview_invite", date="2025-01-01T12:00:00")
+        result = self.data(categories=["rejection"], status="done", q="no-match")
+        self.assertEqual(result["summary"]["total"], 0)
+        self.assertEqual(result["profile_quality"]["personal"]["2025-01-01"],
+                         {"applications": 0, "interview": 1, "rejection": 0})
+
+    def test_profile_quality_comes_from_permanent_records_not_recently_received_mail(self):
+        self.add("ack", category="application_ack")
+        self.add("interview", category="interview_invite")
+        self.add("rejection", category="rejection")
+        before = self.data()["profile_quality"]
+        # Message retention deletes the stored mail; the permanent records remain.
+        self.assertEqual(db.prune_messages(self.conn, before_iso="2099-01-01T00:00:00+00:00"), 3)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 0)
+        after = self.data()
+        self.assertEqual(after["profile_quality"], before)
+        self.assertEqual(after["profile_quality"]["personal"]["2026-09-15"],
+                         {"applications": 1, "interview": 1, "rejection": 1})
+        self.assertEqual(after["profile_quality_since"], "2026-09-15")
+
+    def test_profile_quality_starts_where_reply_records_start(self):
+        # An application long before any reply was recorded is not compared with replies that were never kept.
+        old = self.add("old-ack", category="application_ack", date="2026-08-01T12:00:00")
+        self.add("recent-ack", category="application_ack", date="2026-09-15T12:00:00")
+        self.add("reply", category="interview_invite", date="2026-09-15T13:00:00")
+        db.prune_messages(self.conn, before_iso="2026-09-01T00:00:00+00:00")   # deletes the old stored message only
+        self.assertIsNone(self.conn.execute("SELECT 1 FROM messages WHERE id=?", (old,)).fetchone())
+        result = self.data()
+        self.assertEqual(result["profile_quality"], {"personal": {"2026-09-15": {"applications": 1, "interview": 1, "rejection": 0}}})
+        self.assertEqual(result["profile_quality_since"], "2026-09-15")
+
+    def test_mail_stored_before_permanent_records_existed_is_caught_up(self):
+        self.add("ack", category="application_ack")
+        self.add("interview", category="interview_invite")
+        self.conn.execute("DELETE FROM application_receipts")      # as in a database from before this existed
+        self.conn.commit()
+        result = self.data()
+        self.assertEqual(result["profile_quality"]["personal"]["2026-09-15"],
+                         {"applications": 1, "interview": 1, "rejection": 0})
+
     def test_concurrent_done_uses_one_read_snapshot(self):
         pk = self.add("snapshot")
         writer = db.connect(self.path)

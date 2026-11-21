@@ -665,9 +665,14 @@ def event_sources_many(conn, event_ids) -> dict[int, list[dict]]:
     sources = {}
     source_order = {}
     for row in conn.execute("""SELECT s.*,a.label AS account_label,a.email AS account_email,
-        a.enabled AS account_enabled,COALESCE(c.present,1) AS calendar_present
+        a.enabled AS account_enabled,COALESCE(c.present,1) AS calendar_present,
+        CASE WHEN s.external_message_id LIKE 'graph-event:%' THEN
+          COALESCE(t.state NOT IN ('done','cancelled'), NOT EXISTS (
+            SELECT 1 FROM calendar_analyses cached WHERE cached.account_id=s.account_id
+            AND cached.external_id=s.external_message_id)) ELSE 0 END AS analysis_pending
         FROM interview_sources s JOIN accounts a ON a.id=s.account_id
         LEFT JOIN interview_calendar_state c ON c.source_id=s.id
+        LEFT JOIN calendar_analysis_tasks t ON t.account_id=s.account_id AND t.external_id=s.external_message_id
         ORDER BY julianday(s.source_received_at) DESC,s.id DESC"""):
         source_order[row['id']] = len(source_order)
         sources.setdefault(row['event_id'], []).append(dict(row))

@@ -13,7 +13,12 @@ import { useToast } from "@/components/common"
 const labels: Record<CalendarView,string> = {workweek:"Work week",week:"Week",month:"Month",day:"Day"}
 const icons = {workweek:PanelTop,week:Columns3,month:CalendarDays,day:PanelTop}
 const clock = (value: string, timeZone?:string) => new Date(value).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit",timeZone})
-const statusClass = (event: InterviewEvent) => event.display_status.toLowerCase().replaceAll(" ","-")
+const statusClass = (event: InterviewEvent) => {
+  const status = event.display_status.toLowerCase().replaceAll(" ","-")
+  return event.analysis_pending
+    ? `${status} analysis-deferred`
+    : status
+}
 /** Over: its end has passed (or its start, when the end time is unknown). */
 const pastClass = (event: InterviewEvent, now: Date) => { const end = Date.parse(event.end_at || event.start_at || ""); return Number.isFinite(end) && end <= now.getTime() ? "is-past" : "" }
 const title = (event: InterviewEvent) => `${event.company || "Unknown company"}${event.role ? " · " + event.role : ""} · ${event.stage}`

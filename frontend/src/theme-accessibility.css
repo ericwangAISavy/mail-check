@@ -68,6 +68,10 @@
 :root :is(input,textarea)::placeholder { color:var(--muted-foreground); opacity:1; }
 :root :is(input[type="checkbox"],input[type="radio"]) { accent-color:var(--primary); }
 :root body :is(button,a,summary,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--ring); outline-offset:3px; }
+:root body :is(textarea, input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="color"])):focus-visible {
+  outline-offset: -1px;
+  box-shadow: none;
+}
 :root body .outlook-calendar :is(button,input,select):focus-visible { outline-offset:-2px; }
 :root[data-theme="light"] .btn[data-variant="default"] { box-shadow:0 1px 2px #10243914; }
 :root[data-theme="light"] .btn[data-variant="default"]:hover:not(:disabled) { box-shadow:0 2px 5px #1024391a; }

@@ -95,6 +95,7 @@
 
 /* Buttons. Each variant lists its hover state so older hover rules cannot
    flatten the gradient or recolour the rim; hover only animates --glow-level. */
+.dark .btn, .dark select:not([multiple]) { --glow-ease: var(--control-fade); }
 .dark .btn[data-variant="default"],
 .dark .btn[data-variant="default"]:hover:not(:disabled) {
   color: #062a2f;
@@ -141,9 +142,12 @@
     linear-gradient(180deg, rgb(calc(15 + var(--glow-level) * 6) calc(28 + var(--glow-level) * 12) calc(44 + var(--glow-level) * 16) / .94), rgb(calc(9 + var(--glow-level) * 4) calc(18 + var(--glow-level) * 8) calc(30 + var(--glow-level) * 10) / .94)) padding-box,
     linear-gradient(135deg, rgb(103 214 243 / calc(.20 + var(--glow-level) * .24)), rgb(59 130 246 / calc(.07 + var(--glow-level) * .12)) 45%, rgb(103 214 243 / calc(.16 + var(--glow-level) * .2))) border-box;
   box-shadow: 0 0 16px -8px rgb(34 211 238 / calc(var(--glow-level) * .32));
-  transition: --glow-level var(--glow-ease), color var(--glow-ease), opacity var(--glow-ease);
+  transition: --glow-level var(--glow-ease), color var(--glow-ease), opacity var(--glow-ease), border-color var(--glow-ease);
 }
-:root.dark body select:not([multiple]):hover:not(:disabled) { --glow-level: 1; }
+:root.dark body select:not([multiple]):hover:not(:disabled) {
+  --glow-level: 1;
+  border-color: rgb(103 214 243 / .32);
+}
 :root.dark body select:not([multiple]):focus { outline: none; }
 :root.dark body select:not([multiple]):focus-visible { --glow-level: 1; outline: 2px solid var(--glow-ice); outline-offset: 2px; }
 :root.dark body select:not([multiple]):disabled { --glow-level: 0; box-shadow: none; }
@@ -162,11 +166,6 @@
 .dark :where(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) {
   background-color: rgb(5 12 22 / .72);
   transition: border-color var(--glow-ease), box-shadow var(--glow-ease);
-}
-.dark :where(input, select, textarea):focus-visible {
-  border-color: var(--glow-cyan);
-  box-shadow: 0 0 0 3px rgb(34 211 238 / .12), 0 0 14px -6px rgb(34 211 238 / .32);
-  outline: none;
 }
 
 /* Tables: a faint lit header row. The tint sits on a solid fill, because header

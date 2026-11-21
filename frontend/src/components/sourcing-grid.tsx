@@ -192,6 +192,23 @@ export function SheetGrid({
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
   }, [empty]);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = grid.current?.element;
+    if (!element) return;
+    const measure = () => setViewportWidth(element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const flexible = (col: Snapshot["columns"][number]) =>
+    col.kind !== "check" && (!col.width || col.width === 220);
+  const fixedWidth = snapshot.columns.reduce((sum, col) => sum + (flexible(col) ? 0 : col.width || 76), 48);
+  const flexibleCount = snapshot.columns.filter(flexible).length;
+  const textWidth = viewportWidth && flexibleCount
+    ? Math.max(140, Math.floor((viewportWidth - fixedWidth) / flexibleCount))
+    : 220;
   const columns: Column<Row>[] = [
     {
       key: "id",
@@ -207,7 +224,7 @@ export function SheetGrid({
     ...snapshot.columns.map((definition, c): Column<Row> => ({
       key: String(c),
       name: sourcingColumnTitle(definition,c),
-      width: definition.width || 220,
+      width: flexible(definition) ? textWidth : definition.width || 76,
       resizable: !disabled,
       editable: (row) =>
         !disabled && !checkedRows.has(row.id) && definition.kind !== "check" && row.id > 0,

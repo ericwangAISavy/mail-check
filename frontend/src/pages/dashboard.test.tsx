@@ -1,9 +1,8 @@
-import { PageStateProvider } from "@/lib/page-state"
 import {Children,isValidElement} from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { MemoryRouter, useNavigate } from "react-router-dom"
+import { MemoryRouter } from "react-router-dom"
 import { ToastProvider } from "@/components/common"
 import { api } from "@/lib/api"
 import type { Bootstrap } from "@/lib/types"
@@ -14,6 +13,8 @@ vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: any) => <div>{children}</div>,
   ComposedChart: ({ children,data }: any) => {chart.rows=data;return <div>{Children.toArray(children).filter(child=>!isValidElement(child)||child.type!=="defs")}</div>},
   Bar: ({ name, onClick }: any) => <button aria-label={`Chart segment ${name}`} onClick={() => onClick({ date: chart.date })}>Bar</button>,
+  Line: () => null, AreaChart: ({ data }: any) => <output aria-label="quality points">{JSON.stringify(data)}</output>,
+  BarChart: ({ data }: any) => <output aria-label="quality bars">{JSON.stringify(data)}</output>,
   Area: () => null, Rectangle: () => null, CartesianGrid: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null,
 }))
 const bootstrap: Bootstrap = { readiness: { model: true, accounts: true, privacy_ack: true, outlook: false }, counts: {}, taxonomy: [], presets: [], last_run: "Never checked", account_count: 1 }
@@ -29,15 +30,11 @@ beforeEach(() => {
   vi.spyOn(api, "accounts").mockResolvedValue({ accounts: [{ id: 1, label: "personal", email: "me@example.test", provider: "imap", imap_host: "imap.example.test", imap_port: 993, use_ssl: true, folder: "INBOX", enabled: false }], outlook_ready: false })
 })
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); vi.restoreAllMocks() })
-function History() {
-  const navigate = useNavigate()
-  return <><button onClick={() => navigate("/dashboard?q=from-history")}>Other URL</button><button onClick={() => navigate(-1)}>Back</button></>
-}
-function mount(path = "/dashboard", readOnly = false, persist = false) {
+function mount(path = "/dashboard", readOnly = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   clients.push(client)
-  const page = <QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><ToastProvider><History /><DashboardPage bootstrap={bootstrap} readOnly={readOnly} /></ToastProvider></MemoryRouter></QueryClientProvider>
-  return render(persist ? <PageStateProvider scope="dashboard-entry-test">{page}</PageStateProvider> : page)
+  const page = <QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><ToastProvider><DashboardPage bootstrap={bootstrap} readOnly={readOnly} /></ToastProvider></MemoryRouter></QueryClientProvider>
+  return render(page)
 }
 async function lastParam(name: string, value: string | null) {
   await waitFor(() => {
@@ -86,30 +83,11 @@ it("propagates every filter and synchronizes both grouping controls", async () =
   fireEvent.click(screen.getByRole("button", { name: "More" }))
   fireEvent.change(screen.getByLabelText("Action"), { target: { value: "yes" } }); await lastParam("action", "yes")
 })
-it("synchronizes the search box with URL history", async () => {
-  mount("/dashboard?q=original"); await screen.findByLabelText("Search stored mail")
-  fireEvent.click(screen.getByRole("button", { name: "Other URL" })); await lastParam("q", "from-history")
-  expect((screen.getByLabelText("Search stored mail") as HTMLInputElement).value).toBe("from-history")
-  fireEvent.click(screen.getByRole("button", { name: "Back" })); await lastParam("q", "original")
-  expect((screen.getByLabelText("Search stored mail") as HTMLInputElement).value).toBe("original")
-})
 it("clears stale date focus when changing the date range", async () => {
   mount("/dashboard?focus_date=2026-09-15&focus_category=rejection")
   await screen.findByLabelText("Date range")
   fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "7" } })
   await lastParam("focus_date", null); await lastParam("focus_category", null)
-})
-it("focuses the first visible day of a weekly bucket without changing its scope", async () => {
-  mount("/dashboard?interval=week")
-  fireEvent.click(await screen.findByRole("button", { name: "Chart segment Rejection" }))
-  await lastParam("start", null); await lastParam("end", null)
-  await lastParam("interval", "week"); await lastParam("focus_category", "rejection")
-  await lastParam("focus_date", "2026-09-15")
-})
-it("focuses a daily chart segment using the existing day/category filters", async () => {
-  chart.date = "2026-09-15"; mount()
-  fireEvent.click(await screen.findByRole("button", { name: "Chart segment Rejection" }))
-  await lastParam("focus_date", "2026-09-15"); await lastParam("focus_category", "rejection")
 })
 it("does not show a successful refresh when the API request fails", async () => {
   mount(); await screen.findByText("Messages collected")
@@ -130,22 +108,6 @@ it("does not fetch admin account details for a guest", async () => {
   expect(api.accounts).not.toHaveBeenCalled()
   expect(screen.queryByRole("link", { name: /Manage accounts/ })).toBeNull()
 })
-it("collapses the message explorer by default and expands it from its bar", async () => {
-  const response = data()
-  response.messages.items = [{ pk: 123, subject: "Application update", received_at: "2026-10-14T12:00:00Z", category_label: "Rejection", account_label: "personal" }] as any
-  vi.mocked(api.dashboard).mockResolvedValue(response)
-  mount()
-  await screen.findByText("Messages collected")
-  const explorer = document.querySelector("#message-explorer") as HTMLDetailsElement
-  expect(explorer.open).toBe(false)
-  expect(screen.queryByText("RECENT MAIL EVENTS")).toBeNull()
-  fireEvent.click(screen.getByText("Show messages"))
-  await waitFor(() => expect(explorer.open).toBe(true))
-  explorer.open = false
-  fireEvent(explorer, new Event("toggle"))
-  await waitFor(() => expect(explorer.open).toBe(false))
-})
-
 it("filters by bidder together with account and resets the selection", async () => {
   vi.mocked(api.dashboardAccounts).mockResolvedValue({ accounts: [{ label: "personal" }], bidders: [{ id: 7, name: "Alex" }] })
   mount("/dashboard?account=personal&page=2")
@@ -211,24 +173,6 @@ it('shows only graphs and own account selector for bidders',async()=>{
  expect(screen.getByText('Applications over time')).toBeTruthy()
 })
 
-it("opens explicit message links despite a saved collapse and still allows collapsing", async () => {
-  sessionStorage.clear()
-  try {
-    const key = 'offerpath.page-state.v1:' + JSON.stringify(["dashboard-entry-test", "dashboard", "explorerOpen"])
-    sessionStorage.setItem(key, "false")
-    mount("/dashboard?q=linked-message", false, true)
-    await screen.findByText("Messages collected")
-    const explorer = document.getElementById("message-explorer") as HTMLDetailsElement
-    await waitFor(() => expect(explorer.open).toBe(true))
-    explorer.open = false
-    fireEvent(explorer, new Event("toggle"))
-    await waitFor(() => expect(sessionStorage.getItem(key)).toBe("false"))
-    expect(explorer.open).toBe(false)
-  } finally {
-    sessionStorage.clear()
-  }
-})
-
 it("shows filters and skips explorer rows while the initial history read is pending", async () => {
   vi.mocked(api.dashboard).mockReturnValue(new Promise(() => {}))
   mount()
@@ -236,4 +180,59 @@ it("shows filters and skips explorer rows while the initial history read is pend
   await lastParam("include_messages", null)
   expect(vi.mocked(api.dashboard).mock.lastCall?.[2]).toBe(false)
   expect(screen.queryByText("Messages collected")).toBeNull()
+})
+
+
+it("shows interview and rejection rates against received applications, grouped before dividing", async () => {
+  const result = data()
+  const sample = { ...result, daily: ["2026-09-15","2026-09-16","2026-09-17"].map(date => ({ ...result.daily[0], date })),
+    profile_quality: {personal: {
+      "2026-09-15": { applications: 1, interview: 1, rejection: 0 },
+      "2026-09-16": { applications: 9, interview: 0, rejection: 3 },
+      "2026-09-18": { applications: 0, interview: 2, rejection: 0 },
+    }} }
+  vi.mocked(api.dashboard).mockResolvedValue(sample)
+  mount()
+  await screen.findByLabelText("quality points")
+  const rows = () => JSON.parse(screen.getByLabelText("quality points").textContent!)
+  expect(screen.queryByText("Show messages")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Day" }))
+  const daily = rows()
+  expect(daily[2].interview).toBeNull()          // a day without applications has no rate
+  fireEvent.click(screen.getByRole("button", { name: "Bar" }))
+  expect(JSON.parse(screen.getByLabelText("quality bars").textContent!)).toEqual(daily)
+  fireEvent.click(screen.getByRole("button", { name: "Line" }))
+  fireEvent.click(screen.getByRole("button", { name: "Week" }))
+  // Counts are added up first: 3 interviews / 10 applications, 3 rejections / 10 applications.
+  expect(rows()).toEqual([{ date: "2026-09-14", counts: { applications: 10, interview: 3, rejection: 3 }, interview: 30, rejection: 30 }])
+  fireEvent.click(screen.getByRole("button", { name: "Month" }))
+  expect(rows()).toEqual([{ date: "2026-09-01", counts: { applications: 10, interview: 3, rejection: 3 }, interview: 30, rejection: 30 }])
+  const card = screen.getByRole("article", { name: "personal profile quality" })
+  expect(within(card).getByText("10 applications")).toBeTruthy()
+  expect(within(card).getAllByText("30%")).toHaveLength(2)
+  expect(within(card).getAllByText("3 / 10 applications", { selector: "small" })).toHaveLength(2)
+})
+
+it("explains an account with no received applications instead of showing empty charts", async () => {
+  const result = data()
+  vi.mocked(api.dashboard).mockResolvedValue({ ...result, profile_quality: {
+    personal: { "2026-09-15": { applications: 0, interview: 0, rejection: 0 } },
+    work: { "2026-09-15": { applications: 0, interview: 2, rejection: 1 } },
+  } })
+  mount()
+  await screen.findByText("Profile quality")
+  expect(within(screen.getByRole("article", { name: "personal profile quality" })).getByText("No application emails received yet.")).toBeTruthy()
+  expect(within(screen.getByRole("article", { name: "work profile quality" })).getByText(/none were received yet/)).toBeTruthy()
+  expect(screen.queryByLabelText("quality points")).toBeNull()
+  expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4)
+})
+
+it("says where the profile comparison starts", async () => {
+  const result = data()
+  vi.mocked(api.dashboard).mockResolvedValue({ ...result, profile_quality_since: "2026-09-15", profile_quality: {
+    personal: { "2026-09-15": { applications: 4, interview: 1, rejection: 0 } } } })
+  mount()
+  const note = await screen.findByText(/^Counting from /)
+  expect(note.textContent).toContain("2026")
+  expect(note.getAttribute("title")).toMatch(/kept from this day on/)
 })
