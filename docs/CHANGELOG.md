@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.16.2 — 2026-11-21
+
+Clearer shared worker logs
+
+- Failed background jobs now log where the error was raised, and the repeated reconnect-for-read-marking warning is printed once per account instead of on every run
+
 ## 3.16.1 — 2026-11-21
 
 Calendar saves survive a busy database

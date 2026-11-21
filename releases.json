@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.16.2",
+    "date": "2026-11-21",
+    "title": "Clearer shared worker logs",
+    "changes": [
+      "Failed background jobs now log where the error was raised, and the repeated reconnect-for-read-marking warning is printed once per account instead of on every run"
+    ]
+  },
+  {
     "version": "3.16.1",
     "date": "2026-11-21",
     "title": "Calendar saves survive a busy database",

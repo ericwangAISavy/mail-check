@@ -49,3 +49,4 @@ def test_collection_failure_logs_workspace_and_account_without_private_error_tex
     assert failed==[7]
     assert 'workspace=legacy account=1 kind=mail attempt=1 error=SourceError' in caplog.text
     assert 'private provider response' not in caplog.text
+    assert 'raised_at=test_shared_consumer.py:' in caplog.text and 'in execute' in caplog.text

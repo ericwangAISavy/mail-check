@@ -28,6 +28,17 @@ from .broker import RabbitBroker, PendingCapacityError
 from .state import JobState, OperationLock, account_lease, atomic_json, runtime_root
 
 log = logging.getLogger(__name__)
+_SEEN_READ_WARNINGS: set = set()
+
+
+def _raised_at(exc):
+    """'file.py:123 in function' for the innermost frame of an exception (no message text)."""
+    import traceback
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return 'unknown'
+    last = frames[-1]
+    return f'{os.path.basename(last.filename)}:{last.lineno} in {last.name}'
 
 
 class ExistingRegistry(storage.Registry):
@@ -145,7 +156,11 @@ class WorkspaceOperations(Runtime):
                 atomic_json(checkpoint, {'mailbox':mailbox,'checked':started.isoformat()})
                 read_errors = read_marking.drain(conn, account, pipeline.build_source(account, cfg) if account.provider == "outlook" else None, check)
                 for warning in read_errors:
-                    logging.getLogger(__name__).warning(warning)
+                    # The same pending reconnect repeats on every run; say it once, keep the rest at debug.
+                    # (It stays visible on the account in the app.)
+                    first = (account_id, warning) not in _SEEN_READ_WARNINGS
+                    _SEEN_READ_WARNINGS.add((account_id, warning))
+                    logging.getLogger(__name__).log(logging.WARNING if first else logging.DEBUG, warning)
                 storage.set_status(conn,account_id,error="\n".join(read_errors),last_sync=time.time())
                 pending = self._pending(conn,account)
             if pending:
@@ -511,8 +526,11 @@ class Consumer:
                                 if not disconnected:
                                     broker.defer(tag,fields)
                             except Exception as exc:
-                                log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s',
-                                    fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__)
+                                # The message itself may hold provider responses or credentials, so only
+                                # the error type and where it was raised are logged.
+                                log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s raised_at=%s',
+                                    fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__,
+                                    _raised_at(exc))
                                 if not disconnected:
                                     broker.fail(tag,fields)
                                     record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'retry_or_failed',fields['id'])
