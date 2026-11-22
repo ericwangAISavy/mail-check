@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.17.1",
+    "date": "2026-11-22",
+    "title": "Scheduled checks no longer repeat for account problems",
+    "changes": [
+      "A scheduled check that finishes with problems on some accounts is no longer re-run five times; the problems stay on the Accounts page and the check runs again on its normal schedule"
+    ]
+  },
+  {
     "version": "3.17.0",
     "date": "2026-11-22",
     "title": "Colored server window",

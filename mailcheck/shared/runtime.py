@@ -364,7 +364,14 @@ def _execute_job(reader, legacy_paths, fields, *, handler=None):
                         body = web.CheckBody.model_validate(record['body'] if manual else {})
                         web._run_check(body,include_calendar=kind in {'scheduled-check','manual-check'},scheduled=kind=='scheduled-check')
                     if not web._job.get('ok',True):
-                        raise RuntimeError('Workspace operation reported failure; retrying safely')
+                        if kind == 'scheduled-check' and not manual:
+                            # Per-account problems (a login to fix, a reconnect needed) are shown on the
+                            # Accounts page and will not heal by re-running every account five times.
+                            # A crash of the whole check still raises above and is retried.
+                            log.warning('Scheduled check for workspace %s finished with account problems; see its Accounts page. It runs again on its normal schedule.',
+                                        fields['workspace_id'])
+                        else:
+                            raise RuntimeError('Workspace operation reported failure; retrying safely')
                 finally:
                     if web._job_lock.locked():
                         web._job_lock.release()

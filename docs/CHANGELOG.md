@@ -2,6 +2,12 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.17.1 — 2026-11-22
+
+Scheduled checks no longer repeat for account problems
+
+- A scheduled check that finishes with problems on some accounts is no longer re-run five times; the problems stay on the Accounts page and the check runs again on its normal schedule
+
 ## 3.17.0 — 2026-11-22
 
 Colored server window
