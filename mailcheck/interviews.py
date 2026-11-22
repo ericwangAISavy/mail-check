@@ -511,7 +511,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
             return {"changes": [], "errors": [f"No enabled account labelled '{account_label}'."], "accounts": 0}
     since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else max(365, cfg.check.lookback_days))).date()
     until = datetime.now(timezone.utc) + timedelta(days=365)
-    changes, errors, checked = [], [], 0
+    changes, errors, checked, busy = [], [], 0, False
     with CalendarAnalyzer(conn, cfg, status, client=analysis_client, defer=defer_analysis) as analyzer:
         for account in accounts:
             first_error = len(errors)
@@ -562,8 +562,15 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                                 time.sleep(2 * (attempt + 1))
                                 continue
                             complete = False
-                            errors.append(f"[{account.label}] Could not save a calendar event.")
-                            log.exception("Calendar event persistence failed")
+                            if "locked" in str(exc).lower():
+                                # Another worker kept the database busy; this is not bad data. Report
+                                # it as busy so the job is deferred instead of treated as a failure.
+                                busy = True
+                                errors.append(f"[{account.label}] The database was busy; calendar events will be saved on the next attempt.")
+                                log.warning("Calendar event could not be saved: the database stayed busy.")
+                            else:
+                                errors.append(f"[{account.label}] Could not save a calendar event.")
+                                log.exception("Calendar event persistence failed")
                             break
                 # Absence is authoritative only after every calendar/page succeeded.
                 # Keep source times separately so local time corrections cannot move
@@ -596,7 +603,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 conn.commit()
         if analyzer.pending and not defer_analysis:
             errors.append(f"Calendar detail analysis deferred for {analyzer.pending} events; retry calendar sync when the model is available.")
-        return {"changes":changes,"errors":errors,"accounts":checked,"analyzed":analyzer.analyzed,"analysis_pending":analyzer.pending}
+        return {"changes":changes,"errors":errors,"accounts":checked,"analyzed":analyzer.analyzed,"analysis_pending":analyzer.pending,"busy":busy}
 
 
 def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_client=None, limit=3):

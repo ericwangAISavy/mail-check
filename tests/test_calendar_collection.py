@@ -63,6 +63,7 @@ class NativeCalendarTests(unittest.TestCase):
             result=self.collect(self.source([event("busy-2")]))
         self.assertEqual(len(result['errors']),1)
         self.assertFalse(result['changes'])
+        self.assertTrue(result['busy'])  # callers defer the job instead of counting a failure
 
     def test_all_booking_kinds_use_calendar_events_only(self):
         kinds=[("teams","https://teams.microsoft.com/l/meetup-join/ABC","teamsForBusiness","Microsoft Teams"),
@@ -679,3 +680,14 @@ class CalendarAnalysisTests(unittest.TestCase):
         self.assertEqual(result['analyzed'],1)
         self.assertEqual(complete.call_count,2)
         self.assertEqual(self.conn.execute('SELECT company FROM interview_events').fetchone()[0],'Airbus')
+
+
+def test_a_slow_write_lock_names_its_holder(caplog):
+    import logging, sqlite3
+    from mailcheck import native_sourcing
+    clock = iter([0.0, 42.0])
+    conn = sqlite3.connect(":memory:")
+    with caplog.at_level(logging.WARNING), patch.object(native_sourcing.time, "monotonic", lambda: next(clock)):
+        with native_sourcing.atomic(conn):
+            pass
+    assert "held for 42 seconds by test_calendar_collection.py:test_a_slow_write_lock_names_its_holder" in caplog.text

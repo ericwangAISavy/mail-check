@@ -221,6 +221,9 @@ class Runtime:
                 with collection_scope(lambda _: check()):
                     result = interviews.collect_calendar_events(GuardedConnection(conn, check), self.config_loader(),
                                                                account_label=account.label, defer_analysis=True)
+                if result.get('busy'):
+                    # Another worker held the database; try again later without spending an attempt.
+                    raise WorkDeferred('Database busy')
                 if result.get('errors'):
                     raise RuntimeError('Calendar collection unavailable; retrying.')
                 check()

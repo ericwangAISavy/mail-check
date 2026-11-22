@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.17.2 — 2026-11-22
+
+Busy database is deferred, slow write locks are named
+
+- A calendar save that finds the database busy is retried later without counting as a failure or printing a traceback
+- The server window names any process that holds the database write lock for more than 10 seconds
+
 ## 3.17.1 — 2026-11-22
 
 Scheduled checks no longer repeat for account problems

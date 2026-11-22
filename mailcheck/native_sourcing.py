@@ -5,7 +5,10 @@ from __future__ import annotations
 from contextlib import contextmanager, nullcontext
 import hashlib
 import json
+import logging
+import os
 import sqlite3
+import sys
 import time
 import uuid
 from datetime import date
@@ -70,12 +73,20 @@ def new_id():
 def atomic(conn):
     """SQLite serializes the version check and its writes across app processes."""
     conn.execute("BEGIN IMMEDIATE")
+    started = time.monotonic()
+    caller = sys._getframe(2)  # frame 1 is contextlib's __enter__
+    where = f"{os.path.basename(caller.f_code.co_filename)}:{caller.f_code.co_name}"
     try:
         yield
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
+    finally:
+        held = time.monotonic() - started
+        if held > 10:
+            # Other processes cannot write while this is held; name the holder so slow ones can be fixed.
+            logging.getLogger(__name__).warning("Database write lock was held for %.0f seconds by %s.", held, where)
 
 
 def _create_book(conn, bidder_id, title, legacy_id=None):
