@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from .console_colors import kind_for, paint
+
 LEVELS = {"debug": 10, "info": 20, "warning": 30, "error": 40, "critical": 50}
 # "2026-11-21 04:59:39,607 WARNING name: ..." (our format) or "WARNING:  ..." (uvicorn).
 HEADER = re.compile(r"^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[,.]\d+ )?(DEBUG|INFO|WARNING|ERROR|CRITICAL)(?:\b|:)")
@@ -34,10 +36,10 @@ def _default_write(text: str) -> None:
 
 
 class _Tracked:
-    __slots__ = ("pos", "partial", "in_block")
+    __slots__ = ("pos", "partial", "in_block", "kind")
 
     def __init__(self, pos: int):
-        self.pos, self.partial, self.in_block = pos, b"", False
+        self.pos, self.partial, self.in_block, self.kind = pos, b"", False, "warning"
 
 
 class ConsoleLogFollower:
@@ -60,7 +62,7 @@ class ConsoleLogFollower:
         return self.level is not None
 
     # -- output, with a flood limit so a crash loop cannot bury the window ----
-    def _emit(self, name: str, line: str) -> None:
+    def _emit(self, name: str, line: str, kind: str = 'warning') -> None:
         now = self._clock()
         if now - self._window_start >= self._window:
             self._flush_hidden()
@@ -70,11 +72,11 @@ class ConsoleLogFollower:
             return
         self._printed += 1
         text = line if len(line) <= MAX_LINE else line[:MAX_LINE] + " ..."
-        self._write(f"[{name}] {text}")
+        self._write(f"{paint(f'[{name}]', 'label')} {paint(text, kind)}")
 
     def _flush_hidden(self) -> None:
         if self._hidden:
-            self._write(f"[logs] ... {self._hidden} more lines hidden to keep this window readable. See the files in {self.folder}")
+            self._write(paint(f"[logs] ... {self._hidden} more lines hidden to keep this window readable. See the files in {self.folder}", "warning"))
             self._hidden = 0
 
     def _handle(self, name: str, state: _Tracked, line: str) -> None:
@@ -82,13 +84,17 @@ class ConsoleLogFollower:
         if match:
             level = LEVELS[match.group(1).lower()]
             state.in_block = level >= self.level
+            state.kind = kind_for(match.group(1), line)
             if state.in_block:
-                self._emit(name, line)
+                self._emit(name, line, state.kind)
         elif BLOCK_START.match(line):
+            # A traceback or crash dump is at least an error, unless it continues a critical entry.
             state.in_block = True
-            self._emit(name, line)
+            if state.kind not in ("error", "critical"):
+                state.kind = "error"
+            self._emit(name, line, state.kind)
         elif state.in_block and line.strip():
-            self._emit(name, line)
+            self._emit(name, line, state.kind)
 
     # -- following the files ---------------------------------------------------
     def tick(self) -> None:
@@ -144,7 +150,7 @@ class ConsoleLogFollower:
         if not self.enabled or self._thread:
             return
         self.tick()  # remember where every log ends right now
-        self._write(f"Warnings and errors from every server process appear here. Full logs: {self.folder}")
+        self._write(paint(f"Warnings and errors from every server process appear here. Full logs: {self.folder}", "info"))
         self._thread = threading.Thread(target=self._run, name="console-log-follower", daemon=True)
         self._thread.start()
 

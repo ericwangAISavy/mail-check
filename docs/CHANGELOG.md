@@ -2,6 +2,18 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.17.0 — 2026-11-22
+
+Colored server window
+
+- The server window colors messages by severity: red for errors, yellow for warnings, green for success, cyan for routine progress, white on red for critical
+
+## 3.16.4 — 2026-11-21
+
+Offline outages no longer burn retries
+
+- When the internet or DNS is down, queued mail and calendar work now waits and is retried later instead of using up its attempts and being dropped
+
 ## 3.16.3 — 2026-11-21
 
 Clean second Ctrl+C

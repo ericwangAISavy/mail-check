@@ -211,7 +211,8 @@ def main():
     folder=config.control_dir()/'logs';folder.mkdir(parents=True,exist_ok=True)
     logger=logging.getLogger('offerpath.origin');logger.setLevel(logging.INFO)
     formatter=logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    console=logging.StreamHandler();console.setFormatter(formatter);logger.addHandler(console)
+    from ..console_colors import ColorFormatter
+    console=logging.StreamHandler();console.setFormatter(ColorFormatter('%(asctime)s %(levelname)s %(message)s'));logger.addHandler(console)
     file=RotatingFileHandler(folder/'origin-supervisor.log',maxBytes=1024*1024,backupCount=2,encoding='utf-8')
     file.setFormatter(formatter);logger.addHandler(file)
     print(f'Origin recovery log: {file.baseFilename}',flush=True)

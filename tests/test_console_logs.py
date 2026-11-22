@@ -153,3 +153,35 @@ def test_a_second_ctrl_c_while_stopping_does_not_escape(tmp_path):
     f.start()
     f._thread.join = lambda timeout=None: (_ for _ in ()).throw(KeyboardInterrupt())
     f.stop()                                     # must return quietly
+
+
+def test_levels_get_distinct_colors_and_tracebacks_follow_their_entry(tmp_path, monkeypatch):
+    from mailcheck import console_colors as colors
+    monkeypatch.setattr(colors, "_enabled", True)
+    f, out = follower(tmp_path, level="info")
+    f.tick()
+    append(tmp_path / "w.log", f"{STAMP} INFO a: Worker ready\n{STAMP} INFO a: syncing\n{STAMP} WARNING a: slow\n"
+                               f"{STAMP} ERROR a: failed\nTraceback (most recent call last):\nValueError: x\n"
+                               f"{STAMP} CRITICAL a: dead\n")
+    f.tick()
+    S = colors.STYLES
+    assert S["success"] in out[0] and S["info"] in out[1] and S["warning"] in out[2]
+    assert S["error"] in out[3] and S["error"] in out[4] and S["error"] in out[5]
+    assert S["critical"] in out[6]
+    assert len({S[k] for k in ("success", "info", "warning", "error", "critical")}) == 5
+    assert all(S["label"] in line for line in out)
+
+
+def test_no_color_when_disabled_or_not_a_terminal(monkeypatch):
+    from mailcheck import console_colors as colors
+    monkeypatch.setattr(colors, "_enabled", None)
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert colors.paint("text", "error") == "text"
+    monkeypatch.setattr(colors, "_enabled", None)
+    monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("OFFERPATH_COLOR", "never")
+    assert colors.paint("text", "error") == "text"
+    monkeypatch.setattr(colors, "_enabled", None)
+    monkeypatch.setenv("OFFERPATH_COLOR", "always")
+    assert colors.paint("text", "error").startswith("\x1b[")
+    monkeypatch.setattr(colors, "_enabled", None)

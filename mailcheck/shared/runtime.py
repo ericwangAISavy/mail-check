@@ -31,6 +31,29 @@ log = logging.getLogger(__name__)
 _SEEN_READ_WARNINGS: set = set()
 
 
+_NETWORK_ERRORS = {'gaierror','ConnectionError','ConnectionResetError','ConnectionRefusedError','ConnectionAbortedError',
+                   'ConnectError','ConnectTimeout','NameResolutionError','NewConnectionError','NetworkError'}
+_last_network_note = [0.0]
+
+
+def _network_unreachable(exc):
+    """True when the failure's cause chain is a DNS or connection failure (not a timeout or a rejected login)."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if any(cls.__name__ in _NETWORK_ERRORS for cls in type(exc).__mro__):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _note_network_down(kind):
+    now = time.monotonic()
+    if now - _last_network_note[0] >= 60:
+        _last_network_note[0] = now
+        log.warning('Network unreachable (DNS or connection failed); %s work stays queued and will be retried without using its attempts.', kind)
+
+
 def _raised_at(exc):
     """'file.py:123 in function' for the innermost frame of an exception (no message text)."""
     import traceback
@@ -526,17 +549,24 @@ class Consumer:
                                 if not disconnected:
                                     broker.defer(tag,fields)
                             except Exception as exc:
-                                # The message itself may hold provider responses or credentials, so only
-                                # the error type and where it was raised are logged.
-                                log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s raised_at=%s',
-                                    fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__,
-                                    _raised_at(exc))
-                                if not disconnected:
-                                    broker.fail(tag,fields)
-                                    record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'retry_or_failed',fields['id'])
-                                    if fields['attempt']+1>=5:
-                                        broker.abandon_unique(fields,self.reader.root/'shared-runtime')
-                                        finish_manual(fields,self.reader.root/'shared-runtime')
+                                if _network_unreachable(exc):
+                                    # No internet/DNS is not this job's fault: keep it queued and do not spend an attempt.
+                                    _note_network_down(kind)
+                                    if not disconnected:
+                                        broker.defer(tag,fields)
+                                        record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'deferred_offline',fields['id'])
+                                else:
+                                    # The message itself may hold provider responses or credentials, so only
+                                    # the error type and where it was raised are logged.
+                                    log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s raised_at=%s',
+                                        fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__,
+                                        _raised_at(exc))
+                                    if not disconnected:
+                                        broker.fail(tag,fields)
+                                        record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'retry_or_failed',fields['id'])
+                                        if fields['attempt']+1>=5:
+                                            broker.abandon_unique(fields,self.reader.root/'shared-runtime')
+                                            finish_manual(fields,self.reader.root/'shared-runtime')
                             else:
                                 if not disconnected:
                                     broker.complete_unique(fields,self.reader.root/'shared-runtime')

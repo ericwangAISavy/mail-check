@@ -1,5 +1,21 @@
 [
   {
+    "version": "3.17.0",
+    "date": "2026-11-22",
+    "title": "Colored server window",
+    "changes": [
+      "The server window colors messages by severity: red for errors, yellow for warnings, green for success, cyan for routine progress, white on red for critical"
+    ]
+  },
+  {
+    "version": "3.16.4",
+    "date": "2026-11-21",
+    "title": "Offline outages no longer burn retries",
+    "changes": [
+      "When the internet or DNS is down, queued mail and calendar work now waits and is retried later instead of using up its attempts and being dropped"
+    ]
+  },
+  {
     "version": "3.16.3",
     "date": "2026-11-21",
     "title": "Clean second Ctrl+C",

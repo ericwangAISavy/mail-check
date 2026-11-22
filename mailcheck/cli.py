@@ -487,7 +487,7 @@ def web(
             raise typer.Exit(1)
     url = gateway_address(host,port)
     browser_url = f"https://{allow_host[0]}" if tunnel else url
-    console.print(f"Dashboard: [bold]{browser_url}[/bold]  (Ctrl+C to stop)")
+    console.print(f"[green]Dashboard:[/green] [bold green]{browser_url}[/bold green]  [dim](Ctrl+C to stop)[/dim]")
     if open_browser:
         import webbrowser
         import threading
