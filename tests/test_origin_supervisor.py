@@ -49,6 +49,13 @@ def test_repeated_restarts_are_bounded():
     assert budget.allow(401)
 
 
+def test_recovery_retries_failed_replacement_startups_and_survives_restart_budget():
+    processes = [Process([None, 1])] + [Process([1]) for _ in range(6)] + [Process([0])]
+    result, spawn = run_processes(processes, ['ready'])
+    assert result == 0
+    assert spawn.call_count == 8
+
+
 def test_unready_startup_has_a_deadline_and_is_not_restarted():
     process=Process([None])
     result,spawn=run_processes([process],['unavailable']*30)

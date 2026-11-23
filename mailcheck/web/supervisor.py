@@ -97,6 +97,7 @@ def drain_origin(process):
 def supervise(command,host,port,logger,restart_requested=None):
     budget=RestartBudget()
     process=None
+    recovering=False
     try:
         while True:
             options = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if restart_requested else {}
@@ -106,7 +107,7 @@ def supervise(command,host,port,logger,restart_requested=None):
             while True:
                 code=process.poll()
                 if code is not None:
-                    if code in (0,130,-2,3221225786) or not ready:
+                    if code in (0,130,-2,3221225786) or (not ready and not recovering):
                         if code in (0,130,-2,3221225786):
                             logger.info('Origin exited with status %s; no restart for shutdown or failed startup.',code)
                         else:
@@ -129,12 +130,15 @@ def supervise(command,host,port,logger,restart_requested=None):
                     stop(process);restart=True;break
                 if not ready and time.monotonic()-began>=120:
                     logger.error('Origin never became ready within 120 seconds. Check startup output and port configuration.')
-                    stop(process);return 1
+                    stop(process)
+                    if not recovering:return 1
+                    restart=True;break
                 time.sleep(5)
             if restart:
-                if not budget.allow(time.monotonic()):
-                    logger.error('Recovery stopped after five restarts in five minutes. Inspect server and tunnel logs.')
-                    return 1
+                recovering=True
+                while not budget.allow(time.monotonic()):
+                    logger.error('Five restarts in five minutes. Cooling down for 60 seconds before retrying; Ctrl+C stops recovery.')
+                    time.sleep(60)
                 delay=min(30,2**len(budget.attempts))
                 logger.warning('Restarting origin in %s seconds. In-flight writes are not replayed.',delay)
                 time.sleep(delay)

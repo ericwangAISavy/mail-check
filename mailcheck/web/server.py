@@ -6,10 +6,23 @@ import sys
 import signal
 
 import uvicorn
+import h11
+from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from .admission import RequestAdmission
 
 log = logging.getLogger('uvicorn.error')
+
+
+class ClosingSafeH11Protocol(H11Protocol):
+    """Malformed traffic can arrive after h11 has already closed its response state."""
+    def send_400_response(self, msg):
+        try:
+            super().send_400_response(msg)
+        except h11.LocalProtocolError:
+            log.debug('Closing malformed HTTP connection whose response state is already closed.')
+        finally:
+            self.transport.close()
 
 
 class LocalOriginHealth:
@@ -106,6 +119,7 @@ def run(app, *, health_check=False, **options):
     options.setdefault('proxy_headers', True)
     options.setdefault('forwarded_allow_ips', '127.0.0.1,::1')
     options.setdefault('server_header', False)
+    options.setdefault('http', ClosingSafeH11Protocol)
     # Uvicorn counts idle keep-alive sockets, so allow finite transport
     # headroom while the ASGI wrapper independently bounds active work.
     options.setdefault('limit_concurrency', 256)

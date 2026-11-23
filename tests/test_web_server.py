@@ -1,7 +1,20 @@
 """Windows uses native IOCP serving and keeps listener failures actionable."""
 from unittest.mock import MagicMock, patch
 import pytest
-from mailcheck.web.server import run
+from mailcheck.web.server import ClosingSafeH11Protocol, run
+
+
+def test_invalid_http_response_state_closes_only_the_bad_connection():
+    import h11
+    protocol = ClosingSafeH11Protocol.__new__(ClosingSafeH11Protocol)
+    protocol.conn = h11.Connection(h11.SERVER)
+    protocol.transport = MagicMock()
+    # Reproduce a second 400 attempt after a previous error response closed h11.
+    protocol.send_400_response('Invalid HTTP request received.')
+    protocol.transport.reset_mock()
+    protocol.send_400_response('Invalid HTTP request received.')
+    protocol.transport.close.assert_called_once()
+    protocol.transport.write.assert_not_called()
 
 
 def test_windows_uses_native_loop_for_serving():
@@ -13,7 +26,7 @@ def test_windows_uses_native_loop_for_serving():
         runner.assert_called_once_with(loop_factory=native)
         wrapped=config.call_args.args[0]
         assert wrapped.app is app
-        config.assert_called_once_with(wrapped,host='0.0.0.0',port=52400,log_level='warning',loop='asyncio',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15)
+        config.assert_called_once_with(wrapped,host='0.0.0.0',port=52400,log_level='warning',loop='asyncio',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15,http=ClosingSafeH11Protocol)
         runner.return_value.__enter__.return_value.run.assert_called_once_with('serve-coroutine')
 
 
@@ -23,7 +36,7 @@ def test_other_platforms_use_the_stream_aware_server():
         run(app,host='127.0.0.1',port=52400,log_level='warning')
         wrapped=config.call_args.args[0]
         assert wrapped.app is app
-        config.assert_called_once_with(wrapped,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15)
+        config.assert_called_once_with(wrapped,host='127.0.0.1',port=52400,log_level='warning',proxy_headers=True,forwarded_allow_ips='127.0.0.1,::1',server_header=False,limit_concurrency=256,timeout_keep_alive=5,timeout_graceful_shutdown=15,http=ClosingSafeH11Protocol)
         server.assert_called_once_with(config.return_value)
         server.return_value.run.assert_called_once_with()
 

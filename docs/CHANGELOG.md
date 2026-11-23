@@ -2,6 +2,13 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.17.3 — 2026-11-23
+
+HTTP connection cleanup and sustained crash recovery
+
+- Malformed requests on closing HTTP connections are safely disconnected without an asyncio callback traceback.
+- After an unexpected server exit, automatic recovery retries failed replacements and pauses during repeated crashes before trying again.
+
 ## 3.17.2 — 2026-11-22
 
 Busy database is deferred, slow write locks are named
