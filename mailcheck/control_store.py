@@ -51,10 +51,12 @@ class ControlStore:
 
     @contextmanager
     def connect(self):
-        conn=connect_database(self.path,timeout=30)
-        conn.row_factory=sqlite3.Row
-        conn.execute('PRAGMA foreign_keys=ON')
+        # Bound contention below the gateway's authentication deadline so stalled
+        # SQLite operations cannot accumulate across the request thread pool.
+        conn=connect_database(self.path,timeout=1)
         try:
+            conn.row_factory=sqlite3.Row
+            conn.execute('PRAGMA foreign_keys=ON')
             with conn:yield conn
         finally:conn.close()
 

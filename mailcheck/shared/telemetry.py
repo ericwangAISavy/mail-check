@@ -13,14 +13,19 @@ import queue
 import threading
 import time
 import uuid
+import os
 
 from .state import OperationLock, atomic_json
 
 _queue=queue.Queue(maxsize=1024)
 _start=threading.Lock()
 _thread=None
+_last_writer_activity=0.0
+_publication_errors={}
+_dropped_events=0
+_last_drop=0.0
 KINDS={'mail','calendar','classify','manual-check','manual-reclassify','scheduled-check','calendar-analysis','live-inbox','events'}
-ACTIONS={'queued','started','completed','retry_or_failed','published','discarded'}
+ACTIONS={'queued','started','completed','retry_or_failed','published','discarded','deferred_busy','deferred_offline','deferred_state'}
 TERMINAL={'completed','retry_or_failed','discarded'}
 EVENT_LIMIT=1000
 METRIC_MINUTES=24*60
@@ -41,14 +46,18 @@ def duration_bin(seconds):
     return DURATION_BINS-1
 
 
-def record(root,workspace,kind,action,job_id):
-    global _thread
+def record(root,workspace,kind,action,job_id, *, evidence=None):
+    global _thread, _dropped_events, _last_drop
     if kind not in KINDS or action not in ACTIONS:
         return
     try:
+        from .health_evidence import safe_evidence
+        diagnostics = safe_evidence({**(evidence or {}), 'worker':os.environ.get('OFFERPATH_WORKER_ID','unknown'), 'pid':os.getpid()})
         _queue.put_nowait((root,dict(id=str(uuid.uuid4()),at=time.time(),workspace=workspace,
-            component=kind,action=action,job_id=str(job_id),status='degraded' if action=='retry_or_failed' else 'healthy')))
+            component=kind,action=action,job_id=str(job_id),status='degraded' if action=='retry_or_failed' else 'healthy', evidence=diagnostics)))
     except queue.Full:
+        _dropped_events+=1
+        _last_drop=time.time()
         return
     with _start:
         if _thread is None:
@@ -138,8 +147,12 @@ def _flush_metrics():
         try:
             if not _merge_metrics(root/'metrics.json',additions):
                 _requeue(root,additions)
+                _publication_errors[str(root/'metrics.json')]=time.time()
+            else:
+                _publication_errors.pop(str(root/'metrics.json'),None)
         except Exception:
             _requeue(root,additions)
+            _publication_errors[str(root/'metrics.json')]=time.time()
 
 
 def _requeue(root,additions):
@@ -161,6 +174,7 @@ def _requeue(root,additions):
 def _append_events(path,events):
     lock=OperationLock(path.with_suffix('.events.lock'))
     if not lock.acquire(True,LOCK_WAIT):
+        _publication_errors[str(path)]=time.time()
         return
     try:
         try:
@@ -170,6 +184,10 @@ def _append_events(path,events):
         except (FileNotFoundError,ValueError,OSError):
             existing=[]
         atomic_json(path,[*existing,*events][-EVENT_LIMIT:])
+        _publication_errors.pop(str(path),None)
+    except Exception:
+        _publication_errors[str(path)]=time.time()
+        raise
     finally:
         lock.release()
 
@@ -192,8 +210,27 @@ def _write(batch,flush=True):
                 pass
 
 
+def health_snapshot():
+    if _thread is None:
+        status, reason = 'unknown', 'writer_not_started'
+    elif not _thread.is_alive():
+        status, reason = 'unavailable', 'writer_stopped'
+    elif time.time()-_last_writer_activity>30:
+        status, reason = 'unavailable', 'writer_stalled'
+    elif _publication_errors:
+        status, reason = 'degraded', 'writer_persistence_failed'
+    elif _last_drop and time.time()-_last_drop<60:
+        status, reason = 'degraded', 'telemetry_events_dropped'
+    else:
+        status, reason = 'healthy', 'writer_responsive'
+    return dict(telemetry_status=status,telemetry_reason=reason,telemetry_checked_at=_last_writer_activity,
+                telemetry_dropped_events=_dropped_events,telemetry_publication_errors=len(_publication_errors))
+
+
 def _run():
+    global _last_writer_activity
     while True:
+        _last_writer_activity=time.time()
         try:
             # Wake at least once per flush interval so quiet periods still
             # publish counts that arrived just before them.

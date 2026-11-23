@@ -27,6 +27,8 @@ def supervise(server, stop_callback=None, *, probe=None, interval=5):
     an unauthenticated API listening indefinitely.
     """
     stopped = threading.Event()
+    from .service_health import report_service
+    stop_reporting = report_service(server)
     probe = probe or _probe_parent
 
     def watch():
@@ -35,14 +37,20 @@ def supervise(server, stop_callback=None, *, probe=None, interval=5):
             try:
                 status = probe()
                 if status in (200, 503):
+                    if failures:
+                        logging.getLogger(__name__).info('Gateway contact restored; shared process continued running.')
                     failures = 0
                     continue
-                failures = 3 if status in (401, 403) else failures + 1
-            except Exception:
+                revoked = status in (401, 403)
                 failures += 1
-            if failures < 3:
+            except Exception:
+                revoked = False
+                failures += 1
+            if not revoked:
+                if failures == 3:
+                    logging.getLogger(__name__).warning('Gateway is temporarily unreachable; shared process remains running with local workspace access checks.')
                 continue
-            logging.getLogger(__name__).warning('Gateway authentication lost; draining shared process.')
+            logging.getLogger(__name__).warning('Gateway revoked worker authentication; draining this shared process.')
             try:
                 if stop_callback is not None:
                     stop_callback()
@@ -59,5 +67,6 @@ def supervise(server, stop_callback=None, *, probe=None, interval=5):
         stopped.set()
         if threading.current_thread() is not thread:
             thread.join(timeout=4)
+        stop_reporting()
 
     return cleanup

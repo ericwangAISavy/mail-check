@@ -6,7 +6,7 @@ import { OfferPathMark } from "@/components/offerpath-mark"
 import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState } from "react"
 import { Navigate, NavLink, Route, Routes, UNSAFE_DataRouterContext, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
+import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
 import { api, request } from "@/lib/api"
 import { parseStamp, timeAgo } from "@/lib/relative-time"
 import { Button } from "@/components/ui/button"
@@ -21,34 +21,35 @@ import { useRealtimeUpdates } from "@/lib/realtime"
 const pageImports = {
   triage: () => import("@/pages/triage"),
   sourcing: () => import("@/pages/sourcing"),
+  jobLinks: () => import("@/pages/job-links"),
   dashboard: () => import("@/pages/dashboard"),
   payments: () => import("@/pages/payments"),
   interviews: () => import("@/pages/interviews"),
   interviewPipeline: () => import("@/pages/interview-pipeline"),
   interviewProcesses: () => import("@/pages/interview-processes"),
   accounts: () => import("@/pages/accounts"),
-  systemMonitoring: () => import("@/pages/system-monitoring"),
   adminManagement: () => import("@/pages/admin-management"),
   settings: () => import("@/pages/settings"),
 }
 const routeImports: Record<string, () => Promise<unknown>> = {
   "/": pageImports.triage, "/inbox": pageImports.triage, "/sourcing": pageImports.sourcing,
+  "/job-links": pageImports.jobLinks,
   "/dashboard": pageImports.dashboard, "/payments": pageImports.payments, "/interviews": pageImports.interviews,
   "/interview-processes": pageImports.interviewPipeline, "/interview-processes/legacy": pageImports.interviewProcesses,
-  "/accounts": pageImports.accounts, "/system-monitoring": pageImports.systemMonitoring,
+  "/accounts": pageImports.accounts,
   "/admin-management": pageImports.adminManagement, "/settings": pageImports.settings,
 }
 /** Start downloading a page's code; failures are left to the real navigation. */
 function preloadRoute(path: string) { void routeImports[path]?.().catch(() => undefined) }
 const TriagePage = lazy(pageImports.triage)
 const SourcingPage = lazy(pageImports.sourcing)
+const JobLinks = lazy(pageImports.jobLinks)
 const DashboardPage = lazy(pageImports.dashboard)
 const PaymentsPage = lazy(pageImports.payments)
 const InterviewsPage = lazy(pageImports.interviews)
 const InterviewPipelinePage = lazy(pageImports.interviewPipeline)
 const InterviewProcessesPage = lazy(pageImports.interviewProcesses)
 const AccountsPage = lazy(pageImports.accounts)
-const SystemMonitoring = lazy(pageImports.systemMonitoring)
 const AdminManagement = lazy(pageImports.adminManagement)
 const SettingsPage = lazy(pageImports.settings)
 
@@ -59,10 +60,10 @@ const sections = [
   { to: "/interviews", label: "Interview", icon: CalendarDays },
   { to: "/interview-processes", label: "Interview pipeline", icon: Workflow },
   { to: "/sourcing", label: "Job sourcing", icon: BriefcaseBusiness },
+  { to: "/job-links", label: "Job links", icon: Search },
   { to: "/payments", label: "Bidder management", icon: UsersRound },
   { to: "/accounts", label: "Accounts", icon: Mails },
   { to: "/settings", label: "Settings", icon: Settings },
-  { to: "/system-monitoring", label: "System monitoring", icon: Activity },
   { to: "/admin-management", label: "Admin management", icon: ShieldCheck },
 ]
 
@@ -266,7 +267,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const queue = useQuery({
     queryKey: ["bootstrap", "queue-counts"],
     queryFn: ({signal}) => request<{actionable: number}>("/api/queue-counts", {signal}),
-    enabled: admin && bootstrap.counts.actionable === undefined && !["/settings", "/admin-management", "/system-monitoring"].includes(location.pathname),
+    enabled: admin && bootstrap.counts.actionable === undefined && !["/settings", "/admin-management", "/job-links"].includes(location.pathname),
     refetchInterval: 60_000,
   })
   const actionable = bootstrap.counts.actionable ?? queue.data?.actionable ?? 0
@@ -278,13 +279,13 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     <header className="topbar app-header">
       <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
       <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === (pendingPath ?? location.pathname) || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
-      <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/system-monitoring" && <JobStatus bootstrap={bootstrap} />}</div>
+      <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/job-links" && <JobStatus bootstrap={bootstrap} />}</div>
       {pendingPath && <div className="route-progress" role="progressbar" aria-label="Opening page" />}
     </header>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management", "/system-monitoring"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
         // Keep the current URL, including filters updated through browser history.
         // Modified clicks retain the link's normal browser behavior.
         const plain = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
@@ -300,9 +301,9 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
       <button type="button" className="sidebar-collapse" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>
     </aside>
 
-    <section className={`app-content ${location.pathname === "/sourcing" ? "sourcing-workspace" : ""}`}>
+    <section className={`app-content ${["/sourcing","/job-links"].includes(location.pathname) ? "sourcing-workspace" : ""}`}>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
-      {admin && location.pathname !== "/admin-management" && location.pathname !== "/system-monitoring" && location.pathname !== "/sourcing" && location.pathname !== "/settings" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
+      {admin && location.pathname !== "/admin-management" && location.pathname !== "/sourcing" && location.pathname !== "/job-links" && location.pathname !== "/settings" && (!bootstrap.readiness.accounts) ? <div className="setup-ribbon"><span><CircleHelp size={17} />Your workspace is almost ready.</span><span>Connect an email account</span><Button variant="outline" size="sm" onClick={() => navigate("/accounts")}>Finish setup <ChevronRight size={15} /></Button></div> : null}
       <main className="page-content"><PageQueryBoundary><Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={admin ? <TriagePage bootstrap={bootstrap} canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/followups" element={admin ? <Navigate to="/interview-processes" replace /> : <Navigate to="/dashboard" replace />} />
@@ -312,9 +313,9 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/interview-processes" element={admin ? <InterviewPipelinePage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/interview-processes/legacy" element={admin ? <InterviewProcessesPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/sourcing" element={<SourcingPage />} />
+        <Route path="/job-links" element={admin ? <JobLinks/> : <Navigate to="/dashboard" replace/>} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/system-monitoring" element={session?.is_owner ? <SystemMonitoring /> : <Navigate to="/" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
         <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
@@ -341,7 +342,7 @@ function Recovery({ message, retry, retrying }: { message: string; retry: () => 
 function ReadyApp() {
   useRealtimeUpdates()
   const path=useLocation().pathname
-  const controlPage = path === "/admin-management" || path === "/system-monitoring"
+  const controlPage = path === "/admin-management" || path === "/job-links"
   const {role,session}=useAuth()
   const settingsRecovery=path==="/settings"&&role==="admin"&&(!session?.workspace_id||!!session.is_owner)
   const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: ({ signal }) => api.bootstrap(signal), retry: false, refetchInterval: 60_000, enabled: !controlPage })

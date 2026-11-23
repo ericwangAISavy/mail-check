@@ -11,6 +11,7 @@ export default function SourcingDays({
   canAssign,
   readOnly=false,
   compact=false,
+  allowAll=false,
 }: {
   day: string;
   onChange: (day: string) => void;
@@ -21,6 +22,7 @@ export default function SourcingDays({
   readOnly?:boolean;
   /** Only previous/next day, the date picker and Today. */
   compact?: boolean;
+  allowAll?: boolean;
 }) {
   const counts = new Map<string, number>();
   snapshot?.rows.slice(1).forEach((row, index) => {
@@ -32,12 +34,13 @@ export default function SourcingDays({
   return (
     <div className="sheet-days" aria-label="Daily jobs">
       <CalendarDays size={15} />
+      {allowAll&&<Button size="sm" variant="ghost" disabled={disabled} aria-pressed={!day} onClick={()=>onChange('')}>All dates</Button>}
       <Button
         size="icon"
         variant="ghost"
         aria-label="Previous day"
         disabled={disabled || day === "undated"}
-        onClick={() => onChange(offsetDay(day, -1))}
+        onClick={() => onChange(offsetDay(day || chicagoDay(), -1))}
       >
         <ChevronLeft size={16} />
       </Button>
@@ -47,7 +50,7 @@ export default function SourcingDays({
         value={day === "undated" ? "" : day}
         disabled={disabled}
         onChange={(e) => {
-          if (e.target.value && e.target.value.length === 10)
+          if ((!e.target.value&&allowAll) || e.target.value.length === 10)
             onChange(e.target.value);
         }}
       />
@@ -56,7 +59,7 @@ export default function SourcingDays({
         variant="ghost"
         aria-label="Next day"
         disabled={disabled || day === "undated"}
-        onClick={() => onChange(offsetDay(day, 1))}
+        onClick={() => onChange(offsetDay(day || chicagoDay(), 1))}
       >
         <ChevronRight size={16} />
       </Button>

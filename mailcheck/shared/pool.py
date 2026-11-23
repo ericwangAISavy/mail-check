@@ -15,16 +15,18 @@ from ..workspace_workers import Worker, WorkerPool, _log_size
 
 
 class SharedPool(WorkerPool):
-    def __init__(self, store, gateway_url, legacy_paths, size=2, job_size=2, amqp_url=None):
+    def __init__(self, store, gateway_url, legacy_paths, size=2, job_size=2, amqp_url=None, model_size=2):
         if not isinstance(size, int) or not 1 <= size <= 64:
             raise ValueError('Choose 1–64 shared API processes.')
         if not isinstance(job_size, int) or not 1 <= job_size <= 64:
             raise ValueError('Choose 1–64 collection processes.')
+        if not isinstance(model_size, int) or not 1 <= model_size <= 64:
+            raise ValueError('Choose 1–64 model processes.')
         super().__init__(store, gateway_url, legacy_paths)
         self.size = size
         self.amqp_url = amqp_url or os.environ.get('AMQP_URL')
         self.assignments = {}
-        self.job_slots = ([f'shared-job-collection-{i}' for i in range(job_size)] + ['shared-job-model-0']) if self.amqp_url else []
+        self.job_slots = ([f'shared-job-collection-{i}' for i in range(job_size)] + [f'shared-job-model-{i}' for i in range(model_size)]) if self.amqp_url else []
         self._slots = {f'shared-api-{i}' for i in range(size)} | set(self.job_slots)
 
     def slot(self, wid):
@@ -40,6 +42,13 @@ class SharedPool(WorkerPool):
             if self.closing or wid in self.stopped:
                 raise RuntimeError('Workspace is suspended or shutting down.')
             slot = self.slot(wid)
+            preferred = self.workers.get(slot)
+            if not preferred or preferred.process.poll() is not None or not preferred.ready or getattr(preferred,"health_failures",0):
+                for candidate in sorted(self._slots - set(self.job_slots)):
+                    worker = self.workers.get(candidate)
+                    if worker and worker.ready and worker.process.poll() is None and not getattr(worker,"health_failures",0):
+                        slot = candidate
+                        break
             self.assignments[wid] = slot
         worker = super().ensure({'id': slot})
         with self._lock:
@@ -105,6 +114,8 @@ class SharedPool(WorkerPool):
         # Only pool-owned slot identities may retire a process. Admin suspension
         # affects routing, never another workspace's in-flight requests.
         if wid in self._slots:
+            if wid not in self.job_slots:
+                return super().stop(wid, suspended=False, expected=expected, only_unready=only_unready)
             if not only_unready:
                 # SIGTERM requests uvicorn shutdown; the job lifespan drains its
                 # current operation. Never escalate an active job to SIGKILL.
@@ -136,6 +147,12 @@ class SharedPool(WorkerPool):
 
     def check_health(self, wid):
         return super().check_health(self.slot(wid))
+
+    def health_endpoint(self, wid):
+        return '/_internal/ready' if wid in self.job_slots else '/_internal/availability'
+
+    def health_response_ok(self, status):
+        return status == 200
 
     def status(self):
         statuses = super().status()
@@ -185,7 +202,7 @@ class SharedPool(WorkerPool):
 
         await asyncio.gather(*(inspect_slot(slot, members) for slot, members in groups.items()))
 
-    async def _monitor_jobs(self):
+    async def _monitor_job(self, slot):
         while True:
             try:
                 await asyncio.to_thread(self._backup)
@@ -194,14 +211,18 @@ class SharedPool(WorkerPool):
                 await asyncio.sleep(5)
                 continue
             self.errors.pop('_backup',None)
-            for slot in self.job_slots:
-                try:
-                    await asyncio.to_thread(super().check_health, slot)
-                    await asyncio.to_thread(super().ensure, {'id': slot})
-                except (RuntimeError, OSError, ValueError) as exc:
-                    self.errors[slot] = str(exc)
-                    logging.getLogger(__name__).warning('Shared job process %s unavailable: %s', slot, exc)
+            try:
+                await asyncio.to_thread(super().check_health, slot)
+                await asyncio.to_thread(super().ensure, {'id': slot})
+            except (RuntimeError, OSError, ValueError) as exc:
+                self.errors[slot] = str(exc)
+                logging.getLogger(__name__).warning('Shared job process %s unavailable: %s', slot, exc)
+            else:
+                self.errors.pop(slot, None)
             await asyncio.sleep(5)
+
+    async def _monitor_jobs(self):
+        await asyncio.gather(*(self._monitor_job(slot) for slot in self.job_slots))
 
     async def monitor(self):
         jobs = asyncio.create_task(self._monitor_jobs())

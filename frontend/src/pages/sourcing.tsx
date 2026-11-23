@@ -60,7 +60,7 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
     previousDirty.current = value;
   }, [client]);
   const missingLinks = admin && /^\d{4}-\d{2}-\d{2}$/.test(workDay)
-    ? index.data?.books.filter(book => book.job_dates && !book.job_dates.includes(workDay)) || []
+    ? index.data?.books.filter(book => !book.removed_at && book.job_dates && !book.job_dates.includes(workDay)) || []
     : [];
   const [deleting, setDeleting] = useState<Tab | null>(null);
   const deletePreview = useQuery({
@@ -73,7 +73,7 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
   const deletion = useMutation({
     mutationFn: ({id, revision}: {id: number; revision: string}) => api.post(`/api/sourcing/tabs/${id}/delete`, {revision}),
     onSuccess: async (_, {id}) => {
-      const remaining = book?.tabs.find(t => t.id !== id && !t.archived);
+      const remaining = book?.tabs.find(t => t.id !== id && (!t.archived || admin && !!book.removed_at));
       client.setQueryData<Index>(["sourcing-index"], previous => previous ? {...previous, books: previous.books.map(book => ({...book, tabs: book.tabs.filter(tab => tab.id !== id)}))} : previous);
       setDeleting(null);
       setParams(remaining ? {tab: String(remaining.id)} : {});
@@ -87,11 +87,11 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
   const requestedTab = Number(params.get("tab")) || 0;
   const book =
     index.data?.books.find((b) =>
-      b.tabs.some((t) => t.id === requestedTab && !t.archived),
+      b.tabs.some((t) => t.id === requestedTab && (!t.archived || admin && !!b.removed_at)),
     ) ||
     index.data?.books.find((b) => b.id === bookId) ||
     index.data?.books[0];
-  const tabs = book?.tabs.filter((t) => !t.archived) || [],
+  const tabs = book?.tabs.filter((t) => !t.archived || admin && !!book.removed_at) || [],
     tab = tabs.find((t) => t.id === requestedTab) || tabs[0];
   const search = params.get("q") || "",
     account = params.get("account") || "";
@@ -117,6 +117,8 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
           disabled={dirty}
           onChange={(e) => {
             setBookId(Number(e.target.value));
+            const selected = index.data?.books.find(book => book.id === Number(e.target.value));
+            if (selected?.removed_at) setWorkDay(selected.job_dates?.at(-1) || "undated");
             setParams({});
           }}
         >
@@ -124,8 +126,8 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
             Job sourcing
           </option>
           {index.data?.books.map((b) => (
-            <option value={b.id} key={b.id}>
-              {b.name}
+            <option value={b.id} key={b.id} className={b.removed_at ? "sourcing-deleted-bidder" : undefined}>
+              {b.name}{b.removed_at ? " (Deleted)" : ""}
             </option>
           ))}
         </select>

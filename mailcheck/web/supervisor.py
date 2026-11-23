@@ -29,14 +29,14 @@ class RestartBudget:
 def origin_state(host, port):
     """No environment proxy or tunnel: probe the actual same-PC HTTP listener."""
     target={'0.0.0.0':'127.0.0.1','::':'::1'}.get(host,host)
-    client=HTTPConnection(target,port,timeout=2)
+    client=HTTPConnection(target,port,timeout=5)
     try:
         client.request('GET','/_internal/origin-health',headers={'Connection':'close'})
         response=client.getresponse()
         if response.status==204 and response.getheader('X-OfferPath-Health')=='1':return 'ready'
         # Admission pressure proves the HTTP listener is alive; never restart
         # healthy processes merely because ordinary requests are overloaded.
-        if response.status==503:return 'busy'
+        if response.status==503 and response.getheader('X-OfferPath-Health') != '0':return 'busy'
         return 'unavailable'
     except (OSError,ValueError,HTTPException):return 'unavailable'
     finally:client.close()
@@ -94,24 +94,38 @@ def drain_origin(process):
             raise
 
 
-def supervise(command,host,port,logger,restart_requested=None):
+def supervise(command,host,port,logger,restart_requested=None,output_path=None):
     budget=RestartBudget()
     process=None
-    recovering=False
+    process_log=None
+    def wait_for_recovery():
+        while not budget.allow(time.monotonic()):
+            logger.error('Five restarts in five minutes. Cooling down for 60 seconds before retrying; Ctrl+C stops recovery.')
+            time.sleep(60)
+        delay=min(30,2**len(budget.attempts))
+        logger.warning('Restarting origin in %s seconds. In-flight writes are not replayed.',delay)
+        time.sleep(delay)
     try:
         while True:
             options = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if restart_requested else {}
-            process=subprocess.Popen(command, **options)
-            began=time.monotonic();ready=False;missed=0;restart=False
+            if output_path is not None:
+                if process_log is not None:process_log.close()
+                process_log=Path(output_path).open('ab')
+                options.update(stdout=process_log,stderr=subprocess.STDOUT)
+            try:
+                process=subprocess.Popen(command, **options)
+            except OSError as exc:
+                logger.error('Could not start the origin process (%s); retrying with bounded backoff.',type(exc).__name__)
+                wait_for_recovery()
+                continue
+            began=time.monotonic();ready=False;missed=0;restart=False;busy_since=None
             logger.info('Started origin PID %s on %s:%s',process.pid if hasattr(process,'pid') else '?',host,port)
             while True:
                 code=process.poll()
                 if code is not None:
-                    if code in (0,130,-2,3221225786) or (not ready and not recovering):
-                        if code in (0,130,-2,3221225786):
-                            logger.info('Origin exited with status %s; no restart for shutdown or failed startup.',code)
-                        else:
-                            logger.error('Origin stopped before it was ready: %s. The messages above show the cause; no restart for a failed startup.',diagnostics.describe_exit(code))
+                    shutdown = code in (130,-2,3221225786,-1073741510) or code == 0 and not ready
+                    if shutdown:
+                        logger.info('Origin exited with status %s; intentional shutdown or clean startup exit.',code)
                         return code
                     logger.error('Origin PID %s exited unexpectedly: %s. Its last output is above.',process.pid if hasattr(process,'pid') else '?',diagnostics.describe_exit(code))
                     restart=True;break
@@ -122,26 +136,24 @@ def supervise(command,host,port,logger,restart_requested=None):
                 state=origin_state(host,port)
                 if state=='ready':
                     if not ready:logger.info('Origin local HTTP health check is ready.')
-                    ready=True;missed=0
-                elif state=='busy':missed=0
-                else:missed+=1
+                    ready=True;missed=0;busy_since=None
+                elif state=='busy':
+                    missed=0
+                    if busy_since is None:busy_since=time.monotonic()
+                    if ready and time.monotonic()-busy_since>=60:
+                        logger.error('Origin has rejected direct health probes for 60 seconds; recovering owned PID %s.',process.pid if hasattr(process,'pid') else '?')
+                        stop(process);restart=True;break
+                else:missed+=1;busy_since=None
                 if ready and missed>=3:
                     logger.error('Origin stopped responding to three direct local HTTP probes; restarting owned PID %s.',process.pid if hasattr(process,'pid') else '?')
                     stop(process);restart=True;break
                 if not ready and time.monotonic()-began>=120:
                     logger.error('Origin never became ready within 120 seconds. Check startup output and port configuration.')
                     stop(process)
-                    if not recovering:return 1
                     restart=True;break
                 time.sleep(5)
             if restart:
-                recovering=True
-                while not budget.allow(time.monotonic()):
-                    logger.error('Five restarts in five minutes. Cooling down for 60 seconds before retrying; Ctrl+C stops recovery.')
-                    time.sleep(60)
-                delay=min(30,2**len(budget.attempts))
-                logger.warning('Restarting origin in %s seconds. In-flight writes are not replayed.',delay)
-                time.sleep(delay)
+                wait_for_recovery()
                 # Reopening browser tabs on every recovery is disruptive.
                 if '--no-open' not in command:command=[*command,'--no-open']
     except KeyboardInterrupt:
@@ -157,6 +169,7 @@ def supervise(command,host,port,logger,restart_requested=None):
         return 130
     finally:
         if process is not None:stop(process)
+        if process_log is not None:process_log.close()
 
 
 def prepare_broker():
@@ -194,6 +207,7 @@ def main():
         arguments.remove("--prompt-broker")
         if not prepare_broker():
             return 1
+        subprocess.run([sys.executable, '-m', 'mailcheck.web.local_monitor', '--ensure'], check=False)
     if arguments == ["--request-restart"] and sys.platform == "win32":
         with restart_event(52400) as (existing, send, _):
             if not existing:
@@ -230,7 +244,7 @@ def main():
         # Workers have no console; show their warnings and errors in this window.
         follower=ConsoleLogFollower(folder,level=os.environ.get('OFFERPATH_CONSOLE_LOG','warning'),exclude={'origin-supervisor.log'})
         follower.start()
-        try:return supervise(command, options.host, options.port, logger, *extra)
+        try:return supervise(command, options.host, options.port, logger, *extra, output_path=folder/'origin-server.log')
         finally:follower.stop()
 
     if sys.platform == 'win32':

@@ -143,13 +143,15 @@ def test_explicit_broker_mode_has_fixed_job_processes(tmp_path, monkeypatch):
         return process
     monkeypatch.setattr(module.subprocess, 'Popen', popen)
     pool = SharedPool(SimpleNamespace(root=tmp_path), '', (tmp_path/'c', tmp_path/'d'), size=2, job_size=3)
-    assert len(pool.job_slots) == 4
+    assert len(pool.job_slots) == 5
     for slot in pool.job_slots:
         worker = pool._spawn({'id':slot})
         assert pool.authenticate_worker(worker.token) == slot
-    assert len(spawned) == 4
+    assert len(spawned) == 5
     assert all('mailcheck.shared.runtime' in command for command, _, _ in spawned)
     assert [kwargs['env']['OFFERPATH_JOB_LANE'] for _, kwargs, _ in spawned].count('collection') == 3
+    assert [kwargs['env']['OFFERPATH_JOB_LANE'] for _, kwargs, _ in spawned].count('model') == 2
+    assert {'shared-job-model-0','shared-job-model-1'} <= set(pool.workers)
     pool.stop('legacy')
     for _, _, process in spawned:
         process.terminate.assert_not_called()
@@ -158,28 +160,25 @@ def test_explicit_broker_mode_has_fixed_job_processes(tmp_path, monkeypatch):
         process.terminate.assert_called_once()
 
 
-def test_parent_supervisor_requests_graceful_shutdown(monkeypatch):
+def test_temporary_gateway_failure_does_not_stop_other_services(monkeypatch):
     from mailcheck.shared.lifecycle import supervise
-    import os
     import threading
-    signals = Mock()
-    monkeypatch.setattr(os, 'kill', signals)
-    monkeypatch.setattr(os, '_exit', signals)
-    stopped = threading.Event()
+    observed = threading.Event()
     server = SimpleNamespace(should_exit=False)
-    failures = []
+    stop = Mock()
+    calls = []
     def probe():
-        failures.append(1)
+        calls.append(1)
+        if len(calls) >= 4:
+            observed.set()
         raise ConnectionError('parent unavailable')
-    def stop():
-        assert server.should_exit is False
-        stopped.set()
     cleanup = supervise(server, stop, probe=probe, interval=.001)
-    assert stopped.wait(1)
-    cleanup()
-    assert len(failures) == 3
-    assert server.should_exit is True
-    signals.assert_not_called()
+    try:
+        assert observed.wait(1)
+    finally:
+        cleanup()
+    assert not server.should_exit
+    stop.assert_not_called()
 
 
 def test_parent_supervisor_accepts_overload_and_rejects_revoked_token():
@@ -220,10 +219,11 @@ def test_shared_api_holds_process_slot_lock(tmp_path, monkeypatch):
                 with InstanceLock(tmp_path/'shared-runtime'/'processes'/f'{slot}.lock'):
                     pass
             held.append(True)
-    monkeypatch.setattr(uvicorn, 'Server', Server)
+    monkeypatch.setattr('mailcheck.web.server.GracefulServer', Server)
     monkeypatch.setattr(uvicorn, 'Config', Mock())
     api.main()
     assert held == [True]
+    assert uvicorn.Config.call_args.kwargs['timeout_graceful_shutdown'] == 15
     cleanup.assert_called_once()
     with InstanceLock(tmp_path/'shared-runtime'/'processes'/f'{slot}.lock'):
         pass

@@ -62,8 +62,10 @@ def read_events(root, workspace):
             continue
         job = row.get('job_id','')
         safe_job = job if isinstance(job,str) and (re.fullmatch(uuid_pattern,job) or re.fullmatch(r'[0-9]{1,20}',job)) else ''
+        from .health_evidence import safe_evidence
         events.append(dict(id=workspace+':'+identity,at=at,workspace=workspace,component=row['component'],
-                           action=row['action'],job_id=safe_job,status='degraded' if row['action']=='retry_or_failed' else 'healthy'))
+                           action=row['action'],job_id=safe_job,evidence=safe_evidence(row.get('evidence')),
+                           status='degraded' if row['action'] in ('retry_or_failed','deferred_busy','deferred_offline','deferred_state') else 'healthy'))
     return events
 
 
@@ -121,9 +123,12 @@ def model_activity_snapshot(root):
 
 def shared_snapshot(store, pool, model_activity=None):
     from ..web.system_monitoring import component, database_snapshot
+    from .service_health import read_services
+    from .health_evidence import failure
     components = [component('gateway','Gateway','healthy','Owner monitoring request served successfully.')]
     control = database_snapshot(store.path)
-    components.append(component('control-db','Control database',control['status'],control['detail']))
+    components.append(dict(id='control-db',name='Control database',**{k:v for k,v in control.items() if k not in ('accounts','outbox')}))
+    service_reports = read_services(store.root)
     active = model_activity_snapshot(store.root)
     components.append(component('model-scheduler','Shared model scheduler','healthy' if active is not None else 'unknown',
         f'{active} active model operation(s). Coordinated by the same-host file lock.' if active is not None else 'Shared file-lock coordinator activity is unknown; state is stale or unavailable.'))
@@ -136,17 +141,22 @@ def shared_snapshot(store, pool, model_activity=None):
             lane = 'api' if slot.startswith('shared-api-') else 'model' if slot.startswith('shared-job-model-') else 'collection'
             counts[lane] += 1
             running = worker is not None and worker.process.poll() is None
-            ready = running and worker.ready
-            components.append(component(slot, f'Shared {lane} process · {slot.rsplit("-",1)[-1]}',
-                'healthy' if ready else 'unknown' if running else 'unavailable',
-                'Process running and ready.' if ready else 'Process running; readiness pending.' if running else 'Process is stopped or unavailable.'))
-    queues = []
+            report = service_reports.get(slot)
+            if report and running and (not hasattr(worker.process,'pid') or report.get('pid')==worker.process.pid):
+                components.append({**report,'name':f'Shared {lane} process · {slot.rsplit("-",1)[-1]}'})
+            else:
+                components.append(dict(id=slot,name=f'Shared {lane} process · {slot.rsplit("-",1)[-1]}',
+                    status='unknown' if running else 'unavailable',reason='health_report_missing' if running else 'process_exited',
+                    scope='worker_runtime',checked_at=time.time(),detail='Runtime evidence is unavailable.' if running else 'Process is stopped or unavailable.'))
+    queues, broker_evidence = [], {}
     try:
         queues = read_rabbit(pool.amqp_url)
         broker_status, detail = 'healthy', 'Passive queue counts available. Counts include ready messages; in-flight messages are not measured.'
-    except Exception:
+    except Exception as exc:
         broker_status, detail = 'unavailable', 'RabbitMQ queue metrics are unavailable. No queue counts were inferred.'
-    components.append(component('rabbitmq','RabbitMQ / shared queues',broker_status,detail))
+        broker_evidence = failure(exc)
+    components.append(dict(component('rabbitmq','RabbitMQ / shared queues',broker_status,detail),
+                           **broker_evidence))
     workspaces, events = [], []
     for admin in store.list_admins():
         wid, enabled = admin['workspace_id'], bool(admin['enabled'])
@@ -160,9 +170,10 @@ def shared_snapshot(store, pool, model_activity=None):
                 database = database_snapshot(path)
             except (ValueError, OSError, TypeError, AttributeError):
                 database = dict(status='unavailable',detail='Workspace database location unavailable.',accounts=[],outbox=None)
-        components.append(component(wid+':database','Workspace database',database['status'],database['detail'],wid))
+        components.append(dict(id=wid+':database',name='Workspace database',workspace=wid,
+                               **{k:v for k,v in database.items() if k not in ('accounts','outbox')}))
         components.append(component(wid+':delivery','Event publication',
-            'disabled' if not enabled else 'degraded' if database['outbox'] else 'unknown',
+            'disabled' if not enabled else 'unknown' if database['outbox'] is None else 'degraded' if database['outbox'] else 'healthy',
             f"{database['outbox']} committed changes awaiting publication." if database['outbox'] is not None else 'Publication backlog is unavailable.',wid))
         # Markers are opaque coordination identities. Count names only; do not read job payloads.
         pending = None

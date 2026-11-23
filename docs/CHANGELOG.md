@@ -2,6 +2,119 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.23.0 — 2026-11-23
+
+Filter shared job links by date
+
+- Filter Job links by saved job date across every workspace, with the Job sourcing date picker, previous/next day, Today and All dates controls.
+- Combine dates with keyword search and reset pagination when the selected date changes.
+
+## 3.22.3 — 2026-11-23
+
+Match shared job links to the sourcing sheet
+
+- Use compact single-line spreadsheet rows with drag selection and keyboard copying on Job links, matching Job sourcing.
+- Copy selected URLs one per line or copy complete company, role and link rows for sheet pasting.
+
+## 3.22.2 — 2026-11-23
+
+Make monitoring health evidence actionable
+
+- Show scoped health evidence, unknown coverage, worker progress and safe failure categories with persistent incident history.
+- Probe public shell and entry assets independently, retain job and queue charts during gateway outages, and correlate failed requests across gateway and worker logs.
+
+## 3.22.1 — 2026-11-23
+
+Recover malformed page asset loads
+
+- Retry malformed page-module downloads with fresh URLs and recover persistent asset failures without repeated reloads.
+- Keep older frontend chunks for 24 hours so open pages can finish loading after a rebuild.
+
+## 3.22.0 — 2026-11-23
+
+Shared job links library
+
+- Admins can search company, role and job links across retained workspace sheets, with the Job sourcing table style and clipboard copying for selected rows.
+
+## 3.21.2 — 2026-11-23
+
+Recover shared runtime status reads on Windows
+
+- Shared job-status reads retry brief Windows access conflicts and return a clear temporary-unavailability response when access remains blocked, preserving running-job state.
+- Background work waiting for runtime state is deferred without spending its business retry budget and is visible in monitoring.
+
+## 3.21.1 — 2026-11-23
+
+Short interview writes and safe Windows worker cleanup
+
+- Interview and calendar reconciliation reserve short SQLite write transactions after detection, avoiding stale read-snapshot write conflicts.
+- Shared worker servers handle Windows connection-close resets consistently. Busy database jobs defer without consuming business retries and appear in monitoring.
+
+## 3.21.0 — 2026-11-23
+
+Redundant model workers and bounded local recovery
+
+- Two model workers consume durable jobs while the existing shared lock coordinates inference, allowing processing to continue during one worker's recovery.
+- Gateway process launch and startup failures retry with backoff. Control database waits are bounded and transient failures return clear retry responses.
+
+## 3.20.1 — 2026-11-23
+
+Isolate service failures and preserve incident evidence
+
+- A failed API worker can fail over to a healthy API process without restarting the gateway. Job workers recover independently and temporary gateway loss no longer drains every service.
+- Independent monitoring records service failure and recovery history for targeted diagnosis after a transient outage.
+
+## 3.20.0 — 2026-11-23
+
+Independent service failure monitoring
+
+- API, collection and model workers publish private local health evidence, allowing monitoring to identify stopped or unresponsive services even when the gateway is down.
+- The independent monitor checks database and broker health directly and highlights individual failed workers with their logs.
+
+## 3.19.5 — 2026-11-23
+
+Visible outage alarms in independent monitoring
+
+- A prominent alert banner and browser-tab warning signal application outages, stale health checks and a disconnected monitor. The observer records when an outage begins.
+
+## 3.19.4 — 2026-11-23
+
+Use independent monitoring only
+
+- The embedded System monitoring navigation and page are removed from OfferPath. Monitoring remains available in the independent local console.
+
+## 3.19.3 — 2026-11-23
+
+Reliable monitoring state and restart errors
+
+- Broken monitoring responses update availability correctly, stale service states are labeled, and unreadable logs show a clear access message.
+- The monitor launcher waits for the previous instance to stop and avoids starting a conflicting replacement.
+
+## 3.19.2 — 2026-11-23
+
+Reload outdated independent monitoring servers
+
+- The launcher replaces outdated monitoring processes instead of reusing an old health endpoint. monitor.bat explicitly restarts the independent console.
+
+## 3.19.1 — 2026-11-23
+
+Shared monitoring charts in the independent console
+
+- The independent monitoring server now renders the same charts, service tiles, processing stages and event tables as embedded monitoring, retaining recorded snapshots during outages.
+
+## 3.19.0 — 2026-11-23
+
+Independent local monitoring and application recovery
+
+- A separate monitoring server on localhost port 52401 stays available during OfferPath outages, with service snapshots and local server logs.
+- Automatic recovery checks application services beyond the HTTP listener and retries hung startup or an unexpected exit.
+
+## 3.18.0 — 2026-11-23
+
+Manage deleted bidders' sourcing history
+
+- Admins can select deleted bidders at the bottom of the workbook list and copy, edit, search or delete their retained job sheets.
+
 ## 3.17.3 — 2026-11-23
 
 HTTP connection cleanup and sustained crash recovery

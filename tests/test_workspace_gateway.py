@@ -91,12 +91,48 @@ def test_host_origin_old_cookies_and_internal_tokens_are_not_trusted(system):
         assert client.post('/api/auth/login',json={'password':'owner-password-123'},headers={'origin':'https://evil.test'}).status_code==403
 
 
-def test_worker_rejects_direct_requests_and_legacy_login(tmp_path):
+def test_worker_rejects_direct_requests_and_legacy_login(tmp_path,monkeypatch):
     from mailcheck.web.app import create_app
+    # This auth-boundary test must never initialize the user's real data paths.
+    monkeypatch.setattr('mailcheck.config.db_path',lambda:tmp_path/'mailcheck.db')
+    monkeypatch.setattr('mailcheck.config.config_path',lambda:tmp_path/'config.toml')
+    monkeypatch.setattr('mailcheck.config.control_dir',lambda:tmp_path/'control')
     with TestClient(create_app(worker_secret='private-worker-token')) as client:
         assert client.get('/api/bootstrap').status_code==403
         assert client.post('/api/auth/login',json={'role':'admin','password':'admin'},headers={'x-offerpath-worker':'private-worker-token'}).status_code==403
         assert client.get('/_internal/ready',headers={'x-offerpath-worker':'private-worker-token'}).status_code==200
+
+
+def test_auth_storage_failures_keep_request_correlation(system,monkeypatch,caplog):
+    import sqlite3
+    app,store,_=system
+    def unavailable(token):
+        raise sqlite3.OperationalError('private database error text')
+    monkeypatch.setattr(store,'identity',unavailable)
+    with TestClient(app) as client:
+        response=client.get('/api/auth/session')
+    assert response.status_code==503
+    request_id=response.headers['x-request-id']
+    assert f'request_id={request_id}' in caplog.text
+    assert 'http_status=503' in caplog.text
+    assert 'sqlite_error' in caplog.text
+    assert 'private database error text' not in caplog.text
+
+
+def test_gateway_timeout_response_keeps_request_correlation(system,monkeypatch,caplog):
+    import asyncio
+    app,_,_=system
+    @app.get('/api/diagnostic-slow-test')
+    async def slow():
+        await asyncio.sleep(.1)
+        return {'ok':True}
+    monkeypatch.setattr('mailcheck.web.gateway.READ_REQUEST_TIMEOUT',.02)
+    with TestClient(app) as client:
+        login(client)
+        response=client.get('/api/diagnostic-slow-test')
+    assert response.status_code==504
+    assert f"request_id={response.headers['x-request-id']}" in caplog.text
+    assert 'timeout' in caplog.text
 
 
 def test_model_requests_queue_until_the_active_lease_is_released(system):

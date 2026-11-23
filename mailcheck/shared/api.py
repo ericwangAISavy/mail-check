@@ -36,6 +36,18 @@ class WorkspaceDispatcher:
             return await JSONResponse({'detail': 'Forbidden'}, status_code=403)(scope, receive, send)
         if scope.get('path') == '/_internal/ready':
             return await JSONResponse({'ready': True})(scope, receive, send)
+        if scope.get('path') == '/_internal/availability':
+            from starlette.concurrency import run_in_threadpool
+            def check_storage():
+                with self.reader.connect() as conn:
+                    conn.execute('SELECT id FROM workspaces LIMIT 1').fetchone()
+            try:
+                await run_in_threadpool(check_storage)
+            except (sqlite3.Error, OSError) as exc:
+                from .health_evidence import failure
+                return await JSONResponse({'ready': False,'scope':'control_database_read', **failure(exc)}, status_code=503)(scope, receive, send)
+            return await JSONResponse({'ready': True,'status':'healthy','scope':'control_database_read',
+                                       'reason':'control_read_succeeded'})(scope, receive, send)
         targets = [v for k, v in headers if k.lower() == b'x-offerpath-workspace']
         try:
             if len(targets) != 1:
@@ -67,12 +79,14 @@ def create_dispatcher(reader, worker_secret, legacy_paths, app=None):
         context = WorkspaceContext.from_record({'id': 'legacy', 'root': None}, legacy_paths, reader.root)
         with bind_workspace(context):
             app = create_app(worker_secret=worker_secret, shared=True)
-    return WorkspaceDispatcher(app, reader, worker_secret, legacy_paths)
+    from ..web.request_diagnostics import RequestDiagnostics
+    return RequestDiagnostics(WorkspaceDispatcher(app, reader, worker_secret, legacy_paths))
 
 
 def main():
     import argparse
     import uvicorn
+    from ..web.server import GracefulServer, ClosingSafeH11Protocol
     from .. import process_diagnostics
     process_diagnostics.configure_process('shared-api')
     from .control import ControlReader
@@ -90,9 +104,9 @@ def main():
     with InstanceLock(root/'shared-runtime'/'processes'/f'{slot}.lock'):
         reader = ControlReader(root, legacy)
         app = create_dispatcher(reader, os.environ['OFFERPATH_WORKER_TOKEN'], legacy)
-        server = uvicorn.Server(uvicorn.Config(
+        server = GracefulServer(uvicorn.Config(
             RequestAdmission(app, max_requests=24), host='127.0.0.1',
-            port=args.port, access_log=False, limit_concurrency=128,
+            port=args.port, access_log=False, limit_concurrency=128, timeout_graceful_shutdown=15,http=ClosingSafeH11Protocol,
         ))
         stop_watch = supervise(server)
         try:

@@ -26,6 +26,13 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_job_links_date_filter_is_validated_in_single_admin_mode(self):
+        response = self.client.get('/api/job-links?day=2026-02-30')
+        self.assertEqual(response.status_code,422,response.text)
+        response = self.client.get('/api/job-links?day=2026-11-23')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['items'],[])
+
     def test_search_does_not_materialize_editor_snapshots(self):
         from unittest.mock import patch
         base = self.snapshot()
@@ -57,7 +64,26 @@ class NativeSheetTests(unittest.TestCase):
         self.conn.commit()
         self.assertIn("Renamed", [b["name"] for b in self.client.get("/api/sourcing").json()["books"]])
         self.client.post("/api/payments/bidders/2/remove", json={})
-        self.assertEqual([b["name"] for b in self.client.get("/api/sourcing").json()["books"]], ["Alex"])
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual([b["name"] for b in books], ["Alex", "Renamed"])
+        self.assertTrue(books[-1]["removed_at"])
+
+    def test_removed_bidder_preserves_admin_access_to_archived_jobs(self):
+        base = self.snapshot()
+        self.native.append(self.conn, self.tab(), "past-jobs", base["revision"],
+                           [["Past company", "Engineer", "https://jobs.test/past"]], work_date="2026-10-20")
+        response = self.client.post("/api/payments/bidders/1/remove", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual([b["name"] for b in books], ["Blair", "Alex"])
+        self.assertTrue(books[-1]["tabs"][0]["archived"])
+        self.assertEqual(books[-1]["job_dates"], ["2026-10-20"])
+        self.assertEqual(self.client.get(f"/api/sourcing/tabs/{self.tab_id}").status_code, 200)
+        matches = self.client.get("/api/sourcing/search?q=Past").json()["results"]
+        self.assertEqual(matches[0]["link"], "https://jobs.test/past")
+        self.native.save(self.conn, self.tab(), "edit-past", [self.change("Edited company")])
+        self.native.delete_tab(self.conn, self.tab(), str(self.tab()["revision"]))
+        self.assertEqual(self.client.get("/api/sourcing").json()["books"][-1]["tabs"], [])
 
     def test_job_dates_count_nonempty_links_across_active_account_tabs(self):
         base = self.snapshot()

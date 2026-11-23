@@ -8,7 +8,7 @@ export function clearAssetRecoveryMarker() {
   try { const url = new URL(location.href); if (url.searchParams.has(RETRY_MARKER)) { url.searchParams.delete(RETRY_MARKER); history.replaceState(history.state, "", url.pathname + url.search + url.hash) } } catch { /* Optional URL cleanup. */ }
 }
 export function isAssetLoadError(error: unknown) {
-  return error instanceof Error && (error.name === "ChunkLoadError" || /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i.test(error.message))
+  return error instanceof Error && ((error as Error & {offerpathAssetLoadError?: boolean}).offerpathAssetLoadError === true || error.name === "ChunkLoadError" || /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i.test(error.message))
 }
 export async function probeApplication(signal?: AbortSignal) {
   const controller = new AbortController(), abort = () => controller.abort()

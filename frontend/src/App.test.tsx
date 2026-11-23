@@ -361,14 +361,38 @@ describe("bootstrap outage recovery", () => {
   })
 })
 
-it('opens owner system monitoring without a workspace bootstrap or worker status request',async()=>{
- vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:true,workspace_id:'legacy',workspace_name:'Original workspace',username:'owner'} as any)
- const status=vi.spyOn(api,'status').mockResolvedValue(idle)
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/admin/system-monitoring'?{checked_at:Date.now()/1000,components:[],workspaces:[],events:[],event_retention:1000}:{configured:false}),{headers:{'Content-Type':'application/json'}})))
+it('removes embedded monitoring navigation and handles its former URL as a moved page',async()=>{
+ vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:true,workspace_id:'legacy',workspace_name:'Original workspace',username:'owner'})
+ vi.spyOn(api,'status').mockResolvedValue(idle)
+ const fetch=vi.fn(async(_url: string)=>new Response(JSON.stringify({configured:false}),{headers:{'Content-Type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch)
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/system-monitoring']}><App/></MemoryRouter></QueryClientProvider>)
- await screen.findByRole('heading',{name:'System monitoring'})
+ await screen.findByRole('heading',{name:'That page moved'})
+ expect(screen.queryByRole('heading',{name:'System monitoring'})).toBeNull()
+ expect(screen.queryByRole('link',{name:'System monitoring'})).toBeNull()
+ expect(fetch.mock.calls.some(call=>String(call[0]).includes('/api/admin/system-monitoring'))).toBe(false)
+})
+
+it('opens shared job links for an admin even when their workspace API is unavailable',async()=>{
+ vi.stubGlobal('ResizeObserver',class{observe(){}unobserve(){}disconnect(){}})
+ vi.spyOn(Element.prototype,'clientWidth','get').mockReturnValue(1200)
+ vi.spyOn(Element.prototype,'clientHeight','get').mockReturnValue(500)
+ Element.prototype.scrollTo=vi.fn()
+ Element.prototype.scrollIntoView=vi.fn()
+ const query=Element.prototype.querySelector
+ vi.spyOn(Element.prototype,'querySelector').mockImplementation(function(this:Element,selector:string){return query.call(this,selector.startsWith('&')?':scope'+selector.slice(1):selector)} as typeof Element.prototype.querySelector)
+ vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:false,workspace_id:'workspace-one',username:'alice'})
+ vi.mocked(api.bootstrap).mockRejectedValue(new Error('Workspace API unavailable'))
+ const status=vi.spyOn(api,'status').mockResolvedValue(idle)
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(
+  String(url).startsWith('/api/job-links')?{items:[{id:'shared-row',company:'Shared company',role:'Engineer',link:'https://jobs.test/1'}],next_cursor:null,incomplete:false}:{configured:false}
+ ),{headers:{'Content-Type':'application/json'}})))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/job-links']}><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByRole('grid',{name:'Shared job links'})
+ expect(screen.getByRole('gridcell',{name:'Shared company'})).toBeTruthy()
+ expect(screen.getByRole('link',{name:'Job links'})).toBeTruthy()
  expect(api.bootstrap).not.toHaveBeenCalled()
  expect(status).not.toHaveBeenCalled()
- expect(screen.getByRole('link',{name:'System monitoring'})).toBeTruthy()
 })

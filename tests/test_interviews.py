@@ -56,6 +56,34 @@ class InterviewTests(unittest.TestCase):
         self.assertEqual(event["start_at"],"2026-10-18T15:30:00+00:00")
         self.assertEqual(event["needs_review"],0)
         self.assertEqual(interviews.event_sources(self.conn,event["id"])[0]["message_pk"],pk)
+    def test_concurrent_calendar_writer_during_detection_does_not_stale_the_save(self):
+        pk,_=self.message()
+        writer=db.connect(self.path);self.addCleanup(writer.close)
+        model=Model()
+        original=model.complete
+        def complete(*args,**kwargs):
+            self.assertFalse(self.conn.in_transaction)
+            writer.execute("UPDATE accounts SET email=email WHERE id=?",(self.a,))
+            writer.commit()
+            return original(*args,**kwargs)
+        with patch.object(model,"complete",side_effect=complete):
+            changes=self.process(pk,model)
+        self.assertEqual(len(changes),1)
+        self.assertEqual(len(self.events()),1)
+
+    def test_reconciliation_reserves_writer_before_reading_existing_events(self):
+        import sqlite3
+        pk,_=self.message(calendar_data=[ics()])
+        writer=db.connect(self.path);self.addCleanup(writer.close)
+        writer.execute("PRAGMA busy_timeout=0")
+        original=interviews.reconcile
+        def reconcile(*args,**kwargs):
+            with self.assertRaises(sqlite3.OperationalError):
+                writer.execute("UPDATE accounts SET email=email WHERE id=?",(self.a,))
+            writer.rollback()
+            return original(*args,**kwargs)
+        with patch.object(interviews,"reconcile",side_effect=reconcile):
+            self.assertEqual(len(self.process(pk)),1)
     def test_ics_precedes_model_and_parses_metadata(self):
         pk,_=self.message(calendar_data=[ics()])
         model=Model(start_time="2026-10-01T01:00:00Z")

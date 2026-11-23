@@ -37,11 +37,57 @@ class LocalOriginHealth:
                 and scope.get('method') in ('GET', 'HEAD') and peer
                 and peer[0] in ('127.0.0.1', '::1') and not forwarded):
             from starlette.responses import Response
-            return await Response(status_code=204, headers={'X-OfferPath-Health':'1', 'Cache-Control':'no-store'})(scope, receive, send)
+            target = getattr(self.app, 'app', self.app)
+            probe = getattr(getattr(target, 'state', None), 'origin_health', None)
+            healthy = True
+            if probe:
+                try:
+                    healthy = await asyncio.wait_for(probe(), timeout=3)
+                except Exception:
+                    healthy = False
+            return await Response(status_code=204 if healthy else 503,
+                                  headers={'X-OfferPath-Health':'1' if healthy else '0', 'Cache-Control':'no-store'})(scope, receive, send)
+        if (scope['type'] == 'http' and scope.get('path') in ('/_internal/origin-monitoring', '/_internal/origin-metrics')
+                and scope.get('method') == 'GET' and peer and peer[0] in ('127.0.0.1', '::1') and not forwarded):
+            from starlette.responses import JSONResponse
+            target = getattr(self.app, 'app', self.app)
+            if scope.get('path') == '/_internal/origin-metrics':
+                from urllib.parse import parse_qs
+                collect = getattr(getattr(target, 'state', None), 'monitoring_metrics', None)
+                selected = parse_qs(scope.get('query_string', b'').decode('ascii', errors='replace')).get('range', ['1h'])[0]
+                if collect and selected in ('1h', '6h', '24h'):
+                    try:
+                        result = await asyncio.wait_for(asyncio.to_thread(collect, selected), timeout=4)
+                        return await JSONResponse(result)(scope, receive, send)
+                    except Exception:
+                        pass
+                return await JSONResponse({'error':'Metrics unavailable'}, status_code=503)(scope, receive, send)
+            monitor = getattr(getattr(target, 'state', None), 'system_monitor', None)
+            if monitor:
+                try:
+                    result = await asyncio.wait_for(asyncio.to_thread(monitor.snapshot), timeout=4)
+                    return await JSONResponse(result)(scope, receive, send)
+                except Exception:
+                    return await JSONResponse({'error':'Service snapshot unavailable'}, status_code=503)(scope, receive, send)
         return await self.app(scope, receive, send)
 
 
 class GracefulServer(uvicorn.Server):
+    async def serve(self, sockets=None):
+        if sys.platform != 'win32':
+            return await super().serve(sockets=sockets)
+        loop = asyncio.get_running_loop()
+        previous = loop.get_exception_handler()
+        failures = []
+        loop.set_exception_handler(windows_exception_handler(self, failures))
+        try:
+            result = await super().serve(sockets=sockets)
+            if failures:
+                raise failures[0]
+            return result
+        finally:
+            loop.set_exception_handler(previous)
+
     def handle_exit(self, sig, frame):
         self._shutdown_reason = f'signal {signal.Signals(sig).name}'
         log.warning('Origin shutdown requested by %s.', self._shutdown_reason)

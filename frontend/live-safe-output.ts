@@ -8,8 +8,9 @@ import type { Plugin } from "vite"
  * site without its files mid-build, and on Windows a file the server holds open
  * makes the delete fail halfway (EBUSY), leaving the site broken.
  *
- * Instead: never empty first. After the new files are written, remove only the
- * assets this build did not produce, skipping any file that is still locked.
+ * Never empty first. Keep older chunks for 24 hours so open browser tabs can
+ * still import their dependencies after a rebuild. Expire them on later builds,
+ * skipping any file that is still locked.
  */
 export function liveSafeOutput(publicDir: string): Plugin {
   let outDir = ""
@@ -28,6 +29,7 @@ export function liveSafeOutput(publicDir: string): Plugin {
       for (const name of walk(path.join(outDir, "assets"), "assets")) {
         if (keep.has(path.normalize(name))) continue
         try {
+          if (Date.now() - fs.statSync(path.join(outDir, name)).mtimeMs < 24 * 60 * 60 * 1000) continue
           fs.unlinkSync(path.join(outDir, name))
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code

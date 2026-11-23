@@ -954,12 +954,20 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/inbox", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/job-links", "/inbox", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "DENY"
         return response
+
+    from ..shared.state import RuntimeStateUnavailable
+
+    @app.exception_handler(RuntimeStateUnavailable)
+    async def runtime_state_unavailable(request: Request, exc: RuntimeStateUnavailable):
+        logging.getLogger(__name__).warning('Shared job status is unreadable; request deferred.')
+        return JSONResponse({"error":"Shared job status is temporarily unavailable. Check access to runtime files from the server account."},
+                            status_code=503, headers={"Retry-After":"1", "Cache-Control":"no-store"})
 
     @app.exception_handler(db.ReadDeadlineExpired)
     async def database_read_timeout(request: Request, exc: db.ReadDeadlineExpired):

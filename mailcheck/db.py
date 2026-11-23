@@ -343,6 +343,37 @@ class ReadDeadlineExpired(TimeoutError):
 
 
 @contextmanager
+def atomic_write(conn):
+    """Reserve the writer before reading records that will be reconciled."""
+    owns_transaction = not conn.in_transaction
+    if owns_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("SAVEPOINT atomic_write")
+        try:
+            yield
+        except BaseException:
+            conn.execute("ROLLBACK TO atomic_write")
+            conn.execute("RELEASE atomic_write")
+            raise
+        conn.execute("RELEASE atomic_write")
+        if owns_transaction:
+            conn.commit()
+    except BaseException:
+        if owns_transaction:
+            conn.rollback()
+        raise
+
+
+def is_busy_error(error):
+    if not isinstance(error, sqlite3.OperationalError):
+        return False
+    code = getattr(error, 'sqlite_errorcode', 0)
+    return (code & 255) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or str(error).lower() in (
+        'database is locked', 'database table is locked')
+
+
+@contextmanager
 def session(path: Path | None = None, *, read_deadline: float | None = None) -> Iterator[sqlite3.Connection]:
     if read_deadline is not None and time.monotonic() >= read_deadline:
         raise ReadDeadlineExpired("Database read deadline expired.")

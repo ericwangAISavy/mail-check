@@ -4,6 +4,24 @@ import pytest
 from mailcheck.web.server import ClosingSafeH11Protocol, run
 
 
+def test_shared_server_installs_windows_exception_handler_during_serve():
+    import asyncio
+    from types import SimpleNamespace
+    import uvicorn
+    from mailcheck.web import server as module
+    async def serve(self,sockets=None):
+        assert asyncio.get_running_loop().get_exception_handler() is not None
+        return 'served'
+    async def scenario():
+        loop=asyncio.get_running_loop()
+        previous=loop.get_exception_handler()
+        instance=module.GracefulServer(uvicorn.Config(object(),log_config=None))
+        with patch.object(module,'sys',SimpleNamespace(platform='win32')),patch.object(uvicorn.Server,'serve',serve):
+            assert await instance.serve() == 'served'
+        assert loop.get_exception_handler() is previous
+    asyncio.run(scenario())
+
+
 def test_invalid_http_response_state_closes_only_the_bad_connection():
     import h11
     protocol = ClosingSafeH11Protocol.__new__(ClosingSafeH11Protocol)

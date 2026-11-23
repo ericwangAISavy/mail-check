@@ -33,14 +33,35 @@ def test_three_failed_probes_restart_owned_process():
 
 
 def test_overload_does_not_restart_a_reachable_origin():
-    result,spawn=run_processes([Process([None,None,None,0])],['ready','busy','busy'])
-    assert result==0 and spawn.call_count==1
+    result,spawn=run_processes([Process([None,None,None,130])],['ready','busy','busy'])
+    assert result==130 and spawn.call_count==1
 
 
-def test_bad_startup_and_user_interrupt_do_not_loop():
-    for code in (1,130,3221225786):
+def test_persistent_admission_exhaustion_recovers():
+    process = Process([None])
+    result, spawn = run_processes([process, Process([0])], ['ready'] + ['busy'] * 13)
+    assert result == 0 and process.terminated and spawn.call_count == 2
+
+
+def test_unrequested_clean_exit_after_readiness_recovers():
+    result, spawn = run_processes([Process([None, 0]), Process([0])], ['ready'])
+    assert result == 0 and spawn.call_count == 2
+
+
+def test_intentional_user_interrupt_does_not_loop():
+    for code in (130,3221225786,-1073741510):
         result,spawn=run_processes([Process([code])],[])
         assert result==code and spawn.call_count==1
+
+
+def test_transient_startup_error_retries_without_stopping_the_supervisor():
+    result,spawn=run_processes([Process([1]),Process([0])],[])
+    assert result==0 and spawn.call_count==2
+
+
+def test_process_launch_failure_retries_without_stopping_the_supervisor():
+    result,spawn=run_processes([OSError('temporary resource shortage'),Process([0])],[])
+    assert result==0 and spawn.call_count==2
 
 
 def test_repeated_restarts_are_bounded():
@@ -56,10 +77,10 @@ def test_recovery_retries_failed_replacement_startups_and_survives_restart_budge
     assert spawn.call_count == 8
 
 
-def test_unready_startup_has_a_deadline_and_is_not_restarted():
+def test_unready_startup_has_a_deadline_and_is_restarted():
     process=Process([None])
-    result,spawn=run_processes([process],['unavailable']*30)
-    assert result==1 and process.terminated and spawn.call_count==1
+    result,spawn=run_processes([process,Process([0])],['unavailable']*30)
+    assert result==0 and process.terminated and spawn.call_count==2
 
 
 def test_process_exit_between_poll_and_terminate_is_harmless():
@@ -110,7 +131,7 @@ def test_cold_start_prompts_only_without_an_inherited_broker(monkeypatch):
     pika = Mock()
     monkeypatch.setitem(sys.modules, "pika", pika)
     from urllib.parse import unquote, urlsplit
-    monkeypatch.delenv('AMQP_URL', raising=False)
+    monkeypatch.setenv('AMQP_URL', '')
     with patch('getpass.getpass', return_value='special@:/%') as prompt, patch.object(pika, 'BlockingConnection') as connect:
         assert supervisor.prepare_broker()
         url = urlsplit(os.environ['AMQP_URL'])

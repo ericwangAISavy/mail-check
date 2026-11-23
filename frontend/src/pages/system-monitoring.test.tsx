@@ -1,7 +1,7 @@
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import {afterEach, beforeAll, expect, it, vi} from 'vitest'
-import SystemMonitoring from './system-monitoring'
+import SystemMonitoring, {MonitoringView} from './system-monitoring'
 let owner=true
 vi.mock('@/components/auth',()=>({useAuth:()=>({session:{is_owner:owner}})}))
 beforeAll(()=>{vi.stubGlobal('ResizeObserver',class{constructor(private cb:ResizeObserverCallback){}observe(){this.cb([{contentRect:{width:600}} as ResizeObserverEntry],this as unknown as ResizeObserver)}disconnect(){}unobserve(){}})})
@@ -20,6 +20,42 @@ const metrics={range:'1h',step:60,buckets,generated_at:now,
 const json=(body:unknown)=>new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}})
 function serve(snap:unknown=snapshot,series:unknown=metrics){return vi.fn().mockImplementation((url:string)=>Promise.resolve(json(String(url).includes('/metrics')?series:snap)))}
 function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><SystemMonitoring/></QueryClientProvider>)}
+
+it('keeps unknown publication and database coverage from becoming green and exposes evidence',async()=>{
+ vi.stubGlobal('fetch',serve({...snapshot,architecture:'shared',workspaces:[
+  {...snapshot.workspaces[0],outbox:0},{...snapshot.workspaces[0],id:'other',name:'Other',outbox:null}],
+  components:[snapshot.components[0],
+   {id:'legacy:database',workspace:'legacy',name:'Database',status:'healthy',detail:'Read only',scope:'sqlite_read'},
+   {id:'other:database',workspace:'other',name:'Database',status:'unknown',detail:'Missing evidence',reason:'database_missing'},
+   {id:'shared-job-model-0',name:'Model 0',status:'degraded',detail:'Slow operation',reason:'operation_slow',pid:123,job_id:'job-123'}]}))
+ mount()
+ const health=await screen.findByRole('region',{name:'Service health'})
+ const publication=within(health).getByText('Publication').closest('.monitor-service')!
+ expect(publication.classList.contains('is-healthy')).toBe(false)
+ expect(publication.textContent).toContain('unknown')
+ const databases=within(health).getByText('Databases').closest('.monitor-service')!
+ expect(databases.classList.contains('is-healthy')).toBe(false)
+ expect(within(health).getAllByText('Evidence').length).toBeGreaterThan(0)
+ expect(within(health).getAllByText('operation_slow').length).toBeGreaterThan(0)
+})
+
+it('does not present unavailable independent traffic measurements as zero successful requests',async()=>{
+ vi.stubGlobal('fetch',serve(snapshot,{...metrics,traffic_available:false,source:'independent'}))
+ mount()
+ await screen.findByText(/Traffic measurements are unavailable/)
+ expect(screen.queryByRole('figure',{name:'Traffic'})).toBeNull()
+ expect(screen.queryByRole('figure',{name:'Response time'})).toBeNull()
+ expect(screen.getByRole('figure',{name:'Job outcomes'})).toBeTruthy()
+})
+
+it('renders identical charts independently of the application sign-in context',async()=>{
+ owner=false
+ vi.stubGlobal('fetch',serve({...snapshot,observer_origin:'ready',observer_stale:true}))
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MonitoringView owner independent/></QueryClientProvider>)
+ for(const name of ['Traffic','Response time','Job outcomes','Queue backlog'])expect(await screen.findByRole('figure',{name})).toBeTruthy()
+ expect(screen.getByText('Last known data')).toBeTruthy()
+ expect(screen.queryByText('Owner access required')).toBeNull()
+})
 
 it('shows key metrics, graphs and recent problems instead of explanations',async()=>{
  vi.stubGlobal('fetch',serve())
@@ -68,7 +104,7 @@ it('shows service health with rolled-up pools and stage table with live queues',
  expect(within(health).getByText('1/2 ready')).toBeTruthy()
  expect(within(health).getByText('1/1 readable')).toBeTruthy()
  expect(screen.queryByText('Shared api process · 0')).toBeNull()
- expect(screen.queryByText('Private admin database detail.')).toBeNull()
+ expect(screen.getByText('Private admin database detail.').closest('details')).toBeTruthy()
  const backlog=screen.getByRole('region',{name:'Queue backlog'})
  expect(within(backlog).getByText('19')).toBeTruthy()
  expect(within(backlog).getByText('11 ready · 5 retrying · 3 dead')).toBeTruthy()

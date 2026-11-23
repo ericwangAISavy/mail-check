@@ -109,3 +109,22 @@
  .monitor-live{width:100%;order:-1;margin-right:0}
  .monitor-chart-tools{margin-left:0;width:100%}
 }
+.local-monitor-status p { margin-bottom: 0; color: var(--muted-foreground); }
+.local-monitor-logs { padding-bottom: 32px; }
+.local-monitor-logs pre { max-height: 400px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 12px; }
+.monitor-availability { display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.monitor-availability > svg { flex-shrink: 0; margin-top: 2px; }
+.monitor-availability strong { font-size: 20px; line-height: 1.4; }
+.monitor-availability p { margin: 5px 0 0; font-size: 13px; }
+.monitor-availability.is-critical { border: 2px solid var(--mon-critical); background: color-mix(in srgb, var(--mon-critical) 15%, var(--card)); color: var(--foreground); }
+.monitor-availability.is-critical > svg { color: var(--mon-critical); }
+.monitor-availability.is-warning { border-color: var(--mon-warning); background: color-mix(in srgb, var(--mon-warning) 10%, var(--card)); }
+.monitor-availability.is-healthy > svg { color: var(--mon-aqua); }
+.monitor-service-details{grid-column:1/-1;min-width:0;font-size:12px}
+.monitor-service-details summary{cursor:pointer;color:var(--muted-foreground);width:fit-content}
+.monitor-service-details[open]{border-top:1px solid var(--border);padding-top:8px}
+.monitor-service-details p{margin:6px 0;overflow-wrap:anywhere}
+.monitor-evidence{margin:8px 0;display:grid;gap:5px;font-size:12px}
+.monitor-evidence>div{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,2fr);gap:10px}
+.monitor-evidence dt{color:var(--muted-foreground)}
+.monitor-evidence dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}

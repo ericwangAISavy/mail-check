@@ -5,6 +5,7 @@ pushd "%~dp0" || exit /b 1
 set "OFFERPATH_WORKER_MODE=shared"
 set "OFFERPATH_API_WORKERS=2"
 set "OFFERPATH_COLLECTION_WORKERS=2"
+set "OFFERPATH_MODEL_WORKERS=2"
 set "OFFERPATH_PUBLIC_URL=https://app.offerpath.bid"
 
 set "offerpath_python=python"

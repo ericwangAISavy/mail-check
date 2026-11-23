@@ -21,25 +21,29 @@ def component(key, name, status, detail, workspace=None):
 
 def database_snapshot(path):
     """Read existing databases only; never migrate or create application data."""
-    result = dict(status='unknown', detail='Database has not been initialized.', accounts=[], outbox=None)
-    if not path.is_file():
-        return result
+    from ..shared.health_evidence import failure
+    started = time.monotonic()
+    result = dict(status='unknown', detail='Database has not been initialized.', accounts=[], outbox=None,
+                  scope='sqlite_read', write_status='unknown', checked_at=time.time(), reason='database_missing', duration_ms=0)
     try:
+        if not path.is_file():
+            return result
         with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=0.1)) as conn:
             conn.row_factory = sqlite3.Row
             deadline = time.monotonic()+0.2
             conn.set_progress_handler(lambda: int(time.monotonic()>deadline), 1000)
             conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchone()
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            result.update(status='healthy', detail='Read-only database query succeeded.')
+            result.update(status='healthy', reason='read_succeeded', detail='Read-only query succeeded. Write availability and application query latency are not tested.')
             if {'accounts', 'realtime_accounts'} <= tables:
                 result['accounts'] = [dict(account_id=r['account_id'], enabled=bool(r['enabled']),
                     last_sync=r['last_sync'], status='degraded' if r['last_error'] else 'unknown' if r['last_sync'] is None else 'healthy' if 0 <= time.time()-r['last_sync']<600 else 'unknown')
                     for r in conn.execute('SELECT account_id,enabled,last_sync,last_error FROM realtime_accounts ORDER BY account_id LIMIT 100')]
             if 'realtime_outbox' in tables:
                 result['outbox'] = conn.execute('SELECT COUNT(*) FROM realtime_outbox').fetchone()[0]
-    except (sqlite3.Error, OSError, ValueError):
-        result.update(status='unavailable', detail='Database could not be read. Check file access or database contention.')
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        result.update(status='unavailable', detail='Read-only database query failed.', **failure(exc))
+    result['duration_ms'] = round((time.monotonic()-started)*1000, 1)
     return result
 
 
@@ -245,9 +249,7 @@ def install(app, store, pool, owner, model_activity=None, sample_queues=None):
         owner(request)
         return monitor.snapshot()
 
-    @app.get('/api/admin/system-monitoring/metrics')
-    def metrics(request: Request, range: str = '1h'):
-        owner(request)
+    def collect_metrics(range='1h'):
         if range not in RANGES:
             raise HTTPException(422, 'Choose a range of 1h, 6h or 24h.')
         with series_lock:
@@ -261,3 +263,10 @@ def install(app, store, pool, owner, model_activity=None, sample_queues=None):
                                   monitor.queue_history.rows(since), jobs_tracked=jobs_tracked)
             series_cache[range] = (time.monotonic() + 5, result)
             return result
+
+    app.state.monitoring_metrics = collect_metrics
+
+    @app.get('/api/admin/system-monitoring/metrics')
+    def metrics(request: Request, range: str = '1h'):
+        owner(request)
+        return collect_metrics(range)

@@ -44,6 +44,7 @@ export interface Tab {
   archived?: boolean;
 }
 export interface Book {
+  removed_at?: string | null;
   id: number;
   bidder_id: number;
   title: string;

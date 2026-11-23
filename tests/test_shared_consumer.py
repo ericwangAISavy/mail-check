@@ -1,4 +1,5 @@
 import time
+import sqlite3
 import uuid
 
 import pytest
@@ -6,9 +7,10 @@ import pytest
 from mailcheck.realtime.runtime import WorkDeferred
 from mailcheck.shared.broker import PendingCapacityError
 from mailcheck.shared.runtime import Consumer
+from mailcheck.shared.state import RuntimeStateUnavailable
 
 
-@pytest.mark.parametrize('failure',[WorkDeferred('busy'),PendingCapacityError('full')])
+@pytest.mark.parametrize('failure',[WorkDeferred('busy'),PendingCapacityError('full'),sqlite3.OperationalError('database is locked'),RuntimeStateUnavailable('status unavailable')])
 def test_admission_wait_does_not_consume_business_retry_budget(tmp_path,monkeypatch,failure):
     from types import SimpleNamespace
     from mailcheck.shared import runtime

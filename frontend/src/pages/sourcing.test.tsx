@@ -686,3 +686,21 @@ it('shows the reason a link remains unchecked after checking applications',async
  await screen.findByText('Saved')
  expect(screen.getByText('1 link remains unchecked — view reasons')).toBeTruthy()
 })
+
+
+it("lets admins select deleted bidders and edit their retained archived tabs", async () => {
+  const deleted = { ...index.books[0], id: 2, name: "Past bidder", bidder_id: 2,
+    removed_at: "2026-11-23", job_dates: ["2026-10-20"],
+    tabs: [{ ...index.books[0].tabs[0], id: 2, title: "Past profile", archived: true }] }
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({
+    ok: true, headers: new Headers({"content-type": "application/json"}),
+    json: async () => url === "/api/sourcing" ? {books: [...index.books, deleted]} : snapshot,
+  })))
+  mount()
+  const option = await screen.findByRole("option", {name: "Past bidder (Deleted)"})
+  expect((option as HTMLOptionElement).disabled).toBe(false)
+  fireEvent.change(screen.getByLabelText("Bidder workbook"), {target: {value: "2"}})
+  expect(await screen.findByRole("tab", {name: "Past profile"})).toBeTruthy()
+  await waitFor(() => expect((screen.getByLabelText("Job date") as HTMLInputElement).value).toBe("2026-10-20"))
+  expect((screen.getByRole("button", {name: "Edit company"}) as HTMLButtonElement).disabled).toBe(false)
+})

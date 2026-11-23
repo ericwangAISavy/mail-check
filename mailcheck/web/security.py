@@ -41,6 +41,13 @@ def install_http_boundary(app, **options):
             secure_cookies=options.get('secure_cookies', False),
             legacy_scripts=options.get('legacy_scripts', False)).items()}
         headers['Cache-Control'] = 'no-store'
+        if request.headers.get('x-request-id'):
+            # Set by RequestDiagnostics before user middleware executes.
+            import uuid
+            try:
+                headers['X-Request-ID'] = str(uuid.UUID(request.headers['x-request-id']))
+            except ValueError:
+                pass
         return JSONResponse({'error': 'Internal server error.'}, status_code=500, headers=headers)
     app.add_middleware(HTTPBoundary, **options)
 

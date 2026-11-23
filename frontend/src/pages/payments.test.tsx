@@ -407,7 +407,7 @@ it('requires reopening a payment draft when the rule changes with unchanged appl
  expect(amount.value).toBe('2.00')
  report={...report,deduction_rule:{minimum_daily:60,amount_cents:200},bidders:[{...report.bidders[0],calculated_amount_cents:100,payable_amount_cents:100}]}
  await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
- expect(screen.getByRole('alert').textContent).toBe('Deduction rule changed while editing. Close and reopen to review the updated amount.')
+ expect((await screen.findByRole('alert')).textContent).toBe('Deduction rule changed while editing. Close and reopen to review the updated amount.')
  expect((screen.getByRole('button',{name:'Save amount'}) as HTMLButtonElement).disabled).toBe(true)
  expect((screen.getByRole('button',{name:'Record as paid'}) as HTMLButtonElement).disabled).toBe(true)
  fireEvent.submit(amount.closest('form')!)

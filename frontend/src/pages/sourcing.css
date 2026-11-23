@@ -697,3 +697,7 @@
 .sheet-paste-target:hover{background:color-mix(in srgb,var(--primary) 5%,transparent)}
 .sheet-paste-target:focus-visible,.sheet-paste-target:focus{box-shadow:inset 0 0 0 2px var(--primary);color:var(--foreground)}
 .sheet-paste-target kbd{font:inherit;font-size:11px;padding:1px 6px;border:1px solid var(--border);border-radius:5px;background:var(--card)}
+.sourcing-toolbar select option.sourcing-deleted-bidder { color: var(--muted-foreground); font-style: italic; }
+.job-links-page .job-links-search { flex: 1; max-width: 580px; min-width: 150px; }
+.job-links-search input { flex: 1; width: 100%; padding: 8px 0; }
+.job-links-search .btn { flex-shrink: 0; }

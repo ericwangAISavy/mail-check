@@ -234,6 +234,12 @@ class WorkerPool:
             diagnostics.format_duration(time.time()-worker.started_at),diagnostics.describe_exit(code),
             f'\nIts output since it started ({name}):\n{last}' if last else (f' It wrote nothing to its log ({name}) before it stopped.' if name else ''))
 
+    def health_endpoint(self, wid):
+        return '/_internal/ready'
+
+    def health_response_ok(self, status):
+        return status in (200, 503)
+
     def check_health(self,wid):
         with self._lock:
             worker=self.workers.get(wid)
@@ -244,8 +250,8 @@ class WorkerPool:
             if self.closing or not worker or not worker.ready or worker.process.poll() is not None:return
         try:
             with httpx.Client(trust_env=False,timeout=2) as client:
-                status=client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token}).status_code
-            reachable=status in (200,503)
+                status=client.get(f'http://127.0.0.1:{worker.port}{self.health_endpoint(wid)}',headers={'x-offerpath-worker':worker.token}).status_code
+            reachable=self.health_response_ok(status)
         except httpx.HTTPError:
             reachable=False
         with self._lock:

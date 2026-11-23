@@ -85,6 +85,10 @@ def atomic_json(path, value):
             os.unlink(name)
 
 
+class RuntimeStateUnavailable(RuntimeError):
+    """Saved runtime state could not be read; its running status is unknown."""
+
+
 class JobState(MutableMapping):
     DEFAULT = dict(running=False, message='', detail='', at=None, ok=True,
                    stage_started=None, completion_id=0)
@@ -94,10 +98,15 @@ class JobState(MutableMapping):
         self.lock = OperationLock(self.path.with_suffix('.status.lock'))
 
     def snapshot(self):
-        try:
-            return {**self.DEFAULT, **json.loads(self.path.read_text())}
-        except FileNotFoundError:
-            return dict(self.DEFAULT)
+        for attempt in range(5):
+            try:
+                return {**self.DEFAULT, **json.loads(self.path.read_text())}
+            except FileNotFoundError:
+                return dict(self.DEFAULT)
+            except (PermissionError, json.JSONDecodeError):
+                if attempt == 4:
+                    raise RuntimeStateUnavailable('Shared job status is temporarily unavailable.') from None
+                time.sleep(.05)
 
     def update(self, *args, **kwargs):
         with self.lock:

@@ -34,6 +34,7 @@ export function SheetGrid({
   onEditingChange,
   onPaste,
   onAppendRows,
+  ariaLabel = "Job sourcing spreadsheet",
 }: {
   snapshot: Snapshot;
   changes: Change[];
@@ -46,6 +47,7 @@ export function SheetGrid({
   onEditingChange?: (active: boolean) => void;
   onPaste?: () => void;
   onAppendRows?: (rows: string[][]) => void;
+  ariaLabel?: string;
 }) {
   const grid = useRef<DataGridHandle>(null),
     anchor = useRef({ row: 0, col: 0 }),
@@ -295,7 +297,7 @@ export function SheetGrid({
       <div className="sheet-grid-paste" style={{display: "contents"}} onPaste={pasteIntoEmptyDay}>
       <DataGrid
         ref={grid}
-        aria-label="Job sourcing spreadsheet"
+        aria-label={ariaLabel}
         className="sourcing-grid"
         columns={columns}
         rows={rows}

@@ -1,11 +1,20 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from mailcheck.shared.state import JobState, OperationLock
+from mailcheck.shared.state import JobState, OperationLock, RuntimeStateUnavailable
 
 
 class SharedStateTests(unittest.TestCase):
+    def test_transient_status_read_access_failure_retries_without_resetting_running_state(self):
+        with patch('pathlib.Path.read_text',side_effect=[PermissionError('sharing conflict'),'{"running":true}']), patch('mailcheck.shared.state.time.sleep'):
+            self.assertTrue(JobState(Path('unused'))['running'])
+
+    def test_persistent_status_read_failure_reports_unknown_instead_of_idle(self):
+        with patch('pathlib.Path.read_text',side_effect=PermissionError('denied')), patch('mailcheck.shared.state.time.sleep'):
+            with self.assertRaises(RuntimeStateUnavailable):
+                JobState(Path('unused')).snapshot()
     def test_lock_excludes_another_instance_and_releases(self):
         with tempfile.TemporaryDirectory() as folder:
             first = OperationLock(Path(folder) / 'account.lock')

@@ -136,6 +136,23 @@ def install(app, frontend_page, secure_cookies):
         if req.state.role != "admin" or getattr(req.state, 'viewer_read_only', False):
             raise HTTPException(403, "Admin access required.")
 
+    @router.get('/api/job-links')
+    def universal_job_links(req: Request, q: str = '', cursor: str = '', day: str = ''):
+        admin(req)
+        if len(q)>200 or len(cursor)>1024:
+            raise HTTPException(422,'Search or cursor is too long.')
+        from ..job_links import search
+        from .. import config
+        try:
+            return search([('local',config.db_path())],q=q,cursor=cursor,day=day)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from None
+
+    @router.get('/job-links')
+    def job_links_page(req: Request):
+        admin(req)
+        return frontend_page()
+
     def history_call(req, action):
         admin(req)
         with db.session() as conn:
@@ -244,7 +261,9 @@ def install(app, frontend_page, secure_cookies):
             books = [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND (? OR b.bidder_id=?) ORDER BY p.name",
+                    "SELECT b.*,p.name,p.removed_at FROM native_books b JOIN bidders p ON p.id=b.bidder_id "
+                    "WHERE (? OR (p.removed_at IS NULL AND b.bidder_id=?)) "
+                    "ORDER BY p.removed_at IS NOT NULL,p.name COLLATE NOCASE,b.id",
                     (is_admin, identity["bidder_id"]),
                 )
             ]
@@ -255,9 +274,9 @@ def install(app, frontend_page, secure_cookies):
                     "JOIN native_tabs t ON t.id=r.tab_id "
                     "JOIN native_columns col ON col.tab_id=t.id AND col.kind='link' "
                     "JOIN native_cells c ON c.row_id=r.id AND c.column_id=col.id "
-                    "WHERE t.book_id=? AND t.archived=0 AND r.work_date IS NOT NULL "
+                    "WHERE t.book_id=? AND (t.archived=0 OR ?) AND r.work_date IS NOT NULL "
                     "AND trim(c.value, char(9)||char(10)||char(13)||' ')!='' ORDER BY r.work_date",
-                    (book["id"],),
+                    (book["id"], bool(is_admin and book["removed_at"])),
                 )]
                 book["tabs"] = [
                     {**dict(r), "header_row": 1}
@@ -458,8 +477,10 @@ def install(app, frontend_page, secure_cookies):
             if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
             identity=principal(req)
             tabs = conn.execute(
-                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
-                (identity["role"] == "admin", identity["bidder_id"], account, account),
+                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id "
+                "WHERE (t.archived=0 OR (? AND p.removed_at IS NOT NULL)) "
+                "AND (? OR (p.removed_at IS NULL AND b.bidder_id=?)) AND (? IS NULL OR t.account_id=?)",
+                (identity["role"] == "admin", identity["role"] == "admin", identity["bidder_id"], account, account),
             ).fetchall()
             results = []
             words = q.casefold().split()

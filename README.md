@@ -6,6 +6,10 @@ Double-click **restart.bat** in this folder to restart OfferPath, or to start it
 
 When upgrading from a version without this launcher, press **Ctrl+C** in the old server window once and wait for it to exit before double-clicking **restart.bat**. You can also use **start.bat** for a normal foreground start.
 
+The launcher also starts an independent monitoring server at **http://127.0.0.1:52401** on the server PC. It stays running when OfferPath stops and shows availability, the last service snapshot, and local log tails. Run **monitor.bat** to start it separately during an outage. Gateway output is saved in `logs/origin-server.log` under OfferPath's control directory. The availability watchdog checks the gateway every five seconds and recovers after three failed checks. Each worker has its own health and recovery checks. Repeated crashes trigger a cooldown. Ctrl+C intentionally stops OfferPath.
+
+The shared deployment starts two model worker processes. `OFFERPATH_MODEL_WORKERS` controls their count, while the existing model-operation lock coordinates inference. Gateway startup failures retry with backoff. Control-database contention returns a temporary-unavailability response promptly and subsequent requests open fresh SQLite connections.
+
 
 **Every application, a step forward.**
 

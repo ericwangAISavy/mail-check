@@ -1,9 +1,49 @@
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import httpx
 from mailcheck.web.gateway import create_gateway
 from tests.test_workspace_gateway import system
+
+
+def test_worker_or_database_failure_does_not_fail_gateway_liveness(system,monkeypatch):
+    app, store, pool = system
+    monkeypatch.setattr(store,'list_admins',Mock(side_effect=RuntimeError('dependency failed')))
+    assert asyncio.run(app.state.origin_health())
+
+
+def test_control_database_failure_returns_retryable_response_without_replaying_write(system,monkeypatch):
+    import sqlite3
+    app, store, _ = system
+    create = Mock(side_effect=sqlite3.OperationalError('database is locked'))
+    monkeypatch.setattr(store,'create_admin',create)
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://testserver') as client:
+            response=await client.post('/api/admin/users',
+                json={'username':'newadmin','workspace_name':'Example','password':'long-enough-password'},
+                headers={'cookie':f'offerpath_session={store.owner_token}','x-offerpath-workspace':'legacy'})
+            assert response.status_code == 503
+            assert response.headers['retry-after'] == '2'
+    asyncio.run(scenario())
+    create.assert_called_once()
+
+
+def test_control_database_recovers_after_temporary_writer_lock(system):
+    import sqlite3
+    import time
+    import pytest
+    _, store, _ = system
+    with sqlite3.connect(store.path) as lock:
+        lock.execute('BEGIN IMMEDIATE')
+        began=time.monotonic()
+        with pytest.raises(sqlite3.OperationalError,match='locked'):
+            with store.connect() as connection:
+                connection.execute('BEGIN IMMEDIATE')
+        assert time.monotonic()-began < 3
+        lock.rollback()
+    with store.connect() as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        connection.rollback()
 
 
 def test_shared_gateway_forwards_server_selected_workspace(system,monkeypatch):

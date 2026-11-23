@@ -25,7 +25,7 @@ from ..realtime.graph import GraphSubscriptions
 from ..sources.base import collection_scope
 from ..workspaces import WorkspaceContext, bind_workspace, bind_commit_guard, copy_context
 from .broker import RabbitBroker, PendingCapacityError
-from .state import JobState, OperationLock, account_lease, atomic_json, runtime_root
+from .state import JobState, OperationLock, RuntimeStateUnavailable, account_lease, atomic_json, runtime_root
 
 log = logging.getLogger(__name__)
 _SEEN_READ_WARNINGS: set = set()
@@ -388,6 +388,9 @@ class Coordinator:
         self.stop = threading.Event()
         self.due = {}
         self.cursor = {}
+        from .health_evidence import WorkerProgress
+        self.health = WorkerProgress(poll_timeout=180)
+        self.subscription_health = WorkerProgress(poll_timeout=180)
 
     def run(self):
         # A second coordinator never steals ownership from a live first one.
@@ -399,10 +402,12 @@ class Coordinator:
             subscriptions=threading.Thread(target=self.subscriptions_run,daemon=True,name='shared-subscriptions')
             subscriptions.start()
             while not self.stop.is_set():
+                self.health.poll()
                 try:
                     self.tick()
-                except Exception:
-                    log.warning('Shared reconciliation is unavailable; retrying.')
+                except Exception as exc:
+                    self.health.failed(exc)
+                    log.warning('Shared reconciliation is unavailable; retrying. error=%s raised_at=%s',type(exc).__name__,_raised_at(exc))
                 self.stop.wait(1)
             subscriptions.join()
         finally:
@@ -410,6 +415,7 @@ class Coordinator:
 
     def subscriptions_run(self):
         while not self.stop.is_set():
+            self.subscription_health.poll()
             try:
                 for workspace in self.reader.enabled_workspaces():
                     if self.stop.is_set():
@@ -425,10 +431,12 @@ class Coordinator:
                                 cfg=config.load()
                             registry=ExistingRegistry(self.reader.root/'realtime.db')
                             GraphSubscriptions(registry,workspace['id'],os.environ.get('OFFERPATH_PUBLIC_URL','')).sync(accounts,enabled,cfg)
-                        except Exception:
-                            log.warning('Workspace subscription maintenance unavailable; polling continues.')
-            except Exception:
-                log.warning('Workspace subscription discovery unavailable; retrying.')
+                        except Exception as exc:
+                            self.subscription_health.failed(exc)
+                            log.warning('Workspace subscription maintenance unavailable; polling continues. workspace=%s error=%s raised_at=%s',workspace['id'],type(exc).__name__,_raised_at(exc))
+            except Exception as exc:
+                self.subscription_health.failed(exc)
+                log.warning('Workspace subscription discovery unavailable; retrying. error=%s raised_at=%s',type(exc).__name__,_raised_at(exc))
             self.stop.wait(60)
 
     def tick(self):
@@ -502,8 +510,9 @@ class Coordinator:
                                     key=(wid,account.id,kind)
                                     if now>=self.due.get(key,0) and admit(kind,account.id):
                                         self.due[key]=now+(30 if kind=='mail' and account.provider!='outlook' else 120)
-                    except Exception:
-                        log.warning('Workspace background coordination unavailable; retrying.')
+                    except Exception as exc:
+                        self.health.failed(exc)
+                        log.warning('Workspace background coordination unavailable; retrying. workspace=%s error=%s raised_at=%s',wid,type(exc).__name__,_raised_at(exc))
             self.due={key:value for key,value in self.due.items() if key[0] in live}
             self.cursor={key:value for key,value in self.cursor.items() if key in live}
         finally:
@@ -516,6 +525,8 @@ class Consumer:
         self.kinds = ('mail','calendar') if lane=='collection' else ('classify','manual-check','manual-reclassify','scheduled-check','calendar-analysis','live-inbox')
         self.stop = threading.Event()
         self.inflight = False
+        from .health_evidence import WorkerProgress
+        self.health = WorkerProgress()
 
     def run(self):
         with ThreadPoolExecutor(max_workers=1,thread_name_prefix='shared-operation') as executor:
@@ -528,10 +539,12 @@ class Consumer:
                             if self.stop.is_set():
                                 break
                             delivery = broker.claim(kind)
+                            self.health.poll()
                             if delivery is None:
                                 continue
                             found = self.inflight = True
                             tag,fields = delivery
+                            self.health.start(fields)
                             from .telemetry import record
                             record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'started',fields['id'])
                             future = executor.submit(execute_job,self.reader,self.legacy_paths,fields)
@@ -540,6 +553,7 @@ class Consumer:
                             while not future.done():
                                 try:
                                     broker.process_events(0.1)
+                                    self.health.poll()
                                 except Exception:
                                     disconnected = True
                                     future.result()  # Retain operation locks until completion.
@@ -552,11 +566,22 @@ class Consumer:
                                     finish_manual(fields,self.reader.root/'shared-runtime')
                                     broker.ack(tag)
                                     record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'discarded',fields['id'])
-                            except (WorkDeferred,PendingCapacityError):
+                            except RuntimeStateUnavailable:
+                                log.warning('Shared job status is unavailable: workspace=%s kind=%s; deferring until file access recovers.',fields['workspace_id'],kind)
                                 if not disconnected:
                                     broker.defer(tag,fields)
+                                record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'deferred_state',fields['id'])
+                            except (WorkDeferred,PendingCapacityError) as exc:
+                                if not disconnected:
+                                    broker.defer(tag,fields)
+                                if str(exc) == 'Database busy':
+                                    record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'deferred_busy',fields['id'])
                             except Exception as exc:
-                                if _network_unreachable(exc):
+                                if db.is_busy_error(exc):
+                                    if not disconnected:
+                                        broker.defer(tag,fields)
+                                    record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'deferred_busy',fields['id'])
+                                elif _network_unreachable(exc):
                                     # No internet/DNS is not this job's fault: keep it queued and do not spend an attempt.
                                     _note_network_down(kind)
                                     if not disconnected:
@@ -565,12 +590,14 @@ class Consumer:
                                 else:
                                     # The message itself may hold provider responses or credentials, so only
                                     # the error type and where it was raised are logged.
-                                    log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s raised_at=%s',
-                                        fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__,
+                                    log.warning('Shared operation failed: workspace=%s account=%s kind=%s attempt=%s error=%s job_id=%s worker=%s raised_at=%s',
+                                        fields['workspace_id'], fields['account_id'], kind, fields['attempt']+1, type(exc).__name__,fields['id'], os.environ.get('OFFERPATH_WORKER_ID','unknown'),
                                         _raised_at(exc))
                                     if not disconnected:
                                         broker.fail(tag,fields)
-                                        record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'retry_or_failed',fields['id'])
+                                        from .health_evidence import failure
+                                        record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'retry_or_failed',fields['id'],
+                                               evidence={**failure(exc),'source_location':_raised_at(exc),'attempt':fields['attempt']+1})
                                         if fields['attempt']+1>=5:
                                             broker.abandon_unique(fields,self.reader.root/'shared-runtime')
                                             finish_manual(fields,self.reader.root/'shared-runtime')
@@ -581,15 +608,19 @@ class Consumer:
                                     record(self.reader.root/'shared-runtime',fields['workspace_id'],kind,'completed',fields['id'])
                             finally:
                                 self.inflight = False
+                                self.health.finish()
                             if disconnected:
                                 raise ConnectionError('Broker connection lost')
                         if not found:
                             broker.process_events(0.2)
-                except Exception:
-                    log.warning('Shared job transport unavailable; reconnecting.')
+                except Exception as exc:
+                    self.health.failed(exc)
+                    log.warning('Shared job transport unavailable; reconnecting. worker=%s error=%s raised_at=%s',
+                                os.environ.get('OFFERPATH_WORKER_ID','unknown'), type(exc).__name__, _raised_at(exc))
                     self.stop.wait(1)
                 finally:
                     self.inflight = False
+                    self.health.finish()
                     try:
                         broker.close()
                     except Exception:
@@ -614,8 +645,10 @@ def main():
     reader=ControlReader(Path(os.environ['OFFERPATH_CONTROL_ROOT']),legacy)
     consumer=Consumer(reader,legacy,os.environ['AMQP_URL'],args.lane)
     coordinator=Coordinator(reader,legacy,os.environ['AMQP_URL']) if os.environ.get('OFFERPATH_COORDINATOR')=='1' else None
+    threads=[]
     @asynccontextmanager
     async def lifespan(app):
+        nonlocal threads
         threads=[threading.Thread(target=consumer.run,daemon=True)]
         if coordinator:
             threads.append(threading.Thread(target=coordinator.run,daemon=True))
@@ -634,10 +667,20 @@ def main():
     def ready(request:Request):
         if not secrets.compare_digest(request.headers.get('x-offerpath-worker',''),os.environ['OFFERPATH_WORKER_TOKEN']):
             raise HTTPException(403)
-        return {'ready':True,'inflight':consumer.inflight}
+        if not threads or not all(thread.is_alive() for thread in threads):
+            raise HTTPException(503, 'A job processing thread has stopped.')
+        evidence = consumer.health.snapshot()
+        if coordinator:
+            for progress, scope in ((coordinator.health,'coordinator_progress'),(coordinator.subscription_health,'subscription_progress')):
+                coordinator_evidence = progress.snapshot()
+                if coordinator_evidence['status'] != 'healthy' and evidence['status'] == 'healthy':
+                    evidence = {**coordinator_evidence,'scope':scope}
+        from .telemetry import health_snapshot
+        return {'ready':True,'inflight':consumer.inflight, **evidence, **health_snapshot()}
     from ..workspace_workers import InstanceLock
     from .lifecycle import supervise
-    server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=args.port,access_log=False))
+    from ..web.server import GracefulServer, ClosingSafeH11Protocol
+    server=GracefulServer(uvicorn.Config(app,host='127.0.0.1',port=args.port,access_log=False,http=ClosingSafeH11Protocol))
     def stop_accepting():
         consumer.stop.set()
         if coordinator:

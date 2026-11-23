@@ -424,18 +424,21 @@ def process_message(conn, pk: int, cls: dict, *, client=None, force=False, calen
     scan = conn.execute("SELECT * FROM interview_scans WHERE message_pk=?", (pk,)).fetchone()
     if not force and scan and scan["fingerprint"] == fingerprint and not scan["retryable"]:
         return []
-    # Each message is atomic; a malformed invite never rolls back mail writes.
-    conn.execute("SAVEPOINT interview_message")
+    # Detection may call a model. Complete it before reserving SQLite's writer.
     try:
         known_uids = {r["calendar_uid"] for r in _known_calendar_interviews(conn,row["account_id"]) if r["calendar_uid"]}
         candidates, retryable = detect(row, cls, client, known_uids=known_uids, calendar_only=calendar_only)
-        changes = [change for item in candidates if (change := reconcile(conn, item, row))]
-        conn.execute("INSERT INTO interview_scans VALUES (?,?,?,?) ON CONFLICT(message_pk) DO UPDATE SET fingerprint=excluded.fingerprint,retryable=excluded.retryable,scanned_at=excluded.scanned_at", (pk,fingerprint,int(retryable),db._now()))
-        conn.execute("RELEASE interview_message")
+        with db.atomic_write(conn):
+            changes = [change for item in candidates if (change := reconcile(conn, item, row))]
+            conn.execute("INSERT INTO interview_scans VALUES (?,?,?,?) ON CONFLICT(message_pk) DO UPDATE SET fingerprint=excluded.fingerprint,retryable=excluded.retryable,scanned_at=excluded.scanned_at", (pk,fingerprint,int(retryable),db._now()))
         return changes
+    except sqlite3.OperationalError as exc:
+        if db.is_busy_error(exc):
+            log.warning("Interview save deferred for local message %s while the database is busy.", pk)
+            return []
+        log.exception("Interview detection failed for local message %s; mail processing continues", pk)
+        return []
     except Exception:
-        conn.execute("ROLLBACK TO interview_message")
-        conn.execute("RELEASE interview_message")
         log.exception("Interview detection failed for local message %s; mail processing continues", pk)
         return []
 
@@ -544,18 +547,15 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                     # The model enriches meaning only; provider identity, schedule,
                     # cancellation and meeting URLs remain authoritative.
                     for attempt in range(3):
-                        conn.execute("SAVEPOINT calendar_invitation")
                         try:
-                            change = _save_calendar_booking(conn,account,booking,details,analysis_enabled=analyzer.enabled)
+                            with db.atomic_write(conn):
+                                change = _save_calendar_booking(conn,account,booking,details,analysis_enabled=analyzer.enabled)
+                            conn.commit()
                             seen.add(booking.provider_id)
                             if change:
                                 changes.append(change)
-                            conn.execute("RELEASE calendar_invitation")
-                            conn.commit()
                             break
                         except Exception as exc:
-                            conn.execute("ROLLBACK TO calendar_invitation")
-                            conn.execute("RELEASE calendar_invitation")
                             if attempt < 2 and "locked" in str(exc).lower():
                                 # Another worker was writing; wait briefly, then try this event again.
                                 log.warning("Calendar event save waited on a busy database; retrying (%s of 2).", attempt + 1)

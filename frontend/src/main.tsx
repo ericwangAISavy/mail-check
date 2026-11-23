@@ -30,6 +30,7 @@ try {
 clearAssetRecoveryMarker()
 
 const router = createBrowserRouter([{ path: "*", element: <AppErrorBoundary><App /></AppErrorBoundary> }])
+const LocalMonitor = React.lazy(() => import("./components/local-monitor"))
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } } })
 
 // Match the sign-in screen to the saved theme before the workspace mounts.
@@ -43,7 +44,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        {document.documentElement.dataset.localMonitor === "true"
+          ? <React.Suspense fallback={<p>Loading monitoring…</p>}><LocalMonitor/></React.Suspense>
+          : <RouterProvider router={router} />}
       </QueryClientProvider>
     </AppErrorBoundary>
   </React.StrictMode>,

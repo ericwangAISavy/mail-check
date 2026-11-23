@@ -107,7 +107,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         from ..shared.pool import SharedPool
         pool=SharedPool(store,gateway_url,(original_config,original_db,original_auth),
             size=int(os.environ.get('OFFERPATH_API_WORKERS','2')),
-            job_size=int(os.environ.get('OFFERPATH_COLLECTION_WORKERS','2')),amqp_url=amqp_url)
+            job_size=int(os.environ.get('OFFERPATH_COLLECTION_WORKERS','2')),amqp_url=amqp_url,
+            model_size=int(os.environ.get('OFFERPATH_MODEL_WORKERS','2')))
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
     subscriber=None
     backup_manager=BackupManager(BackupLayout(original_config,original_db,store.root),store._lock)
@@ -240,6 +241,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                     await asyncio.to_thread(pool.close)
 
     app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
+    from .request_diagnostics import RequestDiagnostics
+    from ..shared.health_evidence import failure
     @app.exception_handler(ClientDisconnect)
     async def client_disconnected(request: Request, exc: ClientDisconnect):
         # A closed tab or cancelled fetch is not an application failure.
@@ -300,9 +303,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             async with asyncio.timeout(AUTH_REQUEST_TIMEOUT):
                 identity=None if public_file else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
         except (TimeoutError,sqlite3.Error) as exc:
-            logging.getLogger(__name__).warning('Session storage is busy or unavailable (%s); authentication request deferred.',type(exc).__name__,exc_info=isinstance(exc,sqlite3.Error))
+            request.state.failure_evidence = failure(exc)
+            logging.getLogger(__name__).warning('Session storage is busy or unavailable (%s); authentication request deferred.',type(exc).__name__)
             return JSONResponse({'error':'Authentication is temporarily unavailable. Try again shortly.'},503,headers={'Retry-After':'1','Cache-Control':'no-store'})
-        except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
+        except (AuthFileError,ValueError,OSError) as exc:
+            request.state.failure_evidence = failure(exc)
+            return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
         public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session') or path.startswith(('/assets/','/static/'))
         if not public:
@@ -327,14 +333,20 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             if request.method in ('GET','HEAD'):
                 async with asyncio.timeout_at(request.state.read_deadline):response=await call_next(request)
             else:response=await call_next(request)
-        except TimeoutError:
+        except TimeoutError as exc:
+            request.state.failure_evidence = failure(exc)
             response=JSONResponse({'error':'This page took too long to load. Try again shortly.'},504,headers={'Retry-After':'1'})
         except RevokedSession as exc:
             response=JSONResponse({"error":str(exc)},401)
         except (ValueError,PermissionError) as exc:
             response=JSONResponse({'error':str(exc)},403 if isinstance(exc,PermissionError) else 400)
-        except AuthFileError:
+        except AuthFileError as exc:
+            request.state.failure_evidence = failure(exc)
             response=JSONResponse({'error':'The original owner sign-in file is unavailable.'},503)
+        except sqlite3.Error as exc:
+            request.state.failure_evidence = failure(exc)
+            logging.getLogger(__name__).warning('Control database request deferred (%s, %s).', type(exc).__name__, getattr(exc,'sqlite_errorname','unknown'))
+            response=JSONResponse({'error':'Control storage is temporarily unavailable. Check whether your action completed before retrying.'},503,headers={'Retry-After':'2'})
         response.headers.update({'Cache-Control':('public, max-age=31536000, immutable' if asset_request and response.status_code in (200,206,304) else 'no-store'),'X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY'})
         return response
 
@@ -423,7 +435,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             worker=await ready_workspace(identity['workspace_id'])
             async with worker_http_client() as client:
                 result=await client.get(f'http://127.0.0.1:{worker.port}/_internal/bidders/{bidder_id}',
-                    headers={'x-offerpath-worker':worker.token,'x-offerpath-workspace':identity['workspace_id']})
+                    headers={'x-offerpath-worker':worker.token,'x-offerpath-workspace':identity['workspace_id'],'x-request-id':request.headers.get('x-request-id','')})
         except (httpx.HTTPError,RuntimeError,OSError):
             raise HTTPException(503,'Could not load workspace bidders. Try again when the workspace is available.')
         if result.status_code==404:raise HTTPException(404,'Bidder not found in this workspace.')
@@ -451,6 +463,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     from .system_monitoring import install as install_monitoring
     install_monitoring(app, store, pool, owner, lambda: len(leases))
 
+    async def origin_health():
+        # Gateway liveness must not restart healthy services for a failed dependency.
+        # Worker readiness and dependency failures are monitored independently.
+        return True
+    app.state.origin_health = origin_health
+
     @app.get('/api/admin/users')
     def admins(request:Request):
         owner(request)
@@ -458,6 +476,22 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         status=pool.status()
         starts=getattr(pool,"start_times",lambda:{})()
         return {'admins':[{**u,'online':u['id'] in online,'worker_started_at':starts.get(u['workspace_id']),'health':status.get(u['workspace_id'],'starting or unavailable') if u['enabled'] else 'suspended'} for u in store.list_admins()], 'max_workspaces':store.max_workspaces}
+
+    @app.get('/api/job-links')
+    def universal_job_links(request:Request,q:str='',cursor:str='',day:str=''):
+        identity=request.state.identity
+        if not identity or identity['role']!='admin':
+            raise HTTPException(403,'Admin access required.')
+        if len(q)>200 or len(cursor)>1024:
+            raise HTTPException(422,'Search or cursor is too long.')
+        from ..job_links import search
+        with store.connect() as conn:
+            workspaces=conn.execute('SELECT id,root FROM workspaces ORDER BY id').fetchall()
+        sources=[(row['id'],Path(row['root'])/'data'/'mailcheck.db' if row['root'] else original_db) for row in workspaces]
+        try:
+            return search(sources,q=q,cursor=cursor,day=day)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from None
 
     @app.post('/api/admin/users')
     async def create_admin(body:NewAdmin,request:Request):
@@ -554,7 +588,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 raise
             except Exception:
                 raise HTTPException(503,'The job queue is unavailable; check status before retrying.') from None
-        headers={'x-offerpath-worker':worker.token}
+        headers={'x-offerpath-worker':worker.token,'x-request-id':request.headers.get('x-request-id','')}
         if shared:
             headers['x-offerpath-workspace']=target
         if identity['role']=='bidder':
@@ -671,4 +705,5 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     install_http_boundary(app, secure_cookies=secure_cookies,
         public_hosts={h.lower() for h in allowed_hosts or []} if tunnel_mode else None,
         internal_hosts={'127.0.0.1','localhost','::1','testserver',internal_host})
+    app.add_middleware(RequestDiagnostics)
     return app
