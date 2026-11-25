@@ -1,6 +1,8 @@
 import {afterEach,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen} from '@testing-library/react'
 import TimezonePicker from './timezone-picker'
+// The picker also lists "Browser time (<zone>)", so pin it: otherwise searches depend on this computer's zone.
+vi.mock('@/lib/calendar-timezone',async original=>({...await original<typeof import('@/lib/calendar-timezone')>(),browserTimezone:()=>'Etc/UTC'}))
 afterEach(cleanup)
 it('searches timezone names without committing partial text and selects with the keyboard',()=>{
  const change=vi.fn()
