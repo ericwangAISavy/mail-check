@@ -9,11 +9,13 @@ from urllib.parse import quote
 
 import httpx
 
-from ..outlook_auth import acquire_token, CALENDAR_SCOPES
+from ..outlook_auth import acquire_token, CALENDAR_SCOPES, ReconnectRequired
 
 
 class GraphError(RuntimeError):
-    pass
+    def __init__(self,message,evidence=None):
+        super().__init__(message)
+        self.health_evidence=evidence or {}
 
 
 class GraphSubscriptions:
@@ -25,6 +27,7 @@ class GraphSubscriptions:
         self.registry, self.workspace_id = registry, workspace_id
         self.public_url = public_url.rstrip('/')
         self._deferred = {}
+        self._errors = {}
 
     def _request(self, method, path, *, token, **kwargs):
         # Paths are built locally; provider response URLs are never followed.
@@ -44,7 +47,18 @@ class GraphSubscriptions:
         accounts = {a.id: a for a in accounts}
         existing = self.registry.list_workspace(self.workspace_id)
         callback_url = self.public_url + '/hooks/microsoft' if self.public_url else ''
-        failures = False
+        failures = []
+        def note(exc,account_id,kind,operation):
+            from ..shared.health_evidence import failure
+            evidence={**failure(exc),'workspace':self.workspace_id,'account_id':account_id,'kind':kind,'operation':operation}
+            if isinstance(exc,httpx.HTTPStatusError):
+                evidence.update(http_status=exc.response.status_code,reason=f'http_{exc.response.status_code}')
+            elif isinstance(exc,ReconnectRequired):
+                evidence['reason']='reconnect_required'
+            self._errors[(account_id,kind)]=evidence
+            failures.append(evidence)
+        def raise_failures():
+            raise GraphError('Microsoft subscription unavailable; polling continues.',{**failures[0],'failure_count':len(failures)}) from None
         for row in existing:
             account = accounts.get(row['account_id'])
             wanted = account and account.enabled and account.provider == 'outlook' and account.id in enabled_ids
@@ -57,11 +71,17 @@ class GraphSubscriptions:
                     self._request('DELETE', 'subscriptions/' + quote(row['subscription_id'], safe=''),
                                   token=self._token(account, cfg, row['kind']))
                 self.registry.delete(row['subscription_id'])
-            except Exception:
-                failures = True
+            except Exception as exc:
+                if not wanted and isinstance(exc,ReconnectRequired):
+                    # A disabled account must not require a new login just to
+                    # stop routing callbacks. The provider lease expires on its
+                    # own; remove local routing and never renew it.
+                    self.registry.delete(row['subscription_id'])
+                else:
+                    note(exc,row['account_id'],row['kind'],'delete')
         if not self.public_url:
             if failures:
-                raise GraphError('Microsoft subscription unavailable; polling continues.') from None
+                raise_failures()
             return
         existing = {(r['account_id'], r['kind']): r for r in self.registry.list_workspace(self.workspace_id)}
         for account in accounts.values():
@@ -70,13 +90,14 @@ class GraphSubscriptions:
             for kind in ('mail', 'calendar'):
                 key = (account.id, kind)
                 if self._deferred.get(key, 0) > time.time():
-                    failures = True
+                    failures.append(self._errors.get(key,dict(reason='retry_deferred',workspace=self.workspace_id,account_id=account.id,kind=kind)))
                     continue
                 row = existing.get((account.id, kind))
                 # Failed deletion must not silently renew the old destination.
                 if row and (row.get('callback_url', '') != callback_url
                             or row.get('resource', '') != self.resources[kind]):
-                    failures = True
+                    if not failures:
+                        failures.append(self._errors.get(key,dict(reason='subscription_destination_mismatch',workspace=self.workspace_id,account_id=account.id,kind=kind)))
                     continue
                 if row and row['expires'] > time.time() + 12 * 3600:
                     continue
@@ -108,6 +129,6 @@ class GraphSubscriptions:
                             except ValueError:
                                 delay = 60
                             self._deferred[key] = time.time() + delay
-                    failures = True
+                    note(exc,account.id,kind,'renew' if row else 'create')
         if failures:
-            raise GraphError('Microsoft subscription unavailable; polling continues.') from None
+            raise_failures()

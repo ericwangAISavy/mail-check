@@ -32,6 +32,22 @@ class NativeSheetTests(unittest.TestCase):
         response = self.client.get('/api/job-links?day=2026-11-23')
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['items'],[])
+        self.assertEqual(self.client.get('/api/job-links?limit=501').status_code,422)
+        self.assertEqual(self.client.get('/api/job-links?limit=500').status_code,200)
+        self.assertEqual(self.client.get('/api/job-links?start_date=2026-11-20&end_date=2026-11-23').status_code,200)
+        for query in ('start_date=2026-02-30','end_date=invalid','start_date=2026-11-24&end_date=2026-11-23'):
+            self.assertEqual(self.client.get('/api/job-links?'+query).status_code,422)
+
+    def test_job_library_local_filters_are_applied_before_returning_rows(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'filter-jobs',base['revision'],[
+            ['Greenhouse','Engineer','https://job-boards.greenhouse.io/acme/jobs/123456'],
+            ['Other','Engineer','https://jobs.test/acme']])
+        self.assertEqual(self.client.get('/api/job-links').json()['items'],[])
+        self.assertEqual(len(self.client.get('/api/job-links?exclude_my_links=false').json()['items']),2)
+        result=self.client.get('/api/job-links?exclude_my_links=false&exclude_one_page=true')
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual([row['company'] for row in result.json()['items']],['Other'])
 
     def test_search_does_not_materialize_editor_snapshots(self):
         from unittest.mock import patch

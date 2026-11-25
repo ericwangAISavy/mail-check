@@ -25,6 +25,7 @@ def failure(exc):
             result[key] = value
     if isinstance(exc, OSError) and exc.errno in (errno.EACCES, errno.EPERM):
         result['reason'] = 'permission_denied'
+    result.update(safe_evidence(getattr(exc,'health_evidence',None)))
     return result
 
 
@@ -33,11 +34,11 @@ def safe_evidence(value):
     if not isinstance(value, dict):
         return {}
     result = {}
-    for key in ('reason','error_type','scope','job_id','workspace','kind','source_location','worker','telemetry_status','telemetry_reason'):
+    for key in ('reason','error_type','scope','probe_stage','first_failure_reason','first_failure_stage','job_id','workspace','kind','operation','source_location','worker','telemetry_status','telemetry_reason'):
         item = value.get(key)
         if isinstance(item, str) and re.fullmatch(r'[a-zA-Z0-9_.:/ -]{1,180}', item):
             result[key] = item
-    for key in ('pid','attempt','errno','winerror','sqlite_errorcode','http_status','checked_at','duration_ms',
+    for key in ('pid','attempt','attempts','account_id','failure_count','errno','winerror','sqlite_errorcode','http_status','shell_http_status','asset_http_status','checked_at','duration_ms',
                 'operation_age_seconds','poll_age_seconds','telemetry_checked_at','telemetry_dropped_events','telemetry_publication_errors'):
         item = value.get(key)
         if type(item) in (int,float) and math.isfinite(item):

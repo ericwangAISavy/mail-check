@@ -391,15 +391,31 @@
 .calendar-analysis-status small { display:block; margin-top:6px; color:var(--muted-foreground); }
 @media(max-width:640px) { .calendar-analysis-status { align-items:flex-start; flex-direction:column; } }
 
-.interview-job-matches { margin-top:24px; padding-top:20px; border-top:1px solid var(--border); }
+.interview-job-matches { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
 .interview-job-matches h3 { margin:0 0 8px; font-size:15px; }
-.interview-job-match-list { list-style:none; margin:16px 0; padding:0; display:grid; gap:12px; }
-.interview-job-match-list > li { display:grid; gap:6px; padding:14px; border:1px solid var(--border); border-radius:8px; min-width:0; }
+.interview-job-match-list { list-style:none; margin:8px 0; padding:0; display:grid; gap:5px; }
+.interview-job-match-list > li { padding:4px 8px; border:1px solid var(--border); border-radius:7px; min-width:0; }
 .interview-job-match-list a { overflow-wrap:anywhere; color:var(--primary); }
 .interview-job-match-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
 .interview-job-match-head > strong { min-width:0; overflow-wrap:anywhere; }
 .interview-job-match-head > time { flex:none; color:var(--muted-foreground); font-size:var(--text-small); font-variant-numeric:tabular-nums; }
 .interview-job-match-meta { display:flex; flex-wrap:wrap; gap:6px; }
+.interview-job-match-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.interview-job-match-row > a { display:flex; align-items:center; gap:6px; flex:1; min-width:0; padding:5px 0; font-size:var(--text-small); }
+.interview-job-match-row > a strong,.interview-job-match-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.interview-job-match-row > a svg { flex:none; }
+.interview-job-match-title { flex:1; font-size:var(--text-small); }
+.interview-job-match-toggle { display:grid; place-items:center; width:30px; height:30px; flex:none; padding:0; border:0; border-radius:5px; background:transparent; color:var(--muted-foreground); cursor:pointer; }
+.interview-job-match-toggle:hover { background:var(--accent); color:var(--foreground); }
+.interview-job-match-toggle:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
+.interview-job-match-toggle svg { transition:transform 140ms; }
+.interview-job-match-toggle[aria-expanded="true"] svg { transform:rotate(180deg); }
+.interview-job-match-expanded { padding:5px 0; display:grid; gap:5px; }
+.interview-job-match-expanded[hidden] { display:none; }
+.interview-job-match-meta { align-items:center; }
+.interview-job-match-meta time { color:var(--muted-foreground); font-size:var(--text-small); }
+.interview-job-match-url { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted-foreground); font-size:var(--text-small); }
+@media (prefers-reduced-motion:reduce) { .interview-job-match-toggle svg { transition:none; } }
 /* Check now sits at the end of the date row, which is now the calendar's top row. */
 .outlook-date-bar > .interview-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: 12px; }
 @media (max-width: 700px) { .outlook-date-bar > .interview-actions { margin: 6px 0 0 auto; } }
@@ -487,6 +503,36 @@
 :root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past { opacity: .55; }
 
 .outlook-calendar .outlook-month-event.analysis-deferred { position: relative; }
+
+/* Keep profile colors/patterns visible; warnings add a separate danger outline. */
+.outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning) {
+  border:1px solid #ff7389;
+  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 1px #ff526870,0 3px 12px #ff38534a;
+  opacity:1;
+  -webkit-mask-image:none;
+  mask-image:none;
+}
+.outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning):hover {
+  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 2px #ff73898c,0 4px 14px #ff38535c;
+}
+.outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning):focus-visible { outline-color:#ff7389; }
+.outlook-calendar :is(.outlook-time-event,.outlook-month-event) .interview-feedback-indicator.is-warning {
+  color:#ffe296;
+  fill:#7f300a;
+  vertical-align:-3px;
+  filter:drop-shadow(0 0 3px #ffbd4759);
+}
+:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning) {
+  border-color:#c52b47;
+  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 1px #c52b4740,0 2px 10px #c52b4733;
+}
+:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning):hover {
+  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 2px #c52b4770,0 4px 14px #c52b4740;
+}
+:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event) .interview-feedback-indicator.is-warning {
+  color:#9c1730;
+  fill:#ffe08a;
+}
 .outlook-calendar .interview-event.analysis-deferred::before {
   content: "";
   position: absolute;

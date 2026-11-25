@@ -66,9 +66,9 @@ export function EmptyState({ title, description, action }: { title: string; desc
   return <div className="empty-state"><span className="empty-mark"><Check size={19} /></span><h2>{title}</h2><p>{description}</p>{action}</div>
 }
 
-export function CategoryBadge({ message }: { message: Pick<Message, "category" | "category_label" | "tier" | "deadline_display"> }) {
+export function CategoryBadge({ message }: { message: Pick<Message, "category" | "category_label" | "tier" | "deadline_display" | "application_matched"> }) {
   const urgent = message.tier === "act" || Boolean(message.deadline_display && /due today|overdue/i.test(message.deadline_display))
-  return <Badge variant={urgent ? "urgent" : message.tier === "reply" ? "default" : "muted"}>{message.category_label}</Badge>
+  return <><Badge variant={urgent ? "urgent" : message.tier === "reply" ? "default" : "muted"}>{message.category_label}</Badge>{message.category === "application_ack" && message.application_matched && <Badge variant="outline" className="border-emerald-500/25 bg-emerald-500/10 px-1.5 text-emerald-700 dark:text-emerald-300" title="Matched to a checked job link"><Check size={12} aria-hidden="true"/><span className="sr-only">Matched</span></Badge>}</>
 }
 
 export function useDoneMutation(onSuccess?: (message: Message) => void, scopedUndo=false) {

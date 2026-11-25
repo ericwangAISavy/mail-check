@@ -46,8 +46,17 @@ def duration_bin(seconds):
     return DURATION_BINS-1
 
 
+def start():
+    """Start the reporter before the first job, so idle workers report coverage."""
+    global _thread
+    with _start:
+        if _thread is None:
+            _thread=threading.Thread(target=_run,daemon=True,name='shared-telemetry')
+            _thread.start()
+
+
 def record(root,workspace,kind,action,job_id, *, evidence=None):
-    global _thread, _dropped_events, _last_drop
+    global _dropped_events, _last_drop
     if kind not in KINDS or action not in ACTIONS:
         return
     try:
@@ -59,10 +68,7 @@ def record(root,workspace,kind,action,job_id, *, evidence=None):
         _dropped_events+=1
         _last_drop=time.time()
         return
-    with _start:
-        if _thread is None:
-            _thread=threading.Thread(target=_run,daemon=True,name='shared-telemetry')
-            _thread.start()
+    start()
 
 
 def _duration(event):

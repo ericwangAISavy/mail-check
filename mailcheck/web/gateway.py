@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from .static_files import CompressedStaticFiles, PortableStaticFiles
 from starlette.requests import ClientDisconnect
@@ -77,6 +77,7 @@ class NewAdmin(BaseModel):
 class AdminUpdate(BaseModel):
     enabled: bool | None = None
     password: str | None = Field(default=None,min_length=12,max_length=256)
+    job_links_access: bool | None = None
 
 
 class AdminRemoval(BaseModel):
@@ -326,6 +327,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if identity and identity['role']=='bidder' and not path.startswith(('/assets/','/static/')):
             if path not in ('/api/auth/session','/api/auth/logout') and not viewer_read_allowed(path,request.method):
                 return JSONResponse({'error':'Bidder access is limited to your Inbox, Dashboard, Bidder management, and Job sourcing.'},403)
+        if path.rstrip('/') in ('/job-links','/api/job-links') and not (
+                identity and identity['role']=='admin' and (identity.get('is_owner') or identity.get('job_links_access'))):
+            return JSONResponse({'error':'The owner has not granted Job links access to this admin.'},403,headers={'Cache-Control':'no-store'})
         restricted_settings = path == '/system-monitoring' or path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)
@@ -477,11 +481,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         starts=getattr(pool,"start_times",lambda:{})()
         return {'admins':[{**u,'online':u['id'] in online,'worker_started_at':starts.get(u['workspace_id']),'health':status.get(u['workspace_id'],'starting or unavailable') if u['enabled'] else 'suspended'} for u in store.list_admins()], 'max_workspaces':store.max_workspaces}
 
+    @app.get('/api/job-links/')
     @app.get('/api/job-links')
-    def universal_job_links(request:Request,q:str='',cursor:str='',day:str=''):
+    def universal_job_links(request:Request,q:str='',cursor:str='',day:str='',start_date:str='',end_date:str='',limit:int=Query(100,ge=100,le=500),exclude_my_links:bool=True,exclude_one_page:bool=False):
         identity=request.state.identity
-        if not identity or identity['role']!='admin':
-            raise HTTPException(403,'Admin access required.')
+        if not identity or identity['role']!='admin' or not (identity.get('is_owner') or identity.get('job_links_access')):
+            raise HTTPException(403,'Job links access must be granted by the owner.')
         if len(q)>200 or len(cursor)>1024:
             raise HTTPException(422,'Search or cursor is too long.')
         from ..job_links import search
@@ -489,9 +494,16 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             workspaces=conn.execute('SELECT id,root FROM workspaces ORDER BY id').fetchall()
         sources=[(row['id'],Path(row['root'])/'data'/'mailcheck.db' if row['root'] else original_db) for row in workspaces]
         try:
-            return search(sources,q=q,cursor=cursor,day=day)
+            result=search(sources,q=q,cursor=cursor,day=day,start_date=start_date,end_date=end_date,limit=limit,
+                          exclude_source=identity['workspace_id'] if exclude_my_links else None,exclude_one_page=exclude_one_page)
         except ValueError as exc:
             raise HTTPException(422,str(exc)) from None
+        # A scan can outlive an owner revocation or a logout. Check the current
+        # session again without holding a control-database lock during the scan.
+        current=store.validate_dispatch(request.cookies.get(COOKIE),identity['workspace_id'],read_only=True)
+        if not (current.get('is_owner') or current.get('job_links_access')):
+            raise HTTPException(403,'Job links access must be granted by the owner.')
+        return result
 
     @app.post('/api/admin/users')
     async def create_admin(body:NewAdmin,request:Request):
@@ -505,14 +517,14 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # delayed suspension can stop a workspace after a re-enable completed.
         # Run this whole blocking operation off the gateway's event loop.
         with admin_change_lock:
-            wid=store.update_admin(token,user_id,enabled=body.enabled,password=body.password,expected_workspace=workspace)
+            wid=store.update_admin(token,user_id,enabled=body.enabled,password=body.password,job_links_access=body.job_links_access,expected_workspace=workspace)
             if body.enabled is False:pool.stop(wid)
             elif body.enabled is True:pool.enable(wid)
 
     @app.post('/api/admin/users/{user_id}')
     async def update_admin(user_id:int,body:AdminUpdate,request:Request):
         identity=owner(request)
-        if body.enabled is None and body.password is None:raise HTTPException(400,'Choose a password reset or access change.')
+        if body.enabled is None and body.password is None and body.job_links_access is None:raise HTTPException(400,'Choose a password reset or access change.')
         await asyncio.to_thread(apply_admin_update,request.cookies.get(COOKIE),user_id,body,request.headers.get('x-offerpath-workspace'))
         return {'ok':True}
 
@@ -666,6 +678,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         except TimeoutError:
             raise HTTPException(504,'This page took too long to load. Try again shortly.',
                                 headers={'Retry-After':'1'})
+
+    from .feedback_routes import install as install_feedback
+    install_feedback(app,store=store,original_db=original_db)
 
     if shared:
         from ..shared.events import install as install_realtime

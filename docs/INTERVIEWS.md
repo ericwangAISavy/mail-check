@@ -4,6 +4,52 @@ The admin-only Interview page displays interview-related calendar bookings in Wo
 Month and Day views. Named bidders are limited to their own sourcing sheets and payments. No production events are
 seeded, and existing mail history is preserved.
 
+## Calendar content analysis
+
+Calendar analysis uses its own context limit, independent of the email body
+limit. It retains up to 16,000 description characters and selects at most 12,000
+for the model, prioritizing hiring details over meeting boilerplate while
+preserving source order. Its cache tracks the analysis version, context limit
+and bounded source description, including changes beyond the selected excerpt.
+
+Ambiguous or below-80%-confidence decisions stay in **Needs review**, with their
+queued content retained. **Retry analysis** runs fresh inference; uncertain
+results are not cached as final decisions. Previously recognized interviews stay
+visible while analysis is uncertain or pending. Provider dates, cancellation
+state and meeting links remain authoritative, and manual corrections are protected.
+
+Only legacy pending tasks with the original queue version format recover fuller
+saved descriptions; current tasks keep their queued content, including deliberate
+description removals. Repeated unchanged review markers do not write event rows
+again. Run
+**Check now** or wait for the next calendar sync to requeue older completed
+analyses under the updated version. Full source content previously unavailable
+locally requires a calendar sync to recover.
+
+## Shared company feedback
+
+Open an interview event and use **Your feedback** to select any combination of
+`in-person`, `linkedin`, `fuck` and `normal`. Click a selected option again to
+clear it. These mean an in-person process, LinkedIn questions, intensive identity
+verification, and a warm/normal interview respectively. No description is needed.
+
+**Shared feedback** combines admins' choices for that company across workspaces.
+This panel appears above possible job matches. Calendar event titles show an
+amber warning triangle for `in-person`, `linkedin` or `fuck`, and a green check
+for `normal` alone. Warnings take priority when both types exist. Icons remain
+inside short event bars; tooltips and accessible names retain the full labels.
+Each admin edits only their own current
+company choices in the selected workspace. Clearing your choices preserves other
+admins' feedback. Case, punctuation and legal company suffixes are normalized;
+different company names are not fuzzily combined. Set the actual company first
+if an event only has a generic meeting title.
+
+Only the fixed labels are shared, without author names, mailbox information or
+other workspaces' event details. Feedback loads independently so an unavailable
+feedback store does not prevent using the calendar. Gateway deployments keep it
+in the control database; standalone deployments use `interview-feedback.db`
+beside the application database.
+
 ## Interview processes
 
 Open **Interview processes** in the sidebar to follow calendar events by organization.
@@ -92,6 +138,20 @@ read native calendar events using Microsoft Graph. The collector lists every
 accessible calendar and reads each calendar's `calendarView`, following calendar
 and event pagination. The default date window covers at least the previous year
 and one year ahead, independently of the mail lookback. It is based on event dates, not invitation receipt dates.
+
+That full read is what **Check now** does. Automatic runs are incremental:
+
+- Between full reads, only changes to the **primary** calendar are requested
+  (`/me/calendarView/delta`, the only calendar Microsoft documents change tracking for).
+- Every 30 minutes all calendars are read in full. This picks up changes and
+  deletions in other calendars and moves the date window forward. An expired change
+  token, or more than 50 changes at once, also causes a full read.
+- Events that have not changed are not queued or saved again.
+- With Microsoft change notifications active, fallback polling is every 15 minutes;
+  without them it stays at 2 minutes.
+
+Progress is kept in a `calendar-sync` folder beside the database. Deleting it is
+safe; the next run reads everything again.
 
 `calendarView` expands recurring occurrences and exceptions. When an Ollama server is
 configured in Settings, calendar sync uses its loaded model to classify each event

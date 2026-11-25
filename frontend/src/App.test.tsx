@@ -382,7 +382,7 @@ it('opens shared job links for an admin even when their workspace API is unavail
  Element.prototype.scrollIntoView=vi.fn()
  const query=Element.prototype.querySelector
  vi.spyOn(Element.prototype,'querySelector').mockImplementation(function(this:Element,selector:string){return query.call(this,selector.startsWith('&')?':scope'+selector.slice(1):selector)} as typeof Element.prototype.querySelector)
- vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:false,workspace_id:'workspace-one',username:'alice'})
+ vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:false,job_links_access:true,workspace_id:'workspace-one',username:'alice'})
  vi.mocked(api.bootstrap).mockRejectedValue(new Error('Workspace API unavailable'))
  const status=vi.spyOn(api,'status').mockResolvedValue(idle)
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(
@@ -395,4 +395,31 @@ it('opens shared job links for an admin even when their workspace API is unavail
  expect(screen.getByRole('link',{name:'Job links'})).toBeTruthy()
  expect(api.bootstrap).not.toHaveBeenCalled()
  expect(status).not.toHaveBeenCalled()
+ vi.mocked(api.session).mockResolvedValue({role:'admin',is_owner:false,job_links_access:false,workspace_id:'workspace-one',username:'alice'})
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>String(url).startsWith('/api/job-links')?new Response(JSON.stringify({error:'Access revoked'}),{status:403,headers:{'Content-Type':'application/json'}}):new Response(JSON.stringify({configured:false}),{headers:{'Content-Type':'application/json'}})))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh job links'}))
+ await screen.findByRole('heading',{name:'Job links access required'})
+ expect(screen.queryByRole('link',{name:'Job links'})).toBeNull()
+ await waitFor(()=>expect(client.getQueriesData({queryKey:['job-links']})).toHaveLength(0))
+})
+
+it('hides Job links and denies direct navigation for an admin without a grant',async()=>{
+ vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:false,job_links_access:false,workspace_id:'workspace-one',username:'alice'})
+ const fetch=vi.fn(async(_url:string)=>new Response(JSON.stringify({configured:false}),{headers:{'Content-Type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch)
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/job-links']}><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByRole('heading',{name:'Job links access required'})
+ expect(screen.queryByRole('link',{name:'Job links'})).toBeNull()
+ expect(fetch.mock.calls.some(call=>String(call[0]).startsWith('/api/job-links'))).toBe(false)
+})
+
+it.each(['legacy','another-workspace'])('always allows owner Job links access while viewing %s',async(workspace_id)=>{
+ vi.stubGlobal('ResizeObserver',class{observe(){}unobserve(){}disconnect(){}})
+ vi.spyOn(api,'session').mockResolvedValue({role:'admin',is_owner:true,job_links_access:false,workspace_id})
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(String(url).startsWith('/api/job-links')?{items:[],next_cursor:null,incomplete:false}:{configured:false}),{headers:{'Content-Type':'application/json'}})))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/job-links']}><App/></MemoryRouter></QueryClientProvider>)
+ await screen.findByRole('grid',{name:'Shared job links'})
+ expect(screen.getByRole('link',{name:'Job links'})).toBeTruthy()
 })

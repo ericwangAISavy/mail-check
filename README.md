@@ -72,6 +72,11 @@ open **Admin management** to create admins. Added admins must change their tempo
 password before accessing their own email accounts, bidders and application data.
 Bidders are managed records and no longer sign in.
 
+The owner always has access to the shared **Job links** library. Other admins,
+including existing accounts after an upgrade, need the owner to enable
+**Job links access** on their admin card. The owner can revoke it without signing
+the admin out; API access changes immediately and active menus refresh automatically.
+
 The owner's existing database/configuration/OS-keyring entries stay in place.
 New workspaces have separate databases, credential namespaces and worker
 processes. Only the owner can access Settings; all admins inherit that shared

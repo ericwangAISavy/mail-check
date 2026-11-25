@@ -15,6 +15,70 @@ class QueueTests(unittest.TestCase):
     source = fixtures.NativeCalendarTests.source
     Model = fixtures.CalendarAnalysisTests.Model
 
+    def test_uncertain_decision_retains_content_for_explicit_retry(self):
+        for is_interview in (False,True):
+            item=event('uncertain-'+str(is_interview))
+            cfg,_=self.collect([item])
+            model=self.Model(is_interview_event=is_interview,confidence=.4,ambiguous=True)
+            result=interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=model,limit=1)
+            task=self.conn.execute('SELECT * FROM calendar_analysis_tasks WHERE external_id=?',('graph-event:'+item['id'],)).fetchone()
+            self.assertEqual(task['state'],'needs_review')
+            self.assertIsNotNone(task['booking'])
+            self.assertIn('uncertain',task['last_error'].lower())
+            self.assertEqual(len(interviews.list_events(self.conn)),1)
+            queue.retry_now(self.conn);self.conn.commit()
+            recovered=self.Model()
+            result=interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=recovered,limit=1)
+            self.assertEqual(len(recovered.calls),1)
+            self.assertEqual(result['needs_review'],0)
+            row=self.conn.execute('SELECT state,booking FROM calendar_analysis_tasks WHERE id=?',(task['id'],)).fetchone()
+            self.assertEqual(tuple(row),('done',None))
+
+    def test_long_description_is_kept_in_durable_queue_independent_of_mail_limit(self):
+        item=event('long');item['body']={'contentType':'text','content':'Meeting details. '*900+' Employer: Acme; Role: Engineer'}
+        cfg,_=self.collect([item])
+        booking=queue.decode(self.conn.execute('SELECT * FROM calendar_analysis_tasks').fetchone())
+        self.assertGreater(len(booking.description),cfg.llm.max_body_chars)
+        model=self.Model()
+        interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=model)
+        self.assertIn('Employer: Acme',model.calls[0][1]['description'])
+        self.assertLessEqual(len(model.calls[0][1]['description']),12000)
+
+    def test_old_truncated_task_recovers_longer_saved_source_description(self):
+        import json
+        import hashlib
+        item=event('legacy-long');item['body']={'contentType':'text','content':'Introduction. '*300+' Employer: Acme; Role: Engineer'}
+        cfg,_=self.collect([item])
+        task=self.conn.execute('SELECT * FROM calendar_analysis_tasks').fetchone()
+        value=json.loads(task['booking']);value['description']=value['description'][:1200]
+        payload=json.dumps(value,sort_keys=True)
+        self.conn.execute('UPDATE calendar_analysis_tasks SET booking=?,version=? WHERE id=?',
+            (payload,hashlib.sha256(payload.encode()).hexdigest(),task['id']));self.conn.commit()
+        model=self.Model()
+        interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=model)
+        self.assertIn('Employer: Acme',model.calls[0][1]['description'])
+
+    def test_new_shortened_description_does_not_restore_outdated_source_details(self):
+        item=event('shortened')
+        prefix='Interview details. '*20
+        item['body']={'contentType':'text','content':prefix+'Employer: Old Employer; Role: Old Role'}
+        cfg,_=self.collect([item])
+        booking=queue.decode(self.conn.execute('SELECT * FROM calendar_analysis_tasks').fetchone())
+        booking.description=prefix
+        # Simulate the interval after a current collector queues its new content
+        # but before it replaces the previous interview_source_details row.
+        queue.enqueue(self.conn,self.a,booking,cached=False,max_chars=16000)
+        model=self.Model()
+        interviews.resume_calendar_analysis(self.conn,cfg,analysis_client=model)
+        self.assertEqual(model.calls[0][1]['description'],prefix)
+
+    def test_repeated_uncertain_mark_does_not_write_or_publish_unchanged_events(self):
+        self.collect([event('review-repeat')])
+        queue.mark_uncertain_events(self.conn,self.a,'graph-event:review-repeat');self.conn.commit()
+        before=self.conn.total_changes
+        queue.mark_uncertain_events(self.conn,self.a,'graph-event:review-repeat');self.conn.commit()
+        self.assertEqual(self.conn.total_changes,before)
+
     def collect(self, items, label='work'):
         cfg=config.Config();cfg.llm.base_url='http://model.test'
         with patch.object(pipeline,'build_source',return_value=self.source(items)),patch('mailcheck.calendar_analysis.LLMClient.from_config',side_effect=AssertionError('Collection must not wait for inference')):
@@ -116,7 +180,7 @@ class QueueTests(unittest.TestCase):
         self.conn.execute('UPDATE calendar_analysis_tasks SET lease_until=0');self.conn.commit()
         new=queue.claim(self.conn)
         self.assertFalse(queue.current(self.conn,old));self.assertTrue(queue.current(self.conn,new))
-        queue.finish(self.conn,old);queue.retry(self.conn,old,'Stale failure',service_unavailable=True);self.conn.commit()
+        queue.finish(self.conn,old);queue.retry(self.conn,old,'Stale failure',service_unavailable=True);queue.review(self.conn,old);self.conn.commit()
         self.assertTrue(queue.current(self.conn,new))
         self.assertEqual(self.conn.execute('SELECT next_run FROM calendar_analysis_worker').fetchone()[0],0)
         queue.finish(self.conn,new);self.conn.commit()

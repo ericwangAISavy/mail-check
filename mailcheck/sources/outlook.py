@@ -32,6 +32,19 @@ SELECT = (
 )
 PAGE_SIZE = 50
 MAX_PAGES = 40  # a hard stop so a pathological mailbox cannot loop forever
+#: Above this many changed events, one full listing is cheaper than fetching each.
+MAX_CHANGES = 50
+
+
+class GraphStatusError(SourceError):
+    """A Graph request the service rejected, with its HTTP status."""
+    def __init__(self, message: str, status: int, body: str = ""):
+        super().__init__(message)
+        self.status, self.body = status, body
+
+
+class CalendarResyncRequired(SourceError):
+    """The change token cannot be used; read the whole calendar again."""
 
 
 class OutlookGraphSource:
@@ -84,8 +97,9 @@ class OutlookGraphSource:
                     f"(HTTP {resp.status_code}). Reconnect the account in Accounts; calendar collection requires read-only Calendars.Read access."
                 )
             if resp.status_code >= 400:
-                raise SourceError(
-                    f"Microsoft Graph error {resp.status_code}: {resp.text[:200]}"
+                raise GraphStatusError(
+                    f"Microsoft Graph error {resp.status_code}: {resp.text[:200]}",
+                    resp.status_code, resp.text[:500],
                 )
             try:
                 return resp.json()
@@ -191,6 +205,75 @@ class OutlookGraphSource:
                 pages += 1
         if invalid_events:
             raise SourceError(f"Microsoft returned {invalid_events} invalid calendar events; other valid bookings were collected.")
+
+    # ------------------------------------------------- calendar change tracking
+    # Microsoft documents change tracking for the primary calendar only
+    # (/me/calendarView/delta). Other calendars are covered by full listings.
+
+    def _delta_pages(self, client: httpx.Client, url: str, params: dict | None = None) -> tuple[list, str]:
+        items: list = []
+        client.headers["Prefer"] = 'outlook.timezone="UTC", IdType="ImmutableId", odata.maxpagesize=100'
+        for _ in range(MAX_PAGES):
+            try:
+                data = self._get(client, url, params)
+            except GraphStatusError as exc:
+                if exc.status == 410 or any(code in exc.body.lower() for code in ("syncstatenotfound", "resyncrequired")):
+                    raise CalendarResyncRequired("Microsoft asked for a new full calendar read.") from exc
+                raise
+            if not isinstance(data, dict) or not isinstance(data.get("value"), list):
+                raise SourceError("Microsoft returned an invalid calendar change list; collection is incomplete.")
+            items.extend(data["value"])
+            link = data.get("@odata.deltaLink")
+            if isinstance(link, str) and link.startswith(GRAPH + "/"):
+                return items, link
+            url, params = data.get("@odata.nextLink"), None
+            if not isinstance(url, str) or not url.startswith(GRAPH + "/"):
+                break
+        raise SourceError("Microsoft did not finish the calendar change list; collection is incomplete.")
+
+    def calendar_delta_start(self, since: date, until: datetime) -> str:
+        """A change token for the primary calendar, valid from this moment."""
+        start = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+        with self._client(calendar=True) as client:
+            _, link = self._delta_pages(client, f"{GRAPH}/me/calendarView/delta",
+                {"startDateTime": start.isoformat(), "endDateTime": until.isoformat()})
+        return link
+
+    def calendar_changes(self, delta_link: str) -> tuple[list[CalendarBooking], list[str], str]:
+        """Changed bookings, removed provider ids and the next token.
+
+        Each changed id is read as a whole event: change lists can carry only a
+        few fields for recurring occurrences, and "removed" also covers events
+        that merely moved, so the event itself is the authority.
+        """
+        if not delta_link.startswith(GRAPH + "/"):
+            raise CalendarResyncRequired("The saved calendar change token is not usable.")
+        bookings: list[CalendarBooking] = []
+        removed: list[str] = []
+        with self._client(calendar=True) as client:
+            items, link = self._delta_pages(client, delta_link)
+            identities = [item.get("id") if isinstance(item, dict) else None for item in items]
+            if not all(isinstance(identity, str) and identity for identity in identities):
+                raise SourceError("Microsoft returned a changed event without an identity; collection is incomplete.")
+            identities = list(dict.fromkeys(identities))
+            if len(identities) > MAX_CHANGES:
+                raise CalendarResyncRequired("Many calendar events changed; reading the whole calendar instead.")
+            calendar = self._get(client, f"{GRAPH}/me/calendar", {"$select": "id,name"}) if identities else {}
+            for identity in identities:
+                try:
+                    item = self._get(client, f"{GRAPH}/me/events/{quote(identity, safe='')}")
+                except GraphStatusError as exc:
+                    if exc.status in (404, 410):
+                        removed.append("graph-event:" + identity)
+                        continue
+                    raise
+                if item.get("type") == "seriesMaster":
+                    continue  # its occurrences are listed individually
+                try:
+                    bookings.append(_calendar_booking(item, calendar))
+                except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                    raise SourceError("Microsoft returned an invalid changed event; collection is incomplete.") from exc
+        return bookings, removed, link
 
     def fetch_unread(self, since: date | datetime, *, include_read: bool = False) -> Iterator[RawMessage]:
         if isinstance(since, datetime):

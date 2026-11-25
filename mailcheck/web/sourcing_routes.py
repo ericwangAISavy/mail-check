@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 import sqlite3
 import uuid
 from datetime import date
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .. import db, native_sourcing as sheets, sourcing_csv, payments
@@ -121,7 +121,7 @@ class ClearHistory(HistoryScope):
     operation: uuid.UUID
 
 
-def install(app, frontend_page, secure_cookies):
+def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
     router = APIRouter()
     from ..sourcing_progress import ProgressStore
     from contextlib import nullcontext
@@ -136,21 +136,27 @@ def install(app, frontend_page, secure_cookies):
         if req.state.role != "admin" or getattr(req.state, 'viewer_read_only', False):
             raise HTTPException(403, "Admin access required.")
 
-    @router.get('/api/job-links')
-    def universal_job_links(req: Request, q: str = '', cursor: str = '', day: str = ''):
+    def job_links_admin(req):
         admin(req)
+        if gateway_managed:
+            raise HTTPException(403,'Job links is available only through the permission-checked gateway endpoint.')
+
+    @router.get('/api/job-links')
+    def universal_job_links(req: Request, q: str = '', cursor: str = '', day: str = '', start_date: str = '', end_date: str = '', limit: int = Query(100,ge=100,le=500), exclude_my_links: bool = True, exclude_one_page: bool = False):
+        job_links_admin(req)
         if len(q)>200 or len(cursor)>1024:
             raise HTTPException(422,'Search or cursor is too long.')
         from ..job_links import search
         from .. import config
         try:
-            return search([('local',config.db_path())],q=q,cursor=cursor,day=day)
+            return search([('local',config.db_path())],q=q,cursor=cursor,day=day,start_date=start_date,end_date=end_date,limit=limit,
+                          exclude_source='local' if exclude_my_links else None,exclude_one_page=exclude_one_page)
         except ValueError as exc:
             raise HTTPException(422,str(exc)) from None
 
     @router.get('/job-links')
     def job_links_page(req: Request):
-        admin(req)
+        job_links_admin(req)
         return frontend_page()
 
     def history_call(req, action):

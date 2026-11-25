@@ -243,6 +243,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const { role, signOut, session } = useAuth()
   const admin = role === "admin"
   const canManageSettings = admin && (!session?.workspace_id || !!session.is_owner)
+  const canViewJobLinks = admin && (canManageSettings || session?.job_links_access === true)
   const toast = useToast()
   const [collapsed, setCollapsed] = useState(readBrowserPreference("mailcheck.sidebar") === "collapsed")
   const [mobileNav, setMobileNav] = useState(false)
@@ -285,7 +286,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter(s=>s.to!=="/job-links" || canViewJobLinks).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
         // Keep the current URL, including filters updated through browser history.
         // Modified clicks retain the link's normal browser behavior.
         const plain = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
@@ -313,7 +314,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/interview-processes" element={admin ? <InterviewPipelinePage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/interview-processes/legacy" element={admin ? <InterviewProcessesPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/sourcing" element={<SourcingPage />} />
-        <Route path="/job-links" element={admin ? <JobLinks/> : <Navigate to="/dashboard" replace/>} />
+        <Route path="/job-links" element={canViewJobLinks ? <JobLinks/> : admin ? <div className="page-wrap"><PageHeading title="Job links access required" description="Ask the owner to enable Job links access for your admin account."/></div> : <Navigate to="/dashboard" replace/>} />
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />

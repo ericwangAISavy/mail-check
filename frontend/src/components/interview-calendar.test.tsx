@@ -9,6 +9,23 @@ import type { InterviewEvent } from "@/lib/types"
 const accounts=[{id:1,label:'personal',email:'me@example.test'},{id:2,label:'work',email:'work@example.test'}]
 const event=(id:number,label:string):InterviewEvent=>({id,account_labels:[label],company:label==='work'?'Work Company':'Personal Company',role:'Engineer',stage:'Technical Interview',calendar_uid:null,status:'Scheduled',display_status:'Scheduled',start_at:new Date(2026,9,15,10).toISOString(),end_at:new Date(2026,9,15,11).toISOString(),timezone:'UTC',meeting_platform:null,meeting_url:null,location:null,organizer_name:null,organizer_email:null,participants:[],notes:null,confidence:1,needs_review:false,review_reason:null,manual_fields:[],created_at:'2026-10-15T00:00:00Z',updated_at:'2026-10-15T00:00:00Z'})
 const clipboard=Object.getOwnPropertyDescriptor(navigator,'clipboard')
+
+it('keeps the normal indicator inside the title of a short calendar event',()=>{
+ const value:InterviewEvent={...event(1,'personal'),feedback_tags:['normal'],end_at:new Date(2026,9,15,10,5).toISOString()}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ const icon=screen.getByRole('img',{name:'Normal feedback'})
+ expect(icon.closest('.outlook-time-event.is-short > strong')).toBeTruthy()
+ expect(screen.queryByRole('img',{name:/Warning feedback/})).toBeNull()
+})
+
+it('shows a warning icon in week and month views and includes feedback in event accessible names',()=>{
+ const value:InterviewEvent={...event(1,'personal'),feedback_tags:['in-person','linkedin']}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ expect(screen.getByRole('button',{name:/Personal Company,.*in-person, linkedin/})).toBeTruthy()
+ expect(screen.getByRole('img',{name:'Warning feedback: in-person, linkedin'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Month'}))
+ expect(document.querySelector('.outlook-month-event .interview-feedback-indicator')).toBeTruthy()
+})
 afterEach(()=>{cleanup();localStorage.clear();sessionStorage.clear();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks();vi.useRealTimers()})
 function mount(){render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&account=work']}><ToastProvider><InterviewCalendar commandBar events={[event(1,'personal'),event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={<label>Account filter<input aria-label="Account filter"/></label>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
 it('opens real filters and partitions split calendars by source account',()=>{

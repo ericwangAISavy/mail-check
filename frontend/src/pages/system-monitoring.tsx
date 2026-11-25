@@ -9,7 +9,7 @@ import MonitorChart,{Sparkline,type ChartSeries} from '@/components/monitor-char
 import './system-monitoring.css'
 
 type Health='healthy'|'degraded'|'unavailable'|'disabled'|'unknown'
-type Component={id:string;name:string;status:Health;detail:string;workspace?:string|null}
+type Component={id:string;name:string;status:Health;detail:string;workspace?:string|null;reason?:string}
 type Queue={kind:string;pending:number;retry:number;dead:number}
 type Workspace={id:string;name:string;enabled:boolean;outbox:number|null;pending_jobs?:number|null;accounts:{account_id:number;enabled:boolean;last_sync:number|null;status:Health}[];queues:Queue[]}
 type Event={detail?:string;job_id?:string;evidence?:Record<string,string|number>;id:string;at:number;workspace:string;component:string;action:string;status:Health}
@@ -44,23 +44,23 @@ function services(data:Snapshot){
  const tiles:{id:string;name:string;status:Health;meter?:[number,number];note?:string;detail?:string;evidence?:Component[]}[]=[]
  const pools:[string,string][]=[['shared-api-','API pool'],['shared-job-collection-','Collection pool'],['shared-job-model-','Model worker']]
  const short:Record<string,string>={'model-scheduler':'Model scheduler','control-db':'Control database','rabbitmq':'RabbitMQ','redis':'Redis'}
- for(const c of items.filter(c=>!c.workspace&&!pools.some(([prefix])=>c.id.startsWith(prefix))))tiles.push({id:c.id,name:short[c.id]??c.name,status:c.status,detail:c.detail,evidence:[c]})
+ for(const c of items.filter(c=>(!c.workspace||c.id.startsWith('subscriptions:')||c.id.startsWith('coordinator:'))&&!pools.some(([prefix])=>c.id.startsWith(prefix))))tiles.push({id:c.id,name:short[c.id]??c.name,status:c.status,detail:c.detail,evidence:[c]})
  for(const [prefix,name] of pools){
-  const members=items.filter(c=>!c.workspace&&c.id.startsWith(prefix));if(!members.length)continue
+  const members=items.filter(c=>c.id.startsWith(prefix));if(!members.length)continue
   const ready=members.filter(c=>c.status==='healthy').length
   tiles.push({id:prefix,name,status:ready===members.length?'healthy':members.every(c=>c.status==='unavailable')?'unavailable':members.every(c=>c.status==='unknown')?'unknown':'degraded',meter:[ready,members.length],note:`${ready}/${members.length} ready`,evidence:members})
  }
  for(const c of items.filter(c=>pools.some(([prefix])=>c.id.startsWith(prefix))&&c.status!=="healthy"))tiles.push({id:c.id,name:c.name,status:c.status,detail:c.detail,evidence:[c]})
  const databases=items.filter(c=>c.workspace&&c.id.endsWith(':database')&&c.status!=='disabled')
  const incomplete=items.some(c=>c.id==='workspace-registry'&&c.status!=='healthy')
- if(databases.length){const ok=databases.filter(c=>c.status==='healthy').length;tiles.push({id:'databases',name:'Databases',status:worst([...databases.map(c=>c.status),...(incomplete?['unknown' as Health]:[])]),meter:[ok,databases.length],note:`${ok}/${databases.length} readable${incomplete?' · coverage unknown':''}`,evidence:databases})}
+ if(databases.length){const ok=databases.filter(c=>c.status==='healthy').length,missing=databases.filter(c=>c.reason==='database_missing').length;tiles.push({id:'databases',name:'Databases',status:worst([...databases.map(c=>c.status),...(incomplete?['unknown' as Health]:[])]),meter:[ok,databases.length],note:`${ok}/${databases.length} readable${missing?` · ${missing} not initialized`:''}${incomplete?' · coverage unknown':''}`,evidence:databases})}
  const active=data.workspaces.filter(w=>w.enabled)
  const outbox=active.reduce((sum,w)=>sum+(w.outbox??0),0)
  const unknown=active.filter(w=>w.outbox===null).length
  if(active.length||incomplete)tiles.push({id:'publication',name:'Publication',status:outbox?'degraded':unknown||incomplete?'unknown':'healthy',note:[outbox?`${count(outbox)} waiting`:'',unknown?`${unknown} unknown`:'',incomplete?'coverage unknown':''].filter(Boolean).join(' · ')||'No pending outbox rows',detail:'Outbox counts only. An empty outbox does not prove delivery to browsers.'})
  return tiles
 }
-const evidenceFields=new Set(['scope','reason','pid','worker','workspace','job_id','kind','attempt','error_type','errno','winerror','sqlite_errorcode','http_status','source_location','checked_at','duration_ms','operation_age_seconds','poll_age_seconds','write_status','telemetry_status','telemetry_reason','telemetry_checked_at'])
+const evidenceFields=new Set(['scope','reason','probe_stage','first_failure_reason','first_failure_stage','attempts','shell_http_status','asset_http_status','pid','worker','workspace','account_id','operation','failure_count','job_id','kind','attempt','error_type','errno','winerror','sqlite_errorcode','http_status','source_location','checked_at','duration_ms','operation_age_seconds','poll_age_seconds','write_status','telemetry_status','telemetry_reason','telemetry_checked_at'])
 function Evidence({value}:{value:object}){
  return <dl className="monitor-evidence">{Object.entries(value).filter(([key,item])=>evidenceFields.has(key)&&(typeof item==='string'||typeof item==='number')).map(([key,item])=><div key={key}><dt>{key.replaceAll('_',' ')}</dt><dd>{key==='checked_at'?new Date(Number(item)*1000).toLocaleString():String(item)}</dd></div>)}</dl>
 }
@@ -105,7 +105,7 @@ export function MonitoringView({owner,independent=false}:{owner:boolean;independ
  const perMinute=metrics?(metrics.step/60)*metrics.buckets.length:1
  const errorTone:Health=s?.error_rate==null?'healthy':s.error_rate>=.05?'unavailable':s.error_rate>=.01?'degraded':'healthy'
  const failTone:Health=s?.failure_rate==null?'healthy':s.failure_rate>=.2?'unavailable':s.failure_rate>=.05?'degraded':'healthy'
- const backlogTone:Health=!backlog?'healthy':backlog.dead?'unavailable':backlog.retry?'degraded':'healthy'
+ const backlogTone:Health=!backlog?'unknown':backlog.retry?'degraded':'healthy'
  const problems=(data?.events??[]).filter(e=>allEvents||['retry_or_failed','discarded','service_failed','service_degraded','service_unknown','deferred_busy','deferred_offline','deferred_state'].includes(e.action))
  const stageQueue=new Map(queues?.map(q=>[q.kind,q]))
  const stageRows=metrics?[...metrics.stages,...[...stageQueue.keys()].filter(k=>!metrics.stages.some(st=>st.stage===k)).map(k=>({stage:k,queued:0,started:0,completed:0,retry_or_failed:0,discarded:0,failure_rate:null,duration_p50:null,duration_p95:null}))]:[]
@@ -126,14 +126,15 @@ export function MonitoringView({owner,independent=false}:{owner:boolean;independ
   {data&&<div className={`monitor-body${series.isFetching&&series.isPlaceholderData?' is-refreshing':''}`}>
    {metrics?.observer_stale&&<p role="status" className="muted">Charts show recorded data from {new Date(metrics.generated_at*1000).toLocaleString()}. Waiting for updated metrics.</p>}
    {!trafficAvailable&&<p role="status" className="inline-error">Traffic measurements are unavailable while the gateway cannot report. Job and queue charts use independent observations.</p>}
-   {(metrics?.jobs_current_available===false||metrics?.jobs_coverage_incomplete)&&<p role="status" className="inline-error">Job observation coverage is incomplete. Totals show recorded events; chart gaps are not proof of zero activity.</p>}
+   {metrics?.jobs_current_available===false?<p role="status" className="monitor-coverage-warning">Job monitoring is not fully reporting. Expand Job telemetry → Evidence to identify affected workers.</p>:metrics?.jobs_coverage_incomplete?<details className="monitor-history-note"><summary>Earlier monitoring gaps</summary><p>Some intervals in this time range have no confirmed job telemetry. Totals include recorded events; gaps do not mean zero jobs.</p></details>:null}
    <section className="monitor-stats" aria-label="Key metrics">
     <Stat label="Requests" value={s&&trafficAvailable?count(s.requests):'—'} sub={s&&trafficAvailable?`${count(s.requests/perMinute)}/min average`:undefined} trend={trafficAvailable?t?.requests:undefined} color={C.blue}/>
     <Stat label="Server errors" value={percent(trafficAvailable?s?.error_rate??null:null)} sub={s&&trafficAvailable?`${count(s.server_errors)} 5xx · ${count(s.client_errors)} 4xx`:undefined} trend={trafficAvailable?t?.server_errors:undefined} color={C.critical} tone={trafficAvailable?errorTone:'unknown'}/>
     <Stat label="Response time p95" value={trafficAvailable&&s?.p95!=null?ms(s.p95):'—'} sub={trafficAvailable&&s?.p50!=null?`p50 ${ms(s.p50)}`:undefined} trend={trafficAvailable?t?.p95:undefined} color={C.blue}/>
     <Stat label="Jobs completed" value={s&&jobs?count(s.completed):'—'} sub={!jobs?'Not tracked in this mode':s?`${count(s.completed/perMinute*60)}/hour`:undefined} trend={jobs?j?.completed:undefined} color={C.blue}/>
     <Stat label="Retries & failures" value={s&&jobs?count(s.failed+s.discarded):'—'} sub={!jobs?'Not tracked in this mode':s?(s.failure_rate===null?'No finished jobs':`${percent(s.failure_rate)} of finished jobs`):undefined} trend={jobs?j?.failed:undefined} color={C.serious} tone={jobs?failTone:undefined}/>
-    <div role="region" aria-label="Queue backlog" className="monitor-backlog-region"><Stat label="Queue backlog" value={backlog?count(backlog.pending+backlog.retry+backlog.dead):'—'} sub={backlog?`${count(backlog.pending)} ready · ${count(backlog.retry)} retrying · ${count(backlog.dead)} dead`:'Queue metrics unavailable.'} trend={q?.ready} color={C.blue} tone={backlogTone}/></div>
+    <div role="region" aria-label="Queue backlog" className="monitor-backlog-region"><Stat label="Queue backlog" value={backlog?count(backlog.pending+backlog.retry):'—'} sub={backlog?`${count(backlog.pending)} ready · ${count(backlog.retry)} retrying`:'Queue metrics unavailable.'} trend={q?.ready} color={C.blue} tone={backlogTone}/></div>
+    <div role="region" aria-label="Dead-lettered jobs" className="monitor-backlog-region"><Stat label="Dead-lettered jobs" value={backlog?count(backlog.dead):'—'} sub={backlog?'Retained failed jobs':'Queue metrics unavailable.'} trend={q?.dead} color={C.critical} tone={!backlog?'unknown':backlog.dead?'unavailable':'healthy'}/></div>
    </section>
 
    <section className="monitor-services" aria-label="Service health">{services(data).map(tile=>{if(stale)tile={...tile,status:"unknown",note:"Last known state"};const Icon=STATUS[tile.status].icon;return <div key={tile.id} className={`monitor-service is-${tile.status}`} title={tile.detail}>
@@ -150,8 +151,8 @@ export function MonitoringView({owner,independent=false}:{owner:boolean;independ
      series={[chart('p95','p95',C.blue,t.p95,'line'),chart('p50','p50',C.aqua,t.p50,'line')]}/></>}
     {jobs&&<MonitorChart title="Job outcomes" summary={`${count(s!.completed)} completed`} buckets={metrics.buckets} step={metrics.step} format={count}
      series={[chart('done','Completed',C.blue,j.completed,'bar'),chart('retry','Retried or failed',C.serious,j.failed,'bar'),chart('dead','Discarded',C.critical,j.discarded,'bar')]}/>}
-    <MonitorChart title="Queue backlog" summary={backlog?`${count(backlog.pending+backlog.retry+backlog.dead)} now`:undefined} buckets={metrics.buckets} step={metrics.step} format={count}
-     series={[chart('ready','Ready',C.blue,q.ready,'line'),chart('retrying','Retrying',C.serious,q.retry,'line'),chart('deadq','Dead letters',C.critical,q.dead,'line')]}/>
+    <MonitorChart title="Queue backlog" summary={backlog?`${count(backlog.pending+backlog.retry)} now`:undefined} buckets={metrics.buckets} step={metrics.step} format={count}
+     series={[chart('ready','Ready',C.blue,q.ready,'line'),chart('retrying','Retrying',C.serious,q.retry,'line')]}/>
    </div>:series.isError?<p role="alert" className="inline-error">Graphs are unavailable. {series.error.message}</p>:<Loading/>}
 
    {stageRows.length>0&&(jobs||stageQueue.size>0)&&<section aria-labelledby="monitor-stages"><h2 id="monitor-stages">Processing stages</h2>

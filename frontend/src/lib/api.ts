@@ -1,6 +1,6 @@
 import type { Account, Bootstrap, Settings, TriageData } from "./types"
 
-export type Session = {role: "admin" | "bidder" | null; bidder_id?: number; bidder_name?:string; user_id?: number; username?: string; is_owner?: boolean; workspace_id?: string; workspace_name?: string; must_change_password?: boolean; managed?: boolean}
+export type Session = {role: "admin" | "bidder" | null; bidder_id?: number; bidder_name?:string; user_id?: number; username?: string; is_owner?: boolean; job_links_access?:boolean; workspace_id?: string; workspace_name?: string; must_change_password?: boolean; managed?: boolean}
 let workspaceId: string | undefined
 let sessionIdentity: string | undefined
 let identityRevision = 0

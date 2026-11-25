@@ -255,6 +255,7 @@ class MessageSummary(BaseModel):
     snippet: str = ""
     provider_url: str | None = None
     handled_at: str | None = None
+    application_matched: bool = False
     account_label: str
     provider: str = "imap"
     category: str
@@ -506,7 +507,7 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False, scheduled: bo
                     if account_ids is not None:
                         calendar_ids &= account_ids
                     calendar = interviews.collect_calendar_events(conn, cfg,
-                        since_days=body.since_days, defer_analysis=True,
+                        since_days=body.since_days, defer_analysis=True, incremental=scheduled,
                         account_ids=calendar_ids, status=lambda message: _job.update(message=message)
                     ) if calendar_ids else {"changes": [], "errors": []}
                 calendar_changes = calendar['changes']
@@ -623,7 +624,8 @@ def _run_calendar_analysis():
     def work():
         cfg = cfgmod.load()
         with db.session() as conn:
-            result = interviews.resume_calendar_analysis(conn,cfg,status=lambda message:_job.update(message=message))
+            # A small batch per run: classification shares this model worker.
+            result = interviews.resume_calendar_analysis(conn,cfg,status=lambda message:_job.update(message=message),limit=10)
         review_note = f" · {result['needs_review']} need review" if result.get('needs_review') else ''
         _job.update(interview_changes=result['changes'],message=f"Calendar analysis · {result['done']} of {result['total']} complete · {result['pending']} remaining{review_note}",
             detail=result['last_error'],ok=True)
@@ -853,7 +855,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return FileResponse(index, headers={"Cache-Control": "no-cache, must-revalidate"})
         return None
 
-    install_sourcing(app, frontend_page, secure_cookies)
+    install_sourcing(app, frontend_page, secure_cookies, gateway_managed=bool(worker_secret))
+    from .feedback_routes import install as install_feedback
+    install_feedback(app,gateway_managed=bool(worker_secret))
 
     @app.exception_handler(tomllib.TOMLDecodeError)
     async def unreadable_config(request: Request, exc: tomllib.TOMLDecodeError):

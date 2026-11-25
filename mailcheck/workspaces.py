@@ -125,6 +125,48 @@ def provision(root: Path, wid: str) -> Path:
     return path
 
 
+def initialize_database(root: Path) -> Path:
+    """Initialize a new workspace only; never replace an existing database."""
+    from . import db
+    root=Path(root)
+    _validate_root(root,root.name)
+    database=root/'data'/'mailcheck.db'
+    if (root/'data').resolve()!=root.resolve()/'data' or database.is_symlink():
+        raise ValueError('Workspace data directory is not local to this workspace.')
+    if database.exists():
+        raise FileExistsError('Workspace database already exists; refusing replacement.')
+    if any(Path(str(database)+suffix).exists() or Path(str(database)+suffix).is_symlink() for suffix in ('-wal','-shm','-journal')):
+        raise ValueError('Workspace has SQLite recovery files; refusing initialization.')
+    conn=db.connect(database)
+    try:
+        conn.execute('SELECT 1 FROM accounts LIMIT 1').fetchone()
+        conn.execute('SELECT 1 FROM realtime_outbox LIMIT 1').fetchone()
+    finally:
+        conn.close()
+    return database
+
+
+def initialize_unused_workspace(control_root: Path, wid: str, legacy_paths) -> Path:
+    """Explicit local repair for an unused registered workspace, never data loss."""
+    from contextlib import closing
+    if not re.fullmatch('[a-f0-9]{32}',wid):
+        raise ValueError('Choose a managed workspace ID; the original database cannot be initialized here.')
+    control_root=Path(control_root)
+    with closing(sqlite3.connect((control_root/'control.db').resolve().as_uri()+'?mode=ro',uri=True,timeout=2)) as conn:
+        conn.row_factory=sqlite3.Row
+        row=conn.execute('''SELECT w.*,u.enabled AS user_enabled,u.must_change FROM workspaces w
+            JOIN users u ON u.workspace_id=w.id WHERE w.id=?''',(wid,)).fetchone()
+        if not row or not row['enabled'] or not row['user_enabled'] or not row['must_change']:
+            raise ValueError('Only an enabled workspace awaiting first setup can be initialized.')
+        if conn.execute("SELECT 1 FROM audit WHERE target=? AND action IN ('login','switch-workspace') LIMIT 1",(wid,)).fetchone():
+            raise ValueError('Workspace has prior access; investigate the missing database instead.')
+        if conn.execute('SELECT 1 FROM sessions WHERE workspace_id=? LIMIT 1',(wid,)).fetchone():
+            raise ValueError('Workspace has an active session; refusing initialization.')
+        context=WorkspaceContext.from_record(row,legacy_paths,control_root)
+    with bind_workspace(context):
+        return initialize_database(context.root)
+
+
 def backup_legacy(destination: Path, config_file: Path, database: Path, auth_file: Path) -> Path:
     """Read the original files only; SQLite's online backup includes WAL data."""
     destination.mkdir(mode=0o700,parents=True,exist_ok=False)

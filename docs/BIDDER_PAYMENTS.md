@@ -34,11 +34,25 @@ Bidder writes are rejected by the server.
 
 ## Daily application counts
 
-Admins see **checked applications / received replies** in daily cells. Bidders see only their checked-application count in bidder rows, expanded account rows and totals; received-reply counts and historical review counts are omitted from their payment API response. For example,
-**75 / 92** means 75 checked job-link rows and an allocated share of 92
-application-received emails. Checked applications appear in bright text; received
-replies appear in grey for reference. Received replies are application acknowledgements,
-not every email reply, and are not a count of unique submitted jobs.
+Admins see **checked applications / confirmed applications** in daily cells.
+For example, **75 / 92** means 75 checked job-link rows and an allocated share of
+92 distinct application confirmations. Confirmations appear in grey for reference.
+Only application-received emails contribute to this second count.
+
+Duplicate confirmations are grouped within the same profile and **Chicago
+calendar day**, using normalized company and role. Different days, profiles,
+known roles and explicit differing job-reference sets remain separate. Repeated
+acknowledgments for one identifiable application count once. A company-only reply
+joins a group only when the match is unambiguous. Missing company evidence and
+ambiguous applications are retained separately rather than guessed away.
+Job-reference metadata survives message retention; old retained receipts without
+references use company/role evidence. This is a distinct-confirmation estimate
+from available email evidence, not proof of every submitted application.
+
+Stored emails and receipts are preserved. Existing receipt metadata is refreshed
+for the selected week when available, so historical reports use the same rules.
+Bidder viewers continue to see only checked-application counts; confirmation
+counts remain admin-only. The existing API field names are retained for compatibility.
 
 Overview cards, weekly totals, calculated payments, and new payment records use
 checked applications. Weekly pay is `pay per bid × checked applications ×

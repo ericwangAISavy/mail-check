@@ -312,10 +312,12 @@ class Observer:
         except OSError:
             logs = []
         with self.lock:
+            workspace_names={item['id']:item['name'] for item in (self.latest or {}).get('workspaces',[])}
             return dict(origin=self.state, checked_at=self.checked_at, snapshot=self.latest,
                         outage_since=self.outage_since,
                         failed_services=[item['id'] for item in (self.latest or {}).get('components', []) if item['status']=='unavailable'],
-                        problem_services=[dict(id=item['id'],status=item['status'],reason=item.get('reason',''))
+                        problem_services=[dict(id=item['id'],name=item.get('name',item['id']),workspace_name=workspace_names.get(item.get('workspace')),
+                                               status=item['status'],reason=item.get('reason',''))
                                           for item in (self.latest or {}).get('components', []) if item['status'] in ('degraded','unknown')],
                         snapshot_stale=self.latest is None or time.time() - self.latest.get('checked_at', 0) > 15,
                         logs=logs)

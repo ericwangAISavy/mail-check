@@ -29,6 +29,54 @@ def test_owner_keeps_original_password_and_new_admin_is_isolated(store):
     assert not store.identity(changed)['must_change_password']
 
 
+def test_new_admin_database_is_ready_before_workspace_is_registered(store):
+    import sqlite3
+    from mailcheck import db
+    from mailcheck.web.system_monitoring import database_snapshot
+    wid=store.create_admin(store.owner_token,'ready','Ready workspace','temporary-pass-123')
+    database=Path(store.workspace(wid)['root'])/'data'/'mailcheck.db'
+    assert database.is_file()
+    evidence=database_snapshot(database)
+    assert evidence['status']=='healthy'
+    assert evidence['outbox']==0
+    assert evidence['accounts']==[]
+    with sqlite3.connect(database) as conn:
+        assert conn.execute('PRAGMA user_version').fetchone()[0]==db.SCHEMA_VERSION
+        assert conn.execute('SELECT count(*) FROM accounts').fetchone()[0]==0
+
+
+def test_failed_database_initialization_does_not_register_an_enabled_workspace(store,monkeypatch):
+    from mailcheck import db
+    def fail(*args,**kwargs):
+        raise OSError('Database initialization failed')
+    monkeypatch.setattr(db,'connect',fail)
+    with pytest.raises(OSError,match='initialization failed'):
+        store.create_admin(store.owner_token,'notready','Not ready','temporary-pass-123')
+    assert not any(u['username']=='notready' for u in store.list_admins())
+
+
+def test_explicit_repair_only_initializes_unused_workspace_and_never_replaces_it(store):
+    from mailcheck.workspaces import initialize_unused_workspace
+    wid=store.create_admin(store.owner_token,'unused','Unused','temporary-pass-123')
+    database=Path(store.workspace(wid)['root'])/'data'/'mailcheck.db'
+    database.unlink()  # Reconstruct a workspace created before eager initialization.
+    paths=(store.root/'owner.toml',store.root/'owner.db')
+    assert initialize_unused_workspace(store.root,wid,paths)==database
+    with pytest.raises(FileExistsError):
+        initialize_unused_workspace(store.root,wid,paths)
+
+
+def test_explicit_repair_refuses_a_workspace_that_has_been_accessed(store):
+    from mailcheck.workspaces import initialize_unused_workspace
+    wid=store.create_admin(store.owner_token,'used','Used','temporary-pass-123')
+    database=Path(store.workspace(wid)['root'])/'data'/'mailcheck.db'
+    database.unlink()
+    store.login('used','temporary-pass-123','local')
+    with pytest.raises(ValueError,match='prior access'):
+        initialize_unused_workspace(store.root,wid,(store.root/'owner.toml',store.root/'owner.db'))
+    assert not database.exists()
+
+
 def test_reset_disable_and_owner_switch_revoke_sessions(store):
     wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
     admin=next(u for u in store.list_admins() if u['username']=='alice')

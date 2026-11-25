@@ -1,0 +1,2 @@
+.owner-job-links-access { display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; }
+.owner-job-links-access input { accent-color:var(--primary); width:16px; height:16px; flex:none; margin:0; padding:0; }

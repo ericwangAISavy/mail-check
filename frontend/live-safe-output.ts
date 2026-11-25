@@ -14,12 +14,17 @@ import type { Plugin } from "vite"
  */
 export function liveSafeOutput(publicDir: string): Plugin {
   let outDir = ""
+  let buildVersion = ""
   return {
     name: "offerpath-live-safe-output",
     apply: "build",
-    configResolved(config) { outDir = path.resolve(config.root, config.build.outDir) },
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir)
+      buildVersion = JSON.parse(fs.readFileSync(path.join(config.root, 'package.json'), 'utf8')).version
+    },
     writeBundle(_options, bundle) {
       const keep = new Set(Object.keys(bundle).map((name) => path.normalize(name)))
+      keep.add(path.normalize('assets/build-info.json'))
       const walk = (dir: string, base: string): string[] => fs.existsSync(dir)
         ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory()
           ? walk(path.join(dir, entry.name), path.join(base, entry.name))
@@ -36,6 +41,16 @@ export function liveSafeOutput(publicDir: string): Plugin {
           if (code !== "EBUSY" && code !== "EPERM" && code !== "ENOENT") throw error
           this.warn(`Left ${name} in place (${code}); it is removed on a later build.`)
         }
+      }
+      // Publish the update marker only after every build asset has been written.
+      const target = path.join(outDir, 'assets', 'build-info.json')
+      const temporary = path.join(outDir, 'assets', `.build-info-${process.pid}.tmp`)
+      fs.mkdirSync(path.dirname(target), {recursive:true})
+      try {
+        fs.writeFileSync(temporary, JSON.stringify({version:buildVersion}))
+        fs.renameSync(temporary, target)
+      } finally {
+        if (fs.existsSync(temporary)) fs.unlinkSync(temporary)
       }
     },
   }

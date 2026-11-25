@@ -36,10 +36,11 @@ def _contains_name(left, right):
 
 
 def _matching_plan(conn, rows, receipts, *, early_since, explanations=None):
-    """Only bind a receipt to an unambiguous job; never reuse a reserved receipt.
+    """Bind confirmations to every eligible row in the winning matching tier.
 
     Index candidates by account/company/role/date instead of comparing each
-    receipt with every job. The plan is shared by manual and automatic checks.
+    receipt with every job. Without a role or job reference, match by company.
+    Saved proof can be shared only while its original row remains a candidate.
     """
     groups, company_words, company_roles = {}, {}, {}
     rows_by_id = {row['id']: row for row in rows}
@@ -57,6 +58,12 @@ def _matching_plan(conn, rows, receipts, *, early_since, explanations=None):
             groups.setdefault(key, {}).setdefault(row['work_date'], []).append(row['id'])
     indexed = {key: (sorted(days), days) for key, days in groups.items()}
     matching_groups, company_aliases = {}, {}
+    from .sourcing_fallbacks import _content, _references, _identity
+    # Batch-load only role-less receipts for companies present in this account's
+    # candidate index. Job references must not be discarded with a missing role.
+    company_receipts = {(r['account_id'],r['message_id']):r for r in _content(conn,[
+        dict(r) for r in receipts if not (r['role'] or '').strip()
+        and any((r['account_id'],word) in company_words for word in company_key(r['company']).split())])}
 
     def compatible_groups(account, company, role, partial, aliases):
         key = (account, company, role, partial, aliases)
@@ -133,39 +140,45 @@ def _matching_plan(conn, rows, receipts, *, early_since, explanations=None):
                     for source_day in dates[bisect_right(dates, max(today, day.isoformat())):]:
                         candidates.update(by_date[source_day])
             if role is None:
-                # A role-less reply is evidence for the company, not a specific
-                # title. Prefer the latest source day not after the receipt;
-                # delayed confirmations must not compete with all older jobs.
-                candidates = {row_id for row_id in candidates if rows_by_id[row_id]['checked'] != 'true'}
-                if candidates:
-                    past = [rows_by_id[row_id]['work_date'] for row_id in candidates
-                            if rows_by_id[row_id]['work_date'] <= day.isoformat()]
-                    preferred_day = max(past) if past else min(rows_by_id[row_id]['work_date'] for row_id in candidates)
-                    preferred = {row_id for row_id in candidates if rows_by_id[row_id]['work_date'] == preferred_day}
-                    if explanations is not None:
-                        for row_id in candidates - preferred:
-                            explanations[row_id] = f'A matching confirmation prioritizes job date {preferred_day}.'
-                    candidates = preferred
+                content = company_receipts.get((receipt['account_id'],receipt['message_id']))
+                if content and _references(content):
+                    # A missing classification role does not erase an explicit
+                    # job identity present in the original confirmation.
+                    candidates = {rid for rid in candidates if _identity(content,dict(rows_by_id[rid]))}
             if candidates:
                 break
         reserved = reservations.get((receipt['account_id'], receipt['message_id']), set())
         if reserved:
+            share = bool(candidates & reserved)
             if explanations is not None:
-                for row_id in candidates - reserved:
-                    explanations[row_id] = 'A matching confirmation is already linked to a checked job.'
-            # Existing bindings win over new candidates, including archived rows.
-            if len(reserved) != 1:
-                continue
-            candidates &= reserved
-        if len(candidates) != 1:
-            if explanations is not None:
-                for row_id in candidates:
-                    explanations[row_id] = f'{len(candidates)} eligible jobs match this confirmation; a role or job reference is needed.'
+                if not share:
+                    for row_id in candidates - reserved:
+                        explanations[row_id] = 'A matching confirmation is already linked to a checked job.'
+            # Keep saved proof. Share it only with compatible candidates,
+            # never move a reclassified receipt to an unrelated company or role.
+            if not share:
+                candidates &= reserved
+        if not candidates:
             continue
-        row_id = next(iter(candidates))
         match = (stamp, receipt['message_id'])
-        if row_id not in plan or match < plan[row_id]:
-            plan[row_id] = match
+        for row_id in candidates:
+            if row_id not in plan or match < plan[row_id]:
+                plan[row_id] = match
+    return plan
+
+
+def _combined_matching_plan(conn, rows, receipts, *, early_since, explanations=None, evidence=None, include_history=False, postings=None):
+    """Preserve the legacy plan, then OR in independently supported bindings."""
+    legacy = _matching_plan(conn, rows, receipts, early_since=early_since, explanations=explanations)
+    from .sourcing_fallbacks import historical_rows, extend_plan
+    originals = {row['id'] for row in rows}
+    extra = historical_rows(conn, receipts, early_since=early_since) if include_history else []
+    combined_rows = [*rows, *[row for row in extra if row['id'] not in originals]]
+    plan = extend_plan(conn, combined_rows, receipts, legacy, early_since=early_since,
+        postings=postings, evidence=evidence, explanations=explanations)
+    # Only a positively identified historical application can enter a scoped
+    # write pass. The original matcher never sees this expanded candidate set.
+    rows.extend(row for row in extra if row['id'] in plan and row['id'] not in originals)
     return plan
 
 
@@ -183,6 +196,11 @@ def verify(conn, tab, operation, revision, work_date):
     upper = datetime.combine(selected + timedelta(days=MATCHING_WINDOW_DAYS), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     payload = {"action": "verify", "revision": revision, "work_date": day}
     explanations = {}
+    evidence = {}
+    saved_evidence = {}
+    from .sourcing_fallbacks import prepare_postings, save_evidence
+    prepare_postings(conn, since=min(selected,current-timedelta(days=MATCHING_WINDOW_DAYS-1)),
+        until=max(selected+timedelta(days=MATCHING_WINDOW_DAYS-1),current), accounts={tab['account_id']})
     with sheets.atomic(conn):
         if not sheets.check_operation(conn, tab["id"], operation, payload):
             check_revision(conn, tab["id"], revision)
@@ -205,7 +223,7 @@ def verify(conn, tab, operation, revision, work_date):
                 LEFT JOIN native_cells role ON role.row_id=r.id AND role.column_id=rc.id
                 JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''
                 WHERE t.account_id=? AND (t.archived=0 OR t.id=?) AND r.work_date IS NOT NULL""", (tab['account_id'],tab['id'])).fetchall()
-            plan = _matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=MATCHING_WINDOW_DAYS - 1), explanations=explanations)
+            plan = _combined_matching_plan(conn, candidates, receipts, early_since=current-timedelta(days=MATCHING_WINDOW_DAYS - 1), explanations=explanations, evidence=evidence)
             columns = {row["kind"]: row["id"] for row in conn.execute("SELECT id,kind FROM native_columns WHERE tab_id=?", (tab["id"],))}
             if not all(kind in columns for kind in ("company", "role", "link", "check")):
                 raise ValueError("The sheet needs Company, Role, Job link and Check columns.")
@@ -224,6 +242,9 @@ def verify(conn, tab, operation, revision, work_date):
                 if match:
                     from .sourcing_activity import confirm
                     confirm(conn,row['id'],*match)
+                    save_evidence(conn,row['id'],evidence.get(row['id']))
+                    if row['id'] in evidence:
+                        saved_evidence[row['id']] = evidence[row['id']]
                 conn.execute("""INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)
                     ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,version=native_cells.version+1 WHERE native_cells.value!='true' AND native_cells.value IS NOT excluded.value""",
                     (row["id"], columns["check"], str(checked).lower()))
@@ -233,6 +254,7 @@ def verify(conn, tab, operation, revision, work_date):
         result = sheets.snapshot(conn, tab)
         check = next(i for i, col in enumerate(result["columns"]) if col["kind"] == "check")
         result["verification"] = {"day": day, "timezone": ZONE.key,
+            "fallback_matches": [{"row_id":rid,**detail} for rid,detail in saved_evidence.items()],
             "checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1) if result["row_dates"][i] == day),
             "future_checked": sum(row[check]["value"] == "true" for i,row in enumerate(result["rows"][1:],1)
                 if result["row_dates"][i] and result["row_dates"][i] > current.isoformat() and result["row_dates"][i] != day)}
@@ -248,7 +270,7 @@ def verify(conn, tab, operation, revision, work_date):
             row_id = result['row_ids'][i]
             unmatched.append({'row_id':row_id,'sheet_row':i,'work_date':source_day,
                 'company':str(row[company_col]['value'] or ''),
-                'reason':explanations.get(row_id,'No eligible unclaimed confirmation for this mailbox, company, role and date window.')})
+                'reason':explanations.get(row_id,'No eligible confirmation for this mailbox, company, role and date window.')})
         account = conn.execute('SELECT email FROM accounts WHERE id=?',(tab['account_id'],)).fetchone()
         result['verification']['account_email'] = account['email'] if account else None
         result['verification']['unmatched_count'] = len(unmatched)
@@ -278,6 +300,10 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
         return refresh_since <= day <= refresh_until
     source_since = refresh_since - timedelta(days=MATCHING_WINDOW_DAYS - 1) if refresh_since else None
+    from .sourcing_fallbacks import prepare_postings, save_evidence
+    prepare_postings(conn, since=refresh_since or payments.today()-timedelta(days=MATCHING_WINDOW_DAYS-1),
+        until=refresh_until or payments.today(), network=sample)
+    evidence = {}
     with sheets.atomic(conn):
         sync_receipts(conn, since=refresh_since if week_only else None, until=refresh_until if week_only else None)
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
@@ -329,10 +355,10 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         if refresh_since:
             rows = [r for r in rows if (r["work_date"] and source_since.isoformat() <= r["work_date"])
                     or (week_only and in_week(r["confirmed_at"]))]
-        receipts = list(conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack' AND company!=''" + receipt_scope, receipt_parameters))
-        plan = _matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=MATCHING_WINDOW_DAYS - 1)))
+        receipts = list(conn.execute("SELECT account_id,received_at,company,role,message_id FROM application_receipts WHERE category='application_ack'" + receipt_scope, receipt_parameters))
+        plan = _combined_matching_plan(conn, rows, receipts, early_since=refresh_since or (payments.today()-timedelta(days=MATCHING_WINDOW_DAYS - 1)), evidence=evidence, include_history=bool(refresh_since))
         changed_tabs = set()
-        checked_count = changed_count = 0
+        checked_count = changed_count = fallback_count = 0
         for row in rows:
             # Every checking path fills unchecked rows only. Saved proof/date
             # metadata is accounting history and must never be refreshed here.
@@ -357,6 +383,8 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
             if match:
                 from .sourcing_activity import confirm
                 confirm(conn,row['id'],*match)
+                save_evidence(conn,row['id'],evidence.get(row['id']))
+                fallback_count += int(row['id'] in evidence)
                 if row['confirmed_at'] != match[0].isoformat():
                     changed_tabs.add(row['tab_id'])
             checked_count += int(checked)
@@ -376,7 +404,7 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         from .sourcing_activity import record
         if sample:
             record(conn, "global-check", sample=True)
-        return {"tabs": len(tabs), "rows": len(rows), "checked": checked_count, "changed": changed_count}
+        return {"tabs": len(tabs), "rows": len(rows), "checked": checked_count, "changed": changed_count, "fallback_checked":fallback_count}
 
 
 def checked_account_counts(conn, start, end):

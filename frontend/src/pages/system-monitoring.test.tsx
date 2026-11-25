@@ -21,6 +21,38 @@ const json=(body:unknown)=>new Response(JSON.stringify(body),{headers:{'Content-
 function serve(snap:unknown=snapshot,series:unknown=metrics){return vi.fn().mockImplementation((url:string)=>Promise.resolve(json(String(url).includes('/metrics')?series:snap)))}
 function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><SystemMonitoring/></QueryClientProvider>)}
 
+it('counts busy workers in their pools even when progress evidence identifies a workspace',async()=>{
+ vi.stubGlobal('fetch',serve({...snapshot,components:[snapshot.components[0],
+  {id:'shared-job-collection-0',name:'Collector 0',workspace:'legacy',status:'healthy',detail:'Collecting',kind:'mail'},
+  {id:'shared-job-collection-1',name:'Collector 1',status:'healthy',detail:'Polling'},
+  {id:'shared-job-model-0',name:'Model 0',workspace:'legacy',status:'healthy',detail:'Classifying'},
+  {id:'subscriptions:shared-job-collection-0',name:'Microsoft subscriptions',workspace:'legacy',status:'degraded',detail:'Polling continues',reason:'http_403'}]}))
+ mount()
+ const health=await screen.findByRole('region',{name:'Service health'})
+ const pool=within(health).getByText('Collection pool').closest('.monitor-service')!
+ expect(pool.textContent).toContain('2/2 ready')
+ expect(within(health).getByText('Model worker').closest('.monitor-service')!.textContent).toContain('1/1 ready')
+ expect(within(health).getByText('Microsoft subscriptions')).toBeTruthy()
+})
+
+it('shows earlier coverage gaps as history rather than an active red warning',async()=>{
+ vi.stubGlobal('fetch',serve(snapshot,{...metrics,jobs_current_available:true,jobs_coverage_incomplete:true}))
+ mount()
+ const note=await screen.findByText('Earlier monitoring gaps')
+ expect(note.closest('details')).toBeTruthy()
+ expect(screen.queryByText(/Job observation coverage is incomplete/)).toBeNull()
+ expect(screen.queryByText(/Job monitoring is not fully reporting/)).toBeNull()
+})
+
+it('keeps a visible warning when current job monitoring is not reporting',async()=>{
+ vi.stubGlobal('fetch',serve(snapshot,{...metrics,jobs_current_available:false,jobs_coverage_incomplete:true}))
+ mount()
+ const warning=await screen.findByText(/Job monitoring is not fully reporting/)
+ expect(warning.getAttribute('role')).toBe('status')
+ expect(warning.classList.contains('inline-error')).toBe(false)
+ expect(screen.queryByText('Earlier monitoring gaps')).toBeNull()
+})
+
 it('keeps unknown publication and database coverage from becoming green and exposes evidence',async()=>{
  vi.stubGlobal('fetch',serve({...snapshot,architecture:'shared',workspaces:[
   {...snapshot.workspaces[0],outbox:0},{...snapshot.workspaces[0],id:'other',name:'Other',outbox:null}],
@@ -106,8 +138,11 @@ it('shows service health with rolled-up pools and stage table with live queues',
  expect(screen.queryByText('Shared api process · 0')).toBeNull()
  expect(screen.getByText('Private admin database detail.').closest('details')).toBeTruthy()
  const backlog=screen.getByRole('region',{name:'Queue backlog'})
- expect(within(backlog).getByText('19')).toBeTruthy()
- expect(within(backlog).getByText('11 ready · 5 retrying · 3 dead')).toBeTruthy()
+ expect(within(backlog).getByText('16')).toBeTruthy()
+ expect(within(backlog).getByText('11 ready · 5 retrying')).toBeTruthy()
+ const dead=screen.getByRole('region',{name:'Dead-lettered jobs'})
+ expect(within(dead).getByText('3')).toBeTruthy()
+ expect(within(dead).getByText('Retained failed jobs')).toBeTruthy()
  const stages=await screen.findByRole('region',{name:'Processing stages'})
  expect(within(stages).getByText('Mail collection')).toBeTruthy()
  expect(within(stages).getByText('Classification')).toBeTruthy()

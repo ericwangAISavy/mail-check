@@ -153,9 +153,6 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
             value={input}
             onChange={(e) => setInput(e.target.value)}
           />
-          <Button size="sm" variant="ghost" disabled={dirty}>
-            Search
-          </Button>
         </form>
         {admin && <Button variant="outline" size="sm" disabled={dirty} onClick={() => setFiltersOpen(true)}>Job link filters</Button>}
         {admin && <Button size="icon" variant="ghost" aria-label="Sourcing settings" disabled={dirty} onClick={()=>setSettings(true)}><Settings2 size={18}/></Button>}

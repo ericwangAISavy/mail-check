@@ -49,6 +49,30 @@ class IncomingFilterTests(unittest.TestCase):
         self.assertEqual(result['filtered']['duplicates'],0)
         self.assertEqual(len(self.jobs(tab)),2)
 
+    def test_pasted_brassring_site_variants_keep_first_job_and_distinct_ids(self):
+        url='https://sjobs.brassring.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=26224&siteid=5247&PageType=JobDetails&jobid=1442605&jr_id=first'
+        rows=[['Kendra Scott','Lead AI/ML Engineer',url],
+              ['Kendra Scott','Lead AI/ML Engineer',url.replace('5247','5251')],
+              ['Kendra Scott','Lead AI/ML Engineer',url.replace('1442605','1442606')]]
+        result=self.add(rows,'brassring-paste')
+        self.assertEqual(result['filtered']['duplicates'],1)
+        self.assertEqual([r[2]['value'] for r in self.jobs()],[rows[0][2],rows[2][2]])
+
+    def test_known_ats_http_and_https_variants_share_duplicate_identity(self):
+        for url in ('https://job-boards.greenhouse.io/acme/jobs/123456',
+                    'https://sjobs.brassring.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=26224&jobid=1442605'):
+            self.assertEqual(filters.link_key(url),filters.link_key(url.replace('https:','http:')))
+
+    def test_brassring_duplicate_in_history_is_removed_from_new_grid_paste(self):
+        url='https://sjobs.brassring.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=26224&siteid=5247&jobid=1442605'
+        self.add([['Kendra Scott','Lead AI/ML Engineer',url]],'brassring-history')
+        base=self.snapshot();row=base['row_ids'][-1]
+        changes=[{'row_id':row,'column_id':base['columns'][i]['id'],'expected_version':0,'value':v}
+                 for i,v in enumerate(['Kendra Scott','Lead AI/ML Engineer',url.replace('5247','5251')])]
+        result=self.native.save(self.conn,self.tab(),'brassring-grid',changes,compact_rows=True)
+        self.assertEqual(result['filtered']['duplicates'],1)
+        self.assertEqual(len(self.jobs()),1)
+
     def test_blocklist_only_affects_new_rows_and_retry_is_idempotent(self):
         self.add([['Blocked Co','Engineer','https://jobs.test/old']],'old')
         filters.set_companies(self.conn,['Blocked Co','BLOCKED CO'])

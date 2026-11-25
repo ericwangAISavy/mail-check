@@ -8,11 +8,21 @@ vi.mock("@/components/auth",()=>({useAuth:()=>({role:"admin",session:{is_owner:s
 vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()},setWorkspaceIdentity:vi.fn(),getWorkspaceIdentity:vi.fn()}))
 const clients:QueryClient[]=[]
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.resetAllMocks();vi.restoreAllMocks();state.owner=true})
-function mount(){
-  vi.mocked(request).mockImplementation(async url=>url==="/api/admin/backups"?{enabled:true,retain:7,folder:"/backups",running:false,last_error:null,last_success:null,next_due:null,archives:[]} as never:url==="/api/admin/users"?{max_workspaces:4,admins:[{id:1,username:"owner",owner:1,enabled:1,workspace_id:"legacy",workspace_name:"Original workspace",health:"running",online:true},{id:2,username:"alice",owner:0,enabled:1,workspace_id:"alice",workspace_name:"Alice workspace",health:"running",online:false}]} as never:{events:[]} as never)
+function mount(jobLinksAccess=false){
+  vi.mocked(request).mockImplementation(async url=>url==="/api/admin/backups"?{enabled:true,retain:7,folder:"/backups",running:false,last_error:null,last_success:null,next_due:null,archives:[]} as never:url==="/api/admin/users"?{max_workspaces:4,admins:[{id:1,username:"owner",owner:1,enabled:1,job_links_access:true,workspace_id:"legacy",workspace_name:"Original workspace",health:"running",online:true},{id:2,username:"alice",owner:0,enabled:1,job_links_access:jobLinksAccess,workspace_id:"alice",workspace_name:"Alice workspace",health:"running",online:false}]} as never:{events:[]} as never)
   const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client)
   render(<QueryClientProvider client={client}><AdminManagement/></QueryClientProvider>)
 }
+it.each([false,true])('lets the owner change Job links access from %s',async(granted)=>{
+ vi.mocked(api.post).mockResolvedValue({ok:true})
+ mount(granted)
+ const toggle=await screen.findByRole('checkbox',{name:'Job links access for alice'}) as HTMLInputElement
+ expect(toggle.checked).toBe(granted)
+ expect(screen.queryByRole('checkbox',{name:'Job links access for owner'})).toBeNull()
+ expect(screen.getByText('Job links access: always enabled')).toBeTruthy()
+ fireEvent.click(toggle)
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/admin/users/2',{job_links_access:!granted}))
+})
 it("creates an admin with workspace and temporary password",async()=>{
   vi.mocked(api.post).mockResolvedValue({ok:true})
   mount();await screen.findByText("Alice workspace")

@@ -10,7 +10,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Loading, useToast } from "@/components/common"
 import { calendarTimezone } from "@/lib/calendar-timezone"
 import { InterviewDetails } from "@/components/interview-details"
-import InterviewCalendar from "@/components/interview-calendar"
+import {SharedInterviewCalendar as InterviewCalendar} from '@/components/interview-feedback'
 import "./interviews.css"
 
 /** Only Check now is shown beside the calendar; Refresh stays available behind this flag. */

@@ -101,18 +101,21 @@ do not match: Meta is not Metamask, Engineer is not Engineering, Engineer II is
 not Engineer III, and C++ is not C#. No fuzzy similarity is used.
 
 Both manual **Check applications** and automatic checks consider competing jobs
-across the same account's active bidder tabs. A reply is bound only when its
-company, role when present, and date evidence identify one eligible row. A
-company-only reply prefers the most recent eligible unchecked source date on or
-before its Chicago receipt date. This includes confirmations arriving the next
-day. If only future work is eligible, the nearest future source date takes
-priority. Multiple unchecked jobs on the preferred date remain ambiguous. Already checked jobs do not compete for a company-only reply. The
-same reply cannot newly check several jobs or be borrowed from an existing bound
-job, including an archived checked job. All checks—automatic, periodic, selected-week refresh/rebuild, and manual
+across the same account's active bidder tabs. A role-qualified reply checks every
+eligible row in the winning company/role matching tier and date window, even
+when URLs have different job IDs. Each row retains the confirmation as proof. A
+company-only reply without a job reference checks all matching company links
+for that mailbox in the existing date window, across roles, job IDs and eligible
+source dates. Exact normalized company matches take priority over whole-phrase
+company aliases. If the original email identifies a job, that identity still
+limits a role-less confirmation to its matching links. All checks—automatic,
+periodic, selected-week refresh/rebuild, and manual
 **Check applications**—check only unchecked links. Existing checks, receipt
 bindings and confirmation dates stay saved even when matching rules, receipt
 classifications or extracted company/role details change. This protection includes automatic and manual checks and archived sheets.
-Previously bound receipts cannot be reassigned to another job.
+Saved receipts may also check later matching rows when the
+original bound row remains eligible. Reclassification cannot move saved proof
+to an unrelated company or role; archived bindings remain protected.
 
 On **Bidder payments**, daily cells show **checked applications / received replies**.
 For example, **60 / 112** means 60 checked job-link rows and an allocated share of
@@ -253,6 +256,10 @@ native tabs for the same account, across bidders and sourcing dates, and against
 earlier rows in the same batch. Different accounts can keep the same job. URL
 comparison ignores `jr_id`, `utm_*`, `gclid`, and `fbclid`, normalizes query order,
 HTTP/HTTPS and trailing slashes, while preserving job identifiers in query values.
+Known ATS URLs also share a provider-specific identity across URL formats.
+BrassRing uses `partnerid` plus `jobid`: different `siteid` values and tracking
+parameters do not create separate jobs. Distinct employers or job IDs remain
+separate, and the first pasted copy's original URL is retained.
 Blocked company rows and duplicate rows are deleted as whole incoming rows;
 positions are compacted so no removed-row holes remain. Existing checked rows
 are protected during grid edits. Formatting edits do not trigger filtering.
@@ -274,12 +281,11 @@ may include its job details and initial checked state in the same save.
 
 ### Diagnose an unchecked company confirmation
 
-A missing role does not by itself prevent matching: a company-only receipt must
-identify one eligible unchecked job for the same account, preferring the most recent eligible
-source date on or before the receipt’s Chicago date (or the nearest eligible
-future date when no past work is eligible). Other bidder tabs can provide
-competing unchecked candidates on that date.
-Existing receipt bindings are reserved.
+A missing role does not prevent matching: when a confirmation has no role or
+job reference, all eligible company links for the same mailbox can be checked,
+including other bidder tabs and roles within the existing date rules.
+Existing receipt bindings are preserved; receipts can be shared
+with additional matching rows while the original bound row is still eligible.
 Do not infer the cause of an unchecked row from the currently visible sheet alone.
 
 Run the diagnostic in the app’s Python environment (its virtualenv or application
@@ -298,9 +304,77 @@ snapshot of saved data, not a replacement for a selected-date check. Share the
 report to investigate the precise reason before changing matching rules.
 
 After **Check applications**, expand **links remain unchecked — view reasons**
-to see the actual mailbox checked, which rows remain unresolved, and why. Reasons distinguish competing jobs,
-receipts already used by a checked job, and a confirmation that prioritizes another
-source date. Without such evidence, the row reports that no eligible unclaimed
+to see the actual mailbox checked, which rows remain unresolved, and why. Reasons
+distinguish incompatible saved proof and missing eligible confirmation evidence.
+Without such evidence, the row reports that no eligible
 confirmation was found for its mailbox, company, role and date window. The panel
 shows up to 50 rows from the last check; run another check to refresh it. No saved
 checkmarks, receipt dates or payment records are changed to create these reasons.
+
+### Additional confirmation evidence
+
+The company, role, mailbox and date matcher runs first. Role-qualified matches
+check all eligible rows, including different job IDs, rather than stopping at
+multiple candidates. Additional alternatives add supported confirmations to unchecked
+rows using employer names explicitly stated in the email,
+company spacing and `and`/`&` variations, verified titles from the linked posting,
+and explicit application URLs or requisition IDs. Role-qualified confirmations
+may also check other company/role matches even when an explicit link points to a
+different job ID. Company-only confirmations keep stricter identity checks. Historical rows can
+match outside the ordinary date window only with explicit application identity.
+
+Verified posting titles can resolve stale imported titles and distinguish a
+location qualifier such as Canada. Without a classified role or job reference,
+company normalization and explicit employer evidence can check all related rows.
+Unresolved company names and unsupported title similarities remain unchecked. The new
+passes do not credit messages explicitly stating that an existing application
+was overwritten or was already on file. Existing checkmarks and their proof stay
+unchanged.
+
+Normal application checks retrieve public Greenhouse, Ashby, Lever and Workable title
+metadata with a bounded request budget, outside database write transactions.
+Successful results are cached for 24 hours; unavailable postings retry after ten
+minutes. Passive payment refreshes and the read-only diagnostic use cached facts
+without network requests. A missing or unavailable posting never invalidates an
+existing match; additional matches may become available on a later check.
+Concurrent checks share an eight-request limit per process. Local capacity
+shortages retry on a later check without caching a posting as unavailable.
+Account-specific checks apply their mailbox scope before the evidence limit.
+
+Each new fallback records its rule, explanation, email identifier and any linked
+posting title in `sourcing_match_evidence`. These records supplement the existing
+confirmation proof and accounting history. The read-only diagnostic reports the
+matching rule while continuing to omit email bodies, URLs and receipt identifiers.
+
+### Matched confirmation mark
+
+Application-received emails show a small **Matched** check mark in the mail list
+and reader when their saved confirmation proof points to a checked job link.
+This is independent of the email's Done/Restore state. Unmatched emails keep
+their usual category label. Removing the linked row, losing its checked link,
+or reclassifying the email removes the mark on refresh. Proof is scoped to the
+same mailbox, so identical message IDs in another account do not share a mark.
+
+### Shared Job links filters
+
+The Job links toolbar offers **Exclude my links**, enabled by default. It hides
+the selected workspace's retained links and copies of those URLs in other
+workspaces, using the same job identity normalization as incoming paste filters.
+Own-link comparison includes all source dates, independently of the search date
+range. Disable this option to search the complete library, including your sheets.
+
+**Exclude one-page links** is off by default. Enable it to hide links hosted on
+Greenhouse or Ashby. Both filters apply before pagination and work with keyword,
+date range and page-size choices. Filter choices remain in the page URL, and
+changing either filter returns to page one. If owned links cannot be read, the
+page reports an incomplete search rather than showing potentially owned copies.
+The database read and URL-normalization steps use separate budgets, so a large
+saved-link history does not fail merely because normalization takes longer than
+the short SQL read limit. Normalization remains bounded by the overall request
+deadline. When this ownership check is unavailable, the warning identifies it
+and offers an explicit **Include my links** retry. An incomplete empty result
+does not claim that no matching jobs exist.
+URL-filter computation in other workspace searches also uses the overall
+request budget rather than the SQL read allowance. The total deadline remains
+enforced even for small reads. A failed refresh replaces cached retry advice
+with the current error, including permission revocations.

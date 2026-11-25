@@ -2,6 +2,197 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.31.8 — 2026-11-25
+
+Calendar sync reads only what changed
+
+- Automatic calendar sync now requests only changes to the primary calendar, with a full read of all calendars every 30 minutes; Check now still reads everything
+- Unchanged events are no longer queued or saved again, which greatly reduces database writes
+- Calendar polling slows to every 15 minutes while Microsoft change notifications are active
+- Background calendar analysis handles larger batches more often
+
+## 3.31.7 — 2026-11-25
+
+Guard calendar source recovery and review updates
+
+- Prevent current calendar tasks from restoring employer or role details deliberately removed from updated descriptions.
+- Recover fuller descriptions only for legacy truncated tasks and avoid repeated writes for unchanged review markers.
+
+## 3.31.6 — 2026-11-25
+
+Preserve uncertain calendar analysis and full context
+
+- Retain uncertain calendar decisions in Needs review so Retry analysis performs fresh inference without hiding known interviews.
+- Use a calendar-specific 12,000-character model context and keep fuller queued descriptions independently of email limits.
+- Refresh outdated analysis on calendar sync using versioned caches and recover fuller saved descriptions for older pending tasks.
+
+## 3.31.5 — 2026-11-25
+
+Count distinct daily application confirmations
+
+- Count repeated acknowledgments for the same profile and application once per Chicago calendar day in bidder management.
+- Keep different days, roles and explicit job references separate, preserve receipt history, and label the second count as confirmed applications.
+
+## 3.31.4 — 2026-11-25
+
+Fix public-site timeout probe evidence
+
+- Use compressed public asset checks and one transport retry while retaining byte verification and bounded response sizes.
+- Identify the failing shell or JavaScript stage instead of carrying an unrelated successful HTTP status into timeout evidence.
+
+## 3.31.3 — 2026-11-25
+
+Highlight high-risk interview feedback
+
+- Highlight calendar events with warning feedback using a prominent danger outline, glow and larger warning icon while preserving profile colors and stripe patterns in both themes.
+
+## 3.31.2 — 2026-11-25
+
+Compact interview feedback and related links
+
+- Place shared company feedback above related jobs and show warning or normal icons inside calendar event titles.
+- Collapse related job links into compact clickable rows with independently expandable details.
+
+## 3.31.1 — 2026-11-25
+
+Correct worker and subscription health evidence
+
+- Count busy collection and model workers correctly and report subscription maintenance separately from collection readiness.
+- Preserve safe Microsoft error codes, account and workspace evidence, and subscription retry delays between maintenance passes.
+- Identify uninitialized workspace databases explicitly in monitoring.
+
+## 3.31.0 — 2026-11-25
+
+Shared interview feedback
+
+- Choose multiple compact interview feedback badges directly in event details and see company feedback shared across admin workspaces.
+- Keep each admin's feedback independently editable and load shared calendar badges without blocking the calendar.
+
+## 3.30.4 — 2026-11-24
+
+Finish job search timeout and retry recovery fixes
+
+- Keep URL filtering in other workspace libraries from consuming the short database-read allowance while retaining the total search deadline.
+- Detect total deadline overruns even in small searches that do not trigger SQLite progress checks.
+- Remove stale incomplete-search retry advice after a failed or permission-denied refresh.
+
+## 3.30.3 — 2026-11-24
+
+Fix empty job searches during ownership checks
+
+- Separate the short ownership database-read budget from bounded URL normalization so large saved-link histories do not make Exclude my links fail.
+- Explain ownership-check failures and offer an explicit Include my links retry without changing the default filter.
+- Stop describing incomplete empty searches as having no matching links.
+
+## 3.30.2 — 2026-11-24
+
+Initialize workspace databases before enabling admins
+
+- Initialize and validate new workspace databases before registering them as enabled so pending first logins do not generate missing-database health warnings.
+- Show workspace names and check reasons in independent monitoring alerts while retaining genuine missing-database warnings.
+- Provide a guarded local repair for never-accessed workspaces, refusing existing databases and SQLite recovery files.
+
+## 3.30.1 — 2026-11-24
+
+Harden shared job library searches
+
+- Handle inaccessible workspace paths as incomplete results instead of failing the whole Job links search.
+- Include valid pasted job URLs padded with tabs or line breaks and keep their filter behavior consistent.
+- Interpret supported boolean filter values consistently between bookmarked URLs and the API.
+
+## 3.30.0 — 2026-11-24
+
+Add shared job library filters
+
+- Exclude links already saved in the current workspace by default, including normalized copies uploaded by other admins.
+- Add an optional Greenhouse and Ashby one-page link exclusion, off by default, with both filters applied before pagination.
+
+## 3.29.0 — 2026-11-24
+
+Mark matched confirmations and verify Workable titles
+
+- Show a small Matched check mark on application-received emails backed by checked job-link proof, separately from the email Done state.
+- Resolve differing imported and confirmation titles using verified public Workable posting titles without company-specific matching rules.
+
+## 3.28.1 — 2026-11-24
+
+Check all company links for generic confirmations
+
+- When an application confirmation contains no role or job reference, check all eligible links for the matching company and mailbox across the existing date window.
+- Preserve explicit job references, existing checks and confirmation proof while allowing company-only confirmations to cover additional matching rows.
+
+## 3.28.0 — 2026-11-24
+
+Deduplicate pasted jobs and share matching confirmations
+
+- Remove incoming copies of the same ATS job, including BrassRing links with different site and tracking parameters.
+- Check all eligible rows matching a confirmation mailbox, company and role, even when their job IDs differ, while preserving saved proof.
+
+## 3.27.2 — 2026-11-24
+
+Harden schema upgrades and posting lookup recovery
+
+- Prevent older application processes from downgrading newer databases and recheck schema compatibility before migrations.
+- Apply mailbox filters before limiting evidence candidates so busy accounts cannot starve another profile's matching.
+- Limit concurrent public posting requests across checks and retry local capacity shortages without marking postings unavailable.
+
+## 3.27.1 — 2026-11-23
+
+Allow shared workspaces to upgrade intermediate schemas
+
+- Fix bootstrap, payments and other shared-workspace requests failing after an update from database schema 51 to 52.
+- Allow supported intermediate schema versions through the existing serialized migration path while continuing to reject unsupported older and future databases.
+
+## 3.27.0 — 2026-11-23
+
+Add evidence-based application matching fallbacks
+
+- Preserve existing matching rules and add alternative matches using explicit application IDs, employer aliases, email details and verified posting titles.
+- Keep existing checks and proof unchanged; leave ambiguous confirmations for review and record the evidence for every new fallback match.
+- Cache bounded public posting lookups outside database write locks and keep passive report refreshes free of network requests.
+
+## 3.26.0 — 2026-11-23
+
+Search job links across a date range
+
+- Filter shared Job links with inclusive From and To dates, including open-ended ranges, All dates and Today.
+- Keep date filters while searching and changing page size; retain support for existing single-date bookmarks.
+
+## 3.25.2 — 2026-11-23
+
+Separate active queues from retained failures
+
+- Separate ready and retrying job backlog from retained dead-lettered failures in monitoring cards and charts.
+- Display the monitoring UI version and offer a reload when a newer installed build is available.
+
+## 3.25.1 — 2026-11-23
+
+Accurate monitoring coverage and access revocation
+
+- Show historical monitoring gaps as a neutral history note and reserve a warning for missing current job reporting; initialize telemetry for idle workers.
+- Revalidate Job links authorization before returning search results and disable cached copying immediately after access is denied.
+
+## 3.25.0 — 2026-11-23
+
+Owner-controlled Job links access
+
+- The owner always has Job links access; existing and new admins need an explicit owner grant from Admin management.
+- Enforce grants on the page and API, preserve signed-in sessions when permissions change, and remove cached library results after revocation.
+
+## 3.24.1 — 2026-11-23
+
+Focus the complete sourcing search bar
+
+- Show one blue focus outline around the full Job links and Job sourcing search bar, including its icon.
+- Remove the redundant Search buttons while preserving Enter-to-search.
+
+## 3.24.0 — 2026-11-23
+
+Choose shared job links page size
+
+- Choose 100, 200, 300, 400 or 500 items per page on Job links while keeping keyword and date filters.
+- Changing page size returns to the first page, and the API enforces a 500-item maximum.
+
 ## 3.23.0 — 2026-11-23
 
 Filter shared job links by date

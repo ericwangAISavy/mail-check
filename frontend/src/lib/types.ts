@@ -2,6 +2,7 @@ export type Category = { name: string; label: string; tier: string; count?: numb
 export type Message = {
   pk: number; message_id: string; subject: string; from_addr: string; from_name: string
   date_utc: string | null; snippet: string; provider_url: string | null; handled_at: string | null
+  application_matched?: boolean
   account_label: string; provider: string; category: string; category_label: string; tier: string
   confidence: number; company: string | null; role: string | null; deadline: string | null
   deadline_display: string; date_display: string; date_estimated: boolean; action_required: boolean
@@ -42,6 +43,7 @@ export type Settings = {
 export type ApiResult<T> = T
 
 export type InterviewEvent = {
+  feedback_tags?: InterviewFeedbackTag[]
   analysis_pending?: boolean
   id: number; account_labels?: string[]; calendar_uid: string | null; company: string | null; role: string | null
   stage: string; status: string; display_status: string; start_at: string | null; end_at: string | null
@@ -50,6 +52,7 @@ export type InterviewEvent = {
   confidence: number; needs_review: boolean; review_reason: string | null; manual_fields: string[]
   created_at: string; updated_at: string
 }
+export type InterviewFeedbackTag = 'in-person' | 'linkedin' | 'fuck' | 'normal'
 export type InterviewSource = {
   account_id?: number; id: number; message_pk: number | null; account_label: string; account_email: string
   source_subject: string; source_sender: string; source_received_at: string; account_enabled: boolean

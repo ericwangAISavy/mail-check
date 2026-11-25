@@ -11,18 +11,26 @@ function mount(){return render(<QueryClientProvider client={new QueryClient({def
 afterEach(()=>{cleanup();vi.resetAllMocks()})
 it("shows multiple job links and historical bidders",async()=>{
  fetchMatches.mockResolvedValue({matches:[match(1),match(2,{bidder_name:"Sam",archived:true,confidence:"possible"})],total:2,next_cursor:null})
- mount();expect(await screen.findByRole("link",{name:"https://jobs.example/1"})).toBeTruthy()
- expect(screen.getByRole("link",{name:"https://jobs.example/2"})).toBeTruthy()
+ mount();await screen.findAllByRole("link",{name:"Acme · Engineer"})
+ expect(screen.getAllByRole("link").map(link=>link.getAttribute('href'))).toEqual(['https://jobs.example/1','https://jobs.example/2'])
+ expect(screen.getByText("Applied by Alex").closest('.interview-job-match-expanded')?.hasAttribute('hidden')).toBe(true)
+ const toggles=screen.getAllByRole('button',{name:'Show details for Acme · Engineer'})
+ fireEvent.click(toggles[0]);fireEvent.click(toggles[1])
  expect(screen.getByText("Applied by Alex")).toBeTruthy();expect(screen.getByText("Applied by Sam")).toBeTruthy()
  expect(screen.getByText("Archived")).toBeTruthy()
- // Only the title, date, who saved it and the link: no account, match strength or reasons.
+ // Expanded details retain attribution and dates without internal match evidence.
  for(const gone of ["Work account","Strong match","Possible match","Company name matches",/Recorded application date/,/not verified/])expect(screen.queryByText(gone)).toBeNull()
  const first=screen.getAllByText("Acme · Engineer",{selector:"strong"})[0].closest("li")!
  expect(first.querySelector("time")!.getAttribute("datetime")).toBe("2026-10-15")
+ fireEvent.click(screen.getAllByRole('button',{name:'Hide details for Acme · Engineer'})[0])
+ expect(screen.getByText('Applied by Alex').closest('.interview-job-match-expanded')?.hasAttribute('hidden')).toBe(true)
+ expect(screen.getByText('Applied by Sam').closest('.interview-job-match-expanded')?.hasAttribute('hidden')).toBe(false)
 })
 it("explains saved rows and never activates unsafe links",async()=>{
  fetchMatches.mockResolvedValue({matches:[match(1,{link:"javascript:alert(1)",applied:false,application_date:null,work_date:"2026-10-14"}),match(2,{link:"data:text/html,unsafe",application_date:null})],total:2,next_cursor:null})
- mount();expect(await screen.findByText("Saved by Alex")).toBeTruthy()
+ mount();await screen.findAllByRole('button',{name:'Show details for Acme · Engineer'})
+ for(const button of screen.getAllByRole('button',{name:'Show details for Acme · Engineer'}))fireEvent.click(button)
+ expect(screen.getByText("Saved by Alex")).toBeTruthy()
  // A saved (unconfirmed) job shows the date it was saved; an unknown date shows none.
  const times=document.querySelectorAll("time");expect(times).toHaveLength(1);expect(times[0].getAttribute("datetime")).toBe("2026-10-14")
  expect(screen.queryAllByRole("link")).toHaveLength(0);expect(screen.getAllByText("Job link unavailable")).toHaveLength(2)

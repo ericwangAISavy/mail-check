@@ -382,6 +382,19 @@ def _execute_job(reader, legacy_paths, fields, *, handler=None):
                 action(fields['account_id'])
 
 
+#: With Microsoft change notifications active, polling is only a safety net.
+CALENDAR_FALLBACK_SECONDS = 15 * 60
+
+
+def _calendar_notifications_live(root, wid, account_id):
+    try:
+        rows = ExistingRegistry(root/'realtime.db').list_workspace(wid)
+        return any(row['account_id'] == account_id and row['kind'] == 'calendar' and row['expires'] > time.time()
+                   for row in rows)
+    except Exception:
+        return False  # unknown: keep polling at the normal rate
+
+
 class Coordinator:
     def __init__(self, reader, legacy_paths, url):
         self.reader,self.legacy_paths,self.url = reader,legacy_paths,url
@@ -391,6 +404,7 @@ class Coordinator:
         from .health_evidence import WorkerProgress
         self.health = WorkerProgress(poll_timeout=180)
         self.subscription_health = WorkerProgress(poll_timeout=180)
+        self.subscriptions = {}
 
     def run(self):
         # A second coordinator never steals ownership from a live first one.
@@ -417,7 +431,10 @@ class Coordinator:
         while not self.stop.is_set():
             self.subscription_health.poll()
             try:
-                for workspace in self.reader.enabled_workspaces():
+                workspaces=self.reader.enabled_workspaces()
+                active={workspace['id'] for workspace in workspaces}
+                self.subscriptions={key:value for key,value in self.subscriptions.items() if key in active}
+                for workspace in workspaces:
                     if self.stop.is_set():
                         break
                     context=WorkspaceContext.from_record(workspace,self.legacy_paths,self.reader.root)
@@ -430,10 +447,16 @@ class Coordinator:
                                 enabled=set(storage.enabled_accounts(conn))
                                 cfg=config.load()
                             registry=ExistingRegistry(self.reader.root/'realtime.db')
-                            GraphSubscriptions(registry,workspace['id'],os.environ.get('OFFERPATH_PUBLIC_URL','')).sync(accounts,enabled,cfg)
+                            url=os.environ.get('OFFERPATH_PUBLIC_URL','').rstrip('/')
+                            graph=self.subscriptions.get(workspace['id'])
+                            if graph is None or graph.public_url!=url:
+                                graph=GraphSubscriptions(registry,workspace['id'],url)
+                                self.subscriptions[workspace['id']]=graph
+                            graph.sync(accounts,enabled,cfg)
                         except Exception as exc:
                             self.subscription_health.failed(exc)
-                            log.warning('Workspace subscription maintenance unavailable; polling continues. workspace=%s error=%s raised_at=%s',workspace['id'],type(exc).__name__,_raised_at(exc))
+                            from .health_evidence import failure
+                            log.warning('Workspace subscription maintenance unavailable; polling continues. workspace=%s error=%s raised_at=%s evidence=%s',workspace['id'],type(exc).__name__,_raised_at(exc),failure(exc))
             except Exception as exc:
                 self.subscription_health.failed(exc)
                 log.warning('Workspace subscription discovery unavailable; retrying. error=%s raised_at=%s',type(exc).__name__,_raised_at(exc))
@@ -491,7 +514,7 @@ class Coordinator:
                             from ..calendar_queue import due
                             if cfg.is_llm_ready() and due(conn) and now>=self.due.get((wid,0,'calendar-analysis'),0):
                                 if admit('calendar-analysis',0):
-                                    self.due[(wid,0,'calendar-analysis')]=now+120
+                                    self.due[(wid,0,'calendar-analysis')]=now+30
                             from .live_inbox import SharedLiveInbox
                             demand=SharedLiveInbox(runtime_root(context)/'live-inbox.json')
                             if cfg.watch.auto_check and cfg.is_llm_ready() and demand.due() and now>=self.due.get((wid,0,'live-inbox'),0):
@@ -509,7 +532,10 @@ class Coordinator:
                                 for kind in kinds:
                                     key=(wid,account.id,kind)
                                     if now>=self.due.get(key,0) and admit(kind,account.id):
-                                        self.due[key]=now+(30 if kind=='mail' and account.provider!='outlook' else 120)
+                                        interval=30 if kind=='mail' and account.provider!='outlook' else 120
+                                        if kind=='calendar' and _calendar_notifications_live(self.reader.root,wid,account.id):
+                                            interval=CALENDAR_FALLBACK_SECONDS
+                                        self.due[key]=now+interval
                     except Exception as exc:
                         self.health.failed(exc)
                         log.warning('Workspace background coordination unavailable; retrying. workspace=%s error=%s raised_at=%s',wid,type(exc).__name__,_raised_at(exc))
@@ -529,6 +555,8 @@ class Consumer:
         self.health = WorkerProgress()
 
     def run(self):
+        from .telemetry import start
+        start()
         with ThreadPoolExecutor(max_workers=1,thread_name_prefix='shared-operation') as executor:
             while not self.stop.is_set():
                 broker = RabbitBroker(self.url)
@@ -627,6 +655,15 @@ class Consumer:
                         pass
 
 
+def job_health(consumer,coordinator=None):
+    evidence=consumer.health.snapshot()
+    if coordinator:
+        evidence['dependencies']={
+            'coordinator':{**coordinator.health.snapshot(),'scope':'coordinator_progress'},
+            'subscriptions':{**coordinator.subscription_health.snapshot(),'scope':'subscription_progress'}}
+    return evidence
+
+
 def main():
     import argparse
     import secrets
@@ -669,12 +706,7 @@ def main():
             raise HTTPException(403)
         if not threads or not all(thread.is_alive() for thread in threads):
             raise HTTPException(503, 'A job processing thread has stopped.')
-        evidence = consumer.health.snapshot()
-        if coordinator:
-            for progress, scope in ((coordinator.health,'coordinator_progress'),(coordinator.subscription_health,'subscription_progress')):
-                coordinator_evidence = progress.snapshot()
-                if coordinator_evidence['status'] != 'healthy' and evidence['status'] == 'healthy':
-                    evidence = {**coordinator_evidence,'scope':scope}
+        evidence = job_health(consumer,coordinator)
         from .telemetry import health_snapshot
         return {'ready':True,'inflight':consumer.inflight, **evidence, **health_snapshot()}
     from ..workspace_workers import InstanceLock

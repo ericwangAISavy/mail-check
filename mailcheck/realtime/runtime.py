@@ -220,7 +220,7 @@ class Runtime:
                 check()
                 with collection_scope(lambda _: check()):
                     result = interviews.collect_calendar_events(GuardedConnection(conn, check), self.config_loader(),
-                                                               account_label=account.label, defer_analysis=True)
+                                                               account_label=account.label, defer_analysis=True, incremental=True)
                 if result.get('busy'):
                     # Another worker held the database; try again later without spending an attempt.
                     raise WorkDeferred('Database busy')

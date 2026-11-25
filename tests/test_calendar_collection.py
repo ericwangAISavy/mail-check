@@ -554,6 +554,51 @@ class CalendarAnalysisTests(unittest.TestCase):
         self.assertEqual(len(model.calls),2)
         self.assertEqual(self.conn.execute('SELECT role FROM interview_events').fetchone()[0],'Principal Engineer')
 
+    def test_long_content_and_changes_after_mail_limit_reach_calendar_analysis(self):
+        item=event('long-content')
+        prefix='Meeting information. '*700
+        item['body']={'contentType':'text','content':prefix+' Employer: Acme; Role: Engineer'}
+        model=self.Model()
+        self.analyze([item],model)
+        self.assertIn('Employer: Acme',model.calls[0][1]['description'])
+        self.assertLessEqual(len(model.calls[0][1]['description']),12000)
+        item['body']['content']=prefix+' Employer: Acme; Role: Designer'
+        self.analyze([item],model)
+        self.assertEqual(len(model.calls),2)
+        self.assertIn('Role: Designer',model.calls[1][1]['description'])
+
+    def test_inline_uncertain_analysis_is_retained_for_retry_without_a_permanent_cache(self):
+        model=self.Model(is_interview_event=False,confidence=.4,ambiguous=True)
+        self.analyze([event('uncertain-inline')],model)
+        task=self.conn.execute('SELECT state,booking FROM calendar_analysis_tasks').fetchone()
+        self.assertIsNotNone(task)
+        self.assertEqual(task['state'],'needs_review')
+        self.assertIsNotNone(task['booking'])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analyses').fetchone()[0],0)
+        row=self.conn.execute('SELECT review_reason FROM interview_events').fetchone()
+        self.assertIn('Uncertain',row['review_reason'])
+
+    def test_analysis_version_and_context_limit_invalidate_cached_results(self):
+        from mailcheck import calendar_analysis
+        item=event('cache-version');model=self.Model()
+        with patch.object(calendar_analysis,'VERSION','old'):
+            self.analyze([item],model)
+        self.analyze([item],model)
+        self.assertEqual(len(model.calls),2)
+        with patch.object(calendar_analysis,'DESCRIPTION_LIMIT',11000):
+            self.analyze([item],model)
+        self.assertEqual(len(model.calls),3)
+
+    def test_uncertain_title_change_keeps_a_known_interview_visible(self):
+        item=event('known-uncertain')
+        self.analyze([item],self.Model())
+        item['subject']='Doctor follow-up';item['body']={'contentType':'text','content':'Discuss the next steps.'}
+        self.analyze([item],self.Model(is_interview_event=False,confidence=.5,ambiguous=True))
+        rows=interviews.list_events(self.conn)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['company'],'Airbus')
+        self.assertTrue(rows[0]['needs_review'])
+
     def test_non_interview_model_decision_excludes_events_and_is_cached(self):
         item=event();item.update(subject='Annual holiday interview schedule reminder')
         model=self.Model(is_interview_event=False,company=None,role=None,interviewers=[])

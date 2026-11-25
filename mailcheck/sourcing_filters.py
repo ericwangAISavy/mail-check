@@ -17,9 +17,14 @@ def company_key(value):
 
 def link_key(value):
     value=value.strip()
+    from .sourcing_postings import specification
     try:
         url=urlsplit(value)
         if url.scheme.lower() not in ('http','https') or not url.hostname:return value
+        # Equality accepts HTTP copies; fetching still requires HTTPS.
+        spec=specification(urlunsplit(('https',url.netloc,url.path,url.query,url.fragment)))
+        if spec:
+            return 'ats:'+json.dumps(spec,separators=(',',':'))
         query=sorted(((k,v) for k,v in parse_qsl(url.query,keep_blank_values=True)
                      if not k.lower().startswith('utm_') and k.lower() not in ('jr_id','gclid','fbclid')),key=lambda pair:pair[0])
         return urlunsplit(('https',url.netloc.lower(),url.path.rstrip('/'),urlencode(query),url.fragment))

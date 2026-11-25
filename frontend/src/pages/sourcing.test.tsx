@@ -125,6 +125,16 @@ function mount(fullToolbar = true) {
     </QueryClientProvider>,
   );
 }
+it('searches through form submission without a separate Search button',async()=>{
+ const fetch=vi.fn(async(url:string)=>new Response(JSON.stringify(url.includes('/api/sourcing/search')?{results:[]}:url==='/api/sourcing'?index:snapshot),{headers:{'content-type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch)
+ mount()
+ const input=await screen.findByLabelText('Find application')
+ expect(screen.queryByRole('button',{name:/^Search$/})).toBeNull()
+ fireEvent.change(input,{target:{value:'Machine Learning'}})
+ fireEvent.submit(input.closest('form')!)
+ await waitFor(()=>expect(fetch.mock.calls.some(call=>String(call[0]).includes('/api/sourcing/search?q=Machine%20Learning'))).toBe(true))
+})
 it("shows only the day controls, in the top toolbar, by default", async () => {
   mount(false);
   const date = (await screen.findByLabelText("Job date")) as HTMLInputElement;

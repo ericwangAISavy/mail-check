@@ -6,6 +6,52 @@ from unittest.mock import patch
 from mailcheck.web.local_monitor import Observer
 
 
+def test_subscription_failure_does_not_claim_the_consumer_is_down():
+    from types import SimpleNamespace
+    from mailcheck.shared.runtime import job_health
+    from mailcheck.shared.health_evidence import WorkerProgress
+    consumer=SimpleNamespace(health=WorkerProgress())
+    coordinator=SimpleNamespace(health=WorkerProgress(poll_timeout=180),subscription_health=WorkerProgress(poll_timeout=180))
+    for progress in (consumer.health,coordinator.health,coordinator.subscription_health):progress.poll()
+    coordinator.subscription_health.failed(ConnectionRefusedError('private provider details'))
+    result=job_health(consumer,coordinator)
+    assert result['status']=='healthy'
+    assert result['dependencies']['subscriptions']['status']=='degraded'
+    assert result['dependencies']['subscriptions']['reason']=='connection_refused'
+    assert 'private' not in json.dumps(result)
+
+
+def test_dependency_evidence_is_reported_separately_and_expires_with_parent(tmp_path):
+    from mailcheck.shared.service_health import read_services
+    directory=tmp_path/'shared-runtime'/'service-health';directory.mkdir(parents=True)
+    report=dict(id='shared-job-collection-0',pid=123,updated_at=time.time(),status='healthy',detail='Consumer polling',
+        dependencies={'subscriptions':dict(status='degraded',reason='http_403',http_status=403,account_id=7,workspace='legacy')})
+    path=directory/'shared-job-collection-0.json';path.write_text(json.dumps(report))
+    with patch('mailcheck.shared.monitoring.process_running',return_value=True):result=read_services(tmp_path)
+    assert result[report['id']]['status']=='healthy'
+    dependency=result['subscriptions:'+report['id']]
+    assert dependency['status']=='degraded' and dependency['account_id']==7 and dependency['http_status']==403
+    report['updated_at']-=60;path.write_text(json.dumps(report))
+    with patch('mailcheck.shared.monitoring.process_running',return_value=True):result=read_services(tmp_path)
+    assert result['subscriptions:'+report['id']]['status']=='unavailable'
+    assert result['subscriptions:'+report['id']]['reason']=='heartbeat_expired'
+
+
+def test_idle_consumer_starts_telemetry_without_recording_fake_jobs(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from mailcheck.shared import runtime, telemetry
+    start,record=Mock(),Mock()
+    monkeypatch.setattr(telemetry,'start',start)
+    monkeypatch.setattr(telemetry,'record',record)
+    consumer=runtime.Consumer(SimpleNamespace(root=Path('/unused')),(),'amqp://unused','collection')
+    consumer.stop.set()
+    consumer.run()
+    start.assert_called_once_with()
+    record.assert_not_called()
+
+
 def test_worker_health_requires_transport_and_recent_progress_without_killing_slow_jobs():
     from mailcheck.shared.health_evidence import WorkerProgress
     clock = [100.0]

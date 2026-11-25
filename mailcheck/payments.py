@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS bidder_assignments (
 CREATE INDEX IF NOT EXISTS idx_bidder_assignments_account ON bidder_assignments(account_id, start_date);
 CREATE TABLE IF NOT EXISTS application_receipts (
  account_id INTEGER NOT NULL, message_id TEXT NOT NULL, received_at TEXT NOT NULL,
- category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', PRIMARY KEY(account_id, message_id)
+ category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', job_refs TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(account_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_week ON application_receipts(category, julianday(received_at));
 CREATE TABLE IF NOT EXISTS bidder_payments (
@@ -292,6 +292,8 @@ RECEIPT_CATEGORIES = ('application_ack', 'interview_invite', 'rejection')
 def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, since: date | None = None, until: date | None = None) -> None:
     """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
+    from .confirmation_counts import job_references
+    conn.create_function('receipt_job_references',3,job_references,deterministic=True)
     scope = ""
     prefix = ""
     parameters = [message_pk] if message_pk is not None else []
@@ -316,18 +318,20 @@ def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, si
                 OR EXISTS (SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
                   AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?)))"""
             parameters.extend((lower, upper, lower, upper))
-    conn.execute(prefix + """INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
-        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,'')
+    conn.execute(prefix + """INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role, job_refs)
+        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,''),
+          CASE WHEN c.category='application_ack' THEN receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000)) ELSE '[]' END
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category IN ('application_ack','interview_invite','rejection') OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
         """ + (" AND m.id=? " if message_pk is not None else "") + scope + """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role,job_refs=excluded.job_refs
         WHERE application_receipts.received_at IS NOT excluded.received_at
            OR application_receipts.category IS NOT excluded.category
            OR application_receipts.company IS NOT excluded.company
-           OR application_receipts.role IS NOT excluded.role""", parameters)
+           OR application_receipts.role IS NOT excluded.role
+           OR application_receipts.job_refs IS NOT excluded.job_refs""", parameters)
 
 
 def monday(value: date) -> date:
@@ -381,11 +385,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     # Bound in UTC, then bucket in the accounting timezone, including DST days.
     lower = datetime.combine(start, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(end + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-    day_sql, day_params = accounting_day_case('received_at', start, end)
-    counts = {(row['account_id'], row['day']): row['n'] for row in conn.execute(
-        "SELECT account_id," + day_sql + " AS day,COUNT(*) AS n FROM application_receipts "
-        "WHERE category='application_ack' AND julianday(received_at)>=julianday(?) "
-        "AND julianday(received_at)<julianday(?) GROUP BY account_id,day", (*day_params, lower, upper))}
+    from .confirmation_counts import counts as confirmation_counts
+    counts=confirmation_counts(conn,start,end)
     assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
     from .sourcing_verification import completed_account_counts

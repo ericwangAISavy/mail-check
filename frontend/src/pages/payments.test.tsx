@@ -43,7 +43,7 @@ it("shows loading failures with a retry action", async () => {
   expect(screen.getByText("Could not load totals")).toBeTruthy()
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy()
 })
-it("shows checked applications before muted received replies", async () => {
+it("shows checked applications before muted confirmed applications", async () => {
   const report = data() as any
   report.bidders[0].daily[0] = 112
   report.bidders[0].checked_daily = [60,0,0,0,0,0,0]
@@ -52,10 +52,10 @@ it("shows checked applications before muted received replies", async () => {
   const row = (await screen.findByRole("rowheader", {name: /Alex/})).closest("tr")!
   expect(within(row).getAllByRole("cell")[0].textContent).toBe("60 / 112")
   expect(within(row).getAllByTitle("Checked applications")[0].className).toBe("payment-checked-count")
-  expect(within(row).getAllByTitle("Received replies")[0].className).toBe("payment-reply-count")
+  expect(within(row).getAllByTitle("Confirmed applications")[0].className).toBe("payment-reply-count")
   expect(within(row).getAllByRole("cell")[7].textContent).toBe("60")
   expect(screen.getByText("Checked applications this week").parentElement!.querySelector("strong")!.textContent).toBe("60")
-  expect(screen.getByText(/Checked applications \/ received replies/)).toBeTruthy()
+  expect(screen.getByText(/Checked applications \/ confirmed applications/)).toBeTruthy()
 })
 
 it("shows daily and weekly totals to guests without management or payment controls", async () => {
@@ -111,11 +111,11 @@ it("shows unallocated confirmations without assigning them to bidder estimates",
   report.bidders[0].checked_daily = [0,0,0,0,0,0,0]
   vi.mocked(request).mockResolvedValue(report)
   mount()
-  const row = (await screen.findByRole("rowheader", {name: /Unallocated received replies/})).closest("tr")!
+  const row = (await screen.findByRole("rowheader", {name: /Unallocated confirmed applications/})).closest("tr")!
   expect(within(row).getAllByRole("cell")[0].textContent).toBe("0 / 3")
   expect(screen.getByText("Checked applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
   fireEvent.change(screen.getByLabelText("Bidder"), {target: {value: "1"}})
-  expect(screen.queryByRole("rowheader", {name: /Unallocated received replies/})).toBeNull()
+  expect(screen.queryByRole("rowheader", {name: /Unallocated confirmed applications/})).toBeNull()
   expect(screen.getByText("Checked applications this week").parentElement!.querySelector("strong")!.textContent).toBe("0")
 })
 
@@ -305,9 +305,9 @@ it("shows bidders checked counts only even if a cached payload contains replies"
  vi.mocked(request).mockResolvedValue(report);mount(true)
  const row=(await screen.findByRole("rowheader",{name:/Alex/})).closest("tr")!
  expect(within(row).getAllByRole("cell")[0].textContent).toBe("76")
- expect(screen.queryAllByTitle("Received replies")).toHaveLength(0)
+ expect(screen.queryAllByTitle("Confirmed applications")).toHaveLength(0)
  expect(document.querySelector(".payment-reply-count")).toBeNull()
- expect(screen.queryByText(/received replies/i)).toBeNull()
+ expect(screen.queryByText(/confirmed applications/i)).toBeNull()
  expect(screen.queryByText(/Recorded count:/)).toBeNull()
  expect(document.querySelector("tfoot td")!.textContent).toBe("76")
 })

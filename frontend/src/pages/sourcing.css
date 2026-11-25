@@ -44,7 +44,16 @@
   min-width: 190px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding-left: 9px;
+  padding: 0 9px;
+}
+.sourcing-search:focus-within {
+  border-color: var(--ring);
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+:root body form.sourcing-search input:is(:focus, :focus-visible) {
+  outline: none;
+  box-shadow: none;
 }
 .sourcing-search input {
   border: none !important;
@@ -700,4 +709,11 @@
 .sourcing-toolbar select option.sourcing-deleted-bidder { color: var(--muted-foreground); font-style: italic; }
 .job-links-page .job-links-search { flex: 1; max-width: 580px; min-width: 150px; }
 .job-links-search input { flex: 1; width: 100%; padding: 8px 0; }
-.job-links-search .btn { flex-shrink: 0; }
+.job-links-date-range { flex-wrap:wrap; }
+.job-links-date-range label { display:flex; align-items:center; gap:8px; color:var(--muted-foreground); font-size:13px; }
+.job-links-date-range input { min-width:140px; }
+.job-links-page-size { display:flex; align-items:center; gap:8px; margin-left:auto; font-size:13px; color:var(--muted-foreground); }
+.job-links-page .sheet-edit-toolbar { flex-wrap:wrap; }
+.job-links-filters { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; margin-left:auto; }
+.job-links-filters label { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; font-size:13px; color:var(--muted-foreground); cursor:pointer; }
+.job-links-filters input { width:14px; height:14px; margin:0; accent-color:var(--primary); }

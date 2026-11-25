@@ -15,6 +15,40 @@ def account():
     return db.Account(1, 'primary', 'person@example.com', '', 993, True, 'INBOX', True, 'outlook')
 
 
+def test_subscription_errors_keep_safe_account_operation_and_http_evidence(tmp_path,monkeypatch):
+    from mailcheck.realtime.graph import GraphSubscriptions,GraphError
+    from mailcheck.shared.health_evidence import failure
+    graph=GraphSubscriptions(Registry(tmp_path/'registry.db'),'legacy','https://example.com')
+    monkeypatch.setattr(graph,'_token',lambda *args:'private-token')
+    def denied(*args,**kwargs):
+        httpx.Response(403,request=httpx.Request('POST','https://graph.microsoft.com/private-token')).raise_for_status()
+    monkeypatch.setattr(graph,'_request',denied)
+    with pytest.raises(GraphError) as caught:graph.sync([account()],{1},Config())
+    evidence=failure(caught.value)
+    assert evidence['reason']=='http_403'
+    assert evidence['account_id']==1 and evidence['workspace']=='legacy'
+    assert evidence['operation']=='create' and evidence['kind']=='mail'
+    assert 'private-token' not in str(evidence)
+
+
+def test_disabled_account_without_credentials_drops_stale_callback_routing(tmp_path,monkeypatch):
+    from mailcheck.realtime.graph import GraphSubscriptions
+    from mailcheck.outlook_auth import ReconnectRequired
+    registry=Registry(tmp_path/'registry.db')
+    registry.save('stale','legacy',1,'mail','state',time.time()+86400,
+                  callback_url='https://example.com/hooks/microsoft',resource='me/messages')
+    graph=GraphSubscriptions(registry,'legacy','https://example.com')
+    def reconnect(*args):raise ReconnectRequired('private mailbox details')
+    monkeypatch.setattr(graph,'_token',reconnect)
+    # Account collection was disabled: renewal/reconnection is not wanted.
+    graph.sync([account()],set(),Config())
+    assert registry.list_workspace('legacy')==[]
+    assert registry.validate('stale','state') is None
+    from mailcheck.realtime.graph import GraphError
+    with pytest.raises(GraphError) as caught:graph.sync([account()],{1},Config())
+    assert caught.value.health_evidence['reason']=='reconnect_required'
+
+
 def test_create_renew_and_disable_subscription(tmp_path, monkeypatch):
     from mailcheck.realtime.graph import GraphSubscriptions
     registry = Registry(tmp_path / 'registry.db')

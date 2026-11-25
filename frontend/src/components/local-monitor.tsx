@@ -3,14 +3,24 @@ import {AlertTriangle,CheckCircle2} from "lucide-react"
 import {useQuery} from "@tanstack/react-query"
 import {request} from "@/lib/api"
 import {MonitoringView} from "@/pages/system-monitoring"
+import {Button} from '@/components/ui/button'
+import {version} from '../../package.json'
 
-type Status={origin:string;checked_at:number|null;outage_since?:number|null;snapshot_stale:boolean;failed_services?:string[];problem_services?:{id:string;status:string}[];logs:string[]}
+type Status={origin:string;checked_at:number|null;outage_since?:number|null;snapshot_stale:boolean;failed_services?:string[];problem_services?:{id:string;status:string;name?:string;workspace_name?:string;reason?:string}[];logs:string[]}
+
+function newerBuild(candidate:unknown){
+ if(typeof candidate!=='string'||!/^\d+\.\d+\.\d+$/.test(candidate))return false
+ const next=candidate.split('.').map(Number),current=version.split('.').map(Number)
+ for(let index=0;index<3;index++)if(next[index]!==current[index])return next[index]>current[index]
+ return false
+}
 
 export default function LocalMonitor(){
  const [log,setLog]=useState("")
  const [now,setNow]=useState(Date.now)
  useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),5000);return()=>window.clearInterval(timer)},[])
  const status=useQuery({queryKey:["local-monitor-status"],queryFn:({signal})=>request<Status>("/api/status",{signal}),refetchInterval:5000,refetchIntervalInBackground:true,retry:false,staleTime:0})
+ const build=useQuery({queryKey:['local-monitor-build'],queryFn:({signal})=>request<{version:string}>('/assets/build-info.json',{signal,cache:'no-store'}),refetchInterval:30000,refetchIntervalInBackground:true,retry:false})
  const stale=!!status.data?.checked_at&&now/1000-status.data.checked_at>20
  const down=status.data?.origin==="unavailable"
  const unknown=status.data?.origin==="unknown"&&!!status.data.checked_at
@@ -29,12 +39,14 @@ export default function LocalMonitor(){
  const tail=useQuery({queryKey:["local-monitor-log",selected],queryFn:({signal})=>request<{text:string}>(`/api/log?name=${encodeURIComponent(selected!)}`,{signal}),enabled:!!selected,refetchInterval:5000})
  return <>
   <div className="page-wrap local-monitor-status">
+   <span className="monitor-ui-version muted">UI v{version}</span>
+   {newerBuild(build.data?.version)&&<div role="status" className="monitor-update-note"><div><strong>Monitoring update available</strong><p>v{build.data?.version} is installed. Reload to use the latest monitoring page.</p></div><Button variant="outline" size="sm" onClick={()=>window.location.reload()}>Reload monitoring</Button></div>}
    <div role={critical||warning?"alert":"status"} className={`monitor-availability ${critical?"is-critical":warning?"is-warning":"is-healthy"}`}>
     {critical||warning?<AlertTriangle size={26} aria-hidden="true"/>:<CheckCircle2 size={24} aria-hidden="true"/>}
     <div><strong>{title}</strong>
      {critical&&<p>{down&&!stale&&!status.isError?"The application is not responding to local health checks. Automatic recovery should be running. Check origin-supervisor.log below.":failed.length?"One or more services failed their independent checks. Select the affected service log below for runtime errors.":"Current application availability cannot be confirmed. Check the monitoring process and server logs."}</p>}
      {failed.length>0&&<p>Affected services: {failed.join(", ")}</p>}
-     {problems.length>0&&<p>Checks needing attention: {problems.map(item=>`${item.id} (${item.status})`).join(", ")}. Expand Evidence below.</p>}
+     {problems.length>0&&<p>Checks needing attention: {problems.map(item=>`${item.workspace_name?item.workspace_name+': ':''}${item.name||item.id} (${item.status}${item.reason?': '+item.reason.replaceAll('_',' '):''})`).join(", ")}. Expand Evidence below.</p>}
      {down&&status.data?.outage_since&&<p>Outage detected {new Date(status.data.outage_since*1000).toLocaleString()}</p>}
      {status.data?.snapshot_stale&&<p>Service tiles and charts show last known data.</p>}
     </div>

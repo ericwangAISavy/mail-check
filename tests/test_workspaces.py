@@ -4,8 +4,37 @@ import pytest
 from mailcheck import config, secrets
 
 
+def test_initialization_never_replaces_an_existing_workspace_database(tmp_path):
+    from mailcheck.workspaces import provision,initialize_database
+    from mailcheck.web.system_monitoring import database_snapshot
+    root=provision(tmp_path,'a'*32)
+    database=initialize_database(root)
+    before=database.read_bytes()
+    with pytest.raises(FileExistsError,match='refusing replacement'):
+        initialize_database(root)
+    assert database.read_bytes()==before
+    database.unlink()
+    evidence=database_snapshot(database)
+    assert evidence['status']=='unknown'
+    assert evidence['reason']=='database_missing'
+    assert not database.exists()
+
+
+@pytest.mark.parametrize('suffix',['-wal','-shm','-journal'])
+def test_initialization_preserves_orphaned_sqlite_recovery_files(tmp_path,suffix):
+    from mailcheck.workspaces import provision,initialize_database
+    root=provision(tmp_path,'b'*32)
+    orphan=root/'data'/('mailcheck.db'+suffix)
+    orphan.write_bytes(b'preserve recovery data')
+    with pytest.raises(ValueError,match='recovery files'):
+        initialize_database(root)
+    assert orphan.read_bytes()==b'preserve recovery data'
+    assert not (root/'data'/'mailcheck.db').exists()
+
+
 def test_legacy_paths_and_secret_namespace_remain_unchanged(tmp_path):
-    with patch.dict('os.environ',{},clear=True):
+    # This verifies the legacy namespace, not Windows shell profile discovery.
+    with patch.dict('os.environ',{},clear=True),patch.object(config,'user_data_dir',return_value=str(tmp_path/'data')),patch.object(config,'user_config_dir',return_value=str(tmp_path/'config')):
         assert config.db_path().name == 'mailcheck.db'
         assert secrets._key_for_account('same') == 'account:same'
 

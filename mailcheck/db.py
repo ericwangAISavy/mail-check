@@ -15,7 +15,8 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 51
+SCHEMA_VERSION = 54
+SHARED_SCHEMA_MIN_VERSION = 50
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS calendar_analysis_tasks (
     UNIQUE(account_id,external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_calendar_analysis_ready ON calendar_analysis_tasks(state,next_attempt);
+CREATE INDEX IF NOT EXISTS idx_calendar_analysis_external ON calendar_analysis_tasks(external_id,account_id);
 CREATE TABLE IF NOT EXISTS calendar_analysis_worker (
     id INTEGER PRIMARY KEY CHECK(id=1),last_account INTEGER NOT NULL DEFAULT 0,
     next_run REAL NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT ''
@@ -88,6 +90,8 @@ CREATE TABLE IF NOT EXISTS calendar_analyses (
     external_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL,
     analyzed_at TEXT NOT NULL, PRIMARY KEY(account_id,external_id)
 );
+CREATE INDEX IF NOT EXISTS idx_calendar_cache_external ON calendar_analyses(external_id,account_id);
+CREATE INDEX IF NOT EXISTS idx_interview_analysis_rank ON interview_events(extraction_rank,id);
 CREATE TABLE IF NOT EXISTS interview_scans (
     message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
     fingerprint TEXT NOT NULL,
@@ -245,6 +249,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
+    ("application_receipts", "job_refs", "TEXT NOT NULL DEFAULT '[]'"),
     ("interview_events", "interviewers", "TEXT NOT NULL DEFAULT '[]'"),
     ("interview_calendar_state", "interview_related", "INTEGER NOT NULL DEFAULT 0"),
 ]
@@ -261,6 +266,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE messages SET date_utc = NULL WHERE date_utc < '1971'")
 
 
+def _validate_schema_version(version, *, shared):
+    if version > SCHEMA_VERSION:
+        raise RuntimeError(f'Unsupported database schema {version} is newer than supported schema {SCHEMA_VERSION}; refusing to downgrade it.')
+    if shared and version < SHARED_SCHEMA_MIN_VERSION:
+        raise RuntimeError(f'Shared workers require a supported database schema ({SHARED_SCHEMA_MIN_VERSION} through {SCHEMA_VERSION}); found {version}. No automatic migration was performed.')
+
+
 def connect(path: Path | None = None) -> sqlite3.Connection:
     """Open the database, bringing the schema up to date only when it is not.
 
@@ -272,18 +284,28 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     """
     path = path or config.db_path()
     from .workspaces import current_workspace
-    if current_workspace() is not None and Path(path).is_file():
-        # Schema 50 is the supported shared-worker baseline. Its additive
-        # read-task upgrade runs under the migration lock below, including
-        # when an API request is the first operation after an app update.
+    shared = current_workspace() is not None
+    existing_shared = shared and Path(path).is_file()
+    if existing_shared:
+        # Every supported intermediate version must reach the serialized
+        # upgrade below. Accepting only the baseline and current version
+        # strands workspaces after a later additive schema update.
         with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)) as existing:
-            if existing.execute('PRAGMA user_version').fetchone()[0] not in (50, SCHEMA_VERSION):
-                raise RuntimeError('Shared workers require the existing database schema; no automatic migration was performed.')
+            version = existing.execute('PRAGMA user_version').fetchone()[0]
+            _validate_schema_version(version,shared=True)
     from .maintenance import connect_database
     # Several worker processes write this file; SQLite's 5-second default gave up
     # ("database is locked") whenever another worker held a write a little longer.
     conn = connect_database(path, timeout=30)
     conn.row_factory = sqlite3.Row
+    try:
+        # Recheck the actual opened file, including non-shared connections.
+        # A newer binary may have upgraded it after the read-only preflight.
+        version=conn.execute('PRAGMA user_version').fetchone()[0]
+        _validate_schema_version(version,shared=shared and (existing_shared or version!=0))
+    except BaseException:
+        conn.close()
+        raise
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL lets the console read while a check is writing, instead of the two
     # blocking each other; NORMAL trades an fsync per commit for one per
@@ -299,7 +321,9 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             # after acquiring the lock: another connection may have upgraded
             # the database while this one was waiting.
             conn.execute("BEGIN IMMEDIATE")
-            if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            _validate_schema_version(version,shared=shared and (existing_shared or version!=0))
+            if version != SCHEMA_VERSION:
                 from .sourcing_activity import SCHEMA as ACTIVITY_SCHEMA, initialize as initialize_activity
                 from .mail_checkpoints import SCHEMA as CHECKPOINT_SCHEMA
                 from .read_marking import SCHEMA as READ_SCHEMA
@@ -312,9 +336,11 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 from .interview_processes import SCHEMA as PROCESS_SCHEMA
                 from .interview_pipeline import SCHEMA as PIPELINE_SCHEMA
+                from .sourcing_postings import SCHEMA as POSTING_SCHEMA
+                from .sourcing_fallbacks import SCHEMA as MATCH_EVIDENCE_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + READ_SCHEMA + CHECKPOINT_SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA).split(";"):
+                for statement in (SCHEMA + READ_SCHEMA + CHECKPOINT_SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA + POSTING_SCHEMA + MATCH_EVIDENCE_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
@@ -917,6 +943,20 @@ def category_counts(
     return {r["category"]: r["n"] for r in conn.execute(sql, params)}
 
 
+APPLICATION_MATCHED_SQL = """(c.category='application_ack' AND EXISTS (
+    SELECT 1 FROM sourcing_check_activity e
+    JOIN native_rows r ON r.id=e.row_id
+    JOIN native_tabs t ON t.id=r.tab_id AND t.account_id=m.account_id
+    JOIN native_books b ON b.id=t.book_id
+    JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
+    JOIN native_columns hc ON hc.tab_id=t.id AND hc.kind='check'
+    JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=hc.id AND checked.value='true'
+    JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+    JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''
+    WHERE e.message_id=m.message_id AND e.account_id=m.account_id AND e.confirmed_at IS NOT NULL
+)) AS application_matched"""
+
+
 def query_triaged(
     conn: sqlite3.Connection,
     *,
@@ -943,7 +983,8 @@ def query_triaged(
                m.date_utc, m.snippet, m.provider_url, m.handled_at,
                a.label AS account_label, a.email AS account_email, a.provider, a.imap_host,
                c.category, c.confidence, c.company, c.role, c.deadline,
-               c.action_required, c.summary, c.source, c.retryable, c.created_at
+               c.action_required, c.summary, c.source, c.retryable, c.created_at,
+        """ + APPLICATION_MATCHED_SQL + """
         FROM messages m
         JOIN accounts a ON a.id = m.account_id
         """
@@ -1011,7 +1052,8 @@ def get_triaged(conn: sqlite3.Connection, pk: int) -> sqlite3.Row | None:
                m.date_utc, m.fetched_at, m.snippet, m.body_text, m.original_html, m.provider_url, m.handled_at,
                a.label AS account_label, a.email AS account_email, a.provider, a.imap_host,
                c.category, c.confidence, c.company, c.role, c.deadline,
-               c.action_required, c.summary, c.source, c.retryable, c.created_at
+               c.action_required, c.summary, c.source, c.retryable, c.created_at,
+        """ + APPLICATION_MATCHED_SQL + """
         FROM messages m
         JOIN accounts a ON a.id = m.account_id
         """

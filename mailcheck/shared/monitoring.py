@@ -148,6 +148,10 @@ def shared_snapshot(store, pool, model_activity=None):
                 components.append(dict(id=slot,name=f'Shared {lane} process · {slot.rsplit("-",1)[-1]}',
                     status='unknown' if running else 'unavailable',reason='health_report_missing' if running else 'process_exited',
                     scope='worker_runtime',checked_at=time.time(),detail='Runtime evidence is unavailable.' if running else 'Process is stopped or unavailable.'))
+            for prefix in ('coordinator:','subscriptions:'):
+                dependency=service_reports.get(prefix+slot)
+                if dependency and running and dependency.get('pid')==getattr(worker.process,'pid',None):
+                    components.append(dependency)
     queues, broker_evidence = [], {}
     try:
         queues = read_rabbit(pool.amqp_url)

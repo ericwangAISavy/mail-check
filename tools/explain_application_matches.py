@@ -9,7 +9,8 @@ import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from mailcheck import payments
-from mailcheck.sourcing_verification import _contains_name, _matching_plan, company_key
+from mailcheck.sourcing_verification import _contains_name, _combined_matching_plan, company_key, MATCHING_WINDOW_DAYS
+from mailcheck.sourcing_fallbacks import _alias
 
 
 def explain(database, account, company):
@@ -40,19 +41,23 @@ def explain(database, account, company):
         ids = {r['id'] for r in conn.execute('SELECT id FROM accounts WHERE lower(email)=lower(?)',(account.strip(),))}
         receipts = [dict(r) for r in conn.execute('''SELECT account_id,message_id,received_at,company,role
             FROM application_receipts WHERE category='application_ack' ''')
-            if r['account_id'] in ids and _contains_name(key,company_key(r['company']))]
+            if r['account_id'] in ids]
         active_rows = [r for r in rows if r['account_id'] in ids and not r['archived']]
-        plan = _matching_plan(conn,active_rows,receipts,early_since=payments.today()-timedelta(days=6))
+        evidence = {}
+        plan = _combined_matching_plan(conn,active_rows,receipts,early_since=payments.today()-timedelta(days=MATCHING_WINDOW_DAYS-1),evidence=evidence)
         bindings = {}
         for row in rows:
             if row['checked']=='true' and row['saved_receipt']:
                 bindings.setdefault((row['account_id'],row['saved_receipt']),[]).append(row['id'])
-        related = [r for r in rows if _contains_name(key,company_key(r['company']))]
+        related = [r for r in rows if _contains_name(key,company_key(r['company'])) or _alias(company)==_alias(r['company'])]
+        matched_receipts = {(r['account_id'],plan[r['id']][1]) for r in related if r['id'] in plan}
+        receipts = [r for r in receipts if _contains_name(key,company_key(r['company'])) or _alias(company)==_alias(r['company']) or (r['account_id'],r['message_id']) in matched_receipts]
         for row in related:
             match = plan.get(row['id'])
             row['same_email_account'] = row['account_id'] in ids
             row['would_add_check'] = row['checked'] != 'true' and match is not None
             row['matched_receipt_date'] = match[0].isoformat() if match else None
+            row['matching_rule'] = evidence.get(row['id'],{}).get('rule','existing_rules' if match else None)
             row['has_saved_receipt'] = bool(row.pop('saved_receipt'))
             row['has_job_link'] = bool((row.pop('link') or '').strip())
         # Receipt identifiers are excluded from shared reports.

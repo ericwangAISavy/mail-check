@@ -12,6 +12,13 @@ from .health_evidence import failure, safe_evidence
 from urllib.request import Request, ProxyHandler, build_opener
 
 SLOT = re.compile(r'shared-(?:api|job-collection|job-model)-[0-9]+')
+DEPENDENCIES={'coordinator':'Background coordination','subscriptions':'Microsoft subscriptions'}
+
+
+def dependency_reports(value):
+    if not isinstance(value,dict):return {}
+    return {key:{**safe_evidence(item),'status':item['status']} for key,item in value.items()
+            if key in DEPENDENCIES and isinstance(item,dict) and item.get('status') in ('healthy','degraded','unknown','unavailable')}
 
 
 def report_service(server):
@@ -29,9 +36,9 @@ def report_service(server):
     stopped = threading.Event()
     opener = build_opener(ProxyHandler({}))
 
-    def write(status, detail, evidence=None):
+    def write(status, detail, evidence=None,dependencies=None):
         value = dict(id=slot, pid=os.getpid(), updated_at=time.time(), status=status, detail=detail,
-                     evidence=safe_evidence(evidence))
+                     evidence=safe_evidence(evidence),dependencies=dependency_reports(dependencies))
         temporary = path.with_suffix(f'.{os.getpid()}.tmp')
         try:
             temporary.write_text(json.dumps(value), encoding='utf-8')
@@ -44,6 +51,7 @@ def report_service(server):
         while not stopped.is_set():
             started = time.monotonic()
             evidence = dict(checked_at=time.time(), scope='worker_http')
+            dependencies={}
             status, detail = 'unknown', 'Process is starting.'
             if server.should_exit:
                 status, detail = 'unavailable', 'Process is draining or shutting down.'
@@ -62,6 +70,7 @@ def report_service(server):
                             if status not in ('healthy','degraded','unknown','unavailable'):
                                 raise ValueError('Invalid health status')
                             evidence.update(safe_evidence(value))
+                            dependencies=dependency_reports(value.get('dependencies'))
                             evidence['http_status'] = 200
                             detail = 'Direct worker check: '+str(evidence.get('reason','HTTP responsive')).replace('_',' ')+'.'
                 except Exception as exc:
@@ -80,7 +89,7 @@ def report_service(server):
                             exc.close()
                     status, detail = 'unavailable', 'Direct worker HTTP/runtime check failed. Inspect this worker log.'
             evidence['duration_ms'] = round((time.monotonic()-started)*1000,1)
-            write(status, detail, evidence)
+            write(status, detail, evidence,dependencies)
             stopped.wait(5)
 
     thread = threading.Thread(target=watch, daemon=True, name='service-health-reporter')
@@ -132,6 +141,12 @@ def read_services(root):
                 evidence['reason'] = 'heartbeat_expired'
             result[path.stem] = dict(id=path.stem, name=path.stem, status=status, detail=detail,
                                     **{**evidence,'pid':pid,'checked_at':evidence.get('checked_at',at)})
+            for key,item in dependency_reports(value.get('dependencies')).items():
+                stale=status=='unavailable'
+                result[key+':'+path.stem]={**item,'id':key+':'+path.stem,'name':DEPENDENCIES[key],
+                    'detail':'Dependent background task; mail/calendar polling is checked separately.',
+                    'pid':pid,'checked_at':evidence.get('checked_at',at)}
+                if stale:result[key+':'+path.stem].update(status='unavailable',reason=evidence.get('reason','parent_unavailable'))
         except (OSError, ValueError, TypeError):
             continue
     return result

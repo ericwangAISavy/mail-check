@@ -10,6 +10,18 @@ from mailcheck.web.server import LocalOriginHealth
 from mailcheck.web.admission import RequestAdmission
 
 
+def test_problem_evidence_identifies_workspace_by_name_and_keeps_missing_database_alert(tmp_path):
+    observer=Observer(tmp_path,52400)
+    observer.state='ready'
+    observer.latest={'checked_at':1,'components':[{'id':'tenant:database','name':'Workspace database','workspace':'tenant','status':'unknown','reason':'database_missing'}],
+                     'workspaces':[{'id':'tenant','name':'OrionStar'}]}
+    problem=observer.status()['problem_services'][0]
+    assert problem['workspace_name']=='OrionStar'
+    assert problem['name']=='Workspace database'
+    assert problem['reason']=='database_missing'
+    assert problem['status']=='unknown'
+
+
 def test_launcher_replaces_legacy_monitor_instead_of_reusing_its_health_endpoint(tmp_path):
     from mailcheck.web import local_monitor
     def connection(value):

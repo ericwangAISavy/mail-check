@@ -20,7 +20,7 @@ from icalendar import Calendar
 from pydantic import BaseModel, Field
 
 from . import db
-from .calendar_events import interview_evidence, unrelated_booking
+from .calendar_events import interview_evidence
 from .llm import LLMClient
 from .llm.schema import extract_json
 
@@ -428,8 +428,14 @@ def process_message(conn, pk: int, cls: dict, *, client=None, force=False, calen
     try:
         known_uids = {r["calendar_uid"] for r in _known_calendar_interviews(conn,row["account_id"]) if r["calendar_uid"]}
         candidates, retryable = detect(row, cls, client, known_uids=known_uids, calendar_only=calendar_only)
+        if calendar_only:
+            for candidate in candidates:
+                if candidate['extraction_rank']==2:candidate['analysis_pending']=True
         with db.atomic_write(conn):
             changes = [change for item in candidates if (change := reconcile(conn, item, row))]
+            from .invitation_analysis import enqueue_events
+            event_ids=[source[0] for source in conn.execute('SELECT DISTINCT event_id FROM interview_sources WHERE message_pk=?',(pk,))]
+            enqueue_events(conn,event_ids)
             conn.execute("INSERT INTO interview_scans VALUES (?,?,?,?) ON CONFLICT(message_pk) DO UPDATE SET fingerprint=excluded.fingerprint,retryable=excluded.retryable,scanned_at=excluded.scanned_at", (pk,fingerprint,int(retryable),db._now()))
         return changes
     except sqlite3.OperationalError as exc:
@@ -497,14 +503,51 @@ def _save_calendar_booking(conn, account, booking, details, *, analysis_enabled)
     return change
 
 
-def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None, analysis_client=None, defer_analysis=False, account_ids=None):
-    """Read native calendar bookings and persist events, never mail or classifications."""
+def _calendar_read(source, state, since, until, *, incremental):
+    """(bookings, removed ids, next change token, whether this is a full read)."""
+    from .sources import SourceError
+    from .sources.outlook import CalendarResyncRequired
+    tracks = callable(getattr(source,"calendar_changes",None))
+    if incremental and tracks and not state.full_read_due():
+        try:
+            bookings, removed, link = source.calendar_changes(state.delta_link)
+            return bookings, removed, link, False
+        except CalendarResyncRequired as exc:
+            log.info("%s", exc)
+    link = None
+    if incremental and tracks:
+        # Taken before the listing, so a change made while listing is not missed.
+        try:
+            link = source.calendar_delta_start(since,until)
+        except SourceError:
+            log.warning("Calendar change tracking is unavailable; the whole calendar will be read next time too.")
+    return source.fetch_calendar(since,until=until), [], link, True
+
+
+def _remove_calendar_events(conn, account_id, external_ids):
+    for external_id in external_ids:
+        conn.execute("""INSERT INTO interview_calendar_state(source_id,start_at,end_at,present)
+            SELECT s.id,e.start_at,e.end_at,0 FROM interview_sources s JOIN interview_events e ON e.id=s.event_id
+            WHERE s.account_id=? AND s.external_message_id=?
+            ON CONFLICT(source_id) DO UPDATE SET present=0""",(account_id,external_id))
+        conn.execute("UPDATE calendar_analysis_tasks SET state='cancelled',booking=NULL WHERE account_id=? AND external_id=?",
+            (account_id,external_id))
+
+
+def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, status=lambda message: None, analysis_client=None, defer_analysis=False, account_ids=None, incremental=False):
+    """Read native calendar bookings and persist events, never mail or classifications.
+
+    ``incremental`` (automatic runs) reads only what changed since the last run,
+    with a periodic full read, and writes nothing for unchanged events. Without
+    it every calendar is read and every event processed again.
+    """
     from datetime import timedelta
     from .pipeline import build_source
     from .sources import SourceError
     from . import secrets
     from .interview_pipeline import note_calendar_sync
-    from .calendar_analysis import CalendarAnalyzer
+    from .calendar_analysis import CalendarAnalyzer,uncertain
+    from .calendar_sync import SyncState, Unchanged
     accounts = db.list_accounts(conn, only_enabled=True)
     if account_ids is not None:
         accounts = [account for account in accounts if account.id in account_ids]
@@ -515,6 +558,8 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
     since = (datetime.now(timezone.utc) - timedelta(days=since_days if since_days is not None else max(365, cfg.check.lookback_days))).date()
     until = datetime.now(timezone.utc) + timedelta(days=365)
     changes, errors, checked, busy = [], [], 0, False
+    # Skipping relies on the analysis queue, so it applies to queued collection only.
+    incremental = incremental and defer_analysis
     with CalendarAnalyzer(conn, cfg, status, client=analysis_client, defer=defer_analysis) as analyzer:
         for account in accounts:
             first_error = len(errors)
@@ -530,7 +575,19 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 manual_ids = {r['external_message_id'] for r in known if json.loads(r['manual_fields'])}
                 complete = True
                 snapshot_started = time.time()
-                for booking in source.fetch_calendar(since, until=until):
+                state = SyncState(conn,account)
+                unchanged = Unchanged(conn,account.id,state,(cfg.llm.base_url,analyzer.enabled,DETECTOR_VERSION))
+                bookings, removed, delta_link, full = _calendar_read(source,state,since,until,incremental=incremental)
+                handled = {}  # provider id -> [content signature, saved as an interview]
+                for booking in bookings:
+                    signature = unchanged.signature(booking)
+                    if incremental:
+                        previous = unchanged.previous(booking,signature)
+                        if previous is not None:
+                            handled[booking.provider_id] = [signature,previous]
+                            if previous:
+                                seen.add(booking.provider_id)
+                            continue
                     # Preserve recognized interview updates even if a later revision
                     # has a generic title. Previously imported personal events do not
                     # become trusted merely because they were imported before.
@@ -538,10 +595,15 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                         organizer=" ".join(filter(None,[booking.organizer_name,booking.organizer_email])))
                     recognized = booking.provider_id in known_ids or (booking.uid,booking.recurrence_id) in known_uids
                     analysis = analyzer.analyze(account, booking)
+                    if analysis and uncertain(analysis) and not defer_analysis:
+                        from .calendar_queue import retain_uncertain
+                        retain_uncertain(conn,account.id,booking)
                     if analysis and not analysis.is_interview_event and analysis.confidence >= .8 and not analysis.ambiguous:
                         if booking.provider_id not in manual_ids:
+                            handled[booking.provider_id] = [signature,False]
                             continue
-                    elif not (analysis and analysis.is_interview_event) and not evidence and (not recognized or unrelated_booking(booking.title)):
+                    elif not (analysis and analysis.is_interview_event) and not evidence and not recognized:
+                        handled[booking.provider_id] = [signature,False]
                         continue
                     details = analysis if analysis and analysis.is_interview_event else None
                     # The model enriches meaning only; provider identity, schedule,
@@ -550,8 +612,12 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                         try:
                             with db.atomic_write(conn):
                                 change = _save_calendar_booking(conn,account,booking,details,analysis_enabled=analyzer.enabled)
+                                if analysis and uncertain(analysis):
+                                    from .calendar_queue import mark_uncertain_events
+                                    mark_uncertain_events(conn,account.id,booking.provider_id)
                             conn.commit()
                             seen.add(booking.provider_id)
+                            handled[booking.provider_id] = [signature,True]
                             if change:
                                 changes.append(change)
                             break
@@ -575,15 +641,20 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                 # Absence is authoritative only after every calendar/page succeeded.
                 # Keep source times separately so local time corrections cannot move
                 # a booking into or out of the provider snapshot window.
-                if complete:
+                if complete and not full:
+                    # A change list names removals; being unlisted means "unchanged".
+                    _remove_calendar_events(conn,account.id,removed)
+                    conn.commit()
+                if complete and full:
                     if defer_analysis:
                         from .calendar_queue import snapshot_complete
-                        snapshot_complete(conn,account.id,since.isoformat(),until.isoformat(),snapshot_started)
+                        snapshot_complete(conn,account.id,since.isoformat(),until.isoformat(),snapshot_started,present=handled)
                     old_sources = conn.execute("""SELECT s.id,s.event_id,s.external_message_id,
                         COALESCE(c.start_at,e.start_at) AS start_at,COALESCE(c.end_at,e.end_at) AS end_at
                         FROM interview_sources s JOIN interview_events e ON e.id=s.event_id
                         LEFT JOIN interview_calendar_state c ON c.source_id=s.id
                         WHERE s.account_id=? AND s.external_message_id LIKE 'graph-event:%'
+                        AND COALESCE(c.present,1)!=0
                         AND julianday(COALESCE(c.start_at,e.start_at)) < julianday(?)
                         AND julianday(COALESCE(c.end_at,c.start_at,e.end_at,e.start_at)) >= julianday(?)""",
                         (account.id,until.isoformat(),since.isoformat())).fetchall()
@@ -594,6 +665,19 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
                             VALUES(?,?,?,0) ON CONFLICT(source_id) DO UPDATE SET present=0""",
                             (old['id'],old['start_at'],old['end_at']))
                     conn.commit()
+                # Remember progress only after it is committed. A failed event keeps
+                # the old token, so the same change is delivered again.
+                if full:
+                    state.events = handled
+                    if complete:
+                        state.delta_link, state.full_at = delta_link, time.time()
+                else:
+                    state.events.update(handled)
+                    if complete:
+                        state.delta_link = delta_link
+                        for identity in removed:
+                            state.events.pop(identity,None)
+                state.save()
                 note_calendar_sync(conn,account.id,errors[first_error:] or None)
                 conn.commit()
                 checked += 1
@@ -609,15 +693,18 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
 def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_client=None, limit=3):
     from . import calendar_queue as queue
     from .calendar_analysis import CalendarAnalyzer
+    from . import invitation_analysis
+    invitation_analysis.backfill(conn)
     changes, processed = [], 0
     with CalendarAnalyzer(conn,cfg,status,client=analysis_client) as analyzer:
         for _ in range(limit):
             task = queue.claim(conn)
             if task is None:break
             try:
-                booking = queue.decode(task)
+                booking = queue.decode(task,conn)
                 account = next((a for a in db.list_accounts(conn,only_enabled=True) if a.id==task['account_id']),None)
-                if account is None:
+                email_task=task['external_id'].startswith(invitation_analysis.PREFIX)
+                if account is None or email_task and invitation_analysis.event(conn,task) is None:
                     conn.execute("UPDATE calendar_analysis_tasks SET state='cancelled',booking=NULL WHERE id=? AND version=?",(task['id'],task['version']))
                     conn.commit();continue
                 result = analyzer.analyze(account,booking)
@@ -629,6 +716,16 @@ def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_
                 conn.execute('BEGIN IMMEDIATE')
                 if not queue.current(conn,task):
                     conn.commit();continue
+                if email_task:
+                    if invitation_analysis.event(conn,task) is None:
+                        conn.execute("UPDATE calendar_analysis_tasks SET state='cancelled',booking=NULL WHERE id=?",(task['id'],))
+                        conn.commit();continue
+                    change,review=invitation_analysis.apply(conn,task,result)
+                    if change:changes.append(change)
+                    if review:queue.review(conn,task)
+                    else:queue.finish(conn,task)
+                    conn.commit();processed+=1
+                    continue
                 manual = conn.execute("""SELECT e.manual_fields FROM interview_events e JOIN interview_sources s ON s.event_id=e.id
                     WHERE s.account_id=? AND s.external_message_id=?""",(account.id,booking.provider_id)).fetchall()
                 if result.is_interview_event or any(json.loads(row[0]) for row in manual):
@@ -637,8 +734,12 @@ def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_
                 elif result.confidence>=.8 and not result.ambiguous:
                     conn.execute("""UPDATE interview_calendar_state SET present=0,interview_related=0 WHERE source_id IN
                         (SELECT id FROM interview_sources WHERE account_id=? AND external_message_id=?)""",(account.id,booking.provider_id))
-                # Uncertain negative decisions must not retire a known interview.
-                queue.finish(conn,task)
+                # Keep uncertain decisions available for explicit retry, never as completed cache entries.
+                from .calendar_analysis import uncertain
+                if uncertain(result):
+                    queue.mark_uncertain_events(conn,account.id,booking.provider_id)
+                    queue.review(conn,task)
+                else:queue.finish(conn,task)
                 conn.commit();processed+=1
             except Exception:
                 conn.rollback()
@@ -684,10 +785,14 @@ def event_sources_many(conn, event_ids) -> dict[int, list[dict]]:
         CASE WHEN s.external_message_id LIKE 'graph-event:%' THEN
           COALESCE(t.state NOT IN ('done','cancelled'), NOT EXISTS (
             SELECT 1 FROM calendar_analyses cached WHERE cached.account_id=s.account_id
-            AND cached.external_id=s.external_message_id)) ELSE 0 END AS analysis_pending
-        FROM interview_sources s JOIN accounts a ON a.id=s.account_id
+            AND cached.external_id=s.external_message_id))
+          WHEN e.extraction_rank=2 THEN COALESCE(t.state NOT IN ('done','cancelled'),NOT EXISTS (
+            SELECT 1 FROM calendar_analyses cached WHERE cached.external_id='email-event:' || e.id))
+          ELSE 0 END AS analysis_pending
+        FROM interview_sources s JOIN accounts a ON a.id=s.account_id JOIN interview_events e ON e.id=s.event_id
         LEFT JOIN interview_calendar_state c ON c.source_id=s.id
-        LEFT JOIN calendar_analysis_tasks t ON t.account_id=s.account_id AND t.external_id=s.external_message_id
+        LEFT JOIN calendar_analysis_tasks t ON t.account_id=s.account_id AND t.external_id=CASE
+          WHEN s.external_message_id LIKE 'graph-event:%' THEN s.external_message_id ELSE 'email-event:' || s.event_id END
         ORDER BY julianday(s.source_received_at) DESC,s.id DESC"""):
         source_order[row['id']] = len(source_order)
         sources.setdefault(row['event_id'], []).append(dict(row))

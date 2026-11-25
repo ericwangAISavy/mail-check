@@ -6,15 +6,21 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from .calendar_events import CalendarBooking
+from .calendar_content import VERSION,DESCRIPTION_LIMIT,SOURCE_LIMIT
 
 
-def enqueue(conn, account_id, booking, *, cached, max_chars):
+def payload_version(booking,max_chars):
     value = asdict(booking)
     value['description'] = booking.description[:max_chars]
     for name in ('start','end','updated_at'):
         value[name] = value[name].isoformat() if value[name] else None
     payload = json.dumps(value, sort_keys=True)
-    version = hashlib.sha256(payload.encode()).hexdigest()
+    version = hashlib.sha256(f'{VERSION}:{DESCRIPTION_LIMIT}:{payload}'.encode()).hexdigest()
+    return payload,version
+
+
+def enqueue(conn, account_id, booking, *, cached, max_chars,commit=True):
+    payload,version=payload_version(booking,max_chars)
     now = time.time()
     conn.execute('''INSERT INTO calendar_analysis_tasks(account_id,external_id,version,booking,start_at,state,last_seen)
         VALUES(?,?,?,?,?,?,?) ON CONFLICT(account_id,external_id) DO UPDATE SET
@@ -27,37 +33,49 @@ def enqueue(conn, account_id, booking, *, cached, max_chars):
         last_error=CASE WHEN calendar_analysis_tasks.version!=excluded.version OR excluded.state='done' THEN '' ELSE calendar_analysis_tasks.last_error END,
         version=excluded.version''',
         (account_id,booking.provider_id,version,None if cached else payload,booking.start.isoformat(),'done' if cached else 'pending',now))
-    conn.commit()
+    if commit:conn.commit()
+    return version
 
 
-def snapshot_complete(conn, account_id, since, until, started):
+def snapshot_complete(conn, account_id, since, until, started, present=()):
     # Only a complete provider snapshot may retire absent work. Failed Graph
     # fetches must not erase queued events or the original calendar sources.
+    # ``present`` names listed events that were unchanged and so not re-queued.
     conn.execute("""UPDATE calendar_analysis_tasks SET state='cancelled',booking=NULL
         WHERE account_id=? AND last_seen<? AND julianday(start_at)>=julianday(?)
-        AND julianday(start_at)<julianday(?)""",(account_id,started,since,until))
+        AND julianday(start_at)<julianday(?) AND external_id LIKE 'graph-event:%' AND state!='cancelled'
+        AND external_id NOT IN (SELECT value FROM json_each(?))""",(account_id,started,since,until,json.dumps(list(present))))
 
 
-def decode(task):
+def decode(task,conn=None):
     value = json.loads(task['booking'])
     for name in ('start','end','updated_at'):
         value[name] = datetime.fromisoformat(value[name]) if value[name] else None
-    return CalendarBooking(**value)
+    booking=CalendarBooking(**value)
+    legacy_version=hashlib.sha256(task['booking'].encode()).hexdigest()
+    if conn is not None and task['version']==legacy_version and len(booking.description)>=200:
+        # Recover the full saved description for tasks queued by the old mail-sized limit.
+        row=conn.execute('''SELECT d.description FROM interview_source_details d JOIN interview_sources s ON s.id=d.source_id
+            WHERE s.account_id=? AND s.external_message_id=? ORDER BY s.id DESC LIMIT 1''',
+            (task['account_id'],task['external_id'])).fetchone()
+        if row and row[0] and row[0].startswith(booking.description) and len(row[0])>len(booking.description):
+            booking.description=row[0][:SOURCE_LIMIT]
+    return booking
 
 
 def progress(conn):
     now = time.time()
     counts = dict(conn.execute("""SELECT t.state,COUNT(*) FROM calendar_analysis_tasks t JOIN accounts a ON a.id=t.account_id
-        WHERE a.enabled=1 AND a.provider='outlook' AND t.state!='cancelled' GROUP BY t.state"""))
+        WHERE a.enabled=1 AND t.state!='cancelled' GROUP BY t.state"""))
     state = conn.execute('SELECT * FROM calendar_analysis_worker WHERE id=1').fetchone()
     pending = sum(counts.get(key,0) for key in ('pending','retry','processing'))
     review = counts.get('needs_review',0)
     retry = conn.execute("""SELECT MIN(CASE WHEN t.state='processing' THEN t.lease_until ELSE t.next_attempt END)
         FROM calendar_analysis_tasks t JOIN accounts a ON a.id=t.account_id
-        WHERE a.enabled=1 AND a.provider='outlook' AND t.state IN ('pending','retry','processing')""").fetchone()[0]
+        WHERE a.enabled=1 AND t.state IN ('pending','retry','processing')""").fetchone()[0]
     pause = state['next_run'] if state else 0
     failed = conn.execute("""SELECT t.last_error FROM calendar_analysis_tasks t JOIN accounts a ON a.id=t.account_id
-        WHERE a.enabled=1 AND a.provider='outlook' AND t.state IN ('retry','needs_review') AND t.last_error!='' ORDER BY t.next_attempt LIMIT 1""").fetchone()
+        WHERE a.enabled=1 AND t.state IN ('retry','needs_review') AND t.last_error!='' ORDER BY t.next_attempt LIMIT 1""").fetchone()
     return dict(done=counts.get('done',0),pending=pending,needs_review=review,total=counts.get('done',0)+pending+review,
         retrying=counts.get('retry',0),running=counts.get('processing',0),
         retry_in=max(0,int(max(pause,retry or 0)-now)) if pending else 0,
@@ -65,6 +83,8 @@ def progress(conn):
 
 
 def due(conn):
+    from .invitation_analysis import backfill
+    backfill(conn)
     p = progress(conn)
     return bool(p['pending'] and p['retry_in']==0)
 
@@ -77,7 +97,7 @@ def claim(conn, *, lease_seconds=600):
     if state['next_run'] > now:
         conn.commit();return None
     task = conn.execute('''SELECT t.* FROM calendar_analysis_tasks t JOIN accounts a ON a.id=t.account_id
-        WHERE a.enabled=1 AND a.provider='outlook' AND t.booking IS NOT NULL
+        WHERE a.enabled=1 AND t.booking IS NOT NULL
         AND ((t.state IN ('pending','retry') AND t.next_attempt<=?) OR (t.state='processing' AND t.lease_until<=?))
         ORDER BY CASE WHEN t.account_id>? THEN 0 ELSE 1 END,t.account_id,
         CASE WHEN t.state='retry' THEN 1 ELSE 0 END,
@@ -103,6 +123,35 @@ def finish(conn, task):
         (task['id'],task['version'],task['attempts'])).rowcount
     if changed:
         conn.execute("UPDATE calendar_analysis_worker SET last_error='',next_run=0 WHERE id=1")
+
+
+def review(conn,task):
+    reason='Uncertain calendar analysis; review event details or retry analysis.'
+    changed=conn.execute("""UPDATE calendar_analysis_tasks SET state='needs_review',last_error=?,next_attempt=0,lease_until=0
+        WHERE id=? AND version=? AND attempts=? AND state='processing'""",
+        (reason,task['id'],task['version'],task['attempts'])).rowcount
+    if changed:conn.execute("UPDATE calendar_analysis_worker SET last_error=?,next_run=0 WHERE id=1",(reason,))
+
+
+def retain_uncertain(conn,account_id,booking):
+    version=enqueue(conn,account_id,booking,cached=False,max_chars=SOURCE_LIMIT)
+    conn.execute("""UPDATE calendar_analysis_tasks SET state='needs_review',last_error=?,next_attempt=0,lease_until=0
+        WHERE account_id=? AND external_id=? AND version=? AND state IN ('pending','retry','needs_review')""",
+        ('Uncertain calendar analysis; review event details or retry analysis.',account_id,booking.provider_id,version))
+    conn.commit()
+
+
+def mark_uncertain_events(conn,account_id,external_id):
+    from . import db
+    rows=conn.execute('''SELECT DISTINCT e.id,e.manual_fields,e.needs_review,e.review_reason FROM interview_events e JOIN interview_sources s ON s.event_id=e.id
+        WHERE s.account_id=? AND s.external_message_id=?''',(account_id,external_id)).fetchall()
+    for row in rows:
+        manual=json.loads(row['manual_fields'])
+        wanted={'needs_review':1,'review_reason':'Uncertain calendar analysis; review event details or retry analysis.'}
+        changes={key:value for key,value in wanted.items() if key not in manual and row[key]!=value}
+        if changes:
+            conn.execute('UPDATE interview_events SET '+','.join(key+'=?' for key in changes)+',updated_at=? WHERE id=?',
+                (*changes.values(),db._now(),row['id']))
 
 
 def retry(conn, task, reason, *, service_unavailable=False, invalid_response=False):

@@ -67,7 +67,7 @@ def test_runtime_changes_require_release_and_published_notes_cannot_be_rewritten
     tool.check(tmp_path, 'HEAD')
     entries = tool.history(tmp_path)
     entries[-1]['changes'].append('Rewrote a published release')
-    (tmp_path/'releases.json').write_text(json.dumps(entries))
-    (tmp_path/'docs/CHANGELOG.md').write_text(tool.changelog(entries))
+    (tmp_path/'releases.json').write_text(json.dumps(entries),encoding='utf-8')
+    (tmp_path/'docs/CHANGELOG.md').write_text(tool.changelog(entries),encoding='utf-8')
     with pytest.raises(ValueError, match='retained unchanged'):
         tool.check(tmp_path, 'HEAD')
