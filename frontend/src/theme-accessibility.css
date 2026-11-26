@@ -1,11 +1,11 @@
 /* Shared theme states. These affect presentation only, never account identity. */
 :root {
   color-scheme: dark;
-  --scrollbar-track: #071018;
-  --scrollbar-thumb: #456375;
-  --scrollbar-thumb-hover: #5a7b90;
+  --scrollbar-track: #101216;
+  --scrollbar-thumb: #5b6270;
+  --scrollbar-thumb-hover: #7a8190;
   --destructive-foreground: #2e0b16;
-  --selection-bg: #163c50;
+  --selection-bg: #14424f;
   --payment-blue: #4ab2ff;
   --activity-color-0: #00cfff;
   --activity-color-1: #a78bfa;
@@ -27,13 +27,9 @@
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --primary: #006c91;
-  --ring: #006c91;
-  --input: #6893aa;
-  --glow: rgba(0,108,145,.04);
-  --scrollbar-track: #edf3fa;
-  --scrollbar-thumb: #71879b;
-  --scrollbar-thumb-hover: #566c80;
+  --scrollbar-track: #f7f8fa;
+  --scrollbar-thumb: #7d8492;
+  --scrollbar-thumb-hover: #5f6673;
   --destructive-foreground: #ffffff;
   --selection-bg: #bce5f6;
   --payment-blue: #0764b1;

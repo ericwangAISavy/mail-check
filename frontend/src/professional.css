@@ -1,63 +1,65 @@
-/* Shared visual system. Page-specific geometry, interactions and print stay intact. */
+/* Shared tokens and baseline component rules. The design/ layers finish the system. */
 @media screen {
+/* OfferPath "Meridian" color system. Canvas < sheet < panel < raised, one cyan
+   brand voice, and neutrals that keep data and semantic colors readable. */
 :root {
-  --background: #080f19;
-  --foreground: #edf2fa;
-  --card: #0d1724;
-  --card-foreground: #edf2fa;
-  --surface: #101c2b;
-  --surface-raised: #162437;
-  --secondary: #172438;
-  --muted: #162335;
-  --muted-foreground: #a3b1c3;
-  --text-soft: #c4d0df;
-  --primary: #67d6f3;
-  --primary-foreground: #06202c;
-  --accent: #142b3b;
-  --accent-foreground: #c6eff9;
-  --border: #263549;
-  --input: #60738b;
-  --ring: #67d6f3;
+  --background: #08090b;
+  --foreground: #eef0f4;
+  --card: #101216;
+  --card-foreground: #eef0f4;
+  --surface: #15181d;
+  --surface-raised: #1f232b;
+  --secondary: #1b1f26;
+  --muted: #1b1f26;
+  --muted-foreground: #959cab;
+  --text-soft: #c3c8d3;
+  --primary: #5fd3ea;
+  --primary-foreground: #03232b;
+  --accent: #11262e;
+  --accent-foreground: #bfeef8;
+  --border: #242932;
+  --input: #606775;
+  --ring: #5fd3ea;
   --glow: transparent;
-  --radius: .75rem;
-  --text-small: 13px;
-  --text-body: 15px;
-  --text-heading: 18px;
-  --text-display: 28px;
-  --shadow-card: 0 2px 4px #00000012;
-  --shadow-dialog: 0 24px 80px #00000066;
-  --overlay: #020812a8;
-  --nav-hover: #142133;
-  --nav-selected: #172e3e;
-  --nav-selected-hover: #1c3749;
-  --nav-icon-selected: #204354;
+  --radius: .625rem;
+  --text-small: 12px;
+  --text-body: 13px;
+  --text-heading: 15px;
+  --text-display: 18px;
+  --shadow-card: 0 0 0 transparent;
+  --shadow-dialog: 0 0 0 1px #ffffff0a, 0 24px 70px #000000a6;
+  --overlay: #04050799;
+  --nav-hover: #14171c;
+  --nav-selected: #1a1e25;
+  --nav-selected-hover: #1f242c;
+  --nav-icon-selected: #11262e;
 }
 :root[data-theme="light"] {
-  --background: #f4f7fb;
-  --foreground: #16263d;
+  --background: #eef0f3;
+  --foreground: #171a21;
   --card: #ffffff;
-  --card-foreground: #16263d;
-  --surface: #f7f9fc;
+  --card-foreground: #171a21;
+  --surface: #f7f8fa;
   --surface-raised: #ffffff;
-  --secondary: #eaf0f6;
-  --muted: #edf2f8;
-  --muted-foreground: #52637a;
-  --text-soft: #3f536e;
-  --primary: #006c91;
+  --secondary: #eef0f4;
+  --muted: #eef0f4;
+  --muted-foreground: #5a6271;
+  --text-soft: #3c4350;
+  --primary: #0a7087;
   --primary-foreground: #ffffff;
-  --accent: #e7f1f8;
-  --accent-foreground: #15516b;
-  --border: #dce4ee;
-  --input: #8292a6;
-  --ring: #006c91;
+  --accent: #e5f4f8;
+  --accent-foreground: #0a5566;
+  --border: #e1e4ea;
+  --input: #818998;
+  --ring: #0a7087;
   --glow: transparent;
-  --shadow-card: 0 2px 5px #172b4610;
-  --shadow-dialog: 0 24px 80px #172b462b;
-  --overlay: #10203966;
-  --nav-hover: #edf2f8;
-  --nav-selected: #e1edf6;
-  --nav-selected-hover: #d7e7f2;
-  --nav-icon-selected: #c8dfed;
+  --shadow-card: 0 1px 2px #1318200a;
+  --shadow-dialog: 0 0 0 1px #1318200f, 0 24px 70px #13182033;
+  --overlay: #13182059;
+  --nav-hover: #e6e9ed;
+  --nav-selected: #ffffff;
+  --nav-selected-hover: #ffffff;
+  --nav-icon-selected: #e5f4f8;
 }
 /* Match native selects to inputs without changing their popup behavior. */
 :root body select:not([multiple]) { border-color: var(--input); border-radius: 9px; background-color: var(--surface); font-weight: 500; box-shadow: none; }

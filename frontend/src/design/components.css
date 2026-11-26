@@ -1,0 +1,152 @@
+/* Component language shared by pages, dialogs and local monitoring. Presentation
+   only: variants, states, semantics and event behavior belong to components. */
+@media screen {
+ /* Page composition: a full-width title bar, then the work. */
+ :root body .app-frame .page-wrap { width:100%; max-width:none; margin:0; padding:0 var(--ui-gutter) var(--ui-gutter); container-type:normal; }
+ :root body .app-frame .page-wrap > .page-heading,
+ :root body .app-frame .admin-management-page > .page-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 20px; min-height:var(--ui-page-bar); margin:0 calc(var(--ui-gutter) * -1) 16px; padding:10px var(--ui-gutter); border-bottom:1px solid var(--ui-hairline); }
+ :root body .app-frame .page-heading > div:first-child { display:flex; flex:1 1 220px; flex-wrap:wrap; align-items:baseline; gap:2px 12px; min-width:0; }
+ :root body .app-frame .page-heading h1 { margin:0; font-size:var(--text-display); font-weight:620; line-height:1.3; letter-spacing:-.022em; }
+ :root body .app-frame .page-heading .page-description { margin:0; max-width:80ch; font-size:12.5px; line-height:1.5; color:var(--muted-foreground); }
+ :root body .app-frame .heading-action { gap:8px; }
+ :root body .app-frame .eyebrow { font-size:10px; font-weight:600; letter-spacing:.09em; color:var(--muted-foreground); }
+
+ /* Surfaces */
+ :where(.cyber-panel) { border-color:var(--border); background:var(--surface); box-shadow:var(--shadow-card); }
+ :where(.cyber-panel .cyber-panel) { box-shadow:none; }
+ :root body .app-frame :is(.cyber-panel,.triage-split,.explorer,.provider-card,.quality-panel,.owner-directory,.owner-workspace-detail) { border-radius:var(--ui-panel-radius); }
+
+ /* Buttons */
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn { border-radius:var(--ui-control-radius); font-weight:550; letter-spacing:-.003em; transition:background-color var(--ui-motion),border-color var(--ui-motion),color var(--ui-motion),box-shadow var(--ui-motion),opacity var(--ui-motion); }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-size="default"] { height:var(--ui-control-height); min-height:var(--ui-control-height); padding-inline:13px; font-size:12.5px; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-size="sm"] { height:var(--ui-control-small); min-height:var(--ui-control-small); padding-inline:10px; font-size:12px; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-size="icon"] { width:32px; height:32px; min-height:32px; padding:6px; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn svg { width:14px; height:14px; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="default"] { color:var(--ui-action-fg); border:1px solid var(--ui-action-bg); background:var(--ui-action-bg); box-shadow:inset 0 1px 0 #ffffff22,var(--shadow-resting-xs); font-weight:600; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="default"]:hover:not(:disabled) { color:var(--ui-action-fg); background:color-mix(in srgb,var(--ui-action-bg) 86%,var(--foreground)); box-shadow:inset 0 1px 0 #ffffff22,var(--shadow-resting-sm); }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="default"]:disabled { color:var(--muted-foreground); border-color:var(--border); background:var(--muted); box-shadow:none; opacity:.75; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="outline"] { color:var(--foreground); border:1px solid var(--border); background:var(--surface); box-shadow:var(--shadow-resting-xs); }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="outline"]:hover:not(:disabled) { color:var(--foreground); border-color:var(--input); background:var(--surface-raised); box-shadow:var(--shadow-resting-sm); }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="secondary"] { color:var(--foreground); border:1px solid var(--ui-selected-edge); background:var(--ui-selected); box-shadow:none; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="ghost"] { color:var(--text-soft); border:1px solid transparent; background:transparent; box-shadow:none; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn[data-variant="ghost"]:hover:not(:disabled) { color:var(--foreground); background:var(--muted); }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn:disabled { filter:none; transform:none; }
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+
+ /* Pressed toggles stay unmistakable in every toolbar. */
+ :root body :where(.app-frame,.dialog-content) .btn[aria-pressed="true"]:not([data-variant="default"]) { color:var(--foreground); border-color:var(--ui-selected-edge); background:var(--ui-selected); }
+
+ /* Fields */
+ :root body :is(.app-frame,.dialog-content) :where(input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="hidden"],[type="color"]),textarea) { color:var(--foreground); border:1px solid var(--input); border-radius:var(--ui-control-radius); background-color:var(--ui-field); box-shadow:none; font-size:13px; font-weight:430; transition:border-color var(--ui-motion),box-shadow var(--ui-motion); }
+ :root body :is(.app-frame,.dialog-content) :is(.setting-field,.form-stack,.settings-grid,.owner-admin-form,.payment-inline-form,.payment-controls,.dashboard-filters,.filter-panel,.payment-entry,.payment-rule-editor) :where(input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="hidden"])) { min-height:var(--ui-control-height); height:var(--ui-control-height); padding:4px 10px; }
+ :root body :is(.app-frame,.dialog-content) :where(textarea) { padding:8px 10px; line-height:1.55; }
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) { min-height:var(--ui-control-height); height:var(--ui-control-height); padding:4px 30px 4px 10px; border:1px solid var(--input); border-radius:var(--ui-control-radius); color:var(--foreground); background-color:var(--ui-field); background-image:var(--ui-select-arrow); background-position:right 9px center; background-size:14px; box-shadow:none; font-size:13px; font-weight:480; }
+ /* Hover is neutral, as on text fields; cyan is kept for focus and selection. */
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]):hover:not(:disabled,:focus) { border-color:color-mix(in srgb,var(--foreground) 22%,var(--input)); background-color:var(--ui-field); }
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]):focus { outline:none; border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 28%,transparent); }
+ :root body :is(.app-frame,.dialog-content) :is(input:not([type="checkbox"],[type="radio"],[type="range"],[type="file"],[type="hidden"]),textarea):focus-visible { border-color:var(--ring); outline:2px solid var(--ring); outline-offset:-1px; }
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])[aria-invalid="true"] { border-color:var(--destructive); }
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])[aria-invalid="true"]:focus { box-shadow:0 0 0 1px var(--destructive); }
+ :root body :is(.app-frame,.dialog-content) input[type="checkbox"] { width:15px; height:15px; accent-color:var(--primary); }
+ :root body :is(.app-frame,.dialog-content) :is(.setting-field,.field-compact,.owner-admin-form label,.password-form label,.form-stack > label,.settings-grid > label,.payment-inline-form label,.payment-entry label,.payment-rule-editor label,.payments-page label) { font-size:12px; font-weight:550; color:var(--text-soft); gap:6px; }
+ :root body :is(.app-frame,.dialog-content) :is(.form-hint,.setting-field > small,.form-stack small,.payment-muted) { font-size:11.5px; font-weight:400; line-height:1.6; color:var(--muted-foreground); }
+
+ /* Switches */
+ :root body .app-frame .switch { width:30px; height:18px; padding:2px; border-radius:999px; background:var(--input); }
+ :root body .app-frame .switch > span { width:14px; height:14px; background:#fff; }
+ :root body .app-frame .switch-on { background:var(--primary); }
+ :root body .app-frame .switch-on > span { transform:translateX(12px); }
+
+ /* Segmented controls and tabs */
+ :root body .app-frame :is(.view-tabs,.timeline-periods) { gap:2px; padding:2px; border:1px solid var(--border); border-radius:8px; background:var(--background); }
+ :root body .app-frame :is(.view-tabs,.timeline-periods) button { min-height:26px; padding:3px 11px; border:0; border-radius:6px; color:var(--muted-foreground); background:transparent; box-shadow:none; font-size:12px; font-weight:550; transition:background-color var(--ui-motion),color var(--ui-motion); }
+ :root body .app-frame :is(.view-tabs,.timeline-periods) button:hover:not(:disabled) { color:var(--foreground); }
+ :root body .app-frame :is(.view-tabs button.selected,.view-tabs button.active,.view-tabs button[aria-selected="true"],.view-tabs button[aria-pressed="true"],.timeline-periods button[aria-pressed="true"]) { color:var(--foreground); background:var(--surface-raised); box-shadow:0 0 0 1px var(--border),0 1px 3px #00000033; }
+ :root body .app-frame .tab-count { height:16px; min-width:18px; border:0; border-radius:999px; padding:0 5px; background:color-mix(in srgb,var(--primary) 15%,transparent); color:var(--primary); font-size:10.5px; font-weight:650; line-height:16px; }
+
+ /* Badges */
+ .ui-badge { min-height:19px; padding-block:0; border-radius:5px; font-size:11px; font-weight:550; line-height:17px; letter-spacing:0; }
+ :where(.ui-badge[data-variant="outline"]) { color:var(--text-soft); border-color:var(--border); background:transparent; }
+ :where(.ui-badge[data-variant="muted"]) { color:var(--muted-foreground); background:var(--muted); }
+ :root .app-frame .ui-badge[data-variant="urgent"], :root .dialog-content .ui-badge[data-variant="urgent"] { color:color-mix(in srgb,var(--destructive) 88%,var(--foreground)); border-color:color-mix(in srgb,var(--destructive) 30%,transparent); background:color-mix(in srgb,var(--destructive) 11%,transparent); }
+ :root .app-frame .ui-badge[data-variant="default"] { color:var(--primary); border-color:color-mix(in srgb,var(--primary) 26%,transparent); background:color-mix(in srgb,var(--primary) 10%,transparent); }
+
+ /* Tables */
+ :root body .app-frame :where(table thead th,.rdg-header-row) { background:var(--surface); }
+ :root body .app-frame :is(.stat-value,.quality-table,.payment-table,.activity-table,.explorer-table,.monitor-stat strong) { font-variant-numeric:tabular-nums; }
+
+ /* Section symbols and identities */
+ :where(.section-symbol,.stat-icon-wrap,.account-icon,.sender-avatar,.reader-empty-icon,.empty-mark,.setup-icon) { border:1px solid var(--border); border-radius:8px; background:var(--surface); box-shadow:none; }
+ :where(.account-icon,.sender-avatar,.reader-empty-icon) { color:var(--primary); }
+
+ /* Dialogs, popovers and feedback */
+ :root body .dialog-overlay { background:var(--overlay); backdrop-filter:blur(3px); }
+ :root body .dialog-content { padding:22px 24px; border:1px solid var(--border); border-radius:14px; background:var(--card); box-shadow:var(--shadow-floating-md); }
+ :root body .dialog-content :is(.dialog-header h2,.dialog-header .text-lg) { font-size:16px; font-weight:620; letter-spacing:-.018em; line-height:1.35; }
+ :root body .dialog-content :is(.dialog-header p,.dialog-header .text-sm) { font-size:12.5px; line-height:1.6; color:var(--muted-foreground); margin-top:4px; }
+ :root body .dialog-content .dialog-footer { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-top:8px; padding-top:14px; border-top:1px solid var(--ui-hairline); }
+ :root body .dialog-content.release-history-dialog { padding:0; }
+ :root body .dialog-close { width:28px; height:28px; border-radius:7px; color:var(--muted-foreground); }
+ :root body .dialog-close:hover { color:var(--foreground); background:var(--muted); }
+ :root body .dialog-content :is(.pipeline-detail fieldset,.interview-time-summary,.interview-job-match-list > li,.pipeline-item) { border-radius:8px; }
+ :root body .toast { padding:10px 14px; border:1px solid var(--border); border-radius:10px; background:var(--surface-raised); box-shadow:var(--shadow-floating-md); font-size:12.5px; line-height:1.5; }
+ :root body .toast-error { border-color:color-mix(in srgb,var(--destructive) 45%,var(--border)); box-shadow:inset 3px 0 var(--destructive),var(--shadow-floating-md); }
+ :root body .toast-success { border-color:color-mix(in srgb,var(--state-done) 35%,var(--border)); box-shadow:inset 3px 0 var(--state-done),var(--shadow-floating-md); }
+ :root body .app-frame .empty-state { gap:6px; padding:clamp(32px,6vw,64px) 20px; border:1px solid var(--ui-hairline); border-radius:var(--ui-panel-radius); background:radial-gradient(ellipse 60% 70% at 50% 0%,color-mix(in srgb,var(--primary) 5%,transparent),transparent),var(--card); }
+ :root body .app-frame .empty-mark { color:var(--primary); }
+ :root body .app-frame .empty-state h2 { font-size:var(--text-heading); font-weight:620; }
+ :root body .app-frame .empty-state p { max-width:52ch; margin-inline:auto; font-size:12.5px; line-height:1.6; color:var(--muted-foreground); }
+ /* Loading (Primer spinner and skeleton text, Carbon data table): nothing shows for the
+    first 300 ms so quick loads do not flash; then the spinner, its label and three quiet
+    placeholder lines. The lines are decoration; the label is what is announced. */
+ :root body :is(.app-frame,.dialog-content) .loading-state { flex-wrap:wrap; align-content:center; row-gap:18px; font-size:12.5px; font-weight:500; color:var(--text-soft); animation:ui-reveal 160ms ease-out 300ms both; }
+ :root body :is(.app-frame,.dialog-content) .loading-state > svg { color:var(--primary); }
+ :root body :is(.app-frame,.dialog-content) .loading-state::before { content:""; order:3; flex-basis:100%; height:0; }
+ :root body :is(.app-frame,.dialog-content) .loading-state::after { --sk:color-mix(in srgb,var(--foreground) 8%,transparent); content:""; order:4; flex:0 0 min(480px,80%); height:54px; background:linear-gradient(var(--sk) 0 0) 0 0/100% 10px no-repeat,linear-gradient(var(--sk) 0 0) 0 22px/84% 10px no-repeat,linear-gradient(var(--sk) 0 0) 0 44px/58% 10px no-repeat; border-radius:3px; animation:ui-skeleton 1.6s ease-in-out infinite; }
+ :root body :is(.app-frame,.dialog-content) p[role="status"]:not([class]) { font-size:12.5px; color:var(--muted-foreground); }
+ @keyframes ui-reveal { from { opacity:0; } to { opacity:1; } }
+ @keyframes ui-skeleton { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+ :root body :is(.app-frame,.dialog-content) .inline-error { border:1px solid color-mix(in srgb,var(--destructive) 40%,var(--border)); border-radius:8px; background:color-mix(in srgb,var(--destructive) 8%,var(--card)); font-size:12.5px; }
+ /* One disclosure voice: text-only summaries read like field labels, not body copy or links. */
+ :root body :is(.app-frame,.dialog-content) details:is(.advanced-field,.accessible-chart-data,.activity-run-details,.backup-location,.backup-restore,.pipeline-secondary,.quality-data,.quality-options,.sheet-verification-details,.workbook-create,.book-mapping) > summary { width:fit-content; padding-block:4px; color:var(--text-soft); font-size:12.5px; font-weight:550; line-height:1.5; cursor:pointer; }
+ :root body :is(.app-frame,.dialog-content) details:is(.advanced-field,.accessible-chart-data,.activity-run-details,.backup-location,.backup-restore,.pipeline-secondary,.quality-data,.quality-options,.sheet-verification-details,.workbook-create,.book-mapping) > summary:hover { color:var(--foreground); }
+ :root body :is(.app-frame,.dialog-content) details > summary::marker { color:var(--muted-foreground); }
+ :root body .app-frame kbd, :root body .dialog-content kbd { min-width:18px; padding:0 5px; border:1px solid var(--border); border-radius:4px; background:var(--surface); color:var(--muted-foreground); font-size:10.5px; line-height:16px; }
+
+ :root body .app-frame :is(.page-content,.message-list,.reader-pane,.payment-table-scroll,.explorer-scroll,.owner-workspace-list,.rdg,.outlook-scroll,.settings-form-sections,.activity-chart-scroll,.activity-heatmap-scroll) { scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--input) 70%,var(--card)) transparent; }
+}
+/* Sideways scroll cue: an edge fades only while more content lies past it.
+   Driven by the element's own scroll position; without overflow nothing fades. */
+@property --scroll-fade-start { syntax:"<length>"; inherits:false; initial-value:0px; }
+@property --scroll-fade-end { syntax:"<length>"; inherits:false; initial-value:0px; }
+@keyframes ui-scroll-fade { 0% { --scroll-fade-start:0px; --scroll-fade-end:32px; } 8%,92% { --scroll-fade-start:32px; --scroll-fade-end:32px; } 100% { --scroll-fade-start:32px; --scroll-fade-end:0px; } }
+@keyframes ui-scroll-fade-end { 0%,92% { --scroll-fade-end:32px; } 100% { --scroll-fade-end:0px; } }
+@supports (animation-timeline:scroll()) {
+ @media screen {
+  :root body .app-frame :is(.payment-table-scroll) { mask-image:linear-gradient(to right,#000 calc(100% - var(--scroll-fade-end)),transparent); animation:ui-scroll-fade-end linear both; animation-timeline:scroll(self inline); }
+ }
+ @media screen and (max-width:700px) {
+  :root body .app-frame :is(.accounts-page,.settings-page) .settings-nav { mask-image:linear-gradient(to right,transparent,#000 var(--scroll-fade-start),#000 calc(100% - var(--scroll-fade-end)),transparent); animation:ui-scroll-fade linear both; animation-timeline:scroll(self inline); }
+ }
+}
+@media screen and (max-width:700px) {
+ :root body :where(.app-frame,.dialog-content) .btn[data-size="sm"] { min-height:34px; height:34px; }
+ :root body .app-frame .sourcing-page .btn[data-size="sm"] { min-height:28px; height:28px; }
+ :root body :is(.app-frame,.dialog-content) :is(.setting-field,.form-stack,.settings-grid,.owner-admin-form) :is(input,select,textarea) { font-size:16px; height:40px; min-height:40px; }
+ :root body :is(.app-frame,.dialog-content) :is(.setting-field,.form-stack) textarea { height:auto; }
+ :root body .dialog-content { border-radius:12px; padding:20px 16px; }
+}
+@media screen and (prefers-reduced-motion:reduce) {
+ :is(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) :is(.btn,.side-link,input,select,textarea,.dialog-close,.view-tabs button) { transition:none; }
+ :root body :is(.app-frame,.dialog-content) .loading-state { animation-duration:1ms; }
+ :root body :is(.app-frame,.dialog-content) .loading-state::after { animation:none; }
+}
+@media screen and (prefers-reduced-transparency:reduce) { :root body .dialog-overlay { backdrop-filter:none; background:#050709e8; } }
+@media screen and (forced-colors:active) {
+ :root body :where(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) .btn.btn { background:ButtonFace; color:ButtonText; border-color:ButtonText; box-shadow:none; }
+ :root body .app-frame .activity-chart-card .timeline-ranges .btn.btn[aria-pressed="true"] { background:Highlight; color:HighlightText; border-color:Highlight; }
+ :is(.app-frame,.dialog-content,.local-monitor-status,.local-monitor-logs) :is(.cyber-panel,.ui-badge) { background:Canvas; color:CanvasText; border-color:CanvasText; box-shadow:none; filter:none; }
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) { appearance:auto; background:Field; color:FieldText; border-color:FieldText; box-shadow:none; }
+ :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]):focus { outline:2px solid Highlight; outline-offset:2px; }
+ :root body .app-frame .switch-on { background:Highlight; }
+}

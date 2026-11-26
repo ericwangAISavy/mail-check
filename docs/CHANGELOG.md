@@ -2,6 +2,77 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.34.6 — 2026-11-26
+
+Loading, sign-in and high-contrast polish
+
+- Loading states wait briefly before appearing, then show a placeholder outline with the spinner
+- Sign-in errors match the error style used across the app
+- Pressed buttons move one pixel instead of two, and selected spreadsheet rows stay readable in high-contrast mode
+
+## 3.34.5 — 2026-11-26
+
+Research-led list, grid and calendar refinements
+
+- Triage shows a one-line preview so more messages fit, and sidebar counts are plain figures
+- Checked spreadsheet rows keep normal link colors, with done shown in the row number and check mark, and keyboard focus is visible on spreadsheet cells
+- Today's date in the calendar is a filled mark, hour labels align to the grid, and chart totals read as plain figures
+- Dropdowns use the same neutral hover as text fields
+
+## 3.34.4 — 2026-11-26
+
+Readable narrow screens
+
+- Bidder management fits the whole week at 800 pixels by stacking before and after amounts, and shows a fade when the table scrolls sideways
+- On phones the calendar keeps days readable and scrolls sideways under a pinned hour column, and section menus fade at the edge that has more items
+- Link history in mailbox rows reads as a button
+
+## 3.34.3 — 2026-11-26
+
+Tidy narrow layouts
+
+- Bidder management keeps the whole week and payment column in view at 1024 pixels
+- On narrow screens, offline workspaces show a hollow dot, and mailbox sync switches keep their label on phones
+
+## 3.34.2 — 2026-11-26
+
+Sharpen state and data emphasis
+
+- Triage rows show urgency as a red dot and label instead of a filled pill on every row
+- Bidder summary figures share one baseline, and amounts that cannot be edited yet no longer look like links
+- Paused mailboxes stand out from provider labels, calendar event details follow each account color, and disclosures and the sign-in card use quieter, consistent styling
+
+## 3.34.1 — 2026-11-26
+
+Clarify interaction states across workspaces
+
+- Spreadsheets and Job links now show checked, selected and hovered rows distinctly, and completed checks read as read-only.
+- Read-only and disabled fields, editable payment amounts, recovery buttons and removal actions are easier to tell apart.
+- Refine calendar events, mail list tags, pipeline statuses, account status and bidder activity controls without changing features or workflows.
+
+## 3.34.0 — 2026-11-26
+
+Redesign the workspace interface
+
+- A new visual identity across every page: navigation and brand share one canvas, work sits in a focused sheet, and each page has a compact title bar.
+- Triage, Dashboard, Bidder management, Accounts and Settings are recomposed for faster scanning, denser records and clearer forms, with no change to features or workflows.
+- Calendar, pipeline, job spreadsheets, dialogs and light theme share the new components, with improved light-theme contrast.
+
+## 3.33.7 — 2026-11-26
+
+Fix workspace layout at high zoom
+
+- Keep the triage toolbar and message count within the workspace at high zoom.
+- Keep the Settings save bar clear of form fields at shorter viewport heights.
+
+## 3.33.6 — 2026-11-26
+
+Refine workspace density and form layout
+
+- Fit more triage messages in view and sharpen reading-pane hierarchy and keyboard focus.
+- Size bidder and settings fields to their content and keep account connection details readable.
+- Unify workspace selection and scrollbar styling across themes.
+
 ## 3.33.5 — 2026-11-26
 
 Polish the enterprise visual system
