@@ -1,6 +1,6 @@
 # OfferPath interface: research and craftsmanship report
 
-Covers 3.34.2 to 3.34.6 on `architecture/rabbitmq-shared-workers`, on top of the
+Covers 3.34.2 to 3.34.7 on `architecture/rabbitmq-shared-workers`, on top of the
 3.34.0 redesign and the 3.34.1 state pass. Presentation only. The rules are in
 [specification.md](specification.md); per-fix evidence is in
 [craftsmanship-3.34.2.md](craftsmanship-3.34.2.md) and the `r3/` to `r6/` folders.
@@ -89,7 +89,7 @@ compactness, colors).
 | 4 | Keyboard-only focus ring on spreadsheet cells and headers in row mode | Verified |
 | 5 | Filled today mark; right-aligned hour labels kept below their line | Verified |
 | 6 | Bar totals as plain figures; values kept | Verified |
-| 7 | Not applied: needs a status attribute in markup | Blocked |
+| 7 | 3.34.7 adds `data-status` to the pipeline status pill; Active cyan, On hold amber, Offer received and Accepted green, closed outcomes a muted ring, always beside the word | Verified |
 | Loading flashed for fast loads and gave no sense of shape | 300 ms delay, cyan spinner, three-line placeholder (Primer, Carbon); still when reduced motion is on | Verified (`r7/loading.png`) |
 | Sign-in error was a saturated magenta block unlike every other error | Same tint, red edge and text as in-app errors | Verified (`r7/signin-error.png`) |
 | Pressed buttons moved 2 px (two rules stacked) | One 1 px nudge, already off for reduced motion | Verified (`r7/pressed.png`) |
@@ -147,7 +147,15 @@ No people were tested. Task effort beyond these measures was not assessed.
 
 20 page-and-width views, 901 to 903 controls depending on the seeded data: no
 differences in controls, disabled states or the Tab order, against the 3.34.0
-build on the same data (rerun for 3.34.5 and 3.34.6). Keyboard focus: 306 stops
+build on the same data (rerun for 3.34.5, 3.34.6 and 3.34.7).
+
+3.34.7 is the only release with markup changes, all without behavior change:
+`data-status` on the pipeline status pill; `className="inline-loading"` on 13
+loading lines (text and `role="status"` unchanged); the sourcing sheet tabs
+wrapped in their own `role="tablist"` with Add and Delete outside it (arrow
+keys still move between tabs); `role="img"` on the calendar now-line and heatmap
+cells; `role="group"` on the activity chart and heatmap container. Two tests
+were added (648 in total). Keyboard focus: 306 stops
 on 10 pages, all with a visible indicator, in both themes. All changes
 are CSS; no component, route, API or data file was edited.
 
@@ -155,21 +163,18 @@ are CSS; no component, route, API or data file was edited.
 
 No overflow or page errors at 1920, 1440, 1280, 1024, 800 and 390 px (dark) and
 1920, 1440, 1024, 800 and 390 px (light). axe-core
-WCAG A/AA on 10 pages in both themes: no color-contrast findings; three
-pre-existing ARIA findings (calendar now-line, sourcing tab list, heatmap cells).
+WCAG A/AA on 10 pages in both themes: no findings of any kind since 3.34.7 (the
+three earlier ARIA findings were fixed in markup).
 
 ## 13. Tests and build
 
-TypeScript, production build, 646 of 646 frontend tests, 14 theme-contrast and
-release tests, `release.py --check`: all passed for 3.34.6.
+TypeScript, production build, 648 of 648 frontend tests, 14 theme-contrast and
+release tests, `release.py --check`: all passed for 3.34.7.
 
 ## 14. Remaining material design defects
 
-- Interview pipeline status has no meaning-based color (needs markup).
 - Sign-in layout and artwork are unchanged beyond borders and the error; no
   product reference was available to judge it against.
-- Plain "Loading…" status lines (about 12) share markup with other status
-  messages, so they cannot get a spinner without a code change.
 - On phones the bidder table still scrolls sideways (with a cue).
 
 ## 15. Blocked or inaccessible sources
@@ -197,10 +202,7 @@ regenerated `mailcheck/web/frontend_dist/`, and `docs/reviews/meridian-ui/`.
 
 ## 18. Recommendations that need functional or markup changes
 
-- Add a status attribute to pipeline rows so status can carry color and words
-  (Ashby pattern).
 - Show stage counts on the pipeline filter tabs (Ashby).
 - Offer a day or three-day calendar view on phones.
 - Replace browser confirm dialogs for removals with app dialogs.
-- Add roles for the three ARIA findings.
 - Settings mixes instantly saved switches with an explicit Save.

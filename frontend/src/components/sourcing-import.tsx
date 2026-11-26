@@ -152,7 +152,7 @@ export default function SourcingImport({
           }}
         />
       </label>
-      {reading && <p role="status">Reading file…</p>}
+      {reading && <p role="status" className="inline-loading">Reading file…</p>}
       <SourcingProgress progress={progress||null}/>
       <textarea
         aria-label="CSV content"

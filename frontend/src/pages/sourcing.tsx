@@ -272,11 +272,8 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
         </div>
       )}
       {!search && book && (
-        <div
-          className="sourcing-tabs"
-          role="tablist"
-          aria-label="Profile sheets"
-        >
+        <div className="sourcing-tabs">
+          <div className="sourcing-tab-list" role="tablist" aria-label="Profile sheets">
           {tabs.map((t) => (
             <button
               role="tab"
@@ -299,6 +296,7 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
               {t.title}
             </button>
           ))}
+          </div>
           {admin && (
             <button
               aria-label="Add profile sheet"

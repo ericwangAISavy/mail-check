@@ -84,8 +84,8 @@
  :root body .app-frame .sourcing-page .sourcing-viewer-table tbody tr:hover { background:var(--surface); }
  :root body .app-frame .sourcing-page .sourcing-viewer-pagination { min-height:40px; border-top:1px solid var(--ui-hairline); font-size:12px; font-variant-numeric:tabular-nums; }
  :root body .app-frame .sourcing-page .sourcing-tabs { background:var(--surface); border-top:1px solid var(--border); }
- :root body .app-frame .sourcing-page .sourcing-tabs > button { font-size:12px; font-weight:550; }
- :root body .app-frame .sourcing-page .sourcing-tabs > button[aria-selected="true"] { background:var(--card); color:var(--primary); box-shadow:inset 0 2px var(--primary); border-bottom-color:transparent; }
+ :root body .app-frame .sourcing-page :is(.sourcing-tabs,.sourcing-tab-list) > button { font-size:12px; font-weight:550; }
+ :root body .app-frame .sourcing-page .sourcing-tab-list > button[aria-selected="true"] { background:var(--card); color:var(--primary); box-shadow:inset 0 2px var(--primary); border-bottom-color:transparent; }
  :root body .app-frame .sourcing-page :is(.sheet-edit-toolbar,.sourcing-toolbar,.sheet-days) .btn[data-size="sm"] { height:28px; min-height:28px; padding-inline:9px; }
  :root body .app-frame :is(.calendar-analysis-status,.outlook-date-bar) .btn[data-size="sm"] { height:28px; min-height:28px; padding-inline:9px; }
 }

@@ -45,7 +45,7 @@ export function InterviewJobMatches({ id }: { id: number }) {
   const matches = [...new Map((query.data?.pages || []).flatMap(page => page.matches || []).map(match => [match.row_id, match])).values()]
   return <section className="interview-job-matches" aria-label="Possible job matches">
     <h3>Possible job matches</h3>
-    {query.isPending ? <p role="status">Loading job matches…</p> : query.isError && !query.data ? <div><p role="alert" className="inline-error">Could not load job matches. {query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Retry job matches</Button></div> : <>
+    {query.isPending ? <p role="status" className="inline-loading">Loading job matches…</p> : query.isError && !query.data ? <div><p role="alert" className="inline-error">Could not load job matches. {query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>Retry job matches</Button></div> : <>
       {query.isRefetchError && !query.isFetchNextPageError && <div><p role="alert" className="inline-error">Could not refresh job matches.</p><Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry job matches</Button></div>}
       {!matches.length && <p>No possible job matches found.</p>}
       <ul className="interview-job-match-list">{matches.map(match=><JobMatchRow key={match.row_id} match={match}/>)}</ul>

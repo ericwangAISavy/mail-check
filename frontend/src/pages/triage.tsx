@@ -52,7 +52,7 @@ export function Reader({ message, mobile, onBack, onDone, busy, canRetry = false
       <div className="reader-divider" />
       {error && <div className="inline-error" role="alert">Could not update this message. {data ? "Showing the last loaded copy." : "Please try again."}<Button variant="outline" size="sm" disabled={isFetching} onClick={()=>void refetch()}>Retry message</Button></div>}
       {isPending ? <Loading label="Opening message…" /> : !data && error ? null : data?.original_html ? <EmailContent html={data.original_html} /> : <div className="email-body" dangerouslySetInnerHTML={{ __html: data?.body_html || "<p>No message body was stored.</p>" }} />}
-      {!readOnly && ["outlook","imap"].includes(message.provider) && <Suspense fallback={<p role="status">Loading reply tools…</p>}><ReplyComposer key={`${message.account_label}:${message.message_id}`} messageId={message.message_id} pk={message.pk} accountLabel={message.account_label} provider={message.provider} mode={compose?.pk === message.pk ? compose.mode : null} onModeChange={mode=>setCompose(current=>mode?{pk:message.pk,mode}:current?.pk===message.pk?null:current)} replies={data?.replies || []}/></Suspense>}
+      {!readOnly && ["outlook","imap"].includes(message.provider) && <Suspense fallback={<p role="status" className="inline-loading">Loading reply tools…</p>}><ReplyComposer key={`${message.account_label}:${message.message_id}`} messageId={message.message_id} pk={message.pk} accountLabel={message.account_label} provider={message.provider} mode={compose?.pk === message.pk ? compose.mode : null} onModeChange={mode=>setCompose(current=>mode?{pk:message.pk,mode}:current?.pk===message.pk?null:current)} replies={data?.replies || []}/></Suspense>}
     </div>
   </article>
 }
@@ -233,7 +233,7 @@ export default function TriagePage({ bootstrap, canManageSettings=true, bidderIn
   }, [messages, selected, selectedMessage, done.isPending, selectMessage, clearOpen, queueBusy])
 
   if (query.isPending) return <div className="page-wrap"><Loading /></div>
-  if (query.error && (!data || bidderInbox && query.error instanceof ApiError && [401,403,404].includes(query.error.status))) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void recovery.retryNow()} disabled={query.isFetching}><RefreshCw size={14} />Try again</Button>{recovery.scheduled && <p role="status">Reconnecting automatically shortly…</p>}</div></div>
+  if (query.error && (!data || bidderInbox && query.error instanceof ApiError && [401,403,404].includes(query.error.status))) return <div className="page-wrap"><div className="inline-error">Could not load triage. {query.error.message}<Button variant="outline" size="sm" onClick={() => void recovery.retryNow()} disabled={query.isFetching}><RefreshCw size={14} />Try again</Button>{recovery.scheduled && <p role="status" className="inline-loading">Reconnecting automatically shortly…</p>}</div></div>
   const waitingSetup = !bidderInbox && (!bootstrap.readiness.model || !bootstrap.readiness.accounts)
   const categories=bootstrap.taxonomy
   const noMessages = !messages.length

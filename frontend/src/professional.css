@@ -107,17 +107,17 @@ body { letter-spacing: 0; }
   .btn:enabled:active { animation: control-press 75ms ease-out both; }
 }
 @keyframes control-press { from { translate: 0 0; } to { translate: 0 1px; } }
-.btn, .view-tabs button, .timeline-periods button, .sourcing-tabs > [role="tab"] {
+.btn, .view-tabs button, .timeline-periods button, .sourcing-tab-list > [role="tab"] {
   transition: background-color var(--control-fade), border-color var(--control-fade),
     color var(--control-fade), box-shadow var(--control-fade);
 }
 @media (hover: hover) {
   .timeline-periods button:enabled:hover:not([aria-pressed="true"]),
-  .sourcing-tabs > [role="tab"]:enabled:hover:not([aria-selected="true"]) {
+  .sourcing-tab-list > [role="tab"]:enabled:hover:not([aria-selected="true"]) {
     background-color: color-mix(in srgb, var(--primary) 8%, transparent);
     color: var(--foreground);
   }
-  .sourcing-tabs > [role="tab"]:enabled:hover:not([aria-selected="true"]) {
+  .sourcing-tab-list > [role="tab"]:enabled:hover:not([aria-selected="true"]) {
     border-bottom-color: color-mix(in srgb, var(--primary) 45%, transparent);
   }
 }

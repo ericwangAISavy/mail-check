@@ -173,7 +173,13 @@
   border-top: 1px solid var(--border);
   padding: 0 8px;
 }
-.sourcing-tabs > button {
+.sourcing-tab-list {
+  display: flex;
+  align-self: stretch;
+  align-items: stretch;
+}
+.sourcing-tabs > button,
+.sourcing-tab-list > button {
   padding: 10px 19px;
   white-space: nowrap;
   font-size: 13px;
@@ -181,12 +187,13 @@
   background: transparent;
   border-bottom: 2px solid transparent;
 }
-.sourcing-tabs > button[aria-selected="true"] {
+.sourcing-tab-list > button[aria-selected="true"] {
   color: var(--primary);
   background: var(--background);
   border-bottom-color: var(--primary);
 }
-.sourcing-tabs > button:disabled {
+.sourcing-tabs > button:disabled,
+.sourcing-tab-list > button:disabled {
   opacity: 0.6;
 }
 .sourcing-empty {

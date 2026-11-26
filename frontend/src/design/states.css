@@ -83,6 +83,15 @@
  :root body .app-frame .pipeline-page .pipeline-table td > span { margin-top:2px; }
  :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status { display:inline-flex; align-items:center; gap:6px; min-height:19px; margin-top:3px; padding:0 8px 0 7px; font-size:11px; font-weight:550; line-height:17px; }
  :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--muted-foreground); }
+ /* Status color always sits beside the status word (Ashby): open and progressing are
+    cyan, waiting is amber, offers and acceptance are green, closed outcomes stay muted. */
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status[data-status="Active"]::before { background:var(--primary); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status[data-status="On hold"] { color:var(--warning); background:color-mix(in srgb,var(--warning) 9%,transparent); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status[data-status="On hold"]::before { background:var(--warning); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Offer received"],[data-status="Accepted"]) { color:var(--state-done); background:color-mix(in srgb,var(--state-done) 10%,transparent); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Offer received"],[data-status="Accepted"])::before { background:var(--state-done); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Rejected"],[data-status="Withdrawn"],[data-status="Offer declined"],[data-status="Role closed"]) { color:var(--muted-foreground); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Rejected"],[data-status="Withdrawn"],[data-status="Offer declined"],[data-status="Role closed"])::before { box-sizing:border-box; border:1.5px solid var(--muted-foreground); background:transparent; }
 
  /* Financial table: an editable amount looks editable only when it is. */
  :root body .app-frame .payments-page .payment-confirmed-edit:enabled { padding:2px 6px; border:1px solid var(--ui-selected-edge); border-radius:6px; background:var(--ui-selected); cursor:pointer; }

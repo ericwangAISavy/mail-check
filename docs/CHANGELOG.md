@@ -2,6 +2,14 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.34.7 — 2026-11-26
+
+Pipeline status colors and accessibility fixes
+
+- Interview pipeline statuses show a color beside the status word: cyan for active, amber for on hold, green for offers and acceptances, and a muted ring for closed outcomes
+- Inline loading messages show a small spinner
+- Screen readers get correct roles for the calendar's current-time line, the job sourcing sheet tabs, and the bidder activity chart and heatmap
+
 ## 3.34.6 — 2026-11-26
 
 Loading, sign-in and high-contrast polish

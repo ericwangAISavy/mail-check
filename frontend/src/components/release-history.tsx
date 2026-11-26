@@ -10,7 +10,7 @@ export default function ReleaseHistory(){
   return <><button type="button" className="brand-version" aria-label={`Version ${version} — view update history`} title="View version history" onClick={()=>setOpen(true)}>v{version}</button>
     <Dialog open={open} onOpenChange={setOpen}>{open&&<DialogContent className="release-history">
       <div className="release-history-heading"><div><DialogTitle>Version history</DialogTitle><DialogDescription>Updates and improvements to OfferPath.</DialogDescription></div><span className="release-current">Current v{version}</span></div>
-      <Suspense fallback={<p role="status">Loading version history…</p>}><ReleaseHistoryEntries /></Suspense>
+      <Suspense fallback={<p role="status" className="inline-loading">Loading version history…</p>}><ReleaseHistoryEntries /></Suspense>
     </DialogContent>}</Dialog>
   </>
 }

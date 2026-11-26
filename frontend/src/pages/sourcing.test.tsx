@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -579,6 +580,13 @@ it("keeps the tab when deletion is cancelled or rejected", async () => {
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The sheet changed. Reload first.");
   fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
   expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+});
+it("keeps tab-sheet actions outside the tab list so it holds only tabs", async () => {
+  mount();
+  const list = await screen.findByRole("tablist", {name: "Profile sheets"});
+  expect(Array.from(list.children).every(child => child.getAttribute("role") === "tab")).toBe(true);
+  expect(within(list).queryByRole("button", {name: "Delete current profile sheet"})).toBeNull();
+  expect(screen.getByRole("button", {name: "Delete current profile sheet"})).toBeTruthy();
 });
 
 it("deletes selected job rows using their stable identities from the toolbar", async () => {

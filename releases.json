@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.34.7",
+    "date": "2026-11-26",
+    "title": "Pipeline status colors and accessibility fixes",
+    "changes": [
+      "Interview pipeline statuses show a color beside the status word: cyan for active, amber for on hold, green for offers and acceptances, and a muted ring for closed outcomes",
+      "Inline loading messages show a small spinner",
+      "Screen readers get correct roles for the calendar's current-time line, the job sourcing sheet tabs, and the bidder activity chart and heatmap"
+    ]
+  },
+  {
     "version": "3.34.6",
     "date": "2026-11-26",
     "title": "Loading, sign-in and high-contrast polish",

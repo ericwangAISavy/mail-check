@@ -81,3 +81,4 @@ it("protects a new opportunity draft while creation is pending",async()=>{
  expect(within(dialog).getByLabelText("Company")).toHaveValue("New company draft")
  expect(within(dialog).getByLabelText("Company")).not.toBeDisabled()
 })
+it("exposes the status value on the status pill for styling, beside the visible word",async()=>{mount();await screen.findByRole("button",{name:"Acme"});const pill=screen.getByText("Active",{selector:".pipeline-status"});expect(pill).toHaveAttribute("data-status","Active")})
