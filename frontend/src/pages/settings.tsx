@@ -7,6 +7,7 @@ import { WorkspaceCheckIntervals } from "@/components/workspace-check-intervals"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import "./settings.css"
 import { EmptyState, Loading, PageHeading, Switch, useToast } from "@/components/common"
 import { useAuth } from "@/components/auth"
 

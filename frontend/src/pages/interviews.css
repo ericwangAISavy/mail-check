@@ -546,3 +546,9 @@
   pointer-events: none;
   background: repeating-linear-gradient(135deg, var(--oc-event-accent) 0 2px, var(--oc-event) 2px 4px);
 }
+
+@media screen {
+ .outlook-calendar :is(.outlook-time-event,.outlook-month-event).is-past { opacity:.74; }
+ :root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event).is-past { opacity:.82; }
+ :root .outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning) { opacity:1; }
+}

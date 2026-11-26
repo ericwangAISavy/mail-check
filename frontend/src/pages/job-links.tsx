@@ -105,7 +105,7 @@ export default function JobLinks(){
    </div>
    {!query.isError&&!rangeError&&query.data?.incomplete&&<div role="alert" className="inline-error">{excludeMyLinks&&query.data.incomplete_reason==='own_links_unavailable'?<>Your saved links could not be checked, so Exclude my links could not be applied. Refresh to retry, or include your links to search the library.<Button className="ml-2" variant="outline" size="sm" onClick={()=>changeFilter('exclude_my_links',false)}>Include my links</Button></>:<>Some saved links are temporarily unavailable. Refresh to search the complete library.</>}</div>}
    {rangeError?<p role="alert" id="job-links-range-error" className="inline-error">{rangeError}</p>:query.isPending?<Loading label="Loading job links…"/>:query.isError?<p role="alert" className="inline-error">{query.error.message}</p>:<>
-    <SheetGrid snapshot={snapshot} changes={[]} onChange={()=>{}} disabled ariaLabel="Shared job links"
+    <SheetGrid snapshot={snapshot} changes={[]} onChange={()=>{}} disabled rowMode ariaLabel="Shared job links"
      onSelection={selection=>setSelected(new Set(selection.rows.map(row=>rows[row-1]?.id).filter((id):id is string=>!!id)))}/>
     {!rows.length&&!query.data?.incomplete&&<p className="sourcing-viewer-message">No matching job links.</p>}
    </>}

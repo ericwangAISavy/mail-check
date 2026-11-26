@@ -50,6 +50,26 @@ function replaceTextNodes(root: Element) {
   }
 }
 
+it('contains keyboard focus in mobile navigation and restores it on Escape',async()=>{
+  vi.spyOn(api,'status').mockResolvedValue(idle)
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><MemoryRouter><App/></MemoryRouter></QueryClientProvider>)
+  const trigger=await screen.findByRole('button',{name:'Open navigation'})
+  expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  trigger.focus();fireEvent.click(trigger)
+  expect(trigger.getAttribute('aria-expanded')).toBe('true')
+  const drawer=document.getElementById(trigger.getAttribute('aria-controls')!)!
+  await waitFor(()=>expect(drawer.contains(document.activeElement)).toBe(true))
+  const controls=Array.from(drawer.querySelectorAll<HTMLElement>('a[href],button:not(:disabled)'))
+  controls.at(-1)!.focus();fireEvent.keyDown(document.activeElement!,{key:'Tab'})
+  expect(document.activeElement).toBe(controls[0])
+  fireEvent.keyDown(document.activeElement!,{key:'Tab',shiftKey:true})
+  expect(document.activeElement).toBe(controls.at(-1))
+  fireEvent.keyDown(document.activeElement!,{key:'Escape'})
+  await waitFor(()=>expect(trigger.getAttribute('aria-expanded')).toBe('false'))
+  expect(document.activeElement).toBe(trigger)
+})
+
 it("aborts the header status poll when the workspace unmounts", async () => {
   let signal: AbortSignal | undefined
   vi.spyOn(api, "status").mockImplementation((nextSignal) => new Promise((_resolve, reject) => {

@@ -135,3 +135,11 @@
 .monitor-evidence>div{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,2fr);gap:10px}
 .monitor-evidence dt{color:var(--muted-foreground)}
 .monitor-evidence dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+
+/* Keep the service identity readable even when its health explanation is long. */
+@media screen {
+ .monitor-services{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}
+ .monitor-service{grid-template-columns:auto minmax(0,1fr);align-content:start}
+ .monitor-service-name{white-space:normal;overflow:visible;overflow-wrap:anywhere;line-height:1.4}
+ .monitor-service-state{grid-column:2;white-space:normal;overflow-wrap:anywhere;line-height:1.4}
+}

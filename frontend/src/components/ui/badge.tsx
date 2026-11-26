@@ -6,6 +6,6 @@ const badgeVariants = cva("inline-flex items-center gap-1 rounded-full border px
   variants: { variant: { default: "border-transparent bg-primary/10 text-primary", secondary: "border-transparent bg-secondary text-secondary-foreground", outline: "border-border text-foreground", muted: "border-transparent bg-muted text-muted-foreground", urgent: "border-transparent bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200", warning: "border-transparent bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300" } }, defaultVariants: { variant: "default" },
 })
 function Badge({ className, variant, ...props }: React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />
+  return <span className={cn("ui-badge", badgeVariants({ variant }), className)} data-variant={variant || "default"} {...props} />
 }
 export { Badge, badgeVariants }

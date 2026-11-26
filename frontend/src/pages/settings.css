@@ -1,0 +1,19 @@
+/* Settings use the same compact field rhythm as the surrounding workspace. */
+@media screen {
+  .page-wrap.settings-page .settings-sections { gap: 24px; }
+  .page-wrap.settings-page .settings-section-title { margin-bottom: 12px; }
+  .page-wrap.settings-page .settings-card { gap: 16px; padding: 20px; }
+  .page-wrap.settings-page .password-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 0; }
+  .page-wrap.settings-page .password-form > label:first-child,
+  .page-wrap.settings-page .password-form > p { grid-column: 1 / -1; }
+  .page-wrap.settings-page .password-form > label:first-child { max-width: 240px; }
+  .page-wrap.settings-page .password-form > button { justify-self: start; }
+  .page-wrap.settings-page .setting-field { min-width: 0; }
+}
+@media screen and (max-width: 700px) {
+  .page-wrap.settings-page .settings-grid,
+  .page-wrap.settings-page .password-form { grid-template-columns: minmax(0, 1fr); }
+  .page-wrap.settings-page .settings-card { padding: 16px; }
+  .page-wrap.settings-page .password-form > label:first-child { max-width: none; }
+  .page-wrap.settings-page .settings-section-title { align-items: flex-start; }
+}

@@ -125,6 +125,22 @@ function mount(fullToolbar = true) {
     </QueryClientProvider>,
   );
 }
+it('moves between profile tabs with arrows and Home without including sheet commands',async()=>{
+  const multi={...index,books:index.books.map(book=>({...book,tabs:[...book.tabs,{...book.tabs[0],id:2,title:'Second profile'}]}))}
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/sourcing'?multi:snapshot),{headers:{'content-type':'application/json'}})))
+  mount(false)
+  const first=await screen.findByRole('tab',{name:'Profile'})
+  const second=screen.getByRole('tab',{name:'Second profile'})
+  expect(first.tabIndex).toBe(0)
+  expect(second.tabIndex).toBe(-1)
+  fireEvent.keyDown(first,{key:'ArrowLeft'})
+  await waitFor(()=>expect(second.getAttribute('aria-selected')).toBe('true'))
+  expect(document.activeElement).toBe(second)
+  fireEvent.keyDown(second,{key:'Home'})
+  await waitFor(()=>expect(first.getAttribute('aria-selected')).toBe('true'))
+  expect(document.activeElement).toBe(first)
+  expect(screen.getAllByRole('tab')).toHaveLength(2)
+})
 it('searches through form submission without a separate Search button',async()=>{
  const fetch=vi.fn(async(url:string)=>new Response(JSON.stringify(url.includes('/api/sourcing/search')?{results:[]}:url==='/api/sourcing'?index:snapshot),{headers:{'content-type':'application/json'}}))
  vi.stubGlobal('fetch',fetch)

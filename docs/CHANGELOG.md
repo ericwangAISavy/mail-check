@@ -2,6 +2,30 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.33.5 — 2026-11-26
+
+Polish the enterprise visual system
+
+- Refine the application shell with neutral graphite surfaces, restrained branding, compact navigation and clearer visual hierarchy.
+- Unify existing controls, panels, calendar chrome and reporting presentation while preserving semantic colors, business values and workflows.
+- Improve Bidder management table density and numerical presentation without changing controls or application behavior.
+
+## 3.33.4 — 2026-11-26
+
+Refine the workspace interface across all pages
+
+- Unify surfaces, typography, controls and focus states across workspace pages, dialogs and monitoring, with light-mode and reduced-motion support.
+- Use space more effectively on Dashboard, Accounts, Settings and bidder workflows while retaining calendar profile colors and prominent feedback warnings.
+- Improve mobile navigation focus handling, keyboard navigation for mail and profile tabs, and the read-only Job links table.
+
+## 3.33.3 — 2026-11-26
+
+Streamline owner workspace and backup management
+
+- Organize Admin management into Workspaces, Backups and Activity tasks with a searchable directory and controls for one selected admin.
+- Show backup history only in an on-demand browser, sorted newest first with eight archives per page and an automatic/manual filter.
+- Keep creation and backup drafts while switching tasks, preserve forms during failed status refreshes, and defer background requests until their task is opened.
+
 ## 3.33.2 — 2026-11-25
 
 Fix reviewed analytics and sheet regressions

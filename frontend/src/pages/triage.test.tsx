@@ -40,6 +40,25 @@ function renderWithReader(message: Message, readOnly = false) {
   return render(<QueryClientProvider client={queryClient}><ToastProvider><Reader message={message} mobile onBack={() => undefined} onDone={() => undefined} busy={false} canRetry readOnly={readOnly} /></ToastProvider></QueryClientProvider>)
 }
 
+it('navigates mail view tabs with arrows and exposes filter expansion', async () => {
+  renderPage()
+  const queue = await screen.findByRole('tab', {name: /^Queue/})
+  expect(queue.tabIndex).toBe(0)
+  expect(screen.getByRole('tab', {name:'All mail'}).tabIndex).toBe(-1)
+  fireEvent.keyDown(queue, {key:'ArrowRight'})
+  await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole('tab', {name:'All mail'})))
+  expect(screen.getByRole('tab', {name:'All mail'}).getAttribute('aria-selected')).toBe('true')
+  fireEvent.keyDown(document.activeElement!, {key:'End'})
+  expect(document.activeElement).toBe(screen.getByRole('tab', {name:'Completed'}))
+  fireEvent.keyDown(document.activeElement!, {key:'Home'})
+  expect(document.activeElement).toBe(queue)
+  const filters=screen.getByRole('button', {name:/Filters/})
+  expect(filters.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(filters)
+  expect(filters.getAttribute('aria-expanded')).toBe('true')
+  expect(document.getElementById(filters.getAttribute('aria-controls')!)?.contains(screen.getByLabelText('Search mail'))).toBe(true)
+})
+
 it("aborts an unfinished reader request when the reader closes", async () => {
   let signal: AbortSignal | undefined
   vi.stubGlobal("fetch", vi.fn((_input, init) => new Promise((_resolve, reject) => {

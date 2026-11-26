@@ -217,3 +217,55 @@
 .bidder-detail .payment-inline-form :is(input,select){width:100%;min-width:0;box-sizing:border-box}
 .bidder-detail .payment-inline-form>label{min-width:140px}
 .bidder-detail .payment-inline-form>.btn{flex:none}
+
+@media screen {
+ .page-wrap.payments-page .payment-summary-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 18px; margin-bottom: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview { flex: 1 1 540px; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 0; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview:not(:has(> :nth-child(3))) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview > div { padding: 0; gap: 10px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview strong { font-size: 24px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview svg { width: 24px; height: 24px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-controls { flex: 1 1 100%; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0 0; margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
+ .page-wrap.payments-page .payment-section-heading { padding: 18px 20px; flex-wrap: wrap; }
+ .page-wrap.payments-page .payment-table :is(th, td) { padding-top: 13px; padding-bottom: 13px; }
+ .accounts-page .bidder-editor-head { flex-wrap: wrap; }
+ .accounts-page .bidder-detail .payment-inline-form { gap: 12px; }
+}
+@media screen and (max-width: 700px) {
+ .page-wrap.payments-page .payment-summary-bar { padding: 14px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview > :nth-child(3) { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--border); }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview strong { font-size: 22px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-controls { justify-content: flex-start; }
+ .page-wrap.payments-page .payment-bidder-filter { width: 100%; }
+ .page-wrap.payments-page .payment-bidder-filter select { width: 100%; max-width: none; }
+ .page-wrap.payments-page .payment-table th:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); }
+ .accounts-page .bidder-detail .payment-inline-form > label { flex-basis: 100%; min-width: 0; }
+}
+
+/* Enterprise reference: presentation only; keep totals, expansion and forms intact. */
+@media screen {
+ .page-wrap.payments-page .payment-summary-bar { border:0; border-bottom:1px solid var(--border); border-radius:0; padding:0 0 16px; gap:16px; background:transparent; }
+ .payments-page .payment-table { font-size:13px; }
+ .page-wrap.payments-page .payment-table th,.page-wrap.payments-page .payment-table td { padding-top:12px; padding-bottom:12px; }
+ .page-wrap.payments-page .payment-table thead th { padding-top:10px; padding-bottom:10px; font-weight:550; }
+ .page-wrap.payments-page .payment-section-heading { padding:16px; }
+ .payments-page .payment-section-heading h2 { font-size:16px; }
+ .payments-page .payment-admin-card,.payments-page .payment-entry { border-radius:8px; }
+ .payments-page .payment-overview strong { letter-spacing:-.025em; }
+ .payments-page .bidder-list-item { border-radius:6px; }
+ .payments-page .bidder-detail { padding:16px 20px; }
+ .payments-page .bidder-activity { padding:18px; border-radius:8px; }
+}
+
+@media screen {
+ .app-frame .payments-page .payment-admin-card { padding:0 0 20px; border-bottom:1px solid var(--border); margin-bottom:20px; }
+ .app-frame .payments-page .payment-admin-card h2 { font-size:14px; font-weight:550; }
+ .app-frame .payments-page .payment-section-heading { padding:14px 16px; }
+ .app-frame .payments-page .cyber-panel:has(> .payment-table-scroll) { border-radius:6px; background:transparent; box-shadow:none; }
+}
+
+@media screen {
+ .app-frame .payments-page .payment-deduction-rule { border:0; border-radius:0; padding:4px 0 20px; margin-bottom:20px; border-bottom:1px solid var(--border); background:transparent; box-shadow:none; }
+ .app-frame .payments-page .payment-deduction-rule h2 { font-size:14px; font-weight:550; margin-bottom:10px; }
+}

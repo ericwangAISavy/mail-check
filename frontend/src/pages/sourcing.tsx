@@ -281,9 +281,20 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
             <button
               role="tab"
               key={t.id}
+              tabIndex={tab?.id===t.id?0:-1}
               aria-selected={tab?.id === t.id}
               disabled={dirty}
               onClick={() => setParams({ tab: String(t.id) })}
+              onKeyDown={event=>{
+                if(dirty)return
+                const offset=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0
+                if(!offset&&event.key!=='Home'&&event.key!=='End')return
+                event.preventDefault();event.stopPropagation()
+                const buttons=Array.from(event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'))
+                const index=buttons.indexOf(event.currentTarget)
+                const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+offset+buttons.length)%buttons.length
+                buttons[next]?.click();buttons[next]?.focus()
+              }}
             >
               {t.title}
             </button>

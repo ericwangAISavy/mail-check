@@ -73,11 +73,13 @@ it("keeps quick range buttons synchronized with the date dropdown", async () => 
   fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "14" } })
   expect(screen.getByRole("button", { name: "2 weeks" }).getAttribute("aria-pressed")).toBe("true")
 })
-it("propagates every filter and synchronizes both grouping controls", async () => {
+it("propagates every filter through one grouping control", async () => {
   mount(); await screen.findByLabelText("Date range")
   fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "7" } }); await lastParam("days", "7")
   fireEvent.change(screen.getByLabelText("Group by"), { target: { value: "week" } }); await lastParam("interval", "week")
-  expect((screen.getByLabelText("Chart grouping") as HTMLSelectElement).value).toBe("week")
+  expect(screen.getAllByLabelText("Group by")).toHaveLength(1)
+  expect(screen.queryByLabelText("Chart grouping")).toBeNull()
+  expect((screen.getByLabelText("Group by") as HTMLSelectElement).value).toBe("week")
   fireEvent.change(screen.getByLabelText("Account"), { target: { value: "personal" } }); await lastParam("account", "personal")
   fireEvent.change(screen.getByLabelText("Status"), { target: { value: "pending" } }); await lastParam("status", "pending")
   fireEvent.click(screen.getByRole("button", { name: "More" }))

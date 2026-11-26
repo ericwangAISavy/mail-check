@@ -65,6 +65,11 @@
 .offerpath-login .login-input-wrap { box-sizing: border-box; height: 44px; border: 1px solid #7f9eb36e; border-radius: 26px; background: linear-gradient(100deg, #263d504d, #45607938); color: #eaf3fc; width: 100%; display: flex; align-items: center; padding: 0 23px; gap: 14px; box-shadow: inset 0 1px 3px #d4edff08; }
 .offerpath-login .login-input-wrap > svg { flex-shrink: 0; color: #b9d0e3; stroke-width: 1.5; }
 .offerpath-login .login-input-wrap input { min-width: 0; width: 100%; height: 100%; border: 0; border-radius: 0; background: transparent; color: #fff; padding: 0; box-shadow: none; outline: none; font-size: 15px; font-weight: 450; letter-spacing: -.01em; }
+/* The outer pill owns the field surface and focus ring in every theme. */
+:root body .offerpath-login .login-input-wrap input,
+:root body .offerpath-login .login-input-wrap input:is(:hover, :focus, :focus-visible) {
+  border: 0; background: transparent; box-shadow: none; outline: none;
+}
 .offerpath-login .login-input-wrap input::placeholder { color: #92a3b6; opacity: 1; font-weight: 400; }
 .offerpath-login .login-role-wrap { position: relative; padding: 0; }
 .offerpath-login .login-role-wrap > svg { position: absolute; left: 23px; pointer-events: none; }

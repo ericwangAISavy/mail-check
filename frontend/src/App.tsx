@@ -247,6 +247,28 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   const toast = useToast()
   const [collapsed, setCollapsed] = useState(readBrowserPreference("mailcheck.sidebar") === "collapsed")
   const [mobileNav, setMobileNav] = useState(false)
+  const [compactNav,setCompactNav]=useState(()=>window.matchMedia('(max-width: 1023px)').matches)
+  const mobileNavTrigger=useRef<HTMLButtonElement>(null),mobileNavPanel=useRef<HTMLElement>(null)
+  useEffect(()=>{
+    const media=window.matchMedia('(max-width: 1023px)')
+    const update=()=>{setCompactNav(media.matches);if(!media.matches)setMobileNav(false)}
+    media.addEventListener('change',update)
+    return()=>media.removeEventListener('change',update)
+  },[])
+  useEffect(()=>{
+    if(!mobileNav)return
+    const controls=()=>Array.from(mobileNavPanel.current?.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),[tabindex="0"]')||[]).filter(element=>getComputedStyle(element).display!=='none'&&getComputedStyle(element).visibility!=='hidden')
+    controls()[0]?.focus()
+    const keyboard=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){event.preventDefault();setMobileNav(false);return}
+      if(event.key!=='Tab')return
+      const items=controls(),first=items[0],last=items[items.length-1]
+      if(!first||!last)return
+      if(!mobileNavPanel.current?.contains(document.activeElement)||event.shiftKey&&document.activeElement===first||!event.shiftKey&&document.activeElement===last){event.preventDefault();(event.shiftKey?last:first).focus()}
+    }
+    document.addEventListener('keydown',keyboard)
+    return()=>{document.removeEventListener('keydown',keyboard);if(mobileNavTrigger.current&&getComputedStyle(mobileNavTrigger.current).display!=='none')mobileNavTrigger.current.focus()}
+  },[mobileNav])
   const location = useLocation()
   const navigate = useNavigate()
   useEffect(() => { setMobileNav(false) }, [location.pathname])
@@ -279,12 +301,12 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   return <div data-offerpath-workspace className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     <header className="topbar app-header">
       <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
-      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === (pendingPath ?? location.pathname) || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
+      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" ref={mobileNavTrigger} aria-expanded={mobileNav} aria-controls="workspace-navigation" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === (pendingPath ?? location.pathname) || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
       <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/job-links" && <JobStatus bootstrap={bootstrap} />}</div>
       {pendingPath && <div className="route-progress" role="progressbar" aria-label="Opening page" />}
     </header>
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
-    <aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
+    <aside ref={mobileNavPanel} id="workspace-navigation" inert={compactNav&&!mobileNav} role={mobileNav?'dialog':undefined} aria-modal={mobileNav?true:undefined} aria-label={mobileNav?'Navigation':undefined} className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <div className="workspace-label">YOUR WORKSPACE</div>
       <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter(s=>s.to!=="/job-links" || canViewJobLinks).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
         // Keep the current URL, including filters updated through browser history.

@@ -197,8 +197,8 @@ it("says why live collection is failing instead of only Not synced yet",async()=
  accounts[0].live=true
  accounts[0].sync_error="Microsoft sign-in expired. Reconnect this mailbox."
  mount()
- const status=await screen.findByRole("status")
- expect(status.textContent).toContain("Sync failing: Microsoft sign-in expired. Reconnect this mailbox.")
+ const status=(await screen.findByText(/Microsoft sign-in expired\. Reconnect this mailbox\./)).closest('[role="status"]')
+ expect(status?.textContent).toContain("Sync failing: Microsoft sign-in expired. Reconnect this mailbox.")
  expect(screen.getByText("Live · failing").closest(".live-badge")?.className).toContain("is-failing")
  expect(screen.queryByText("Live")).toBeNull()
 })

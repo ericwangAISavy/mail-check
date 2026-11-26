@@ -118,3 +118,17 @@
   .quality-caption span + span { display:none; }
   .quality-table tbody th button { max-width:190px; }
 }
+
+/* Preserve plot width before putting account status beside it. */
+@media screen {
+ .page-wrap.analytics-page .dashboard-layout { grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; }
+ .page-wrap.analytics-page .dashboard-layout.graphs-only { grid-template-columns: minmax(0, 1fr); }
+ .page-wrap.analytics-page .dashboard-rail { display: flex; flex-direction: column; }
+ .page-wrap.analytics-page .account-status-panel { padding: 18px; }
+ .page-wrap.analytics-page .rail-heading { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+ .page-wrap.analytics-page .timeline-ranges { flex-wrap: wrap; gap: 4px; }
+}
+@media screen and (max-width: 1250px) {
+ .page-wrap.analytics-page .dashboard-layout { grid-template-columns: minmax(0, 1fr); }
+ .page-wrap.analytics-page .dashboard-rail { width: 100%; }
+}

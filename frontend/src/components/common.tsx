@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react"
-import { Check, CircleAlert, LoaderCircle, RotateCcw, Search, X } from "lucide-react"
+import { Check, CircleAlert, Inbox, LoaderCircle, RotateCcw, Search, X } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { api, request, getWorkspaceIdentityRevision, subscribeWorkspaceIdentity } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -59,11 +59,11 @@ export function PageHeading({ title, description, action }: { title: string; des
 }
 
 export function Loading({ label = "Loading your workspace…" }: { label?: string }) {
-  return <div className="loading-state"><LoaderCircle className="spin" size={19} /><span>{label}</span></div>
+  return <div className="loading-state" role="status" aria-label={label}><LoaderCircle className="spin" size={19} aria-hidden="true" /><span>{label}</span></div>
 }
 
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
-  return <div className="empty-state"><span className="empty-mark"><Check size={19} /></span><h2>{title}</h2><p>{description}</p>{action}</div>
+  return <div className="empty-state"><span className="empty-mark"><Inbox size={19} aria-hidden="true" /></span><h2>{title}</h2><p>{description}</p>{action}</div>
 }
 
 export function CategoryBadge({ message }: { message: Pick<Message, "category" | "category_label" | "tier" | "deadline_display" | "application_matched"> }) {
