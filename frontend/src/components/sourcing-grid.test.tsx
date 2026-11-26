@@ -30,6 +30,41 @@ it("renders a compact Check checkbox and commits its state", () => {
   fireEvent.click(check);
   expect(change).toHaveBeenCalledWith([{row:1,col:3,value:"true",style:undefined}]);
 });
+it('uses row selection without formula bar or cell editors in row mode',()=>{
+ const change=vi.fn()
+ const {container}=render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change} rowMode/>);
+ const company=screen.getByRole('gridcell',{name:'Acme'})
+ fireEvent.mouseDown(company,{button:0,buttons:1});fireEvent.mouseUp(document)
+ fireEvent.doubleClick(company)
+ fireEvent.keyDown(company,{key:'Enter'})
+ fireEvent.keyDown(company,{key:'F2'})
+ fireEvent.keyDown(company,{key:'x'})
+ expect(screen.queryByRole('textbox',{name:'Edit cell'})).toBeNull()
+ expect(container.querySelector('.sheet-formula-bar')).toBeNull()
+ expect(change).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('checkbox',{name:'Check row 1'}))
+ expect(change).toHaveBeenCalledWith([{row:1,col:3,value:'true',style:undefined}])
+})
+it('appends pasted job rows in row mode without overwriting the selected cell',()=>{
+ const change=vi.fn(),append=vi.fn()
+ render(<SheetGrid snapshot={snapshot()} changes={[]} onChange={change} onAppendRows={append} rowMode/>);
+ const role=screen.getByRole('gridcell',{name:'Engineer'})
+ fireEvent.mouseDown(role,{button:0,buttons:1});fireEvent.mouseUp(document)
+ fireEvent.paste(screen.getByRole('grid'),{clipboardData:{getData:(type:string)=>type==='text/plain'?'Beta\tDesigner\thttps://jobs.test/2\ttrue':''}})
+ expect(append).toHaveBeenCalledWith([['Beta','Designer','https://jobs.test/2','']])
+ expect(change).not.toHaveBeenCalled()
+ expect(screen.getByRole('gridcell',{name:'Engineer'})).toBeTruthy()
+})
+it('copies whole rows in row mode and hides the unused trailing input row',()=>{
+ const data=snapshot();data.row_ids.push('empty');data.rows.push([cell(''),cell(''),cell(''),cell('false')]);
+ const setData=vi.fn()
+ render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} rowMode/>);
+ const company=screen.getByRole('gridcell',{name:'Acme'})
+ fireEvent.mouseDown(company,{button:0,buttons:1});fireEvent.mouseUp(document)
+ fireEvent.copy(screen.getByRole('grid'),{clipboardData:{setData}})
+ expect(setData).toHaveBeenCalledWith('text/plain','Acme\tEngineer\thttps://jobs.test/1\tfalse')
+ expect(screen.queryByRole('gridcell',{name:'2'})).toBeNull()
+})
 it("shows the saved checked state and disables editing while saving", () => {
   const data = snapshot(); data.rows[1][3] = cell("true");
   render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} disabled/>);
@@ -68,7 +103,7 @@ it("deletes all dragged rows with Delete instead of clearing cell values", () =>
   fireEvent.mouseMove(last, {buttons:1});
   fireEvent.mouseUp(document);
   fireEvent.keyDown(screen.getByRole("grid"), {key:"Delete"});
-  // Delete clears the rows' contents and keeps the rows for the next paste.
+  // The grid submits cleared contents; the server compacts blank rows on save.
   const cleared = change.mock.calls.at(-1)?.[0] as {row:number;col:number;value:string}[];
   expect(new Set(cleared.map(c=>c.row))).toEqual(new Set([1,2]));
   expect(cleared.every(c=>c.value==="")).toBe(true);

@@ -48,7 +48,18 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   return <div className="page-wrap interviews-page">
 
 
-    {analysis && (analysis.pending>0 || (analysis.needs_review || 0)>0) && <Card className="calendar-analysis-status" role="status"><div><strong>Calendar analysis: {analysis.done} of {analysis.total} complete</strong><p>{analysis.pending ? `${analysis.pending} remaining · ${bootstrap.readiness.model ? analysis.running>0 ? 'Analyzing in the background' : analysis.retry_in>0 ? 'Automatic retry scheduled' : 'Continues automatically in the background' : 'Configure a model in Settings to continue'}` : `${analysis.needs_review || 0} need review · Automatic retries paused for invalid responses`}</p>{analysis.pending>0&&(analysis.needs_review || 0)>0&&<p>{analysis.needs_review} need review · Automatic retries paused for these events</p>}{analysis.last_error && <small>{analysis.last_error}{analysis.retrying ? ` · ${analysis.retrying} waiting to retry` : ''}</small>}</div>{(analysis.retrying>0 || (analysis.needs_review || 0)>0) && <Button variant="outline" size="sm" disabled={retryAnalysis.isPending} onClick={()=>retryAnalysis.mutate()}>Retry analysis now</Button>}</Card>}
+    {analysis && (analysis.pending>0 || (analysis.needs_review || 0)>0) && <div className="calendar-analysis-status" role="status" aria-label="Calendar analysis">
+      <div className="calendar-analysis-badges">
+        <span className="calendar-analysis-label">Calendar analysis</span>
+        <span className="calendar-analysis-badge is-complete">{analysis.done}/{analysis.total} complete</span>
+        {analysis.pending>0 && <span className="calendar-analysis-badge">{analysis.pending} remaining</span>}
+        {(analysis.needs_review || 0)>0 && <span className="calendar-analysis-badge is-warning" title={analysis.last_error || undefined}>{analysis.needs_review} need review</span>}
+        <span className={`calendar-analysis-badge ${!analysis.pending || !bootstrap.readiness.model ? 'is-warning' : 'is-active'}`} title={analysis.last_error || undefined}>
+          {!analysis.pending ? 'Retries paused' : !bootstrap.readiness.model ? 'Model required' : analysis.running>0 ? 'Analyzing' : analysis.retry_in>0 ? 'Retry scheduled' : 'Queued'}
+        </span>
+      </div>
+      {(analysis.retrying>0 || (analysis.needs_review || 0)>0) && <Button variant="outline" size="sm" disabled={retryAnalysis.isPending} onClick={()=>retryAnalysis.mutate()}>Retry analysis now</Button>}
+    </div>}
     {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" disabled={query.isFetching} onClick={()=>void query.refetch()}>Try again</Button></div> : <>
     <InterviewCalendar actions={actions} events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
     <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails displayTimezone={calendarTimezone(params)} key={selected} id={selected} onRemoved={()=>select(null)} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>

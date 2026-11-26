@@ -90,3 +90,30 @@ class InvitationAnalysisTests(unittest.TestCase):
         self.conn.execute('UPDATE accounts SET enabled=0 WHERE id=?',(self.a,));self.conn.commit()
         self.assertFalse(queue.due(self.conn))
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analysis_tasks').fetchone()[0],0)
+
+    def test_negative_invitation_can_retry_fresh_inference_and_clear_its_review_reason(self):
+        self.invite('retry-negative')
+        interviews.resume_calendar_analysis(self.conn,Config(),analysis_client=native.CalendarAnalysisTests.Model(is_interview_event=False))
+        queue.retry_now(self.conn);self.conn.commit()
+        model=native.CalendarAnalysisTests.Model()
+        result=interviews.resume_calendar_analysis(self.conn,Config(),analysis_client=model)
+        self.assertEqual(len(model.calls),1)
+        self.assertEqual(result['needs_review'],0)
+        row=self.conn.execute('SELECT company,needs_review,review_reason FROM interview_events').fetchone()
+        self.assertEqual(tuple(row),('Airbus',0,None))
+
+    def test_legacy_negative_cache_does_not_block_email_invitation_retry(self):
+        from mailcheck.calendar_analysis import CalendarAnalyzer
+        self.invite('legacy-negative')
+        task=dict(self.conn.execute('SELECT * FROM calendar_analysis_tasks').fetchone())
+        account=next(a for a in db.list_accounts(self.conn) if a.id==task['account_id'])
+        with CalendarAnalyzer(self.conn,Config(),lambda _:None,client=native.CalendarAnalysisTests.Model(is_interview_event=False)) as analyzer:
+            analyzer.analyze(account,queue.decode(task))
+        self.conn.execute("UPDATE interview_events SET needs_review=1,review_reason='Email invitation analysis needs review; retry analysis or correct event details.'")
+        self.conn.commit()
+        model=native.CalendarAnalysisTests.Model()
+        result=interviews.resume_calendar_analysis(self.conn,Config(),analysis_client=model)
+        self.assertEqual(len(model.calls),1)
+        self.assertEqual(result['done'],1)
+        row=self.conn.execute('SELECT company,needs_review,review_reason FROM interview_events').fetchone()
+        self.assertEqual(tuple(row),('Airbus',0,None))

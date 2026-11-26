@@ -29,7 +29,8 @@ export default function JobLinks(){
  const startDate=params.get('start_date')??legacyDay
  const endDate=params.get('end_date')??legacyDay
  const excludeMyLinks=queryFlag(params,'exclude_my_links',true)
- const excludeOnePage=queryFlag(params,'exclude_one_page',false)
+ const onlyOnePage=queryFlag(params,'only_one_page',false)
+ const excludeOnePage=!onlyOnePage&&queryFlag(params,'exclude_one_page',false)
  const rangeError=startDate&&endDate&&startDate>endDate?'The end date must be on or after the start date.':''
  const requestedLimit=Number(params.get('limit')||100)
  const limit=PAGE_SIZES.includes(requestedLimit)?requestedLimit:100
@@ -37,10 +38,13 @@ export default function JobLinks(){
  const toast=useToast()
  const cursor=cursors[cursors.length-1]
  useEffect(()=>{setDraft(keyword)},[keyword])
- useEffect(()=>{setCursors([""]);setSelected(new Set())},[keyword,startDate,endDate,limit,excludeMyLinks,excludeOnePage])
+ useEffect(()=>{setCursors([""]);setSelected(new Set())},[keyword,startDate,endDate,limit,excludeMyLinks,excludeOnePage,onlyOnePage])
  const changeFilter=(name:string,enabled:boolean)=>{
   setCursors(['']);setSelected(new Set())
-  const next=new URLSearchParams(params);next.set(name,String(enabled));setParams(next)
+  const next=new URLSearchParams(params);next.set(name,String(enabled))
+  if(enabled&&name==='only_one_page')next.set('exclude_one_page','false')
+  if(enabled&&name==='exclude_one_page')next.set('only_one_page','false')
+  setParams(next)
  }
  const changeRange=(start:string,end:string)=>{
   setCursors(['']);setSelected(new Set())
@@ -50,7 +54,7 @@ export default function JobLinks(){
   if(end)next.set('end_date',end);else next.delete('end_date')
   setParams(next)
  }
- const query=useQuery({queryKey:["job-links",keyword,startDate,endDate,limit,excludeMyLinks,excludeOnePage,cursor],queryFn:({signal})=>request<Results>(`/api/job-links?${new URLSearchParams({q:keyword,cursor,start_date:startDate,end_date:endDate,limit:String(limit),exclude_my_links:String(excludeMyLinks),exclude_one_page:String(excludeOnePage)})}`,{signal}),enabled:!rangeError,retry:(count,error)=>!deniedAccess(error)&&count<1})
+ const query=useQuery({queryKey:["job-links",keyword,startDate,endDate,limit,excludeMyLinks,excludeOnePage,onlyOnePage,cursor],queryFn:({signal})=>request<Results>(`/api/job-links?${new URLSearchParams({q:keyword,cursor,start_date:startDate,end_date:endDate,limit:String(limit),exclude_my_links:String(excludeMyLinks),exclude_one_page:String(excludeOnePage),only_one_page:String(onlyOnePage)})}`,{signal}),enabled:!rangeError,retry:(count,error)=>!deniedAccess(error)&&count<1})
  const denied=deniedAccess(query.error)
  useEffect(()=>{
   if(!denied)return
@@ -94,6 +98,7 @@ export default function JobLinks(){
     <Button variant="outline" size="sm" title="Copy selected URLs, one per line" disabled={!chosen.length||copying||query.isFetching} onClick={()=>void copy(chosen.map(row=>row.link).join('\n'))}><Copy size={15}/>Copy links</Button>
     <Button variant="outline" size="sm" disabled={!chosen.length||copying||query.isFetching} onClick={()=>void copy(serializeTSV(chosen.map(row=>[row.company,row.role,row.link])))}><Copy size={15}/>Copy selected rows</Button>
     <div className="job-links-filters" role="group" aria-label="Job link filters">
+     <Button variant={onlyOnePage?'default':'outline'} size="sm" aria-pressed={onlyOnePage} title="Show only Greenhouse and Ashby application links" onClick={()=>changeFilter('only_one_page',!onlyOnePage)}>Only one-page links</Button>
      <label title="Hide links already saved in this workspace, including copies from other workspaces"><input type="checkbox" checked={excludeMyLinks} onChange={event=>changeFilter('exclude_my_links',event.target.checked)}/>Exclude my links</label>
      <label title="Hide Greenhouse and Ashby application links"><input type="checkbox" checked={excludeOnePage} onChange={event=>changeFilter('exclude_one_page',event.target.checked)}/>Exclude one-page links</label>
     </div>

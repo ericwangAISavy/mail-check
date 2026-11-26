@@ -6,6 +6,18 @@ seeded, and existing mail history is preserved.
 
 ## Calendar content analysis
 
+Email calendar invitations (ICS), including IMAP/Gmail accounts, use the same
+semantic analyzer as native Microsoft calendar events. New imports are queued
+without waiting for inference. Existing saved invitations are discovered in
+bounded batches in each enabled workspace, without rereading mailbox history.
+Retained event descriptions remain usable after the original email is pruned.
+The worker updates company, role, interviewers and review fields on the existing
+event; original times, cancellation state, meeting links, source identities and
+manual corrections are preserved. A negative email-invitation analysis stays
+visible for review and supports fresh inference through **Retry analysis**.
+Direct provider-calendar collection still requires a calendar-capable connection;
+new IMAP invitations are imported by mail sync.
+
 Calendar analysis uses its own context limit, independent of the email body
 limit. It retains up to 16,000 description characters and selects at most 12,000
 for the model, prioritizing hiring details over meeting boilerplate while

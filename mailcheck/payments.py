@@ -320,7 +320,7 @@ def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, si
             parameters.extend((lower, upper, lower, upper))
     conn.execute(prefix + """INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role, job_refs)
         SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,''),
-          CASE WHEN c.category='application_ack' THEN receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000)) ELSE '[]' END
+          receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000))
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category IN ('application_ack','interview_invite','rejection') OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))

@@ -27,6 +27,7 @@ export function SheetGrid({
   changes,
   onChange,
   disabled = false,
+  rowMode = false,
   highlightRow,
   view = defaultView,
   onSelection,
@@ -40,6 +41,8 @@ export function SheetGrid({
   changes: Change[];
   onChange: (changes: Change[]) => void;
   disabled?: boolean;
+  /** Browse/select whole rows; bulk paste appends jobs instead of editing cells. */
+  rowMode?: boolean;
   highlightRow?: number;
   view?: SheetView;
   onSelection?: (selection: Selection) => void;
@@ -58,8 +61,8 @@ export function SheetGrid({
   const count = snapshot.columns.length;
   const checkedRows = useMemo(()=>checkedSourcingRows(snapshot,changes),[snapshot,changes]);
   const visible = useMemo(
-    () => visibleRows(snapshot, changes, view).filter(row=>row>0),
-    [snapshot, changes, view],
+    () => visibleRows(snapshot, changes, view).filter(row=>row>0 && (!rowMode || snapshot.columns.some((column,c)=>column.kind!=='check' && String(snapshot.rows[row]?.[c]?.value ?? '').trim()))),
+    [snapshot, changes, view, rowMode],
   );
   const indices = useMemo(
     () => new Map(visible.map((row, index) => [row, index])),
@@ -85,14 +88,14 @@ export function SheetGrid({
   const rowOffsets = useMemo(() => {
     const offsets = [0];
     for (const row of visible) {
-      const wrapped = snapshot.columns.some((_, col) => ({
+      const wrapped = !rowMode && snapshot.columns.some((_, col) => ({
         ...snapshot.rows[row]?.[col]?.style,
         ...drafts.get(`${row}:${col}`)?.style,
       }).wrap);
       offsets.push(offsets[offsets.length - 1] + (wrapped ? 64 : 30));
     }
     return offsets;
-  }, [visible, snapshot, drafts]);
+  }, [visible, snapshot, drafts, rowMode]);
   const notify = (
     a: { row: number; col: number },
     b: { row: number; col: number },
@@ -106,10 +109,11 @@ export function SheetGrid({
       columns,
     });
   };
-  const select = (next: { row: number; col: number }, extend: boolean) => {
+  const select = (requested: { row: number; col: number }, extend: boolean) => {
+    const next = rowMode ? {row:requested.row,col:0} : requested;
     if (!extend) anchor.current = next;
     selected.current = next;
-    setPosition(next);
+    setPosition(previous=>previous.row===next.row && previous.col===next.col ? previous : next);
     notify(anchor.current, next);
   };
   const rowOrder = visible.map(row => snapshot.row_ids[row]).join(":");
@@ -164,7 +168,7 @@ export function SheetGrid({
   // fixed headings), so a paste into the empty table adds the copied rows.
   const empty = rows.length === 0 && !disabled && !!onAppendRows;
   const pasteIntoEmptyDay = (event: {clipboardData: DataTransfer | null; defaultPrevented: boolean; preventDefault: () => void}) => {
-    if (!empty || !onAppendRows || event.defaultPrevented || !event.clipboardData) return;
+    if ((!empty && !rowMode) || disabled || !onAppendRows || event.defaultPrevented || !event.clipboardData) return;
     event.preventDefault();
     let matrix: string[][];
     try {
@@ -227,10 +231,10 @@ export function SheetGrid({
       key: String(c),
       name: sourcingColumnTitle(definition,c),
       width: flexible(definition) ? textWidth : definition.width || 76,
-      resizable: !disabled,
+      resizable: !disabled && !rowMode,
       editable: (row) =>
-        !disabled && !checkedRows.has(row.id) && definition.kind !== "check" && row.id > 0,
-      renderEditCell: (props) => (
+        !disabled && !rowMode && !checkedRows.has(row.id) && definition.kind !== "check" && row.id > 0,
+      renderEditCell: rowMode ? undefined : (props) => (
         <NativeCellEditor {...props} onEditingChange={onEditingChange} />
       ),
       cellClass: (row) => {
@@ -257,7 +261,7 @@ export function SheetGrid({
         />;
         return (
           <span
-            className={`native-cell-content ${style.wrap ? "is-wrapped" : ""}`}
+            className={`native-cell-content ${!rowMode && style.wrap ? "is-wrapped" : ""}`}
             onDragStart={event=>event.preventDefault()}
             style={{
               fontWeight: style.bold ? 700 : undefined,
@@ -286,19 +290,19 @@ export function SheetGrid({
   ];
   return (
     <>
-      <div className="sheet-formula-bar">
+      {!rowMode && <div className="sheet-formula-bar">
         <span>
           {columnName(position.col)}
           {position.row+1}
         </span>
         <i>fx</i>
         <span>{String(rows[position.row]?.[String(position.col)] ?? "")}</span>
-      </div>
+      </div>}
       <div className="sheet-grid-paste" style={{display: "contents"}} onPaste={pasteIntoEmptyDay}>
       <DataGrid
         ref={grid}
         aria-label={ariaLabel}
-        className="sourcing-grid"
+        className={`sourcing-grid${rowMode ? ' is-row-mode' : ''}`}
         columns={columns}
         rows={rows}
         rowKeyGetter={(r) => snapshot.row_ids[r.id] || "header"}
@@ -435,7 +439,7 @@ export function SheetGrid({
         }}
         onCellPaste={({ row, column }, event) => {
           event.preventDefault();
-          if (disabled || checkedRows.has(row.id)) return row;
+          if (disabled || (!rowMode && checkedRows.has(row.id))) return row;
           let matrix: string[][];
           try {
             matrix = parseClipboardRows(event.clipboardData.getData("text/plain"), event.clipboardData.getData("text/html")).filter(values => values.some(value => value.trim()));
@@ -449,6 +453,12 @@ export function SheetGrid({
             return row;
           }
           if (!matrix.length) return row;
+          if (rowMode) {
+            if (matrix.some(values=>values.length>count)) {window.alert("The copied rows have more columns than this sheet.");return row;}
+            if (changes.length) {window.alert("Save current changes before adding pasted rows.");return row;}
+            onAppendRows?.(withoutChecks(matrix,0));
+            return row;
+          }
           if (matrix.length + start > rows.length && Number(column.key) === 0 &&
               snapshot.columns.every((_, c) => !String(row[String(c)] ?? "").trim()) && onAppendRows) {
             if (changes.length) {window.alert("Save current edits before appending pasted rows."); return row;}
@@ -488,8 +498,8 @@ export function SheetGrid({
             !args.column
           )
             return;
-          // Delete clears the selected rows' contents but keeps the rows, so
-          // there is always room to paste the next batch of links.
+          // Clear selected contents; autosave compacts empty rows and retains
+          // a trailing input row for the next paste.
           if (event.key === "Delete" || event.key === "Backspace") {
             event.preventDefault();
             event.preventGridDefault();

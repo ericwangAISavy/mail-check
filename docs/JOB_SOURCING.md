@@ -9,6 +9,19 @@ Mail-check owns and saves job sheets in its SQLite database. Open **Job sourcing
 to work in a spreadsheet grid, with one workbook per bidder and profile tabs below.
 There is no Google account, OAuth configuration, API quota or synchronization setup.
 
+The default admin sheet is a compact row browser: no formula bar, cell editor,
+double-click edit mode, column resize handles, or per-cell formatting shortcuts.
+Rows stay on one line and unused blank input rows are hidden. Click or drag rows
+to select and copy them, use Ctrl/Cmd+click to open job links, or paste copied job
+rows to append them without overwriting an existing cell. Completion checks,
+row deletion, undo, imports and profile-tab management remain available. Existing
+saved data and formatting are not rewritten by this presentation change.
+
+Clearing job rows compacts fully empty rows automatically when autosave finishes.
+The remaining jobs keep their row identities, order and dates. Deleting rows also
+closes existing gaps. One undated input row remains at the end for the next paste;
+checked rows and rows containing other saved cell data are preserved.
+
 ## Create workbooks and profile sheets
 
 1. Create bidders and assign email/profile accounts on **Bidder payments**.
@@ -364,7 +377,10 @@ Own-link comparison includes all source dates, independently of the search date
 range. Disable this option to search the complete library, including your sheets.
 
 **Exclude one-page links** is off by default. Enable it to hide links hosted on
-Greenhouse or Ashby. Both filters apply before pagination and work with keyword,
+Greenhouse or Ashby. **Only one-page links** is also off by default; enable its
+toolbar button to show only those providers. Inclusion and exclusion are mutually
+exclusive; selecting either switches the other off. A shared URL with both flags
+uses the inclusion filter. These filters apply before pagination and work with keyword,
 date range and page-size choices. Filter choices remain in the page URL, and
 changing either filter returns to page one. If owned links cannot be read, the
 page reports an incomplete search rather than showing potentially owned copies.

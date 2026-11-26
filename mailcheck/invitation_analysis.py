@@ -98,14 +98,14 @@ def apply(conn,task,result):
     review=not result.is_interview_event or result.ambiguous or result.confidence<.8 or not result.company or not result.role
     if result.is_interview_event:
         reasons=[part.strip() for part in (row['review_reason'] or '').split(';') if part.strip()
-            and not part.strip().startswith(('Company unknown','Low-confidence','Calendar detail analysis','Uncertain calendar analysis','Verify missing or uncertain calendar details'))]
+            and not part.strip().startswith(('Company unknown','Low-confidence','Calendar detail analysis','Uncertain calendar analysis','Verify missing or uncertain calendar details','Email invitation analysis needs review','retry analysis or correct event details.'))]
         review=review or bool(reasons)
         if review:reasons.append('Verify missing or uncertain calendar details')
         wanted=dict(company=result.company,role=result.role,interviewers=json.dumps(result.interviewers),
             confidence=result.confidence,needs_review=int(review),review_reason='; '.join(dict.fromkeys(reasons)) or None)
         if result.stage!='Other' or row['stage']=='Other':wanted['stage']=result.stage
     else:
-        wanted=dict(needs_review=1,review_reason='Email invitation analysis needs review; retry analysis or correct event details.')
+        wanted=dict(needs_review=1,review_reason='Email invitation analysis needs review. Retry analysis or correct event details.')
     changes={key:value for key,value in wanted.items() if key not in manual and row[key]!=value}
     if changes:
         conn.execute('UPDATE interview_events SET '+','.join(key+'=?' for key in changes)+',updated_at=? WHERE id=?',

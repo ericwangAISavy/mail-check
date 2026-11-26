@@ -26,6 +26,56 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_partial_clear_preserves_structure_revision_for_undo(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'partial-seed',base['revision'],[['Acme','Engineer','https://jobs.test/acme']])
+        base=self.snapshot()
+        blank=len(base['rows'])-1
+        formatting=self.change('',row=blank,col=0,base=base)
+        formatting['style']={'bold':True}
+        self.native.save(self.conn,self.tab(),'input-format',[formatting])
+        base=self.snapshot()
+        row=next(i for i,values in enumerate(base['rows']) if values[0]['value']=='Acme')
+        self.native.save(self.conn,self.tab(),'partial-clear',[self.change('',row=row,col=1,base=base)])
+        result=self.snapshot()
+        self.assertEqual(result['row_ids'],base['row_ids'])
+        self.assertEqual(result['structure_revision'],base['structure_revision'])
+        self.assertEqual(result['rows'][blank],base['rows'][blank])
+        self.native.save(self.conn,self.tab(),'partial-undo',[self.change('Engineer',row=row,col=1,base=result)])
+        self.assertEqual(self.snapshot()['rows'][row][1]['value'],'Engineer')
+
+    def test_clearing_middle_job_rows_compacts_blanks_and_keeps_remaining_row_ids(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'compact-seed',base['revision'],[
+            ['First','Engineer','https://jobs.test/first'],
+            ['Middle','Engineer','https://jobs.test/middle'],
+            ['Last','Engineer','https://jobs.test/last']])
+        base=self.snapshot()
+        indexes={row[0]['value']:i for i,row in enumerate(base['rows']) if i and row[0]['value']}
+        keep={name:base['row_ids'][indexes[name]] for name in ('First','Last')}
+        changes=[self.change('',row=indexes['Middle'],col=column,base=base) for column in range(3)]
+        self.native.save(self.conn,self.tab(),'clear-middle',changes)
+        result=self.snapshot()
+        self.assertEqual([row[0]['value'] for row in result['rows'][1:]],['First','Last',''])
+        self.assertEqual(result['row_ids'][1:3],[keep['First'],keep['Last']])
+        self.assertEqual(result['row_dates'][-1],None)
+
+    def test_clearing_the_last_job_leaves_a_single_blank_input_row(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'single-job',base['revision'],[['Only','Engineer','https://jobs.test/only']])
+        base=self.snapshot()
+        index=next(i for i,row in enumerate(base['rows']) if row[0]['value']=='Only')
+        self.native.save(self.conn,self.tab(),'clear-last',[self.change('',row=index,col=column,base=base) for column in range(3)])
+        self.assertEqual(len(self.snapshot()['rows']),2)
+
+    def test_compaction_preserves_a_checked_row_even_without_other_cell_data(self):
+        base=self.snapshot()
+        row=base['row_ids'][1]
+        check=next(column['id'] for column in base['columns'] if column['kind']=='check')
+        self.conn.execute('INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)',(row,check,'true'))
+        self.native.compact_blank_rows(self.conn,self.tab_id)
+        self.assertIsNotNone(self.conn.execute('SELECT id FROM native_rows WHERE id=?',(row,)).fetchone())
+
     def test_job_links_date_filter_is_validated_in_single_admin_mode(self):
         response = self.client.get('/api/job-links?day=2026-02-30')
         self.assertEqual(response.status_code,422,response.text)

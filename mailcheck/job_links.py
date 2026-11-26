@@ -52,7 +52,9 @@ def _owned_links(filename,deadline):
             connection.close()
 
 
-def search(sources, *, q='', cursor='', day='', start_date='', end_date='', limit=100, exclude_source=None, exclude_one_page=False):
+def search(sources, *, q='', cursor='', day='', start_date='', end_date='', limit=100, exclude_source=None, exclude_one_page=False, only_one_page=False):
+    # Explicit inclusion wins for old/shared URLs containing both flags.
+    exclude_one_page=exclude_one_page and not only_one_page
     if type(limit) is not int or not 1<=limit<=500:
         raise ValueError('Choose a page size between 1 and 500.')
     for value in (day,start_date,end_date):
@@ -119,10 +121,11 @@ def search(sources, *, q='', cursor='', day='', start_date='', end_date='', limi
                 started=time.monotonic()
                 if started>=deadline:
                     raise TimeoutError('Job search deadline expired')
-                if not exclude_one_page and not owned:
+                if not exclude_one_page and not only_one_page and not owned:
                     return True
                 try:
-                    result=(not exclude_one_page or not _one_page_link(link)) and (not owned or link_key(link or '') not in owned)
+                    one_page=_one_page_link(link) if only_one_page or exclude_one_page else False
+                    result=(not only_one_page or one_page) and (not exclude_one_page or not one_page) and (not owned or link_key(link or '') not in owned)
                 finally:
                     finished=time.monotonic()
                     url_cpu+=max(0,finished-started)

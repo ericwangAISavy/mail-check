@@ -135,7 +135,7 @@ class CalendarAnalyzer:
         if self.owned and self.client is not None:
             self.client.close()
 
-    def analyze(self, account, booking):
+    def analyze(self, account, booking,*,cache_negative=True):
         self.last_error = self.failure_kind = ''
         if not self.enabled and not self.defer:
             return None
@@ -153,7 +153,7 @@ class CalendarAnalyzer:
         if cached:
             try:
                 result = Analysis.model_validate_json(cached['result'])
-                if uncertain(result):result=None
+                if uncertain(result) or not cache_negative and not result.is_interview_event:result=None
             except ValueError:
                 pass
         if self.defer:
@@ -201,7 +201,7 @@ class CalendarAnalyzer:
                 result.stage = 'Other'
             # Model output cannot turn the connected account into an interviewer.
             result.interviewers = [person for person in result.interviewers if account.email.casefold() not in person.casefold()]
-            if uncertain(result):
+            if uncertain(result) or not cache_negative and not result.is_interview_event:
                 self.analyzed+=1
                 return result  # A valid but uncertain result must not become a permanent cache hit.
             self.conn.execute('''INSERT INTO calendar_analyses(account_id,external_id,fingerprint,result,analyzed_at)

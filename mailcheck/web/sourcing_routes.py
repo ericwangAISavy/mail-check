@@ -142,7 +142,7 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
             raise HTTPException(403,'Job links is available only through the permission-checked gateway endpoint.')
 
     @router.get('/api/job-links')
-    def universal_job_links(req: Request, q: str = '', cursor: str = '', day: str = '', start_date: str = '', end_date: str = '', limit: int = Query(100,ge=100,le=500), exclude_my_links: bool = True, exclude_one_page: bool = False):
+    def universal_job_links(req: Request, q: str = '', cursor: str = '', day: str = '', start_date: str = '', end_date: str = '', limit: int = Query(100,ge=100,le=500), exclude_my_links: bool = True, exclude_one_page: bool = False, only_one_page: bool = False):
         job_links_admin(req)
         if len(q)>200 or len(cursor)>1024:
             raise HTTPException(422,'Search or cursor is too long.')
@@ -150,7 +150,7 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
         from .. import config
         try:
             return search([('local',config.db_path())],q=q,cursor=cursor,day=day,start_date=start_date,end_date=end_date,limit=limit,
-                          exclude_source='local' if exclude_my_links else None,exclude_one_page=exclude_one_page)
+                          exclude_source='local' if exclude_my_links else None,exclude_one_page=exclude_one_page,only_one_page=only_one_page)
         except ValueError as exc:
             raise HTTPException(422,str(exc)) from None
 

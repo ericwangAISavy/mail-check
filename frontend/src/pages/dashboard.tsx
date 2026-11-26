@@ -127,7 +127,7 @@ export default function DashboardPage({ bootstrap, readOnly = false }: { bootstr
           <p className="rail-context">{readOnly ? "Mailboxes represented in local history." : ""}</p>
         </Card>
       </aside>}</div>
-    {data && <Suspense fallback={<Loading label="Loading profile quality..." />}><ProfileQuality quality={data.profile_quality || {}} since={data.profile_quality_since || null} accounts={params.has("account") ? [params.get("account")!] : params.has("bidder") ? [] : (accounts?.accounts || []).map(account => account.label)} /></Suspense>}
+    {data && <Suspense fallback={<Loading label="Loading profile quality..." />}><ProfileQuality outcomes={data.profile_outcomes} /></Suspense>}
     </>}
   </div>
 }

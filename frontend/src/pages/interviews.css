@@ -385,11 +385,16 @@
 
 .interview-essential-details .interview-explicit-link { display:inline; overflow-wrap:anywhere; word-break:break-word; }
 .interview-explicit-link svg { display:inline; margin-left:6px; vertical-align:middle; }
-.calendar-analysis-status { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 18px; margin-bottom:14px; }
-.calendar-analysis-status strong { font-size:14px; }
-.calendar-analysis-status p { margin:4px 0 0; color:var(--muted-foreground); font-size:13px; }
-.calendar-analysis-status small { display:block; margin-top:6px; color:var(--muted-foreground); }
-@media(max-width:640px) { .calendar-analysis-status { align-items:flex-start; flex-direction:column; } }
+.calendar-analysis-status { display:flex; align-items:center; gap:12px; min-width:0; max-width:100%; padding:6px 0; margin-bottom:8px; }
+.calendar-analysis-badges { display:flex; align-items:center; gap:6px; min-width:0; overflow-x:auto; white-space:nowrap; scrollbar-width:thin; }
+.calendar-analysis-label { flex:none; margin-right:4px; color:var(--muted-foreground); font-size:12px; font-weight:600; }
+.calendar-analysis-badge { display:inline-flex; align-items:center; flex:none; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:var(--muted); color:var(--muted-foreground); font-size:11px; font-weight:550; line-height:18px; font-variant-numeric:tabular-nums; }
+.calendar-analysis-badge.is-complete { color:var(--foreground); }
+.calendar-analysis-badge.is-active { color:var(--primary); border-color:color-mix(in srgb,var(--primary) 30%,var(--border)); background:color-mix(in srgb,var(--primary) 7%,var(--card)); }
+.calendar-analysis-badge.is-warning { color:var(--warning,#fbbf24); border-color:color-mix(in srgb,var(--warning,#fbbf24) 35%,var(--border)); background:color-mix(in srgb,var(--warning,#fbbf24) 7%,var(--card)); }
+.calendar-analysis-status > button { flex:none; margin-left:auto; height:28px; padding:0 9px; font-size:11px; white-space:nowrap; }
+@media(max-width:640px) { .calendar-analysis-status { gap:8px; } .calendar-analysis-label { display:none; } }
+
 
 .interview-job-matches { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
 .interview-job-matches h3 { margin:0 0 8px; font-size:15px; }

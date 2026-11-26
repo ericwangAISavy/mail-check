@@ -170,7 +170,7 @@ def _record_reply_history(conn: sqlite3.Connection) -> None:
         conn.commit()
 
 
-def _profile_quality(conn: sqlite3.Connection, filters: DashboardFilters, local_day) -> tuple[dict, str | None]:
+def _profile_quality(conn: sqlite3.Connection, filters: DashboardFilters, local_day) -> tuple[dict, str | None, str | None]:
     """Per account and day: application emails received and the interview /
     rejection emails that came back, from the permanent receipt records.
 
@@ -184,7 +184,7 @@ def _profile_quality(conn: sqlite3.Connection, filters: DashboardFilters, local_
         "UNION ALL SELECT julianday(received_at) FROM application_receipts WHERE category IN ('interview_invite','rejection'))"
     ).fetchone()[0]
     if start is None:
-        return {}, None
+        return {}, None, None
     clauses = [f"r.category IN ({placeholders})", "julianday(r.received_at) >= ?"]
     params: list = [*_QUALITY, start]
     if filters.account:
@@ -206,7 +206,7 @@ def _profile_quality(conn: sqlite3.Connection, filters: DashboardFilters, local_
         key = {"application_ack": "applications", "interview_invite": "interview", "rejection": "rejection"}[row["category"]]
         counts[key] += row["n"]
     since = conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%f+00:00', ?)", (start,)).fetchone()[0]
-    return quality, local_day(since)
+    return quality, local_day(since), datetime.fromisoformat(since).astimezone(ZoneInfo('America/Chicago')).date().isoformat()
 
 
 def dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int, graphs_only: bool = False) -> dict:
@@ -261,7 +261,9 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         summary["retryable"] += row["retryable"] or 0
     summary["unclassified"] = totals["unclassified"]
 
-    quality, quality_since = _profile_quality(conn, filters, local_day)
+    quality, quality_since, cohort_since = _profile_quality(conn, filters, local_day)
+    from .profile_outcomes import report as outcome_report
+    outcomes = outcome_report(conn, history_since=cohort_since, account=filters.account, bidder=filters.bidder)
 
     if graphs_only:
         daily = []
@@ -270,7 +272,7 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
             counts = {category.name:per_day.get(day.isoformat(),{}).get(category.name,0) for category in CATEGORIES}
             daily.append({'date':day.isoformat(),'counts':counts,'total':sum(counts.values()),'partial':False})
             day += timedelta(days=1)
-        return {'ok':True,'filters':filters.model_dump(mode='json'),'summary':summary,'daily':daily,'profile_quality':quality,'profile_quality_since':quality_since,
+        return {'ok':True,'filters':filters.model_dump(mode='json'),'summary':summary,'daily':daily,'profile_quality':quality,'profile_quality_since':quality_since,'profile_outcomes':outcomes,
             'categories':[{'name':c.name,'label':c.label,'tier':c.tier,'count':totals[c.name]} for c in CATEGORIES]}
 
     first_run = conn.execute(
@@ -325,7 +327,7 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         "ok": True, "filters": normalized_filters, "summary": summary,
         "categories": [{"name": category.name, "label": category.label,
                         "tier": category.tier, "count": totals[category.name]} for category in CATEGORIES],
-        "daily": daily, "profile_quality": quality, "profile_quality_since": quality_since,
+        "daily": daily, "profile_quality": quality, "profile_quality_since": quality_since, "profile_outcomes": outcomes,
         "history": {"collection_started_at": started_at,
                     "collection_start_date": collection_date.isoformat() if collection_date else None,
                     "earliest_received_date": local_day(earliest["received"]) if earliest else None,

@@ -566,7 +566,7 @@ def collect_calendar_events(conn, cfg, *, account_label=None, since_days=None, s
             status(f"Collecting calendar events from {account.label}…")
             try:
                 if account.provider != "outlook":
-                    raise SourceError("IMAP cannot read calendar events. Connect your calendar through Microsoft sign-in with read-only Calendars.Read access; email fallback is disabled.")
+                    raise SourceError("IMAP cannot read provider calendars directly. Email calendar invitations are analyzed separately after mail sync. Microsoft sign-in with Calendars.Read enables direct calendar collection.")
                 source = build_source(account, cfg)
                 seen = set()
                 known = _known_calendar_interviews(conn,account.id)
@@ -707,7 +707,7 @@ def resume_calendar_analysis(conn, cfg, *, status=lambda message:None, analysis_
                 if account is None or email_task and invitation_analysis.event(conn,task) is None:
                     conn.execute("UPDATE calendar_analysis_tasks SET state='cancelled',booking=NULL WHERE id=? AND version=?",(task['id'],task['version']))
                     conn.commit();continue
-                result = analyzer.analyze(account,booking)
+                result = analyzer.analyze(account,booking,cache_negative=not email_task)
                 if result is None:
                     queue.retry(conn,task,analyzer.last_error or 'Analysis budget reached; continuing automatically',service_unavailable=analyzer.unavailable,invalid_response=analyzer.failure_kind=='invalid_response')
                     conn.commit()

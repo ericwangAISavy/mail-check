@@ -17,6 +17,14 @@ from mailcheck.web.app import create_app
 
 
 class AnalyticsTests(unittest.TestCase):
+    def test_profile_cohorts_do_not_depend_on_dashboard_display_timezone(self):
+        self.add('quality-app',date='2026-11-01T20:00:00+00:00',category='application_ack')
+        chicago=dashboard_data(self.conn,DashboardFilters(tz='America/Chicago'),retention_days=90)['profile_outcomes']
+        auckland=dashboard_data(self.conn,DashboardFilters(tz='Pacific/Auckland'),retention_days=90)['profile_outcomes']
+        self.assertEqual(chicago['history_since'],'2026-11-01')
+        self.assertEqual(auckland['history_since'],chicago['history_since'])
+        self.assertEqual(auckland['accounts'],chicago['accounts'])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

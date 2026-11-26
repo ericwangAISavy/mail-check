@@ -185,7 +185,8 @@ class NativeCalendarTests(unittest.TestCase):
     def test_imap_account_is_rejected_before_mail_credentials_are_opened(self):
         with patch.object(pipeline,"build_source",side_effect=AssertionError("No mail source should be opened")):
             result=interviews.collect_calendar_events(self.conn,config.Config(),account_label="personal")
-        self.assertIn('IMAP cannot read calendar events',result['errors'][0])
+        self.assertIn('IMAP cannot read provider calendars directly',result['errors'][0])
+        self.assertIn('Email calendar invitations are analyzed separately',result['errors'][0])
 
 
 class CheckDispatchTests(unittest.TestCase):

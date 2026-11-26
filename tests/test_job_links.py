@@ -86,6 +86,23 @@ def test_one_page_filter_uses_provider_hosts_before_pagination(tmp_path):
     assert second['next_cursor'] is None
 
 
+def test_only_one_page_links_filters_before_pagination_and_preserves_own_exclusion(tmp_path):
+    mine,other=tmp_path/'mine.db',tmp_path/'other.db'
+    seed(mine,[('Owned','Engineer','https://jobs.ashbyhq.com/acme/owned','2026-11-24')])
+    seed(other,[('Not one-page','Engineer','https://jobs.test/regular','2026-11-25'),
+                ('Copy','Engineer','https://jobs.ashbyhq.com/acme/owned','2026-11-24'),
+                ('Greenhouse','Engineer','https://job-boards.greenhouse.io/acme/jobs/123','2026-11-23'),
+                ('Ashby','Engineer','https://jobs.ashbyhq.com/acme/new','2026-11-22'),
+                ('Lookalike','Engineer','https://jobs.ashbyhq.com.example.test/acme','2026-11-21')])
+    sources=[('mine',mine),('other',other)]
+    first=search(sources,only_one_page=True,exclude_source='mine',limit=1)
+    second=search(sources,only_one_page=True,exclude_source='mine',limit=1,cursor=first['next_cursor'])
+    assert [r['company'] for r in first['items']+second['items']]==['Greenhouse','Ashby']
+    assert not second['next_cursor']
+    assert not first['incomplete']
+    assert search(sources,only_one_page=True,exclude_one_page=True,exclude_source='mine')['items']==search(sources,only_one_page=True,exclude_source='mine')['items']
+
+
 def test_unreadable_own_workspace_does_not_leak_owned_links(tmp_path):
     mine,other=tmp_path/'mine.db',tmp_path/'other.db'
     seed(mine,[('Mine','Engineer','https://jobs.test/shared',None)])
@@ -292,6 +309,22 @@ def test_gateway_honors_requested_page_size_with_real_saved_rows(system,tmp_path
         remaining=client.get('/api/job-links',params={'limit':500,'cursor':result['next_cursor'],'exclude_my_links':'false'}).json()
         assert len(remaining['items'])==1
         assert remaining['next_cursor'] is None
+
+
+def test_gateway_applies_only_one_page_links(system,tmp_path,monkeypatch):
+    from fastapi.testclient import TestClient
+    from mailcheck.web.gateway import create_gateway
+    _,store,pool=system
+    path=tmp_path/'filtered.db'
+    seed(path,[('Greenhouse','Engineer','https://job-boards.greenhouse.io/acme/jobs/123','2026-11-23'),
+               ('Other','Engineer','https://jobs.test/123','2026-11-23')])
+    monkeypatch.setattr('mailcheck.web.gateway.config.db_path',lambda:path)
+    app=create_gateway(store=store,pool=pool,start_workers=False)
+    with TestClient(app) as client:
+        login(client)
+        result=client.get('/api/job-links?exclude_my_links=false&only_one_page=true')
+        assert result.status_code==200
+        assert [row['company'] for row in result.json()['items']]==['Greenhouse']
 
 
 def test_range_includes_both_endpoints_across_workspaces_before_pagination(tmp_path):

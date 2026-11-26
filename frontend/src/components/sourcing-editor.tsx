@@ -618,6 +618,7 @@ export default function SourcingEditor({
     )
       return;
     const key = e.key.toLowerCase();
+    if (!fullToolbar && key !== 'z') return;
     if (key === "z") {
       e.preventDefault();
       if (e.shiftKey) redo();
@@ -894,6 +895,7 @@ export default function SourcingEditor({
           changes={changes}
           onChange={edit}
           disabled={locked}
+          rowMode={!fullToolbar}
           highlightRow={focusRow}
           view={scopedView}
           onSelection={next => {setSelection(next); setRowDeleteNotice("")}}

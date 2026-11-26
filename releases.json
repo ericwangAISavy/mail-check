@@ -1,5 +1,72 @@
 [
   {
+    "version": "3.33.2",
+    "date": "2026-11-25",
+    "title": "Fix reviewed analytics and sheet regressions",
+    "changes": [
+      "Keep profile outcome history in Chicago calendar days regardless of dashboard display timezone and order receipt matching by exact timestamps.",
+      "Exclude replies that match multiple application cohorts, tolerate damaged receipt metadata, and keep hidden small samples out of chart tooltips.",
+      "Preserve sheet undo history and input-row formatting when clearing fields without changing row structure.",
+      "Add regression coverage for legacy negative invitation caches and retained calendar review messages."
+    ]
+  },
+  {
+    "version": "3.33.1",
+    "date": "2026-11-25",
+    "title": "Simplify job sourcing sheet interactions",
+    "changes": [
+      "Use compact row selection in the default admin sourcing sheet without cell editing, formula bar, double-click editor, formatting shortcuts or resize handles.",
+      "Keep copy, completion checks and sheet management; append pasted job rows without overwriting the selected cell, and hide unused blank input rows."
+    ]
+  },
+  {
+    "version": "3.33.0",
+    "date": "2026-11-25",
+    "title": "Filter for one-page application links",
+    "changes": [
+      "Add an Only one-page links toggle to the shared job library for Greenhouse and Ashby links, compatible with search, dates, own-link exclusion and pagination.",
+      "Keep one-page inclusion and exclusion mutually exclusive and preserve the selected mode in the page URL."
+    ]
+  },
+  {
+    "version": "3.32.3",
+    "date": "2026-11-25",
+    "title": "Compact profile quality layout",
+    "changes": [
+      "Reduce profile quality chart height, spacing and control size, with compact account rows and scrollable sticky table headings.",
+      "Keep exact outcome counts visible and offer confidence ranges and counting details on demand through Options, with methodology in expandable help.",
+      "Correct garbled punctuation in profile quality labels and tooltips."
+    ]
+  },
+  {
+    "version": "3.32.2",
+    "date": "2026-11-25",
+    "title": "Compact calendar analysis status",
+    "changes": [
+      "Replace the large calendar analysis description panel with a single-line badge strip for completion, remaining events, review warnings and retry status."
+    ]
+  },
+  {
+    "version": "3.32.1",
+    "date": "2026-11-25",
+    "title": "Measure profile quality from application outcomes",
+    "changes": [
+      "Replace raw email ratios with deduplicated application cohorts and matched interview and rejection outcomes within equal response windows.",
+      "Show weighted 28-day trends, recent applications, sample sizes, confidence ranges and unlinked outcome coverage without clipping rates or inventing activity.",
+      "Preserve profile colors across filters and backfill retained outcome job references during upgrade."
+    ]
+  },
+  {
+    "version": "3.32.0",
+    "date": "2026-11-25",
+    "title": "Analyze email invitations and compact cleared job rows",
+    "changes": [
+      "Analyze email calendar invitations for IMAP and other accounts across all workspaces, including a bounded automatic backfill of existing imports.",
+      "Preserve original invitation schedules and manual corrections while extracting company, role and interviewer details, with retryable review decisions.",
+      "Automatically close blank gaps after clearing or deleting job rows and retain one trailing input row for pasting."
+    ]
+  },
+  {
     "version": "3.31.8",
     "date": "2026-11-25",
     "title": "Calendar sync reads only what changed",

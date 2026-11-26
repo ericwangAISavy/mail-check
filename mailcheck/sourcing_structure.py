@@ -83,10 +83,8 @@ def structure(conn, tab, operation, revision, command):
                     "DELETE FROM native_rows WHERE id=? AND tab_id=?",
                     [(key, tab["id"]) for key in set(ids)],
                 )
-                # Every day's view shows the undated blank input row; without
-                # one, a day whose jobs were all deleted has nowhere to paste.
-                if not has_input_row(conn, tab["id"]):
-                    insert_rows(conn, tab["id"], 1)
+                # Close existing gaps too, and keep one trailing input row.
+                sheets.compact_blank_rows(conn,tab['id'])
                 reorder(conn, ordered_rows(conn, tab["id"]))
             elif action == "move_date":
                 ids = command.get("ids", [])

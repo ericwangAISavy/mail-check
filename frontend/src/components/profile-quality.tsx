@@ -1,182 +1,81 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { interval, points, shift, sum, type Point, type Outcomes, type Period } from "@/lib/profile-outcomes"
 
-/** Per day: application emails received, and the interview / rejection emails that came back. */
-type Counts = { applications: number; interview: number; rejection: number }
-type Period = "Day" | "Week" | "Month"
 type Metric = "interview" | "rejection"
-type Props = { quality: Record<string, Record<string, Counts>>; accounts: string[]; since?: string | null }
-
-/** Palette slots available for account lines; further accounts are listed but not plotted. */
-const SERIES = 8
-const metrics = [
-  { key: "interview", label: "Interview rate", short: "Interview" },
-  { key: "rejection", label: "Rejection rate", short: "Rejection" },
-] as const
-const percent = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 })
-const empty = (): Counts => ({ applications: 0, interview: 0, rejection: 0 })
-const colorOf = (index: number) => index < SERIES ? `var(--quality-series-${index})` : "var(--muted-foreground)"
-const rate = (counts: Counts, metric: Metric) => counts.applications ? counts[metric] / counts.applications : null
-
-function groupDays(dates: string[], daily: Record<string, Counts>, period: Period) {
-  const buckets = new Map<string, Counts>()
-  const total = empty()
-  for (const day of dates) {
-    let key = day
-    if (period === "Month") key = day.slice(0, 7) + "-01"
-    if (period === "Week") {
-      const monday = new Date(day + "T00:00:00Z")
-      monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7)
-      key = monday.toISOString().slice(0, 10)
-    }
-    const bucket = buckets.get(key) || empty()
-    const counts = daily[day]
-    if (counts) {
-      for (const metric of ["applications", "interview", "rejection"] as const) {
-        bucket[metric] += counts[metric]
-        total[metric] += counts[metric]
-      }
-    }
-    buckets.set(key, bucket)
-  }
-  return { total, rows: Array.from(buckets, ([date, counts]) => ({ date, counts })) }
-}
-
-function AccountName({ label }: { label: string }) {
-  const at = label.indexOf("@")
-  return at > 0 ? <span className="quality-name" title={label}><strong>{label.slice(0, at)}</strong><span>{label.slice(at)}</span></span>
-    : <span className="quality-name" title={label}><strong>{label}</strong></span>
-}
-
-export default function ProfileQuality({ quality, accounts, since }: Props) {
+const metrics = [{ key: "interview", label: "Interview rate" }, { key: "rejection", label: "Rejection rate" }] as const
+const pct = (v: number) => `${v.toFixed(1)}%`
+const confidence = (hits: number, n: number) => { const ci = interval(hits, n); return ci ? `${pct(ci[0])}–${pct(ci[1])}` : "—" }
+const color = (index: number) => `var(--quality-series-${index % 8})`
+const label = (day: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(day + "T00:00:00Z"))
+export default function ProfileQuality({ outcomes }: { outcomes?: Outcomes }) {
   const [period, setPeriod] = useState<Period>("Week")
   const [style, setStyle] = useState<"Line" | "Bar">("Line")
   const [metric, setMetric] = useState<Metric>("interview")
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
-  // Account order (and so line color) follows the account list; a new account is added at the end and never repaints the others.
-  const labels = [...new Set([...accounts, ...Object.keys(quality).sort()])]
-  const storedDates = Object.values(quality).flatMap(days => Object.keys(days)).sort()
-  const dates: string[] = []
-  if (storedDates.length) {
-    const day = new Date(storedDates[0] + "T00:00:00Z")
-    const end = storedDates[storedDates.length - 1]
-    while (day.toISOString().slice(0, 10) <= end) {
-      dates.push(day.toISOString().slice(0, 10))
-      day.setUTCDate(day.getUTCDate() + 1)
-    }
-  }
-  const dateFormat = new Intl.DateTimeFormat(undefined, period === "Month"
-    ? { timeZone: "UTC", month: "short", year: "numeric" } : { timeZone: "UTC", month: "short", day: "numeric" })
-  const formatDate = (date: string) => dateFormat.format(new Date(date + "T00:00:00Z"))
-
-  const grouped = labels.map(label => groupDays(dates, quality[label] || {}, period))
-  const overall = grouped.reduce((sum, group) => {
-    for (const key of ["applications", "interview", "rejection"] as const) sum[key] += group.total[key]
-    return sum
-  }, empty())
-  // An account is drawn when it has applications to compare against and is not switched off.
-  const drawn = labels.map((label, index) => index < SERIES && grouped[index].total.applications > 0 && !hidden.has(label))
-  const rows = (grouped[0]?.rows ?? []).map((bucket, at) => {
-    const row: Record<string, unknown> = { date: bucket.date, counts: grouped.map(group => group.rows[at].counts) }
-    labels.forEach((_, index) => {
-      const counts = grouped[index].rows[at].counts
-      // Multiply first: 3 / 10 * 100 is 30.000000000000004, 3 * 100 / 10 is exactly 30.
-      row[`s${index}`] = drawn[index] && counts.applications ? counts[metric] * 100 / counts.applications : null
-    })
-    return row
-  })
-  const lastPoint = labels.map((_, index) => rows.reduce((last, row, at) => row[`s${index}`] == null ? last : at, -1))
-  // Fit the axis to typical values so one thin week (few applications, several replies) cannot flatten every line.
-  const plotted = rows.flatMap(row => labels.flatMap((_, index) => typeof row[`s${index}`] === "number" ? [row[`s${index}`] as number] : [])).sort((a, b) => a - b)
-  const niceTop = (value: number) => Math.max(20, Math.ceil(value / 20) * 20)       // 20, 40, 60 ... so the mid tick is a round number too
-  const peak = plotted.length ? plotted[plotted.length - 1] : 0
-  const typicalTop = niceTop((plotted.length ? plotted[Math.floor((plotted.length - 1) * 0.9)] : 0) * 1.3)
-  const clipped = peak > typicalTop * 1.5
-  const axisTop = clipped ? typicalTop : niceTop(peak)
-  const anyApplications = overall.applications > 0
-  const toggle = (label: string) => setHidden(current => {
-    const next = new Set(current)
-    if (!next.delete(label)) next.add(label)
-    return next
-  })
-  const active = metrics.find(item => item.key === metric)!
+  const [horizon, setHorizon] = useState(14)
+  const [rolling, setRolling] = useState(true)
+  const [small, setSmall] = useState(false)
+  const [details, setDetails] = useState(false)
+  const [hidden, setHidden] = useState<ReadonlySet<number>>(new Set())
+  const rows = useMemo(() => outcomes ? points(outcomes, horizon, period, rolling, metric, small) : [], [outcomes, horizon, period, rolling, metric, small])
+  const end = outcomes?.mature_through[String(horizon)] || ""
   const Chart = style === "Line" ? LineChart : BarChart
-
+  const accounts = outcomes?.accounts || []
+  const unmatched = accounts.reduce((n, p) => n + p.unmatched.interview + p.unmatched.rejection, 0)
+  const visible = rows.some(row => accounts.some((p, i) => !hidden.has(p.id) && (row as Record<string, unknown>)[`s${i}`] != null))
   return <section className="profile-quality" aria-labelledby="profile-quality-title">
-    <header><div><h2 id="profile-quality-title">Profile quality</h2>
-      <p>Interview and rejection emails compared with the application emails each account received.</p>
-      {since && <small className="quality-since" title="Interview and rejection emails are kept from this day on, so earlier applications are not compared with replies that were never recorded.">
-        Counting from {new Intl.DateTimeFormat(undefined, { timeZone: "UTC", dateStyle: "medium" }).format(new Date(since + "T00:00:00Z"))}</small>}</div>
+    <header><div className="quality-heading"><h2 id="profile-quality-title">Profile quality</h2><span className="quality-context" title="Unique confirmed applications with matched recruiting outcomes">{horizon}-day outcomes</span></div>
       <div className="quality-controls">
-        <div className="quality-period" role="group" aria-label="Profile quality metric">
-          {metrics.map(item => <button key={item.key} aria-pressed={metric === item.key} onClick={() => setMetric(item.key)}>{item.label}</button>)}
-        </div>
-        <div className="quality-period" role="group" aria-label="Profile quality chart style">
-          {(["Line", "Bar"] as const).map(value => <button key={value} aria-pressed={style === value} onClick={() => setStyle(value)}>{value}</button>)}
-        </div>
-        <div className="quality-period" role="group" aria-label="Profile quality grouping">
-          {(["Day", "Week", "Month"] as const).map(value => <button key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{value}</button>)}
-        </div>
+        <div className="quality-period" role="group" aria-label="Profile quality metric">{metrics.map(m => <button key={m.key} aria-pressed={metric === m.key} onClick={() => setMetric(m.key)} aria-label={m.label}>{m.key === "interview" ? "Interview" : "Rejection"}</button>)}</div>
+        <div className="quality-period" role="group" aria-label="Profile quality chart style">{(["Line", "Bar"] as const).map(v => <button key={v} aria-pressed={style === v} onClick={() => setStyle(v)}>{v}</button>)}</div>
+        <div className="quality-period" role="group" aria-label="Profile quality grouping">{(["Day", "Week", "Month"] as const).map(v => <button key={v} aria-pressed={period === v} onClick={() => setPeriod(v)}>{v}</button>)}</div>
       </div>
     </header>
-    {!labels.length ? <p>No profile activity in this range.</p> : <div className="quality-panel">
-      <div className="quality-plot">
-        {drawn.some(Boolean) ? <ResponsiveContainer width="100%" height="100%"><Chart accessibilityLayer data={rows} margin={{ top: 10, right: 14, left: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.7} />
-          <XAxis dataKey="date" tickFormatter={formatDate} minTickGap={28} tickLine={false} axisLine={false} />
-          <YAxis width={44} domain={[0, axisTop]} allowDataOverflow ticks={[0, axisTop / 2, axisTop]}
-            tickFormatter={(value: number) => `${value}%`} tickLine={false} axisLine={false} />
-          <Tooltip filterNull={false} cursor={{ stroke: "var(--border)" }} content={({ active: on, payload }) => {
-            const row = payload?.[0]?.payload as { date: string; counts: Counts[] } | undefined
-            if (!on || !row) return null
-            const entries = labels.map((label, index) => ({ label, index, counts: row.counts[index] }))
-              .filter(entry => drawn[entry.index] && entry.counts.applications > 0)
-              .sort((a, b) => (rate(b.counts, metric) ?? 0) - (rate(a.counts, metric) ?? 0))
-            return <div className="quality-tooltip"><strong>{period === "Week" ? "Week of " : ""}{formatDate(row.date)}</strong>
-              {entries.map(entry => <div key={entry.label}><i style={{ backgroundColor: colorOf(entry.index) }} />
-                <b>{percent.format(rate(entry.counts, metric) ?? 0)}</b>
-                <span>{entry.label} · {entry.counts[metric]} / {entry.counts.applications}</span></div>)}
-              {!entries.length && <span>No applications this {period.toLowerCase()}</span>}</div>
-          }} />
-          {labels.map((label, index) => !drawn[index] ? null : style === "Line"
-            ? <Line key={label} name={label} dataKey={`s${index}`} stroke={colorOf(index)} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
-                dot={(props: { cx?: number; cy?: number; index?: number; value?: unknown }) => props.index === lastPoint[index] && props.value != null
-                  ? <circle key={`end-${index}`} cx={props.cx} cy={props.cy} r={4} fill={colorOf(index)} stroke="var(--card)" strokeWidth={2} />
-                  : <g key={`dot-${index}-${props.index}`} />}
-                activeDot={{ r: 5, stroke: "var(--card)", strokeWidth: 2 }} isAnimationActive={false} />
-            : <Bar key={label} name={label} dataKey={`s${index}`} fill={colorOf(index)} maxBarSize={14} radius={[4, 4, 0, 0]} isAnimationActive={false} />)}
-        </Chart></ResponsiveContainer>
-        : <p className="quality-empty">{!anyApplications
-          ? (overall.interview + overall.rejection > 0
-            ? "Rates need application emails to compare against, and none were received yet."
-            : "No application emails received yet.")
-          : "Every account is switched off. Choose one in the table below."}</p>}
+    {!outcomes ? <p>Application outcome analysis is unavailable. Refresh after the server update.</p> : <div className="quality-panel">
+      <div className="quality-analysis-controls">
+        <div className="quality-period" role="group" aria-label="Trend calculation"><button aria-pressed={rolling} onClick={() => setRolling(true)}>28-day trend</button><button aria-pressed={!rolling} onClick={() => setRolling(false)}>Per period</button></div>
+        <label>Response <select aria-label="Response window" value={horizon} onChange={e => setHorizon(Number(e.target.value))}>{[7, 14, 30].map(h => <option key={h} value={h}>{h} days</option>)}</select></label>
+        <span className="quality-context" title="Only application cohorts with a complete response window are included">Observed through {label(end)}</span>
+        <details className="quality-options"><summary>Options</summary><div>
+          <label><input type="checkbox" checked={small} onChange={e => setSmall(e.target.checked)} /> Show samples below 20</label>
+          <label><input type="checkbox" checked={details} onChange={e => setDetails(e.target.checked)} /> Show counting details and confidence ranges</label>
+        </div></details>
       </div>
-      {clipped && <small className="quality-clip">A few points are above {axisTop}% and run off the chart. Hover to see the exact value.</small>}
+      <div className={`quality-plot ${visible ? "" : "is-empty"}`}>{visible ? <ResponsiveContainer width="100%" height="100%"><Chart accessibilityLayer data={rows} margin={{ top: 12, right: 14, left: 0, bottom: 0 }}>
+        <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.7} />
+        <XAxis dataKey="date" tickFormatter={label} minTickGap={28} tickLine={false} axisLine={false} />
+        <YAxis width={44} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={(v: number) => `${v}%`} tickLine={false} axisLine={false} />
+        <Tooltip content={({ active, payload }) => {
+          const row = payload?.[0]?.payload as Point | undefined
+          if (!active || !row) return null
+          return <div className="quality-tooltip"><strong>{label(row.from)} – {label(row.through)}</strong>{accounts.map((p, i) => {
+            const c = row.counts[i]
+            return hidden.has(p.id) || row[`s${i}`] == null ? null : <div key={p.id}><i style={{ background: color(p.color_slot ?? i) }} /><span>{p.label}: <b>{pct(100 * c[metric] / c.eligible)}</b> ({c[metric]} / {c.eligible})<br />95% interval {confidence(c[metric], c.eligible)}{c.eligible < 20 ? " · Small sample" : ""}</span></div>
+          })}</div>
+        }} />
+        {accounts.map((p, i) => hidden.has(p.id) ? null : style === "Line"
+          ? <Line key={p.id} name={p.label} dataKey={`s${i}`} type="linear" connectNulls={false} stroke={color(p.color_slot ?? i)} strokeDasharray={(p.color_slot ?? i) >= 8 ? "5 3" : undefined} strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
+          : <Bar key={p.id} name={p.label} dataKey={`s${i}`} fill={color(p.color_slot ?? i)} maxBarSize={14} radius={[3, 3, 0, 0]} isAnimationActive={false} />)}
+      </Chart></ResponsiveContainer> : <p className="quality-empty">No visible cohort has enough observed applications. Choose a shorter response window, show small samples, or enable an account below.</p>}</div>
       <div className="quality-table-wrap"><table className="quality-table">
-        <caption className="sr-only">{active.label} by account. Select an account to show or hide its line.</caption>
-        <thead><tr><th scope="col">Account</th><th scope="col">Applications</th>
-          {metrics.map(item => <th key={item.key} scope="col" className={metric === item.key ? "is-active" : undefined}>{item.label}</th>)}</tr></thead>
-        <tbody>{labels.map((label, index) => {
-          const total = grouped[index].total
-          const plottable = index < SERIES && total.applications > 0
-          return <tr key={label} className={plottable && hidden.has(label) ? "is-hidden" : undefined}>
-            <th scope="row"><button type="button" aria-pressed={plottable && !hidden.has(label)} disabled={!plottable}
-              title={plottable ? "Show or hide this account on the chart" : total.applications ? "More accounts than chart colors" : "No application emails yet"}
-              onClick={() => toggle(label)}><i style={{ backgroundColor: plottable ? colorOf(index) : "transparent" }} /><AccountName label={label} /></button></th>
-            <td>{total.applications.toLocaleString()}</td>
-            {metrics.map(item => <td key={item.key} className={metric === item.key ? "is-active" : undefined}>
-              {total.applications ? <><strong>{percent.format(total[item.key] / total.applications)}</strong><small>{total[item.key].toLocaleString()} / {total.applications.toLocaleString()}</small></>
-                : <><strong>—</strong><small>{total[item.key].toLocaleString()} / 0</small></>}</td>)}
+        <caption className="quality-caption"><span>Latest 28 mature days: {label(shift(end, -27))} - {label(end)}</span><span>Click an account to toggle its chart</span></caption>
+        <thead><tr><th>Account</th><th title="All tracked confirmations / recent confirmations still gathering responses">Tracked / recent</th><th title="Mature applications in the latest 28-day cohort window">Sample</th><th>Interview</th><th>Rejection</th><th>Interview trend</th></tr></thead>
+        <tbody>{accounts.map((p, i) => {
+          const c = sum(p, horizon, shift(end, -27), end), previous = sum(p, horizon, shift(end, -55), shift(end, -28))
+          const ci = interval(c.interview, c.eligible), before = interval(previous.interview, previous.eligible)
+          const trend = c.eligible < 20 ? "Small sample" : previous.eligible < 20 ? "Building baseline" : ci && before && ci[0] > before[1] ? "Higher conversion" : ci && before && ci[1] < before[0] ? "Lower conversion" : "No clear change"
+          const total = Object.values(p.daily).reduce((n, d) => n + d.applications, 0)
+          const recent = Object.entries(p.daily).reduce((n, [day, d]) => n + (day > end ? d.applications : 0), 0)
+          return <tr key={p.id} className={hidden.has(p.id) ? "is-hidden" : undefined}>
+            <th scope="row"><button title={p.label} aria-pressed={!hidden.has(p.id)} onClick={() => setHidden(old => { const next = new Set(old); if (next.has(p.id)) next.delete(p.id); else next.add(p.id); return next })}><i style={{ backgroundColor: color(p.color_slot ?? i) }} /><span className="quality-account-label">{p.label}</span></button></th>
+            <td title={`${p.duplicates} duplicate confirmations excluded`}>{total.toLocaleString()} / {recent.toLocaleString()}{details && <small className="quality-detail">{p.duplicates} duplicate confirmations excluded</small>}</td>
+            <td title={`${c.answered} applications received an outcome`}>{c.eligible.toLocaleString()}{details && <small className="quality-detail">{c.answered} received an outcome</small>}</td>
+            {metrics.map(m => <td key={m.key} className={metric === m.key ? "is-active" : undefined} title={`95% confidence range: ${confidence(c[m.key], c.eligible)}`}><div className="quality-rate"><strong>{c.eligible ? pct(100 * c[m.key] / c.eligible) : "\u2014"}</strong><small>{c[m.key]} / {c.eligible}</small></div>{details && <small className="quality-detail">95% {confidence(c[m.key], c.eligible)}</small>}</td>)}
+            <td><span className={`quality-trend ${trend === "Higher conversion" ? "is-up" : trend === "Lower conversion" ? "is-down" : ""}`}>{trend}</span></td>
           </tr>
         })}</tbody>
-        <tfoot><tr><th scope="row"><span className="quality-name"><strong>All accounts</strong></span></th>
-          <td>{overall.applications.toLocaleString()}</td>
-          {metrics.map(item => <td key={item.key} className={metric === item.key ? "is-active" : undefined}>
-            {overall.applications ? <><strong>{percent.format(overall[item.key] / overall.applications)}</strong><small>{overall[item.key].toLocaleString()} / {overall.applications.toLocaleString()}</small></>
-              : <><strong>—</strong><small>{overall[item.key].toLocaleString()} / 0</small></>}</td>)}
-        </tr></tfoot>
       </table></div>
+      <details className="quality-data"><summary>Method &amp; data quality · {unmatched} unlinked outcome emails excluded</summary><p>{rolling ? "Each graph point combines 28 application days, weighted by application volume." : "Each graph point represents that calendar period."} Recent applications are still gathering responses. Recruiting outcomes reflect resume, role fit and market conditions; they are not a resume score.</p><p>Applications are deduplicated within each profile and calendar day. Outcomes must match a preceding application; ambiguous matches are excluded. Repeat messages count once. Interview and rejection can both occur for one application, so the two rates do not sum to 100%. Confidence intervals describe sampling uncertainty, not missing data.</p><p>History observed from {outcomes.history_since || "available records"} · {outcomes.timezone}. Missing historical mail can reduce measured conversion. Profiles use the same response window. Recent applications do not lower the trend. A shorter window reports faster responses, not eventual success.</p></details>
     </div>}
   </section>
 }

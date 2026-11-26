@@ -141,6 +141,10 @@
 .sourcing-grid .rdg-cell {
   padding: 0 9px;
 }
+.sourcing-grid.is-row-mode { --rdg-selection-width:0px; }
+.sourcing-grid.is-row-mode .rdg-cell[aria-selected="true"] { outline:none; }
+.sourcing-grid.is-row-mode .sheet-range-cell { box-shadow:none; }
+.sourcing-grid.is-row-mode:focus-within .sheet-row-selected > .rdg-cell { border-top-color:color-mix(in srgb,var(--primary) 45%,var(--border)); border-bottom-color:color-mix(in srgb,var(--primary) 45%,var(--border)); }
 .sourcing-grid .sheet-heading-cell {
   font-weight: 600;
   background: var(--surface);

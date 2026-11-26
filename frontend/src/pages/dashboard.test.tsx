@@ -183,105 +183,35 @@ it("shows filters and skips explorer rows while the initial history read is pend
 })
 
 
-it("plots every account in one chart with a table of exact rates", async () => {
-  const result = data()
-  const sample = { ...result, profile_quality: {
-    personal: {
-      "2026-09-15": { applications: 1, interview: 1, rejection: 0 },
-      "2026-09-16": { applications: 9, interview: 0, rejection: 3 },
-      "2026-09-18": { applications: 0, interview: 2, rejection: 0 },
-    },
-    work: { "2026-09-15": { applications: 10, interview: 2, rejection: 5 } },
-  } }
-  vi.mocked(api.dashboard).mockResolvedValue(sample)
+it("shows an honest unavailable state instead of falling back to raw email ratios", async () => {
+  vi.mocked(api.dashboard).mockResolvedValue({ ...data(), profile_quality: { personal: { "2026-09-01": { applications: 1, interview: 3, rejection: 0 } } } })
   mount()
-  await screen.findByLabelText("quality points")
-  expect(screen.getAllByLabelText("quality points")).toHaveLength(1)          // one chart, not one per account
-  expect(screen.queryByRole("article")).toBeNull()
-  const rows = () => JSON.parse(screen.getByLabelText("quality points").textContent!)
-  fireEvent.click(screen.getByRole("button", { name: "Day" }))
-  const day = rows()
-  expect(day[0]).toMatchObject({ date: "2026-09-15", s0: 100, s1: 20 })       // interview emails / applications, per account
-  expect(day[2].s0).toBeNull()                                                // a day with no applications has no rate
-  fireEvent.click(screen.getByRole("button", { name: "Bar" }))
-  expect(JSON.parse(screen.getByLabelText("quality bars").textContent!)).toEqual(day)
-  fireEvent.click(screen.getByRole("button", { name: "Line" }))
-  fireEvent.click(screen.getByRole("button", { name: "Week" }))
-  // Counts are added up first: personal has 3 interview emails (1 + 2 on a day without applications) / 10 applications.
-  expect(rows()).toEqual([{ date: "2026-09-14", counts: [{ applications: 10, interview: 3, rejection: 3 }, { applications: 10, interview: 2, rejection: 5 }], s0: 30, s1: 20 }])
-  fireEvent.click(screen.getByRole("button", { name: "Rejection rate" }))
-  expect(rows()[0]).toMatchObject({ s0: 30, s1: 50 })
-  fireEvent.click(screen.getByRole("button", { name: "Month" }))
-  expect(rows()[0].date).toBe("2026-09-01")
-  const table = screen.getByRole("table", { name: /by account/ })
-  const personal = within(table).getByRole("row", { name: /personal/ })
-  expect(within(personal).getByText("10")).toBeTruthy()                       // applications
-  expect(within(personal).getAllByText("30%")).toHaveLength(2)                // interview 3 / 10 and rejection 3 / 10
-  expect(within(personal).getAllByText("3 / 10")).toHaveLength(2)
-  const all = within(table).getByRole("row", { name: /All accounts/ })
-  expect(within(all).getByText("20")).toBeTruthy()                            // 10 + 10 applications
-  expect(within(all).getByText("25%")).toBeTruthy()                           // 5 interview emails / 20 applications
-  expect(within(all).getByText("40%")).toBeTruthy()                           // 8 rejection emails / 20 applications
+  expect(await screen.findByText(/Application outcome analysis is unavailable/)).toBeTruthy()
+  expect(screen.queryByText("300.0%")).toBeNull()
 })
 
-it("keeps line order tied to the account list and trims a lone outlier from the axis", async () => {
-  const days: Record<string, { applications: number; interview: number; rejection: number }> = {}
-  for (let day = 1; day <= 12; day++) days[`2026-09-${String(day).padStart(2, "0")}`] = { applications: 10, interview: 1, rejection: 0 }
-  days["2026-09-13"] = { applications: 1, interview: 3, rejection: 0 }          // 300%: one thin day
-  vi.mocked(api.dashboardAccounts).mockResolvedValue({ accounts: [{ label: "zeta" }, { label: "alpha" }] })
-  vi.mocked(api.dashboard).mockResolvedValue({ ...data(), profile_quality: { zeta: days, alpha: { "2026-09-01": { applications: 5, interview: 1, rejection: 0 } } } })
-  mount()
-  await screen.findByLabelText("quality points")
-  fireEvent.click(screen.getByRole("button", { name: "Day" }))
-  // zeta is first in the account list, so it keeps the first line (and color) although it sorts after alpha.
-  expect(JSON.parse(screen.getByLabelText("quality points").textContent!)[0]).toMatchObject({ s0: 10, s1: 20 })
-  const table = screen.getByRole("table", { name: /by account/ })
-  expect(within(table).getAllByRole("row").map(row => row.textContent)[1]).toMatch(/^zeta/)
-  expect(screen.getByText(/run off the chart/)).toBeTruthy()
-})
-
-it("lets an account be hidden from the chart and keeps its table row", async () => {
-  const result = data()
-  vi.mocked(api.dashboard).mockResolvedValue({ ...result, profile_quality: {
-    personal: { "2026-09-15": { applications: 4, interview: 1, rejection: 0 } },
-    work: { "2026-09-15": { applications: 10, interview: 2, rejection: 5 } },
+it("renders matched application cohorts, recent counts and uncertainty", async () => {
+  const windows = { "14": { eligible: 100, interview: 8, rejection: 30, answered: 35 } }
+  vi.mocked(api.dashboard).mockResolvedValue({ ...data(), profile_outcomes: {
+    version: 1, history_since: "2026-09-01", timezone: "America/Chicago", mature_through: { "7": "2026-09-22", "14": "2026-09-15", "30": "2026-08-30" },
+    accounts: [{ id: 1, label: "personal", duplicates: 4, unmatched: { interview: 2, rejection: 1 }, daily: { "2026-09-01": { applications: 100, windows }, "2026-09-25": { applications: 10, windows: {} } } }]
   } })
   mount()
-  await screen.findByLabelText("quality points")
-  const rows = () => JSON.parse(screen.getByLabelText("quality points").textContent!)
-  expect(rows()[0]).toMatchObject({ s0: 25, s1: 20 })
-  const toggle = within(screen.getByRole("table", { name: /by account/ })).getByRole("button", { name: /personal/ })
-  expect(toggle.getAttribute("aria-pressed")).toBe("true")
-  fireEvent.click(toggle)
-  expect(toggle.getAttribute("aria-pressed")).toBe("false")
-  expect(rows()[0]).toMatchObject({ s0: null, s1: 20 })
-  fireEvent.click(within(screen.getByRole("table", { name: /by account/ })).getByRole("button", { name: /work/ }))
-  expect(screen.queryByLabelText("quality points")).toBeNull()
-  expect(screen.getByText(/switched off/)).toBeTruthy()
-})
-
-it("explains accounts with no received applications instead of drawing them", async () => {
-  const result = data()
-  vi.mocked(api.dashboard).mockResolvedValue({ ...result, profile_quality: {
-    personal: { "2026-09-15": { applications: 0, interview: 0, rejection: 0 } },
-    work: { "2026-09-15": { applications: 0, interview: 2, rejection: 1 } },
-  } })
-  mount()
-  await screen.findByText("Profile quality")
-  expect(screen.getByText(/none were received yet/)).toBeTruthy()
-  expect(screen.queryByLabelText("quality points")).toBeNull()
-  const table = screen.getByRole("table", { name: /by account/ })
-  expect(within(table).getByRole("button", { name: /personal/ })).toHaveProperty("disabled", true)
-  expect(within(table).getAllByText("—").length).toBeGreaterThanOrEqual(4)
-  expect(within(within(table).getByRole("row", { name: /work/ })).getByText("2 / 0")).toBeTruthy()   // replies are still shown
-})
-
-it("says where the profile comparison starts", async () => {
-  const result = data()
-  vi.mocked(api.dashboard).mockResolvedValue({ ...result, profile_quality_since: "2026-09-15", profile_quality: {
-    personal: { "2026-09-15": { applications: 4, interview: 1, rejection: 0 } } } })
-  mount()
-  const note = await screen.findByText(/^Counting from /)
-  expect(note.textContent).toContain("2026")
-  expect(note.getAttribute("title")).toMatch(/kept from this day on/)
+  expect(await screen.findByText("8.0%")).toBeTruthy()
+  expect(screen.getByText("110 / 10")).toBeTruthy()
+  expect(screen.getByText(/3 unlinked outcome emails excluded/)).toBeTruthy()
+  expect(screen.queryByText(/4 duplicate confirmations excluded/)).toBeNull()
+  expect(screen.getByText('110 / 10').getAttribute('title')).toBe('4 duplicate confirmations excluded')
+  expect(screen.queryByText(/95%/)).toBeNull()
+  expect((screen.getByRole("combobox", { name: "Response window" }) as HTMLSelectElement).value).toBe("14")
+  expect(screen.getByRole("button", { name: "28-day trend" }).getAttribute("aria-pressed")).toBe("true")
+  fireEvent.click(screen.getByText('Options'))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show counting details and confidence ranges' }))
+  expect(screen.getByText(/4 duplicate confirmations excluded/)).toBeTruthy()
+  expect(screen.getAllByText(/95%/).length).toBeGreaterThan(0)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show counting details and confidence ranges' }))
+  expect(screen.queryByText(/95%/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'personal' }))
+  expect(screen.getByText(/No visible cohort has enough observed applications/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'personal' }).getAttribute('aria-pressed')).toBe('false')
 })

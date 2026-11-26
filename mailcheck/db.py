@@ -15,7 +15,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 54
+SCHEMA_VERSION = 56
 SHARED_SCHEMA_MIN_VERSION = 50
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
@@ -355,6 +355,14 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed_day ON sourcing_check_activity(julianday(confirmed_at),bidder_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_message ON sourcing_check_activity(message_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_native_rows_date ON native_rows(work_date,tab_id)")
+                if version < 56:
+                    from .confirmation_counts import job_references
+                    conn.create_function('receipt_job_references',3,job_references,deterministic=True)
+                    conn.execute("""UPDATE application_receipts AS r SET job_refs=(
+                        SELECT receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000))
+                        FROM messages m WHERE m.account_id=r.account_id AND m.message_id=r.message_id)
+                        WHERE r.category IN ('interview_invite','rejection') AND r.job_refs='[]'
+                        AND EXISTS (SELECT 1 FROM messages m WHERE m.account_id=r.account_id AND m.message_id=r.message_id)""")
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:

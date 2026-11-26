@@ -28,6 +28,24 @@ function serve(incomplete=false){
  vi.stubGlobal("fetch",fetch)
  return fetch
 }
+it('only-one-page mode disables exclusion and persists through search',async()=>{
+ const fetch=serve();mount('/job-links?exclude_one_page=true')
+ await screen.findByRole('gridcell',{name:'Acme'})
+ fireEvent.click(screen.getByRole('button',{name:'Only one-page links'}))
+ await waitFor(()=>{
+  const url=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost')
+  expect(url.searchParams.get('only_one_page')).toBe('true')
+  expect(url.searchParams.get('exclude_one_page')).toBe('false')
+ })
+ expect(screen.getByRole('button',{name:'Only one-page links'}).getAttribute('aria-pressed')).toBe('true')
+ expect((screen.getByRole('checkbox',{name:'Exclude one-page links'}) as HTMLInputElement).checked).toBe(false)
+ fireEvent.change(screen.getByLabelText('Search job links'),{target:{value:'engineer'}})
+ fireEvent.submit(screen.getByLabelText('Search job links').closest('form')!)
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain('q=engineer'))
+ expect(new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams.get('only_one_page')).toBe('true')
+ fireEvent.click(screen.getByRole('checkbox',{name:'Exclude one-page links'}))
+ await waitFor(()=>expect(new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams.get('only_one_page')).toBe('false'))
+})
 it('defaults to excluding owned links but keeps one-page links visible',async()=>{
  const fetch=serve();mount()
  await screen.findByRole('grid',{name:'Shared job links'})

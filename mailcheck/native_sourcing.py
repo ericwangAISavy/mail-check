@@ -396,6 +396,7 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     WHERE c.tab_id=? AND c.kind='check' AND v.value='true'
                     AND v.row_id IN ({placeholders})""", (tab["id"], *batch)))
             seen = set()
+            cleared_content=False
             for change in changes:
                 row_id, column_id = change["row_id"], change["column_id"]
                 if (row_id, column_id) in seen:
@@ -445,6 +446,8 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                 if not isinstance(value, str) or len(value) > 50_000:
                     raise ValueError("A cell can contain up to 50,000 text characters.")
                 kind = conn.execute("SELECT kind FROM native_columns WHERE id=?", (column_id,)).fetchone()[0]
+                if kind!='check' and (cell['value'] if cell else '').strip() and not value.strip():
+                    cleared_content=True
                 if change.get("value") is not None:
                     from .sourcing_filters import normalize_job_cell
                     value = normalize_job_cell(value,kind)
@@ -474,9 +477,8 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
             filtered=sourcing_filters.filter_rows(conn,tab,candidates)
             from .sourcing_activity import record
             record(conn, "manual-edit")
-            if compact_rows:
-                compact_blank_rows(conn, tab["id"])
-            record_operation(conn, tab["id"], operation, payload, structural=compact_rows or bool(sum(filtered.values())), filtered=filtered)
+            compacted=compact_blank_rows(conn, tab["id"]) if compact_rows or cleared_content else False
+            record_operation(conn, tab["id"], operation, payload, structural=compacted or bool(sum(filtered.values())), filtered=filtered)
         from .sourcing_filters import result
         return result(conn, tab, operation)
 
@@ -614,15 +616,21 @@ def upgrade_verification_columns(conn):
 
 
 def compact_blank_rows(conn, tab_id):
+    before=[tuple(row) for row in conn.execute('SELECT id,work_date FROM native_rows WHERE tab_id=? ORDER BY position,id',(tab_id,))]
     blanks = [row["id"] for row in conn.execute("""SELECT r.id FROM native_rows r WHERE r.tab_id=? AND NOT EXISTS (
         SELECT 1 FROM native_cells c JOIN native_columns col ON col.id=c.column_id
-        WHERE c.row_id=r.id AND COALESCE(col.kind,'')!='check' AND trim(c.value, char(9)||char(10)||char(13)||' ')!='') ORDER BY r.position,r.id""", (tab_id,))]
+        WHERE c.row_id=r.id AND ((COALESCE(col.kind,'')!='check' AND trim(c.value, char(9)||char(10)||char(13)||' ')!='')
+            OR (col.kind='check' AND c.value='true'))) ORDER BY r.position,r.id""", (tab_id,))]
+    if len(blanks)==1 and before and before[-1]==(blanks[0],None):
+        return False  # Already compact; retain the input row's cell versions/styles.
     # One undated input row remains available after the last job.
     keep = blanks[-1] if blanks else new_id()
     conn.executemany("DELETE FROM native_rows WHERE id=?", [(row_id,) for row_id in blanks if row_id != keep])
     last = conn.execute("SELECT COALESCE(MAX(position),-1)+1 FROM native_rows WHERE tab_id=? AND id!=?", (tab_id, keep)).fetchone()[0]
     conn.execute("INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,work_date=NULL", (keep, tab_id, last))
     conn.execute("DELETE FROM native_cells WHERE row_id=?", (keep,))
+    after=[tuple(row) for row in conn.execute('SELECT id,work_date FROM native_rows WHERE tab_id=? ORDER BY position,id',(tab_id,))]
+    return before!=after
 
 
 def structure(conn, tab, operation, revision, command):
