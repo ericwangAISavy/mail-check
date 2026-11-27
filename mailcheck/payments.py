@@ -289,7 +289,8 @@ def edit_payment(conn,bidder_id,body):
 RECEIPT_CATEGORIES = ('application_ack', 'interview_invite', 'rejection')
 
 
-def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, since: date | None = None, until: date | None = None) -> None:
+def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, since: date | None = None,
+                  until: date | None = None, stage_changes: bool = False) -> None:
     """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
     from .confirmation_counts import job_references
@@ -318,20 +319,37 @@ def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, si
                 OR EXISTS (SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
                   AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?)))"""
             parameters.extend((lower, upper, lower, upper))
-    conn.execute(prefix + """INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role, job_refs)
-        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,''),
-          receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000))
+    candidates = """SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at) AS received_at,
+        c.category, COALESCE(c.company,'') AS company, COALESCE(c.role,'') AS role,
+        receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000)) AS job_refs
         FROM messages m """ + LATEST_CLASSIFICATION + """
         WHERE (c.category IN ('application_ack','interview_invite','rejection') OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
-        """ + (" AND m.id=? " if message_pk is not None else "") + scope + """
+        """ + (" AND m.id=? " if message_pk is not None else "") + scope
+    insert = "INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role, job_refs) "
+    upsert = """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
           received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role,job_refs=excluded.job_refs
         WHERE application_receipts.received_at IS NOT excluded.received_at
            OR application_receipts.category IS NOT excluded.category
            OR application_receipts.company IS NOT excluded.company
            OR application_receipts.role IS NOT excluded.role
-           OR application_receipts.job_refs IS NOT excluded.job_refs""", parameters)
+           OR application_receipts.job_refs IS NOT excluded.job_refs"""
+    if not stage_changes:
+        # The optional date-scope CTE belongs before the INSERT.
+        conn.execute(prefix + insert + candidates + upsert, parameters)
+        return
+
+    if not conn.in_transaction:
+        raise ValueError('Staged receipt synchronization requires a transaction.')
+    # Read and parse against a deferred snapshot. SQLite refuses the upgrade
+    # if a concurrent commit makes that snapshot stale.
+    rows = conn.execute("""SELECT fresh.*, old.received_at,old.category,old.company,old.role,old.job_refs
+        FROM (""" + prefix + candidates + """) fresh LEFT JOIN application_receipts old
+        ON old.account_id=fresh.account_id AND old.message_id=fresh.message_id""", parameters)
+    changes = [row[:7] for row in rows if row[2:7] != row[7:]]
+    if changes:
+        conn.executemany(insert + 'VALUES(?,?,?,?,?,?,?)' + upsert, changes)
 
 
 def monday(value: date) -> date:

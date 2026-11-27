@@ -57,7 +57,7 @@ def test_bound_workspace_still_rejects_unsupported_schema(tmp_path):
     with db.session(path) as conn:
         conn.execute('PRAGMA user_version=49')
     context = WorkspaceContext('legacy', None, tmp_path / 'config.toml', path, tmp_path / 'control')
-    with bind_workspace(context), pytest.raises(RuntimeError, match='no automatic migration'):
+    with bind_workspace(context), pytest.raises(RuntimeError, match='No automatic migration was performed'):
         db.connect(path)
 
 

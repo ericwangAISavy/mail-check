@@ -1,5 +1,5 @@
 import { isPageDate, usePageState } from "@/lib/page-state"
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, lazy, Suspense, useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowRight, Banknote, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Copy, RefreshCw, UsersRound } from "lucide-react"
 import { api, request } from "@/lib/api"
@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Loading, PageHeading, useToast } from "@/components/common"
 import {copyPaymentReport,weeklyPaymentReport} from "@/lib/payment-report"
-import BidderActivity from "@/components/bidder-activity"
 import PaymentRateEditor from "@/components/payment-rate-editor"
 import { maskAccountLabel } from "@/lib/account-label"
 import "./payments.css"
+
+const BidderActivity = lazy(() => import("@/components/bidder-activity"))
 
 type Assignment = { id: number; account_id: number; account_label: string; start_date: string; end_date: string | null }
 type Payment = { revision?:number; amount_cents: number; application_count?: number; paid_at: string; note?: string }
@@ -102,7 +103,7 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
   const [copying,setCopying]=useState(false)
   const client = useQueryClient()
   const toast = useToast()
-  const query = useQuery({ queryKey: ["payments", week], queryFn: ({ signal }) => request<Report>(`/api/payments${week ? `?week=${week}` : ""}`, { signal }), refetchInterval: 30_000 })
+  const query = useQuery({ queryKey: ["payments", week], queryFn: ({ signal }) => request<Report>(`/api/payments?refresh=false${week ? `&week=${week}` : ""}`, { signal }), refetchInterval: 30_000 })
   useEffect(() => {
     if (selected && query.data && !query.data.bidders.some(bidder => String(bidder.id) === selected)) setSelected("")
   }, [query.data, selected])
@@ -183,7 +184,9 @@ export default function PaymentsPage({ readOnly = false }: { readOnly?: boolean 
       </tbody><tfoot><tr><th scope="row">Total</th>{daily.map((count, i) => <td key={i}><CountPair showReplies={!readOnly} checked={count} replies={replyDaily[i]} /></td>)}<td>{total.toLocaleString()}</td>{showPayments && <td />}</tr></tfoot></table></div>}
     </Card>
     {!readOnly && data.unassigned > 0 && <p className="payment-unassigned">{data.unassigned.toLocaleString()} confirmed applications this week have no bidder assignment. <a href="/accounts#bidder-management">Assign their accounts with the correct dates on Accounts</a> to include them.</p>}
-    <BidderActivity visibilityKey={readOnly ? String(Boolean(data.other_work_visible)) : "admin"} allowAccounts={!readOnly || !data.other_work_visible} readOnly={readOnly} week={data.week_start} selected={selected} onSelect={setSelected} />
+    <Suspense fallback={<Loading label="Loading bidder activity…" />}>
+      <BidderActivity visibilityKey={readOnly ? String(Boolean(data.other_work_visible)) : "admin"} allowAccounts={!readOnly || !data.other_work_visible} readOnly={readOnly} week={data.week_start} selected={selected} onSelect={setSelected} />
+    </Suspense>
 
   </div>
 }

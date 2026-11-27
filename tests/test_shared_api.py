@@ -143,6 +143,7 @@ def test_explicit_broker_mode_has_fixed_job_processes(tmp_path, monkeypatch):
         return process
     monkeypatch.setattr(module.subprocess, 'Popen', popen)
     pool = SharedPool(SimpleNamespace(root=tmp_path), '', (tmp_path/'c', tmp_path/'d'), size=2, job_size=3)
+    monkeypatch.setattr(pool, '_request_job_drain', lambda worker: False)
     assert len(pool.job_slots) == 5
     for slot in pool.job_slots:
         worker = pool._spawn({'id':slot})
@@ -156,8 +157,14 @@ def test_explicit_broker_mode_has_fixed_job_processes(tmp_path, monkeypatch):
     for _, _, process in spawned:
         process.terminate.assert_not_called()
     pool.close()
-    for _, _, process in spawned:
-        process.terminate.assert_called_once()
+    for _, kwargs, process in spawned:
+        if module.sys.platform == 'win32':
+            assert kwargs['creationflags'] & module.subprocess.CREATE_NEW_PROCESS_GROUP
+            process.send_signal.assert_called_once_with(module.signal.CTRL_BREAK_EVENT)
+            process.terminate.assert_not_called()
+        else:
+            process.terminate.assert_called_once()
+        process.wait.assert_called_once()
 
 
 def test_temporary_gateway_failure_does_not_stop_other_services(monkeypatch):

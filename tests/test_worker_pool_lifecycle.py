@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, current_thread, main_thread
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, call
 
 import pytest
 
@@ -246,3 +246,66 @@ def test_recovery_does_not_start_replacement_until_old_worker_exits(monkeypatch,
             stopping.result(timeout=3)
 
     assert pool.ensure({'id': 'alice'}) is replacement
+
+
+def test_windows_shared_job_receives_graceful_break_before_wait(monkeypatch, tmp_path):
+    from mailcheck.shared import pool as shared
+
+    pool = shared.SharedPool(SimpleNamespace(root=tmp_path), '', (), amqp_url='amqp://test')
+    slot = pool.job_slots[0]
+    process = Mock()
+    process.poll.return_value = None
+    pool.workers[slot] = Worker(slot, 1234, 'token', process, Mock(), ready=True)
+    monkeypatch.setattr(shared, 'sys', SimpleNamespace(platform='win32'))
+    monkeypatch.setattr('signal.CTRL_BREAK_EVENT', 1, raising=False)
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.post.return_value.status_code = 503
+    monkeypatch.setattr(workspace_workers.httpx, 'Client', Mock(return_value=client))
+
+    assert pool.stop(slot)
+    assert process.method_calls == [
+        call.poll(), call.send_signal(1), call.wait(),
+    ]
+    assert slot not in pool.workers
+
+
+@pytest.mark.parametrize('ready', [True, False])
+def test_windows_shared_job_drains_via_authenticated_loopback(monkeypatch, tmp_path, ready):
+    from mailcheck.shared import pool as shared
+
+    pool = shared.SharedPool(SimpleNamespace(root=tmp_path), '', (), amqp_url='amqp://test')
+    slot = pool.job_slots[0]
+    process = Mock()
+    process.poll.return_value = None
+    pool.workers[slot] = Worker(slot, 1234, 'worker-secret', process, Mock(), ready=ready)
+    monkeypatch.setattr(shared, 'sys', SimpleNamespace(platform='win32'))
+    monkeypatch.setattr('signal.CTRL_BREAK_EVENT', 1, raising=False)
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.post.return_value.status_code = 204
+    monkeypatch.setattr(workspace_workers.httpx, 'Client', Mock(return_value=client))
+
+    assert pool.stop(slot, only_unready=not ready)
+    client.post.assert_called_once_with('http://127.0.0.1:1234/_internal/drain',
+                                       headers={'x-offerpath-worker': 'worker-secret'})
+    assert process.method_calls == [call.poll(), call.wait()]
+
+
+def test_shared_pool_close_starts_all_job_drains_before_waiting(tmp_path, monkeypatch):
+    from mailcheck.shared import pool as shared
+
+    pool = shared.SharedPool(SimpleNamespace(root=tmp_path), '', (), job_size=1, model_size=1, amqp_url='amqp://test')
+    if workspace_workers.sys.platform == 'win32':
+        monkeypatch.setattr(pool, '_request_job_drain', lambda worker: False)
+    signalled = [Event() for _ in pool.job_slots]
+    for index, slot in enumerate(pool.job_slots):
+        process = Mock()
+        process.poll.return_value = None
+        process.terminate.side_effect = signalled[index].set
+        process.send_signal.side_effect = lambda _, i=index: signalled[i].set()
+        process.wait.side_effect = lambda: all(event.wait(1) for event in signalled) or pytest.fail('A job did not receive its drain request')
+        pool.workers[slot] = Worker(slot, 1234+index, 'token', process, Mock(), ready=True)
+
+    pool.close()
+    assert pool.workers == {}

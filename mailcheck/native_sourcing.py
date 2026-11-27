@@ -70,9 +70,9 @@ def new_id():
 
 
 @contextmanager
-def atomic(conn):
+def atomic(conn, *, deferred=False):
     """SQLite serializes the version check and its writes across app processes."""
-    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("BEGIN" if deferred else "BEGIN IMMEDIATE")
     started = time.monotonic()
     caller = sys._getframe(2)  # frame 1 is contextlib's __enter__
     where = f"{os.path.basename(caller.f_code.co_filename)}:{caller.f_code.co_name}"
@@ -84,7 +84,7 @@ def atomic(conn):
         raise
     finally:
         held = time.monotonic() - started
-        if held > 10:
+        if not deferred and held > 10:
             # Other processes cannot write while this is held; name the holder so slow ones can be fixed.
             logging.getLogger(__name__).warning("Database write lock was held for %.0f seconds by %s.", held, where)
 

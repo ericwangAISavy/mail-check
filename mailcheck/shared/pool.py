@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import logging
 import os
 import secrets
+import signal
 import socket
 import subprocess
 import sys
 import time
+
+import httpx
 
 from ..workspace_workers import Worker, WorkerPool, _log_size
 
@@ -100,8 +104,10 @@ class SharedPool(WorkerPool):
             command = [sys.executable, '-m', module, '--port', str(port)]
             if lane:
                 command.extend(['--lane', lane])
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP if lane and sys.platform == 'win32' else 0
             process = subprocess.Popen(command,
-                                       env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                                       env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                       creationflags=flags)
         except BaseException:
             log.close()
             raise
@@ -110,40 +116,70 @@ class SharedPool(WorkerPool):
         self.failures[slot] = recent + [time.time()]
         return worker
 
+    def _request_job_drain(self, worker):
+        try:
+            with httpx.Client(trust_env=False, timeout=2) as client:
+                response = client.post(f'http://127.0.0.1:{worker.port}/_internal/drain',
+                                       headers={'x-offerpath-worker': worker.token})
+                return response.status_code == 204
+        except httpx.HTTPError:
+            return False
+
     def stop(self, wid, *, suspended=True, expected=None, only_unready=False):
         # Only pool-owned slot identities may retire a process. Admin suspension
         # affects routing, never another workspace's in-flight requests.
         if wid in self._slots:
             if wid not in self.job_slots:
                 return super().stop(wid, suspended=False, expected=expected, only_unready=only_unready)
-            if not only_unready:
-                # SIGTERM requests uvicorn shutdown; the job lifespan drains its
-                # current operation. Never escalate an active job to SIGKILL.
-                with self._lock:
-                    worker=self.workers.get(wid)
-                    if expected is not None and worker is not expected:return False
-                    if only_unready and worker and worker.ready:return False
-                    worker=self.workers.get(wid)
-                    if worker:self._retiring.add(wid)
-                if worker:
+            # A job can start during HTTP startup, before its parent marks it ready.
+            with self._lock:
+                worker = self.workers.get(wid)
+                if not worker or wid in self._retiring or (expected is not None and worker is not expected):
+                    return False
+                if only_unready and worker.ready:
+                    return False
+                self._retiring.add(wid)
+            try:
+                if worker.process.poll() is None:
                     try:
-                        if worker.process.poll() is None:
+                        if sys.platform == 'win32':
+                            if not self._request_job_drain(worker):
+                                worker.process.send_signal(signal.CTRL_BREAK_EVENT)
+                        else:
                             worker.process.terminate()
-                        worker.process.wait()
-                    finally:
-                        worker.log.close()
-                        with self._lock:
-                            if self.workers.get(wid) is worker:
-                                self.workers.pop(wid,None)
-                            self._retiring.discard(wid)
-                    return True
-                return False
-            return super().stop(wid, suspended=False, expected=expected, only_unready=only_unready)
+                    except OSError:
+                        if worker.process.poll() is None:
+                            raise
+                worker.process.wait()
+                worker.log.close()
+                with self._lock:
+                    if self.workers.get(wid) is worker:
+                        self.workers.pop(wid, None)
+                return True
+            finally:
+                with self._lock:
+                    self._retiring.discard(wid)
         with self._lock:
             if suspended:
                 self.stopped.add(wid)
             self.assignments.pop(wid, None)
         return True
+
+    def close(self):
+        with self._lock:
+            self.closing = True
+            job_slots = [slot for slot in self.job_slots if slot in self.workers]
+        if not job_slots:
+            return super().close()
+        # Start draining all job workers before waiting on any single provider.
+        with ThreadPoolExecutor(max_workers=len(job_slots)) as executor:
+            drains = {slot: executor.submit(self.stop, slot) for slot in job_slots}
+            super().close()
+            for slot, drain in drains.items():
+                try:
+                    drain.result()
+                except Exception:
+                    logging.getLogger(__name__).exception('Job worker %s cleanup failed.', slot)
 
     def check_health(self, wid):
         return super().check_health(self.slot(wid))

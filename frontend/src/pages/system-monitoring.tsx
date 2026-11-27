@@ -108,7 +108,8 @@ export function MonitoringView({owner,independent=false}:{owner:boolean;independ
  const backlogTone:Health=!backlog?'unknown':backlog.retry?'degraded':'healthy'
  const problems=(data?.events??[]).filter(e=>allEvents||['retry_or_failed','discarded','service_failed','service_degraded','service_unknown','deferred_busy','deferred_offline','deferred_state'].includes(e.action))
  const stageQueue=new Map(queues?.map(q=>[q.kind,q]))
- const stageRows=metrics?[...metrics.stages,...[...stageQueue.keys()].filter(k=>!metrics.stages.some(st=>st.stage===k)).map(k=>({stage:k,queued:0,started:0,completed:0,retry_or_failed:0,discarded:0,failure_rate:null,duration_p50:null,duration_p95:null}))]:[]
+ const stageMetrics=new Map(metrics?.stages.map(row=>[row.stage,row]))
+ const stageNames=[...new Set([...stageMetrics.keys(),...stageQueue.keys()])]
  const chart=(key:string,label:string,color:string,values:Series,type:'bar'|'line'):ChartSeries=>({key,label,color,values,type})
  const t=metrics?.traffic,j=metrics?.jobs,q=metrics?.queues
  const jobs=metrics?.jobs_tracked!==false
@@ -155,12 +156,12 @@ export function MonitoringView({owner,independent=false}:{owner:boolean;independ
      series={[chart('ready','Ready',C.blue,q.ready,'line'),chart('retrying','Retrying',C.serious,q.retry,'line')]}/>
    </div>:series.isError?<p role="alert" className="inline-error">Graphs are unavailable. {series.error.message}</p>:<Loading/>}
 
-   {stageRows.length>0&&(jobs||stageQueue.size>0)&&<section aria-labelledby="monitor-stages"><h2 id="monitor-stages">Processing stages</h2>
-    <div className="monitor-table-scroll"><table><thead><tr><th>Stage</th><th>Completed</th><th>Retried / failed</th><th>Discarded</th><th>Failure rate</th><th>Time p95</th><th>Ready</th><th>Retrying</th><th>Dead</th></tr></thead>
-     <tbody>{stageRows.map(row=>{const stageLive=stageQueue.get(row.stage);const rate=row.failure_rate;return <tr key={row.stage}>
-      <th scope="row">{STAGES[row.stage]??row.stage}</th><td>{jobs?count(row.completed):'—'}</td><td>{jobs?count(row.retry_or_failed):'—'}</td><td>{jobs?count(row.discarded):'—'}</td>
-      <td>{jobs?<span className="monitor-rate"><span className="monitor-meter" aria-hidden="true"><span className={rate!==null&&rate>=.05?'is-bad':''} style={{width:`${Math.min(100,(rate??0)*100)}%`}}/></span>{percent(rate)}</span>:'—'}</td>
-      <td>{row.duration_p95!=null?seconds(row.duration_p95):'—'}</td><td>{stageLive?count(stageLive.pending):'—'}</td><td>{stageLive?count(stageLive.retry):'—'}</td><td className={stageLive?.dead?'is-bad':''}>{stageLive?count(stageLive.dead):'—'}</td></tr>})}</tbody></table></div>
+   {stageNames.length>0&&(jobs||stageQueue.size>0)&&<section aria-labelledby="monitor-stages"><h2 id="monitor-stages">Processing stages</h2>
+    <div className="monitor-table-scroll"><table><thead><tr><th>Stage</th><th>Completed</th><th>Retried / failed</th><th>Discarded</th><th>Failure rate</th><th>Time p95</th><th>Ready</th><th>Retrying</th><th>Dead letters retained</th></tr></thead>
+     <tbody>{stageNames.map(stage=>{const row=jobs?stageMetrics.get(stage):undefined;const stageLive=stageQueue.get(stage);const rate=row?.failure_rate??null;return <tr key={stage}>
+      <th scope="row">{STAGES[stage]??stage}</th><td>{row?count(row.completed):'—'}</td><td>{row?count(row.retry_or_failed):'—'}</td><td>{row?count(row.discarded):'—'}</td>
+      <td>{row?<span className="monitor-rate"><span className="monitor-meter" aria-hidden="true"><span className={rate!==null&&rate>=.05?'is-bad':''} style={{width:`${Math.min(100,(rate??0)*100)}%`}}/></span>{percent(rate)}</span>:'—'}</td>
+      <td>{row?.duration_p95!=null?seconds(row.duration_p95):'—'}</td><td>{stageLive?count(stageLive.pending):'—'}</td><td>{stageLive?count(stageLive.retry):'—'}</td><td className={stageLive?.dead?'is-bad':''}>{stageLive?count(stageLive.dead):'—'}</td></tr>})}</tbody></table></div>
    </section>}
 
    <section aria-labelledby="monitor-events"><div className="monitor-section-head"><h2 id="monitor-events">{allEvents?'Recent events':'Recent problems'}</h2>

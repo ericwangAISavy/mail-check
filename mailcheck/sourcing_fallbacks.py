@@ -221,6 +221,10 @@ def extend_plan(conn,rows,receipts,legacy,*,early_since,postings=None,evidence=N
     from .sourcing_verification import _matching_plan,role_key,_contains_name,MATCHING_WINDOW_DAYS
     evidence=evidence if evidence is not None else {}
     result=dict(legacy)
+    # Saved checks and legacy matches cannot be replaced by fallback evidence.
+    if not any(row['checked'] != 'true' and row['id'] not in legacy and row['work_date']
+               and (row['link'] or '').strip() for row in rows):
+        return result
     reservations=_reservations(conn,receipts,with_rows=True)
     used=set()
     byid={r['id']:dict(r) for r in rows}

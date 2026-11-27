@@ -3,6 +3,7 @@
 A consumer must call ``process_events`` while a separate thread performs long
 business operations. Only the connection owner calls claim/ack/fail.
 """
+from contextlib import ExitStack, suppress
 import importlib
 import json
 import os
@@ -131,13 +132,14 @@ class RabbitBroker:
             params.connection_attempts = 1
             self._connection = self._pika.BlockingConnection(params)
             self._owner = threading.get_ident()
-            self._channel = self._connection.channel()
             try:
+                self._channel = self._connection.channel()
                 ensure_topology(self._channel)
                 self._channel.confirm_delivery()
                 self._channel.basic_qos(prefetch_count=1)
             except Exception:
-                self.close()
+                with suppress(Exception):
+                    self.close()
                 raise
         return self._channel
 
@@ -186,21 +188,31 @@ class RabbitBroker:
         # Reject invalid reasons even when an existing job would avoid publication.
         validate_envelope(dict(version=1, id=str(uuid.uuid4()), workspace_id=workspace,
             account_id=account_id, kind=kind, reason=reason, attempt=0, payload={}, dispatch_id=None))
-        with OperationLock(path.parent.parent / 'pending-capacity.lock'), OperationLock(path.with_suffix('.lock')):
-            marker = self._read_marker(path)
-            if marker is not None:
-                marker['dirty'] = marker['dirty'] or dirty_existing
-                atomic_json(path, marker)
-                if marker['confirmed']:
-                    return marker['id']
-            else:
-                pending=list(path.parent.glob('*.json'))
-                collection=kind in COLLECTION_KINDS
-                lane_count=sum((item.stem.rsplit('-',1)[0] in COLLECTION_KINDS)==collection for item in pending)
-                if len(pending)>=MAX_PENDING_PER_WORKSPACE or lane_count>=MAX_PENDING_PER_LANE:
-                    raise PendingCapacityError('workspace pending lane capacity reached')
-                marker = dict(id=str(uuid.uuid4()), dirty=False, confirmed=False, timestamp=time.time())
-                atomic_json(path, marker)
+        key_lock = OperationLock(path.with_suffix('.lock'))
+        capacity_lock = OperationLock(path.parent.parent / 'pending-capacity.lock')
+        with ExitStack() as locks:
+            while True:
+                with capacity_lock:
+                    if key_lock.acquire(False):
+                        locks.callback(key_lock.release)
+                        marker = self._read_marker(path)
+                        if marker is None:
+                            pending = list(path.parent.glob('*.json'))
+                            collection = kind in COLLECTION_KINDS
+                            lane_count = sum((item.stem.rsplit('-', 1)[0] in COLLECTION_KINDS) == collection for item in pending)
+                            if len(pending) >= MAX_PENDING_PER_WORKSPACE or lane_count >= MAX_PENDING_PER_LANE:
+                                raise PendingCapacityError('workspace pending lane capacity reached')
+                            marker = dict(id=str(uuid.uuid4()), dirty=False, confirmed=False, timestamp=time.time())
+                            atomic_json(path, marker)
+                        elif dirty_existing and not marker['dirty']:
+                            marker['dirty'] = True
+                            atomic_json(path, marker)
+                        break
+                # Wait for matching work without holding the workspace quota lock.
+                with key_lock:
+                    pass
+            if marker['confirmed']:
+                return marker['id']
             self.enqueue(kind, account_id, reason, workspace_id=workspace, job_id=marker['id'])
             marker['confirmed'] = True
             atomic_json(path, marker)

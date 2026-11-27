@@ -59,6 +59,25 @@ def test_original_bindings_win_and_alias_is_additive(records):
     assert evidence[new]['rule']=='company_alias'
 
 
+def test_resolved_sheets_skip_fallback_email_body_reads(records, monkeypatch):
+    from mailcheck import sourcing_fallbacks
+
+    conn, account, _, job, receipt = records
+    job('Previously checked', 'Engineer', 'https://jobs.test/old', checked=True)
+    new = job('Acme', 'Engineer', 'https://jobs.test/new')
+    email = receipt('Acme', 'Engineer')
+    rows = sourcing_fallbacks.candidate_rows(conn, {account})
+    legacy = _matching_plan(conn, rows, [email], early_since=date(2026, 11, 14))
+    assert set(legacy) == {new}
+
+    def unexpected_body_read(*args):
+        pytest.fail('Fallback has no unchecked and unmatched job to examine')
+
+    monkeypatch.setattr(sourcing_fallbacks, '_content', unexpected_body_read)
+    assert sourcing_fallbacks.extend_plan(conn, rows, [email], legacy,
+                                        early_since=date(2026, 11, 14)) == legacy
+
+
 def test_unique_unchecked_candidate_does_not_move_old_proof(records):
     conn,_,_,job,receipt=records
     old=job('AlphaSense','Staff AI Platform Engineer','https://jobs.test/old','2026-11-19',True)

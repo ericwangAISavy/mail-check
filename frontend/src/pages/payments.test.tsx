@@ -12,6 +12,12 @@ const data = () => ({ payment_visible:true, week_start: "2026-10-12", week_end: 
 beforeEach(() => { vi.mocked(request).mockResolvedValue(data()); vi.mocked(api.post).mockResolvedValue({ ok: true }) })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
 function mount(readOnly = false, persist = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); const page = <QueryClientProvider client={client}><PaymentsPage readOnly={readOnly} /></QueryClientProvider>; return render(persist ? <PageStateProvider scope="payments-remount-test">{page}</PageStateProvider> : page) }
+it("loads saved weekly totals on entry", async () => {
+  mount()
+  await screen.findByRole("heading", { name: "Bidder management" })
+  expect(request).toHaveBeenCalledWith("/api/payments?refresh=false", { signal: expect.any(AbortSignal) })
+  expect(api.post).not.toHaveBeenCalled()
+})
 it("records an admin-entered amount with the reviewed week and count", async () => {
   mount()
   fireEvent.click(await screen.findByRole("button", { name: /Edit confirmed payment for Alex/ }))
@@ -23,7 +29,7 @@ it("records an admin-entered amount with the reviewed week and count", async () 
 it("supports previous week navigation", async () => {
   mount(true)
   fireEvent.click(await screen.findByRole("button", { name: "Previous week" }))
-  await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05", {signal: expect.any(AbortSignal)}))
+  await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?refresh=false&week=2026-10-05", {signal: expect.any(AbortSignal)}))
 })
 it("shows gross and net amounts independently of saved payment metadata", async () => {
   const report = data() as any
@@ -502,12 +508,12 @@ it("restores the selected week and bidder after returning to payments", async ()
     const first = mount(true, true)
     fireEvent.change(await screen.findByRole("combobox", { name: "Bidder" }), { target: { value: "1" } })
     fireEvent.click(screen.getByRole("button", { name: "Previous week" }))
-    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05", {signal: expect.any(AbortSignal)}))
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?refresh=false&week=2026-10-05", {signal: expect.any(AbortSignal)}))
     first.unmount()
     vi.mocked(request).mockClear()
     mount(true, true)
     expect((await screen.findByRole("combobox", { name: "Bidder" }) as HTMLSelectElement).value).toBe("1")
-    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?week=2026-10-05", {signal: expect.any(AbortSignal)}))
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/payments?refresh=false&week=2026-10-05", {signal: expect.any(AbortSignal)}))
   } finally {
     sessionStorage.clear()
   }
@@ -521,8 +527,8 @@ it("falls back from malformed persisted week and bidder values", async () => {
     sessionStorage.setItem(key("selected"), JSON.stringify("not-a-bidder"))
     mount(true, true)
     expect((await screen.findByRole("combobox", { name: "Bidder" }) as HTMLSelectElement).value).toBe("")
-    expect(request).toHaveBeenCalledWith("/api/payments", {signal: expect.any(AbortSignal)})
-    expect(request).not.toHaveBeenCalledWith("/api/payments?week=2026-02-31", expect.anything())
+    expect(request).toHaveBeenCalledWith("/api/payments?refresh=false", {signal: expect.any(AbortSignal)})
+    expect(request).not.toHaveBeenCalledWith("/api/payments?refresh=false&week=2026-02-31", expect.anything())
   } finally {
     sessionStorage.clear()
   }

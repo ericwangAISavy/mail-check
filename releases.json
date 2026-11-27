@@ -1,5 +1,25 @@
 [
   {
+    "version": "3.34.9",
+    "date": "2026-11-26",
+    "title": "Faster Bidder management loading",
+    "changes": [
+      "Open Bidder management from saved weekly totals and load the activity chart separately.",
+      "Use Refresh this week to match new confirmations immediately. Normal checks continue to update matches."
+    ]
+  },
+  {
+    "version": "3.34.8",
+    "date": "2026-11-26",
+    "title": "Shared worker recovery and faster sourcing verification",
+    "changes": [
+      "Reduce SQLite write contention during sourcing verification and recheck matches when a concurrent edit changes the data.",
+      "Reuse the reconciliation connection and keep a slow RabbitMQ confirmation from blocking unrelated jobs in the same workspace.",
+      "Keep manual checks retryable when RabbitMQ is unavailable before submission and let shared job processes drain on Windows console shutdown.",
+      "Show retained dead letters separately from recorded job outcomes in System monitoring."
+    ]
+  },
+  {
     "version": "3.34.7",
     "date": "2026-11-26",
     "title": "Pipeline status colors and accessibility fixes",

@@ -113,6 +113,35 @@ def amqp_url(monkeypatch):
     return url
 
 
+def test_real_shared_job_process_drains_through_authenticated_loopback(installation, amqp_url):
+    from mailcheck.shared.pool import SharedPool
+
+    pool = SharedPool(installation.store, 'http://127.0.0.1:1', installation.legacy, amqp_url=amqp_url)
+    worker = pool._spawn({'id': 'shared-job-model-0'})
+    base = f'http://127.0.0.1:{worker.port}/_internal'
+    headers = {'x-offerpath-worker': worker.token}
+    try:
+        with httpx.Client(trust_env=False, timeout=2) as client:
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline and worker.process.poll() is None:
+                try:
+                    if client.get(f'{base}/ready', headers=headers).status_code == 200:
+                        break
+                except httpx.ConnectError:
+                    pass
+                time.sleep(.05)
+            else:
+                pytest.fail('Shared job process did not become ready')
+            assert client.post(f'{base}/drain', headers={'x-offerpath-worker': 'wrong'}).status_code == 403
+            assert client.post(f'{base}/drain', headers=headers).status_code == 204
+        assert worker.process.wait(timeout=12) == 0
+    finally:
+        if worker.process.poll() is None:
+            worker.process.kill()
+            worker.process.wait(timeout=5)
+        worker.log.close()
+
+
 def fake_provider(monkeypatch):
     from mailcheck.shared import runtime
     def fetch(account, since, cfg):
@@ -237,7 +266,7 @@ def test_outdated_business_database_is_refused_without_migration(installation):
         conn.execute('PRAGMA user_version=49')
     original_bytes = path.read_bytes()
     original_schema = schema(path)
-    with bind_workspace(context), pytest.raises(RuntimeError, match='no automatic migration'):
+    with bind_workspace(context), pytest.raises(RuntimeError, match='No automatic migration was performed'):
         db.connect()
     assert path.read_bytes() == original_bytes
     assert schema(path) == original_schema

@@ -1,6 +1,9 @@
 """Receipt matching is isolated by account, company and Chicago work day."""
 import unittest
+import sqlite3
+from contextlib import closing
 from datetime import date, datetime
+from unittest.mock import patch
 from mailcheck import db, payments
 from mailcheck.models import Classification, NormalizedMessage
 from tests import test_native_sourcing as fixtures
@@ -29,6 +32,86 @@ class SourcingVerificationTests(unittest.TestCase):
         return self.native.append(self.conn, self.tab(), "jobs", base["revision"],
             [["Acme", "Engineer", "https://jobs.test/1"], ["Beta", "Engineer", "https://jobs.test/2"],
              ["Other", "Engineer", "https://jobs.test/3"]], work_date=day)
+
+    def test_global_verification_allows_concurrent_edit_and_replans(self):
+        from mailcheck import sourcing_verification as verification
+
+        snapshot = self.jobs()
+        row_id = snapshot['row_ids'][1]
+        self.receipt('match', 'Acme', '2026-10-20T12:00:00+00:00')
+        plan = verification._combined_matching_plan
+        overlaps = []
+
+        def edit_while_matching(conn, *args, **kwargs):
+            result = plan(conn, *args, **kwargs)
+            if not overlaps:
+                with db.session(self.path) as editor:
+                    editor.execute('PRAGMA busy_timeout=0')
+                    editor.execute("UPDATE native_cells SET value='Different' WHERE row_id=? AND column_id IN "
+                        "(SELECT id FROM native_columns WHERE kind='company')", (row_id,))
+                overlaps.append(True)
+            return result
+
+        with patch.object(verification, '_combined_matching_plan', side_effect=edit_while_matching):
+            result = verification.verify_all(self.conn, sample=False)
+
+        self.assertEqual(overlaps, [True])
+        self.assertEqual(result['changed'], 0)
+        self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'false')
+
+    def test_global_receipt_scan_precedes_main_database_write_lock(self):
+        from mailcheck import confirmation_counts, sourcing_verification as verification
+
+        self.jobs()
+        self.receipt('match', 'Acme', '2026-10-20T12:00:00+00:00')
+        # A legacy message without a materialized receipt must still be repaired.
+        self.conn.execute('DELETE FROM application_receipts')
+        self.conn.commit()
+        seen = []
+        extract = confirmation_counts.job_references
+
+        def extract_while_writer_can_start(*args):
+            with closing(db.connect(self.path)) as writer:
+                writer.execute('PRAGMA busy_timeout=0')
+                writer.execute('BEGIN IMMEDIATE')
+                writer.rollback()
+            seen.append(True)
+            return extract(*args)
+
+        with patch.object(confirmation_counts, 'job_references', side_effect=extract_while_writer_can_start):
+            result = verification.verify_all(self.conn, sample=False)
+
+        self.assertTrue(seen)
+        self.assertEqual(result['changed'], 1)
+
+    def test_global_verification_retries_writer_still_holding_lock(self):
+        from mailcheck import sourcing_verification as verification
+
+        self.jobs()
+        self.receipt('match', 'Acme', '2026-10-20T12:00:00+00:00')
+        plan = verification._combined_matching_plan
+        with closing(sqlite3.connect(self.path, timeout=0)) as writer:
+            locked = []
+
+            def start_concurrent_write(conn, *args, **kwargs):
+                result = plan(conn, *args, **kwargs)
+                if not locked:
+                    writer.execute('BEGIN IMMEDIATE')
+                    locked.append(True)
+                return result
+
+            def finish_concurrent_write(sql):
+                if sql == 'BEGIN IMMEDIATE' and writer.in_transaction:
+                    writer.rollback()
+
+            self.conn.set_trace_callback(finish_concurrent_write)
+            try:
+                with patch.object(verification, '_combined_matching_plan', side_effect=start_concurrent_write):
+                    result = verification.verify_all(self.conn, sample=False)
+            finally:
+                self.conn.set_trace_callback(None)
+        self.assertEqual(locked, [True])
+        self.assertEqual(result['changed'], 1)
 
     def test_matching_checks_same_account_company_and_ten_chicago_days(self):
         from mailcheck import sourcing_verification as verification
@@ -342,6 +425,24 @@ class SourcingVerificationTests(unittest.TestCase):
         self.assertEqual(bidder['daily'][2], 1)
         self.assertEqual(bidder['checked_daily'][2], 1)
         self.assertEqual(checked_state(self.snapshot()['rows'][1][3]['value']), 'true')
+
+    def test_payment_page_can_read_saved_totals_then_refresh_explicitly(self):
+        self.receipt('already-received', 'Acme', '2026-10-21T14:00:00+00:00')
+        self.jobs('2026-10-20')
+        self.conn.execute("INSERT INTO bidder_assignments(bidder_id,account_id,account_label,start_date) VALUES(1,?,'personal','2026-10-01')", (self.account_id,))
+        self.conn.commit()
+        before = self.snapshot()
+        url = '/api/payments?week=2026-10-19&refresh=false'
+
+        saved = self.client.get(url)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()['bidders'][0]['daily'][2], 1)
+        self.assertEqual(saved.json()['bidders'][0]['checked_daily'][2], 0)
+        self.assertEqual(self.snapshot(), before)
+
+        refreshed = self.client.post('/api/payments/refresh', json={'week':'2026-10-19'})
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        self.assertEqual(self.client.get(url).json()['bidders'][0]['checked_daily'][2], 1)
 
     def test_bounded_refresh_includes_older_links_with_receipts_in_window(self):
         from mailcheck import sourcing_verification as verification

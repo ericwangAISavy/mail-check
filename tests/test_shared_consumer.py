@@ -10,6 +10,30 @@ from mailcheck.shared.runtime import Consumer
 from mailcheck.shared.state import RuntimeStateUnavailable
 
 
+def test_transport_closes_before_reconnect_backoff(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from mailcheck.shared import runtime
+
+    consumer = Consumer(SimpleNamespace(root=tmp_path), (), 'amqp://test', 'collection')
+    events = []
+
+    class Broker:
+        def claim(self, kind):
+            raise ConnectionError('broker disconnected')
+
+        def close(self):
+            events.append('close')
+
+    def backoff(timeout):
+        events.append('backoff')
+        consumer.stop.set()
+
+    monkeypatch.setattr(runtime, 'RabbitBroker', lambda url: Broker())
+    monkeypatch.setattr(consumer.stop, 'wait', backoff)
+    consumer.run()
+    assert events == ['close', 'backoff']
+
+
 @pytest.mark.parametrize('failure',[WorkDeferred('busy'),PendingCapacityError('full'),sqlite3.OperationalError('database is locked'),RuntimeStateUnavailable('status unavailable')])
 def test_admission_wait_does_not_consume_business_retry_budget(tmp_path,monkeypatch,failure):
     from types import SimpleNamespace

@@ -42,6 +42,57 @@ def test_outbox_publish_failure_never_acknowledges_database_rows():
         ack.assert_not_called()
 
 
+def test_coordinator_reuses_connection_and_reconnects_after_failure(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from mailcheck.shared import runtime
+
+    coordinator = runtime.Coordinator(SimpleNamespace(root=tmp_path, enabled_workspaces=lambda: []), (), 'amqp://test')
+    monkeypatch.setattr(coordinator, 'subscriptions_run', lambda: None)
+    monkeypatch.setattr(coordinator.stop, 'wait', lambda _: False)
+    sessions = []
+    polls = []
+
+    class Broker:
+        def __init__(self, url):
+            if sessions:
+                assert sessions[-1].closed
+            self.closed = False
+            sessions.append(self)
+
+        def claim_dead_notice(self):
+            polls.append(self)
+            if len(polls) == 3:
+                raise ConnectionError('connection dropped')
+            if len(polls) == 5:
+                coordinator.stop.set()
+
+        def process_events(self, time_limit=0):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(runtime, 'RabbitBroker', Broker)
+    coordinator.run()
+    assert len(sessions) == 2
+    assert polls == [sessions[0]] * 3 + [sessions[1]] * 2
+    assert all(session.closed for session in sessions)
+
+
+def test_already_enabled_capture_does_not_need_sqlite_writer_lock(tmp_path):
+    from contextlib import closing
+    from mailcheck import db
+    from mailcheck.realtime import storage
+
+    path = tmp_path / 'mail.db'
+    with db.session(path) as conn:
+        storage.set_publishing(conn, True)
+    with closing(sqlite3.connect(path)) as writer, closing(sqlite3.connect(path, timeout=0)) as reader:
+        writer.execute('BEGIN IMMEDIATE')
+        storage.set_publishing(reader, True)
+        assert reader.execute('SELECT enabled FROM realtime_runtime WHERE id=1').fetchone() == (1,)
+
+
 def manual_fixture(tmp_path):
     from mailcheck import db
     from mailcheck.shared.state import atomic_json

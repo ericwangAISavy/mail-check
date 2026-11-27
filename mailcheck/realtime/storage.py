@@ -67,6 +67,11 @@ def initialize(conn: sqlite3.Connection) -> None:
 
 def set_publishing(conn: sqlite3.Connection, enabled: bool) -> None:
     """Enable capture while the configured runtime owns outbox publication."""
+    current = conn.execute('SELECT enabled FROM realtime_runtime WHERE id=1').fetchone()
+    if current is not None and current[0] == int(enabled):
+        if conn.in_transaction:
+            conn.commit()
+        return
     conn.execute('UPDATE realtime_runtime SET enabled=? WHERE id=1', (int(enabled),))
     conn.commit()
 

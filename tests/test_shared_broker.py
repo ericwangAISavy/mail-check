@@ -1,6 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import subprocess
 import sys
+import threading
+import time
 import types
 import uuid
 
@@ -119,6 +123,62 @@ def test_real_rabbit_round_trip():
         b.close()
 
 
+def test_real_rabbit_redelivers_after_worker_process_exits():
+    url = os.environ.get('OFFERPATH_TEST_AMQP_URL')
+    if not url:
+        pytest.skip('set OFFERPATH_TEST_AMQP_URL for isolated broker integration')
+    from mailcheck.shared.broker import RabbitBroker
+
+    broker = RabbitBroker(url, workspace_id='legacy')
+    try:
+        identifier = broker.enqueue('calendar-analysis', 0, reason='reconcile')
+        result = subprocess.run([sys.executable, '-c', """
+import os
+from mailcheck.shared.broker import RabbitBroker
+broker = RabbitBroker(os.environ['OFFERPATH_TEST_AMQP_URL'])
+delivery = broker.claim('calendar-analysis')
+print(delivery[1]['id'], flush=True)
+os._exit(0)
+"""], capture_output=True, text=True, timeout=20, check=True)
+        assert result.stdout.strip() == identifier
+        deadline = time.monotonic() + 5
+        while (delivery := broker.claim('calendar-analysis')) is None and time.monotonic() < deadline:
+            broker.process_events(.05)
+        assert delivery and delivery[1]['id'] == identifier
+        broker.ack(delivery[0])
+    finally:
+        broker.close()
+
+
+def test_real_rabbit_retry_delay_and_terminal_notice():
+    url = os.environ.get('OFFERPATH_TEST_AMQP_URL')
+    if not url:
+        pytest.skip('set OFFERPATH_TEST_AMQP_URL for isolated broker integration')
+    from mailcheck.shared.broker import JOBS_EXCHANGE, MAX_ATTEMPTS, RabbitBroker
+
+    broker = RabbitBroker(url, workspace_id='legacy')
+    kind = 'scheduled-check'
+    try:
+        identifier = broker.enqueue(kind, 0, reason='reconcile')
+        tag, fields = broker.claim(kind)
+        broker.fail(tag, fields)
+        assert broker.claim(kind) is None
+        deadline = time.monotonic() + 12
+        while (delivery := broker.claim(kind)) is None and time.monotonic() < deadline:
+            broker.process_events(.05)
+        assert delivery and delivery[1]['id'] == identifier and delivery[1]['attempt'] == 1
+        broker.ack(delivery[0])
+
+        # Seed the final attempt directly instead of waiting out every retry tier.
+        broker._publish(JOBS_EXCHANGE, kind, {**fields, 'attempt': MAX_ATTEMPTS - 1})
+        broker.fail(*broker.claim(kind))
+        notice = broker.claim_dead_notice()
+        assert notice and notice[1]['id'] == identifier
+        broker.ack(notice[0])
+    finally:
+        broker.close()
+
+
 def test_explicit_id_is_stable_and_retry_does_not_mutate_original(broker):
     b, ch = broker
     identifier = str(uuid.uuid4())
@@ -154,6 +214,68 @@ def test_lazy_connection_missing_url_and_owner_heartbeat(broker, monkeypatch):
         missing.claim('mail')
     b.close()
     assert b._connection is None
+
+
+def test_channel_open_failure_closes_half_open_connection(monkeypatch):
+    from mailcheck.shared.broker import RabbitBroker
+
+    closed = []
+
+    def open_channel():
+        raise OSError('channel unavailable')
+
+    connection = types.SimpleNamespace(channel=open_channel, close=lambda: closed.append(True))
+    monkeypatch.setitem(sys.modules, 'pika', types.SimpleNamespace(
+        URLParameters=lambda url: types.SimpleNamespace(),
+        BlockingConnection=lambda params: connection,
+    ))
+    broker = RabbitBroker('amqp://test', workspace_id='legacy')
+    with pytest.raises(OSError, match='channel unavailable'):
+        broker.enqueue('mail', 1)
+    assert closed == [True]
+    assert broker._connection is None
+
+
+def test_slow_collection_confirm_does_not_block_model_admission(tmp_path):
+    from mailcheck.shared.broker import RabbitBroker
+
+    collection_publishing = threading.Event()
+    release_collection = threading.Event()
+    model_publishing = threading.Event()
+
+    class Broker(RabbitBroker):
+        def _publish(self, exchange, routing_key, body):
+            if routing_key == 'mail':
+                collection_publishing.set()
+                assert release_collection.wait(5)
+            else:
+                model_publishing.set()
+
+    def enqueue(kind):
+        return Broker(workspace_id='legacy').enqueue_unique(kind, 1, coordination_root=tmp_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(enqueue, 'mail')
+        try:
+            assert collection_publishing.wait(3)
+            second = executor.submit(enqueue, 'classify')
+            assert model_publishing.wait(1)
+        finally:
+            release_collection.set()
+        assert first.result() != second.result()
+
+
+def test_reconciliation_does_not_rewrite_an_unchanged_marker(broker, tmp_path, monkeypatch):
+    from mailcheck.shared import state
+
+    b, _ = broker
+    job = b.enqueue_unique('mail', 1, coordination_root=tmp_path)
+
+    def unexpected_write(*args):
+        pytest.fail('Existing clean marker should not be rewritten during reconciliation')
+
+    monkeypatch.setattr(state, 'atomic_json', unexpected_write)
+    assert b.enqueue_unique('mail', 1, coordination_root=tmp_path, dirty_existing=False) == job
 
 
 @pytest.mark.parametrize('account_id', [0, -1, True, '1'])

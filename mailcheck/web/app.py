@@ -723,10 +723,17 @@ def _refresh_payment_week(conn, start):
             _payment_refresh_lock.release()
 
 
-def _resume_live_inbox(cfg):
+def _resume_live_inbox(cfg, *, admit=None):
     if not cfg.watch.auto_check or not cfg.is_llm_ready() or not _live_inbox.due():return False
     if not _job_lock.acquire(blocking=False):return False
-    if not _live_inbox.reserve():
+    try:
+        if admit is not None:
+            admit()
+        reserved = _live_inbox.reserve()
+    except BaseException:
+        _job_lock.release()
+        raise
+    if not reserved:
         _job_lock.release()
         return False
     try:
@@ -1241,14 +1248,15 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return result
 
     @app.get("/api/payments")
-    def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
+    def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)),
+                       refresh: bool = True):
         with db.session() as conn:
-            start = payments.monday(week or payments.today())
-            read_only = request.state.role == "bidder"
-            if read_only:conn.execute("PRAGMA query_only=ON")
-            if not read_only:
-                _refresh_payment_week(conn, start)
-            viewer = request.state.bidder_id if request.state.role=='bidder' else None
+            is_bidder = request.state.role == "bidder"
+            if refresh and not is_bidder:
+                _refresh_payment_week(conn, payments.monday(week or payments.today()))
+            else:
+                conn.execute("PRAGMA query_only=ON")
+            viewer = request.state.bidder_id if is_bidder else None
             policy = payments.visibility(conn,viewer) if viewer else None
             scope = None if viewer and policy['other_work_visible'] else viewer
             report = payments.report(conn,week,admin=viewer is None,bidder_id=scope,read_only=True)

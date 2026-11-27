@@ -157,6 +157,17 @@ it('does not invent queue counts when none are reported',async()=>{
  expect(within(backlog).queryByText('0')).toBeNull()
 })
 
+it('keeps live queue counts distinct from grouped job outcomes',async()=>{
+ vi.stubGlobal('fetch',serve({...snapshot,architecture:'shared',
+  global_queues:[{kind:'scheduled-check',pending:0,retry:1,dead:1231}]},
+  {...metrics,stages:[{...metrics.stages[0],stage:'other',completed:75}]}))
+ mount()
+ const stages=await screen.findByRole('region',{name:'Processing stages'})
+ const row=within(stages).getByRole('row',{name:/scheduled-check/})
+ expect(within(row).getAllByRole('cell').map(cell=>cell.textContent)).toEqual(['—','—','—','—','—','0','1','1,231'])
+ expect(within(stages).getByRole('columnheader',{name:'Dead letters retained'})).toBeTruthy()
+})
+
 it('switches the time range for every graph',async()=>{
  const fetch=serve();vi.stubGlobal('fetch',fetch)
  mount()

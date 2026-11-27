@@ -1,6 +1,7 @@
 """Compare dated sourcing rows with saved application confirmations."""
 from datetime import date, datetime, timedelta, timezone
 import re
+import sqlite3
 import unicodedata
 import time
 from bisect import bisect_left, bisect_right
@@ -285,11 +286,39 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
     Keep earlier receipts too so reconciliation never shifts an existing match
     to a later duplicate email. Passive report reads do not create check runs.
 
-    Read and update under one write transaction so edits cannot move a job between
-    comparison and write. Unchanged cells retain their versions and tab revision.
+    Compute each phase in a consistent WAL snapshot. If a concurrent edit
+    invalidates a pending write, retry the phase against a fresh snapshot.
     """
     if (week_only or rebuild) and (not refresh_since or not refresh_until):
         raise ValueError("A week is required for a scoped refresh.")
+    from .sourcing_fallbacks import prepare_postings
+    prepare_postings(conn, since=refresh_since or payments.today()-timedelta(days=MATCHING_WINDOW_DAYS-1),
+        until=refresh_until or payments.today(), network=sample)
+    def refresh_receipts():
+        with sheets.atomic(conn, deferred=True):
+            sync_receipts(conn, since=refresh_since if week_only else None,
+                          until=refresh_until if week_only else None, stage_changes=True)
+
+    _retry_snapshot(conn, refresh_receipts)
+    return _retry_snapshot(conn, lambda: _verify_all_rows(conn, refresh_since, refresh_until, sample, week_only))
+
+
+def _retry_snapshot(conn, operation):
+    try:
+        return operation()
+    except sqlite3.OperationalError as exc:
+        code = getattr(exc, 'sqlite_errorcode', None)
+        if code == sqlite3.SQLITE_BUSY:
+            # Use the connection's busy timeout to wait for an active writer
+            # before taking a fresh snapshot. Release the writer slot immediately.
+            conn.execute('BEGIN IMMEDIATE')
+            conn.rollback()
+        elif code != sqlite3.SQLITE_BUSY_SNAPSHOT:
+            raise
+    return operation()
+
+
+def _verify_all_rows(conn, refresh_since, refresh_until, sample, week_only):
     def in_week(stamp):
         if not stamp:
             return False
@@ -300,12 +329,9 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
         day = received.replace(tzinfo=received.tzinfo or timezone.utc).astimezone(ZONE).date()
         return refresh_since <= day <= refresh_until
     source_since = refresh_since - timedelta(days=MATCHING_WINDOW_DAYS - 1) if refresh_since else None
-    from .sourcing_fallbacks import prepare_postings, save_evidence
-    prepare_postings(conn, since=refresh_since or payments.today()-timedelta(days=MATCHING_WINDOW_DAYS-1),
-        until=refresh_until or payments.today(), network=sample)
+    from .sourcing_fallbacks import save_evidence
     evidence = {}
-    with sheets.atomic(conn):
-        sync_receipts(conn, since=refresh_since if week_only else None, until=refresh_until if week_only else None)
+    with sheets.atomic(conn, deferred=True):
         tabs = {row["id"] for row in conn.execute("""SELECT t.id FROM native_tabs t
             JOIN accounts a ON a.id=t.account_id JOIN native_books b ON b.id=t.book_id
             JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL WHERE t.archived=0 OR ?""", (week_only,))}
@@ -399,8 +425,9 @@ def verify_all(conn, *, refresh_since=None, refresh_until=None, sample=True, wee
                 (row["id"], row["check_column"], value))
             changed_tabs.add(row["tab_id"])
             changed_count += 1
-        conn.executemany("UPDATE native_tabs SET revision=revision+1,updated_at=? WHERE id=?",
-            [(time.time(), tab_id) for tab_id in changed_tabs])
+        if changed_tabs:
+            conn.executemany("UPDATE native_tabs SET revision=revision+1,updated_at=? WHERE id=?",
+                [(time.time(), tab_id) for tab_id in changed_tabs])
         from .sourcing_activity import record
         if sample:
             record(conn, "global-check", sample=True)

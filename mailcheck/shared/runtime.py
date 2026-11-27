@@ -3,7 +3,7 @@
 No application schema changes. All additional coordination lives under
 control_root/shared-runtime; normal business operations use existing tables.
 """
-from contextlib import contextmanager, ExitStack
+from contextlib import ExitStack, contextmanager, suppress
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from mailcheck import read_marking
@@ -348,14 +348,22 @@ def _execute_job(reader, legacy_paths, fields, *, handler=None):
                 return handler(context,fields)
             if manual or kind in {'scheduled-check','calendar-analysis','live-inbox'}:
                 from ..web import app as web
+                from .manual import pending_dispatch
+
+                def guard_manual_queue():
+                    if pending_dispatch(reader.root/'shared-runtime', context.workspace_id):
+                        raise WorkDeferred('A manual check owns the workspace queue')
+
                 if kind=='live-inbox':
-                    if not web._resume_live_inbox(config.load()):
+                    if not web._resume_live_inbox(config.load(), admit=guard_manual_queue):
                         if web._live_inbox.due():
                             raise WorkDeferred('Workspace check is busy')
                     return
                 if not web._job_lock.acquire(False):
                     raise WorkDeferred('Workspace check is busy')
                 try:
+                    if not manual:
+                        guard_manual_queue()
                     if kind == 'manual-reclassify':
                         web._run_reclassify(web.ReclassifyBody.model_validate(record['body']))
                     elif kind == 'calendar-analysis':
@@ -415,15 +423,24 @@ class Coordinator:
             prepare_registry(self.reader.root)
             subscriptions=threading.Thread(target=self.subscriptions_run,daemon=True,name='shared-subscriptions')
             subscriptions.start()
-            while not self.stop.is_set():
-                self.health.poll()
-                try:
-                    self.tick()
-                except Exception as exc:
-                    self.health.failed(exc)
-                    log.warning('Shared reconciliation is unavailable; retrying. error=%s raised_at=%s',type(exc).__name__,_raised_at(exc))
-                self.stop.wait(1)
-            subscriptions.join()
+            try:
+                while not self.stop.is_set():
+                    broker = RabbitBroker(self.url)
+                    try:
+                        while not self.stop.is_set():
+                            self.health.poll()
+                            self.tick(broker)
+                            self.stop.wait(1)
+                    except Exception as exc:
+                        self.health.failed(exc)
+                        log.warning('Shared reconciliation is unavailable; retrying. error=%s raised_at=%s',type(exc).__name__,_raised_at(exc))
+                    finally:
+                        with suppress(Exception):
+                            broker.close()
+                    self.stop.wait(1)
+            finally:
+                self.stop.set()
+                subscriptions.join()
         finally:
             lock.release()
 
@@ -462,87 +479,86 @@ class Coordinator:
                 log.warning('Workspace subscription discovery unavailable; retrying. error=%s raised_at=%s',type(exc).__name__,_raised_at(exc))
             self.stop.wait(60)
 
-    def tick(self):
-        broker = RabbitBroker(self.url)
+    def tick(self, broker):
         live = set()
-        try:
-            for _ in range(100):
-                notice=broker.claim_dead_notice()
-                if notice is None:
-                    break
-                tag,fields=notice
-                broker.abandon_unique(fields,self.reader.root/'shared-runtime')
-                finish_manual(fields,self.reader.root/'shared-runtime')
-                broker.ack(tag)
-            for workspace in self.reader.enabled_workspaces():
-                wid = workspace['id']
-                live.add(wid)
-                context = WorkspaceContext.from_record(workspace,self.legacy_paths,self.reader.root)
-                with bind_workspace(context):
-                    if not config.db_path().is_file():
-                        continue
-                    try:
-                        with db.session() as conn:
-                            # Existing trigger switch; no DDL/schema migration.
-                            storage.set_publishing(conn,True)
-                            publish_outbox(conn,broker,wid)
-                            accounts = db.list_accounts(conn,only_enabled=True)
-                            enabled = set(storage.enabled_accounts(conn))
-                            cfg = config.load()
-                            now = time.monotonic()
-                            def admit(kind,account_id):
-                                try:
-                                    broker.enqueue_unique(kind,account_id,'reconcile',workspace_id=wid,
-                                        coordination_root=self.reader.root/'shared-runtime',dirty_existing=False)
-                                    return True
-                                except PendingCapacityError:
-                                    return False
-                            from .state import ScheduleState
-                            schedule=ScheduleState(runtime_root(context)/'schedule.json')
-                            from .. import realtime_coverage
-                            minutes=realtime_coverage.interval_minutes(conn,cfg)
-                            if not cfg.watch.auto_check:
-                                schedule.update(next_due=None)
-                            elif schedule['next_due'] is None:
+        for _ in range(100):
+            notice=broker.claim_dead_notice()
+            if notice is None:
+                break
+            tag,fields=notice
+            broker.abandon_unique(fields,self.reader.root/'shared-runtime')
+            finish_manual(fields,self.reader.root/'shared-runtime')
+            broker.ack(tag)
+        for workspace in self.reader.enabled_workspaces():
+            if self.stop.is_set():
+                return
+            broker.process_events()
+            wid = workspace['id']
+            live.add(wid)
+            context = WorkspaceContext.from_record(workspace,self.legacy_paths,self.reader.root)
+            with bind_workspace(context):
+                if not config.db_path().is_file():
+                    continue
+                try:
+                    with db.session() as conn:
+                        # Existing trigger switch; no DDL/schema migration.
+                        storage.set_publishing(conn,True)
+                        publish_outbox(conn,broker,wid)
+                        accounts = db.list_accounts(conn,only_enabled=True)
+                        enabled = set(storage.enabled_accounts(conn))
+                        cfg = config.load()
+                        now = time.monotonic()
+                        def admit(kind,account_id):
+                            try:
+                                broker.enqueue_unique(kind,account_id,'reconcile',workspace_id=wid,
+                                    coordination_root=self.reader.root/'shared-runtime',dirty_existing=False)
+                                return True
+                            except PendingCapacityError:
+                                return False
+                        from .state import ScheduleState
+                        schedule=ScheduleState(runtime_root(context)/'schedule.json')
+                        from .. import realtime_coverage
+                        minutes=realtime_coverage.interval_minutes(conn,cfg)
+                        if not cfg.watch.auto_check:
+                            schedule.update(next_due=None)
+                        elif schedule['next_due'] is None:
+                            schedule.update(next_due=time.time()+minutes*60)
+                        elif time.time()>=schedule['next_due']:
+                            if admit('scheduled-check',0):
                                 schedule.update(next_due=time.time()+minutes*60)
-                            elif time.time()>=schedule['next_due']:
-                                if admit('scheduled-check',0):
-                                    schedule.update(next_due=time.time()+minutes*60)
-                            elif (tightened:=realtime_coverage.tightened(schedule['next_due'],minutes))!=schedule['next_due']:
-                                # A housekeeping wait shortens as soon as real-time stops covering an account.
-                                schedule.update(next_due=tightened)
-                            from ..calendar_queue import due
-                            if cfg.is_llm_ready() and due(conn) and now>=self.due.get((wid,0,'calendar-analysis'),0):
-                                if admit('calendar-analysis',0):
-                                    self.due[(wid,0,'calendar-analysis')]=now+30
-                            from .live_inbox import SharedLiveInbox
-                            demand=SharedLiveInbox(runtime_root(context)/'live-inbox.json')
-                            if cfg.watch.auto_check and cfg.is_llm_ready() and demand.due() and now>=self.due.get((wid,0,'live-inbox'),0):
-                                if admit('live-inbox',0):
-                                    self.due[(wid,0,'live-inbox')]=now+30
-                            accounts=[account for account in accounts if account.id in enabled]
-                            if accounts:
-                                position=self.cursor.get(wid,0)%len(accounts)
-                                accounts=accounts[position:]+accounts[:position]
-                                self.cursor[wid]=(position+1)%len(accounts)
-                            for account in accounts:
-                                kinds=['mail']+(['calendar'] if account.provider=='outlook' else [])
-                                if WorkspaceOperations(context,self.url)._pending(conn,account):
-                                    kinds.append('classify')
-                                for kind in kinds:
-                                    key=(wid,account.id,kind)
-                                    if now>=self.due.get(key,0) and admit(kind,account.id):
-                                        interval=30 if kind=='mail' and account.provider!='outlook' else 120
-                                        if kind=='calendar' and _calendar_notifications_live(self.reader.root,wid,account.id):
-                                            interval=CALENDAR_FALLBACK_SECONDS
-                                        self.due[key]=now+interval
-                    except Exception as exc:
-                        self.health.failed(exc)
-                        log.warning('Workspace background coordination unavailable; retrying. workspace=%s error=%s raised_at=%s',wid,type(exc).__name__,_raised_at(exc))
-            self.due={key:value for key,value in self.due.items() if key[0] in live}
-            self.cursor={key:value for key,value in self.cursor.items() if key in live}
-        finally:
-            broker.close()
+                        elif (tightened:=realtime_coverage.tightened(schedule['next_due'],minutes))!=schedule['next_due']:
+                            # A housekeeping wait shortens as soon as real-time stops covering an account.
+                            schedule.update(next_due=tightened)
+                        from ..calendar_queue import due
+                        if cfg.is_llm_ready() and due(conn) and now>=self.due.get((wid,0,'calendar-analysis'),0):
+                            if admit('calendar-analysis',0):
+                                self.due[(wid,0,'calendar-analysis')]=now+30
+                        from .live_inbox import SharedLiveInbox
+                        demand=SharedLiveInbox(runtime_root(context)/'live-inbox.json')
+                        if cfg.watch.auto_check and cfg.is_llm_ready() and demand.due() and now>=self.due.get((wid,0,'live-inbox'),0):
+                            if admit('live-inbox',0):
+                                self.due[(wid,0,'live-inbox')]=now+30
+                        accounts=[account for account in accounts if account.id in enabled]
+                        if accounts:
+                            position=self.cursor.get(wid,0)%len(accounts)
+                            accounts=accounts[position:]+accounts[:position]
+                            self.cursor[wid]=(position+1)%len(accounts)
+                        for account in accounts:
+                            kinds=['mail']+(['calendar'] if account.provider=='outlook' else [])
+                            if WorkspaceOperations(context,self.url)._pending(conn,account):
+                                kinds.append('classify')
+                            for kind in kinds:
+                                key=(wid,account.id,kind)
+                                if now>=self.due.get(key,0) and admit(kind,account.id):
+                                    interval=30 if kind=='mail' and account.provider!='outlook' else 120
+                                    if kind=='calendar' and _calendar_notifications_live(self.reader.root,wid,account.id):
+                                        interval=CALENDAR_FALLBACK_SECONDS
+                                    self.due[key]=now+interval
+                except Exception as exc:
+                    self.health.failed(exc)
+                    log.warning('Workspace background coordination unavailable; retrying. workspace=%s error=%s raised_at=%s',wid,type(exc).__name__,_raised_at(exc))
+        self.due={key:value for key,value in self.due.items() if key[0] in live}
+        self.cursor={key:value for key,value in self.cursor.items() if key in live}
 
 
 class Consumer:
@@ -584,9 +600,10 @@ class Consumer:
                                     self.health.poll()
                                 except Exception:
                                     disconnected = True
-                                    future.result()  # Retain operation locks until completion.
                                     break
                             try:
+                                # Retain operation locks until completion even if
+                                # the old delivery can no longer be settled.
                                 future.result()
                             except (AccountDisabled,PermissionError):
                                 if not disconnected:
@@ -645,14 +662,12 @@ class Consumer:
                     self.health.failed(exc)
                     log.warning('Shared job transport unavailable; reconnecting. worker=%s error=%s raised_at=%s',
                                 os.environ.get('OFFERPATH_WORKER_ID','unknown'), type(exc).__name__, _raised_at(exc))
-                    self.stop.wait(1)
                 finally:
                     self.inflight = False
                     self.health.finish()
-                    try:
+                    with suppress(Exception):
                         broker.close()
-                    except Exception:
-                        pass
+                self.stop.wait(1)
 
 
 def job_health(consumer,coordinator=None):
@@ -671,7 +686,7 @@ def main():
     from .. import process_diagnostics
     process_diagnostics.configure_process('shared-job')
     from contextlib import asynccontextmanager
-    from fastapi import FastAPI,Request,HTTPException
+    from fastapi import FastAPI,Request,HTTPException,Response
     from .control import ControlReader
     parser=argparse.ArgumentParser()
     parser.add_argument('--port',type=int,required=True)
@@ -700,10 +715,15 @@ def main():
         for thread in threads:
             await asyncio.to_thread(thread.join)
     app=FastAPI(lifespan=lifespan)
+    worker_token = os.environ['OFFERPATH_WORKER_TOKEN'].encode()
+
+    def authenticate_worker(request):
+        if not secrets.compare_digest(request.headers.get('x-offerpath-worker','').encode(), worker_token):
+            raise HTTPException(403)
+
     @app.get('/_internal/ready')
     def ready(request:Request):
-        if not secrets.compare_digest(request.headers.get('x-offerpath-worker',''),os.environ['OFFERPATH_WORKER_TOKEN']):
-            raise HTTPException(403)
+        authenticate_worker(request)
         if not threads or not all(thread.is_alive() for thread in threads):
             raise HTTPException(503, 'A job processing thread has stopped.')
         evidence = job_health(consumer,coordinator)
@@ -717,6 +737,14 @@ def main():
         consumer.stop.set()
         if coordinator:
             coordinator.stop.set()
+
+    @app.post('/_internal/drain', status_code=204)
+    async def drain(request: Request):
+        authenticate_worker(request)
+        stop_accepting()
+        server.should_exit = True
+        return Response(status_code=204)
+
     process_lock=reader.root/'shared-runtime'/'processes'/f"{os.environ['OFFERPATH_WORKER_ID']}.lock"
     process_lock.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     with InstanceLock(process_lock):
