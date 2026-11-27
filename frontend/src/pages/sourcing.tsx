@@ -11,7 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, request } from "@/lib/api";
-import type { Index, Snapshot, Tab } from "@/lib/sourcing";
+import type { Index, QueueCounts, Snapshot, Tab } from "@/lib/sourcing";
 import { chicagoDay } from "@/lib/sourcing";
 import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
@@ -52,15 +52,20 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
     refetchOnReconnect:admin,
   });
   const client = useQueryClient();
-  const [workDay, setWorkDay] = usePageState("/sourcing", "work-day", chicagoDay, value => value === "undated" || isPageDate(value));
+  // The queue shows every unfinished job; a saved day is only an optional history filter.
+  const [workDay, setWorkDay] = usePageState("/sourcing", "work-day", "", value => value === "" || value === "undated" || isPageDate(value));
+  const [liveQueue, setLiveQueue] = useState<{tab: number; counts: QueueCounts} | null>(null);
+  const reportQueue = useCallback((tabId: number, counts: QueueCounts) => setLiveQueue(previous =>
+    previous?.tab === tabId && JSON.stringify(previous.counts) === JSON.stringify(counts) ? previous : {tab: tabId, counts}), []);
   const previousDirty = useRef(false);
   const updateDirty = useCallback((value: boolean) => {
     setDirty(value);
     if (previousDirty.current && !value) void client.invalidateQueries({queryKey: ["sourcing-index"]});
     previousDirty.current = value;
   }, [client]);
-  const missingLinks = admin && /^\d{4}-\d{2}-\d{2}$/.test(workDay)
-    ? index.data?.books.filter(book => !book.removed_at && book.job_dates && !book.job_dates.includes(workDay)) || []
+  const linkDay = workDay || chicagoDay();
+  const missingLinks = admin && /^\d{4}-\d{2}-\d{2}$/.test(linkDay)
+    ? index.data?.books.filter(book => !book.removed_at && book.job_dates && !book.job_dates.includes(linkDay)) || []
     : [];
   const [deleting, setDeleting] = useState<Tab | null>(null);
   const deletePreview = useQuery({
@@ -127,15 +132,15 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
           </option>
           {index.data?.books.map((b) => (
             <option value={b.id} key={b.id} className={b.removed_at ? "sourcing-deleted-bidder" : undefined}>
-              {b.name}{b.removed_at ? " (Deleted)" : ""}
+              {b.name}{b.removed_at ? " (Deleted)" : ""}{b.queue && !b.removed_at ? ` · ${b.queue.todo} to do${b.queue.expiring ? `, ${b.queue.expiring} expiring soon` : ""}` : ""}
             </option>
           ))}
         </select>
-        <span className="sourcing-book-title">{book?.title}</span>
+        <span className="sourcing-book-title" title={book?.title}>{book?.title}</span>
         <div className="sourcing-toolbar-days" ref={setDaySlot} />
-        {missingLinks.length > 0 && <div className="sourcing-missing-links" role="status" aria-live="polite">
+        {missingLinks.length > 0 && <div className="sourcing-missing-links" role="status" aria-live="polite" title={`No job links · ${linkDay}: ${missingLinks.map(book => book.name).join(", ")}`}>
           <TriangleAlert size={16} aria-hidden="true" />
-          <span><strong>No job links · {workDay}:</strong> {missingLinks.map(book => book.name).join(", ")}</span>
+          <span><strong>No job links · {linkDay}:</strong> {missingLinks.map(book => book.name).join(", ")}</span>
         </div>}
         <form
           className="sourcing-search"
@@ -234,7 +239,7 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
           )}
         </div>
       ) : tab && !admin ? (
-        <SourcingViewer key={tab.id} tab={tab} initialDay={workDay} onDayChange={setWorkDay} highlightId={params.get("row_id")||undefined} highlightRow={params.has("row")?Number(params.get("row")):undefined}/>
+        <SourcingViewer key={tab.id} tab={tab} initialDay={workDay} onDayChange={setWorkDay} onQueueCounts={counts => reportQueue(tab.id, counts)} highlightId={params.get("row_id")||undefined} highlightRow={params.has("row")?Number(params.get("row")):undefined}/>
       ) : tab ? (
         <SourcingEditor
           key={tab.id}
@@ -242,6 +247,7 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
           initialDay={workDay}
           onDirty={updateDirty}
           onDayChange={setWorkDay}
+          onQueueCounts={counts => reportQueue(tab.id, counts)}
           daySlot={daySlot}
           fullToolbar={fullToolbar}
           highlightId={params.get("row_id") || undefined}
@@ -282,6 +288,7 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
               aria-selected={tab?.id === t.id}
               disabled={dirty}
               onClick={() => setParams({ tab: String(t.id) })}
+              aria-description={(liveQueue?.tab === t.id ? liveQueue.counts.todo : t.queue?.todo) != null ? `${liveQueue?.tab === t.id ? liveQueue.counts.todo : t.queue?.todo} to do` : undefined}
               onKeyDown={event=>{
                 if(dirty)return
                 const offset=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0
@@ -294,6 +301,10 @@ export default function SourcingPage({ fullToolbar = false }: { fullToolbar?: bo
               }}
             >
               {t.title}
+              {(() => {
+                const todo = liveQueue?.tab === t.id ? liveQueue.counts.todo : t.queue?.todo;
+                return todo == null ? null : <span className="sourcing-tab-todo" aria-hidden="true">{todo}</span>;
+              })()}
             </button>
           ))}
           </div>

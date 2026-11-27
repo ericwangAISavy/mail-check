@@ -100,9 +100,9 @@ export default function SourcingDays({
             </option>
           ))}
       </select>
-      <span className="sheet-day-count">
+      {day && <span className="sheet-day-count">
         {counts.get(day) || 0} jobs · Chicago
-      </span>
+      </span>}
       </>}
       {!readOnly && !compact && <Button
         className="sheet-assign-date"

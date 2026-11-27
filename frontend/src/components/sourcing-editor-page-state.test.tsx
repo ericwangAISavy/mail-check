@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { PageStateProvider } from "@/lib/page-state"
 import SourcingEditor from "./sourcing-editor"
-vi.mock("@/lib/api",()=>({request:vi.fn(async()=>({id:1,title:"Jobs",revision:"1",structure_revision:1,refreshed_at:1,columns:[{id:"company",title:"Company",kind:"company",width:200},{id:"role",title:"Role",kind:"role",width:200}],rows:[],row_ids:[],properties:{gridProperties:{rowCount:0,columnCount:2}}})),api:{post:vi.fn()},downloadFile:vi.fn()}))
+vi.mock("@/lib/api",()=>({serverNow:()=>Date.now(),request:vi.fn(async()=>({id:1,title:"Jobs",revision:"1",structure_revision:1,refreshed_at:1,columns:[{id:"company",title:"Company",kind:"company",width:200},{id:"role",title:"Role",kind:"role",width:200}],rows:[],row_ids:[],properties:{gridProperties:{rowCount:0,columnCount:2}}})),api:{post:vi.fn()},downloadFile:vi.fn()}))
 vi.mock("./sourcing-grid",()=>({SheetGrid:()=>null}))
 vi.mock("./sourcing-progress",()=>({default:()=>null,useSourcingProgress:()=>({progress:null,run:vi.fn()})}))
 afterEach(()=>{cleanup();sessionStorage.clear();vi.clearAllMocks()})

@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 from datetime import date
 from fastapi import APIRouter, Request, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .. import db, native_sourcing as sheets, sourcing_csv, payments
 
@@ -60,6 +60,7 @@ class Operation(BaseModel):
 
 class Save(Operation):
     compact_rows: bool = False
+    assign_date: str | None = Field(default=None, max_length=10)
     changes: list[Change] = Field(min_length=1, max_length=10_000)
 
 
@@ -291,6 +292,14 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
                         (book["id"], is_admin),
                     )
                 ]
+            # One grouped query for every visible sheet: tab badges and the admin's
+            # per-bidder workload come from the same lifecycle as the editor.
+            queue = sheets.workload(conn, [tab["id"] for book in books for tab in book["tabs"]])
+            for book in books:
+                for tab in book["tabs"]:
+                    tab["queue"] = queue.get(tab["id"])
+                book["queue"] = {key: sum((tab["queue"] or {}).get(key, 0) for tab in book["tabs"] if not tab["archived"])
+                                 for key in ("todo", "new_today", "carryover", "expiring")}
             result = {"books": books}
             if is_admin:
                 result["bidders"] = [
@@ -376,13 +385,15 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
         return progress.get(tab_id, str(operation)) or {"stage":"preparing","processed":0,"total":None}
 
     @router.get("/api/sourcing/tabs/{tab_id}")
-    def snapshot(tab_id: int, req: Request):
+    def snapshot(tab_id: int, req: Request, compact: bool = False):
         with db.session() as conn:
             if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
             try:
-                return sheets.snapshot(conn, owned(conn, tab_id, req))
+                data = sheets.snapshot(conn, owned(conn, tab_id, req), compact=compact)
             except sheets.SnapshotTooLarge as exc:
                 raise HTTPException(413, str(exc))
+        # The snapshot already contains JSON-compatible values.
+        return JSONResponse(data)
 
     @router.post("/api/sourcing/tabs/{tab_id}/save")
     def save(tab_id: int, body: Save, req: Request):
@@ -396,6 +407,7 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
                 [c.model_dump(exclude_none=True) for c in body.changes],
                 work_date=body.work_date,
                 compact_rows=body.compact_rows,
+                assign_date=body.assign_date,
             ),
             operation=str(body.operation),
         )

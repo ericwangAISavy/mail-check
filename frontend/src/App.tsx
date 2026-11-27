@@ -1,9 +1,10 @@
 import { readBrowserPreference, writeBrowserPreference } from "@/lib/browser-preferences"
+import { getAppearance, setMode, subscribeAppearance } from "@/lib/appearance"
 import { PageQueryBoundary } from "@/lib/page-state"
 import ReleaseHistory from "@/components/release-history"
 import ChangePassword from "@/components/change-password"
 import { OfferPathMark } from "@/components/offerpath-mark"
-import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Navigate, NavLink, Route, Routes, UNSAFE_DataRouterContext, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
@@ -52,6 +53,7 @@ const InterviewProcessesPage = lazy(pageImports.interviewProcesses)
 const AccountsPage = lazy(pageImports.accounts)
 const AdminManagement = lazy(pageImports.adminManagement)
 const SettingsPage = lazy(pageImports.settings)
+const PersonalSettingsPage = lazy(() => pageImports.settings().then(module => ({ default: module.PersonalSettingsPage })))
 
 const sections = [
   { to: "/", label: "Triage", icon: Inbox },
@@ -68,24 +70,8 @@ const sections = [
 ]
 
 function ThemeControl() {
-  const [theme, setTheme] = useState(() => readBrowserPreference("mailcheck.theme", "dark"))
-  useEffect(() => {
-    const root = document.documentElement
-    const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
-      root.classList.toggle("dark", dark)
-      root.dataset.theme = dark ? "dark" : "light"
-      root.style.colorScheme = dark ? "dark" : "light"
-    }
-    apply()
-    const media = window.matchMedia("(prefers-color-scheme: dark)")
-    media.addEventListener("change", apply)
-    return () => media.removeEventListener("change", apply)
-  }, [theme])
-  const rotate = () => {
-    const next = theme === "system" ? "light" : theme === "light" ? "dark" : "system"
-    setTheme(next); writeBrowserPreference("mailcheck.theme", next)
-  }
+  const theme = useSyncExternalStore(subscribeAppearance, getAppearance).mode
+  const rotate = () => { setMode(theme === "system" ? "light" : theme === "light" ? "dark" : "system") }
   const Icon = theme === "dark" ? Moon : theme === "light" ? Sun : Activity
   return <Button variant="ghost" size="icon" aria-label={`Color theme: ${theme}. Change theme`} title={`Theme: ${theme}`} onClick={rotate}><Icon size={18} /></Button>
 }
@@ -308,7 +294,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <aside ref={mobileNavPanel} id="workspace-navigation" inert={compactNav&&!mobileNav} role={mobileNav?'dialog':undefined} aria-modal={mobileNav?true:undefined} aria-label={mobileNav?'Navigation':undefined} className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || canManageSettings).filter(s=>s.to!=="/job-links" || canViewJobLinks).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
+      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || admin).filter(s=>s.to!=="/job-links" || canViewJobLinks).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
         // Keep the current URL, including filters updated through browser history.
         // Modified clicks retain the link's normal browser behavior.
         const plain = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
@@ -340,7 +326,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
-        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : admin ? <PersonalSettingsPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
         <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/dashboard" replace />} />
       </Routes></Suspense></PageQueryBoundary></main>

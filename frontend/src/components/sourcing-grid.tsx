@@ -6,6 +6,7 @@ import {
   type RenderEditCellProps,
 } from "react-data-grid";
 import "react-data-grid/lib/styles.css";
+import { ExternalLink } from "lucide-react";
 import {
   columnName,
   checkedSourcingRows,
@@ -15,6 +16,8 @@ import {
   normalStyle,
   parseClipboardRows,
   serializeTSV,
+  rowLifecycle,
+  jobSite,
   visibleRows,
   type Change,
   type Selection,
@@ -212,8 +215,11 @@ export function SheetGrid({
     col.kind !== "check" && (!col.width || col.width === 220);
   const fixedWidth = snapshot.columns.reduce((sum, col) => sum + (flexible(col) ? 0 : col.width || 76), 48);
   const flexibleCount = snapshot.columns.filter(flexible).length;
-  const textWidth = viewportWidth && flexibleCount
-    ? Math.max(140, Math.floor((viewportWidth - fixedWidth) / flexibleCount))
+  // Role and company carry the meaning people scan for; the link column only needs its site.
+  const weight = (col: Snapshot["columns"][number]) => col.kind === "role" ? 1.35 : col.kind === "link" ? 0.8 : 1;
+  const flexibleWeight = snapshot.columns.filter(flexible).reduce((sum, col) => sum + weight(col), 0);
+  const textWidth = (col: Snapshot["columns"][number]) => viewportWidth && flexibleCount
+    ? Math.max(140, Math.floor((viewportWidth - fixedWidth) * weight(col) / flexibleWeight))
     : 220;
   const columns: Column<Row>[] = [
     {
@@ -230,7 +236,7 @@ export function SheetGrid({
     ...snapshot.columns.map((definition, c): Column<Row> => ({
       key: String(c),
       name: sourcingColumnTitle(definition,c),
-      width: flexible(definition) ? textWidth : definition.width || 76,
+      width: flexible(definition) ? textWidth(definition) : definition.width || 76,
       resizable: !disabled && !rowMode,
       editable: (row) =>
         !disabled && !rowMode && !checkedRows.has(row.id) && definition.kind !== "check" && row.id > 0,
@@ -270,15 +276,20 @@ export function SheetGrid({
             }}
             title={text}
           >
-            {definition.kind === "link" && /^https?:\/\//i.test(text) ? (
+            {definition.kind === "company" && row.id > 0 && view?.queue && rowLifecycle(snapshot, row.id, (_, col) => String(row[String(col)] ?? ""), view.queue.now, view.queue.dayStart).expiring ? (
+              <><span className="sheet-company-text">{text}</span><span className="sheet-expiring">Expiring soon</span></>
+            ) : definition.kind === "link" && /^https?:\/\//i.test(text) ? (
               <a
                 href={text}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => { e.stopPropagation(); if(!e.ctrlKey&&!e.metaKey)e.preventDefault(); }}
-                title={checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"Click to select row. Ctrl/Cmd+click to open."}
+                title={`${text}
+${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"Click to select row. Ctrl/Cmd+click to open."}`}
+                className={rowMode ? "sheet-link-site" : undefined}
+                aria-label={rowMode ? text : undefined}
               >
-                {text}
+                {rowMode ? <>{jobSite(text)}<ExternalLink size={12} aria-hidden="true" /></> : text}
               </a>
             ) : (
               text

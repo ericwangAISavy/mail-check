@@ -107,3 +107,55 @@
  :root body .app-frame .outlook-day-heading.is-today > span:first-child { display:inline-grid; place-items:center; min-width:28px; height:28px; margin:-4px 0 -4px -6px; padding:0 6px; border-radius:999px; background:var(--primary); color:var(--primary-foreground); }
  :root body .app-frame .outlook-calendar .outlook-hour-label > span { left:auto; right:7px; top:4px; }
 }
+
+/* Job sourcing work queue: status tabs with counts, the To do breakdown, the quiet
+   expiring-soon marker in company cells and To do counts on profile tabs. */
+@media screen {
+ :root body .app-frame .sourcing-queue { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:4px 20px; padding:0 var(--ui-gutter); border-bottom:1px solid var(--ui-hairline); background:var(--card); }
+ :root body .app-frame .sourcing-queue-tabs { display:flex; gap:18px; }
+ :root body .app-frame .sourcing-queue-tab { position:relative; display:inline-flex; align-items:baseline; gap:6px; padding:10px 0 9px; border:0; background:transparent; color:var(--muted-foreground); font-size:13px; font-weight:550; cursor:pointer; }
+ :root body .app-frame .sourcing-queue-tab:hover:not(:disabled) { color:var(--foreground); }
+ :root body .app-frame .sourcing-queue-tab[aria-pressed="true"] { color:var(--foreground); }
+ :root body .app-frame .sourcing-queue-tab[aria-pressed="true"]::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; border-radius:2px; background:var(--primary); }
+ :root body .app-frame .sourcing-queue-count { font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; color:inherit; opacity:.85; }
+ :root body .app-frame .sourcing-queue-metrics { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; padding:8px 0; }
+ :root body .app-frame .sourcing-queue-metric { display:inline-flex; align-items:center; gap:5px; padding:2px 6px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--text-soft); font-size:12.5px; font-weight:500; cursor:pointer; }
+ :root body .app-frame .sourcing-queue-metric strong { color:var(--foreground); font-weight:650; font-variant-numeric:tabular-nums; }
+ :root body .app-frame .sourcing-queue-metric:hover:not(:disabled) { background:var(--ui-row-hover); }
+ :root body .app-frame .sourcing-queue-metric[aria-pressed="true"] { border-color:var(--ui-selected-edge); background:var(--ui-selected); }
+ :root body .app-frame .sourcing-queue-metric:disabled { cursor:default; opacity:.6; }
+ :root body .app-frame .sourcing-queue-metric.is-expiring, :root body .app-frame .sourcing-queue-metric.is-expiring strong { color:var(--warning); }
+ :root body .app-frame .sourcing-history-note { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0; padding:6px var(--ui-gutter); border-bottom:1px solid var(--ui-hairline); background:var(--surface); color:var(--text-soft); font-size:12px; }
+ :root body .app-frame .sourcing-history-note button { padding:0; border:0; background:none; color:var(--primary); font:inherit; font-weight:550; cursor:pointer; }
+ :root body .app-frame .sourcing-history-note button:hover { text-decoration:underline; text-underline-offset:3px; }
+ :root body .app-frame :is(.native-cell-content,.sheet-company-cell):has(.sheet-expiring) { display:flex; align-items:baseline; gap:8px; min-width:0; }
+ :root body .app-frame .sheet-company-text, :root body .app-frame .sheet-company-cell > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+ :root body .app-frame .sheet-expiring { flex:none; color:var(--warning); font-size:11.5px; font-weight:550; white-space:nowrap; }
+ :root body .app-frame .sourcing-tab-todo { display:inline-block; min-width:18px; margin-left:7px; padding:0 5px; border-radius:999px; background:color-mix(in srgb,var(--foreground) 9%,transparent); color:var(--text-soft); font-size:11px; font-weight:600; line-height:17px; text-align:center; font-variant-numeric:tabular-nums; }
+ :root body .app-frame .sourcing-tab-list > button[aria-selected="true"] .sourcing-tab-todo { background:color-mix(in srgb,var(--primary) 18%,transparent); color:var(--foreground); }
+}
+@media screen and (max-width:700px) {
+ :root body .app-frame .sourcing-queue-tabs { gap:14px; overflow-x:auto; }
+ :root body .app-frame .sourcing-queue-metrics { padding-top:0; }
+}
+/* The bidder selector carries each bidder's outstanding work, so it may grow to show it. */
+@media screen and (min-width:1024px) { :root body .app-frame .sourcing-toolbar > select { max-width:340px; } }
+
+/* Job Sourcing toolbar: one calm row. The workbook keeps its name, the missing-links
+   warning is a single-line chip (full list on hover), and search takes the free space. */
+@media screen and (min-width:1024px) {
+  :root body .app-frame .sourcing-page .sourcing-toolbar { flex-wrap:nowrap; }
+  :root body .app-frame .sourcing-page .sourcing-toolbar .sourcing-book-title { flex:0 1 auto; min-width:7.5em; max-width:220px; }
+  :root body .app-frame .sourcing-page .sourcing-search { flex:1 1 180px; min-width:150px; max-width:360px; }
+  :root body .app-frame .sourcing-page .sourcing-search input { width:100%; min-width:0; }
+}
+:root body .app-frame .sourcing-page .sourcing-missing-links { flex:0 1 auto; max-width:min(340px,32vw); height:28px; padding:0 10px; border-radius:999px; white-space:nowrap; overflow:hidden; overflow-wrap:normal; line-height:1; cursor:default; }
+:root body .app-frame .sourcing-page .sourcing-missing-links > span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+:root body .app-frame .sourcing-page .sourcing-missing-links svg { width:14px; height:14px; }
+@media (max-width:1023px) { :root body .app-frame .sourcing-page .sourcing-missing-links { max-width:100%; flex:1 1 100%; } }
+:root body .app-frame .sourcing-page .sourcing-toolbar-days .sheet-days input { height:30px; }
+
+/* Job links read as their site; the full address is in the tooltip. */
+.sourcing-grid .native-cell-content a.sheet-link-site { display:inline-flex; align-items:center; gap:5px; max-width:100%; }
+.sourcing-grid .native-cell-content a.sheet-link-site svg { flex:none; opacity:.6; }
+.sourcing-viewer-link a { min-width:0; }

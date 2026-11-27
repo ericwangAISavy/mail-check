@@ -3,7 +3,7 @@ import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
 import SourcingViewer from "./sourcing-viewer"
 import {api,request} from "@/lib/api"
-vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()}}))
+vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()},serverNow:()=>Date.now()}))
 const cell=(value:string)=>({value,display:value,style:{},formula:false,link:"",version:0})
 const snapshot={id:7,title:"Work",revision:"1",structure_revision:0,refreshed_at:0,columns:[{id:"c",title:"Company",kind:"company",width:200},{id:"l",title:"Job link",kind:"link",width:400}],row_ids:["h","a","b"],row_dates:[null,"2026-10-20","2026-10-21"],rows:[[cell("Company"),cell("Job link")],[cell("Acme"),cell("https://jobs.test/1")],[cell("Beta"),cell("https://jobs.test/2")]],properties:{gridProperties:{rowCount:3,columnCount:2}}}
 let client:QueryClient
@@ -14,7 +14,7 @@ function mount(){render(<QueryClientProvider client={client}><SourcingViewer tab
 it("views saved dates and copies rows without edit, refresh or write actions",async()=>{
  mount();await screen.findByText("Acme")
  expect(screen.queryByText("Beta")).toBeNull()
- fireEvent.click(screen.getByRole("button",{name:"Copy jobs for this date"}))
+ fireEvent.click(screen.getByRole("button",{name:"Copy these jobs"}))
  await waitFor(()=>expect(copy).toHaveBeenCalledWith("Company\tJob link\nAcme\thttps://jobs.test/1"))
  fireEvent.change(screen.getByLabelText("Saved job days"),{target:{value:"2026-10-21"}})
  await screen.findByText("Beta")
@@ -33,5 +33,23 @@ it("does not expose a search refresh button to bidders",async()=>{
  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/sourcing?q=Acme"]}><SourcingPage/></MemoryRouter></QueryClientProvider>)
  await screen.findByRole("heading",{name:/Applications matching/})
  expect(screen.queryByRole("button",{name:"Refresh results"})).toBeNull()
+ expect(api.post).not.toHaveBeenCalled()
+})
+
+it("shows a bidder every unfinished job across days, marks the ones expiring soon and keeps expired ones in history",async()=>{
+ const now=Date.now(),hour=3600_000
+ const queued={...snapshot,row_ids:["h","a","b","c"],row_dates:[null,"2026-10-01","2026-10-20","2026-10-21"],
+  row_created:[null,(now-6*24*hour)/1000,(now-hour)/1000,(now-8*24*hour)/1000],
+  rows:[[cell("Company"),cell("Job link")],[cell("Aging"),cell("https://jobs.test/1")],[cell("Fresh"),cell("https://jobs.test/2")],[cell("Lapsed"),cell("https://jobs.test/3")]]}
+ vi.mocked(request).mockResolvedValue(queued)
+ render(<QueryClientProvider client={client}><SourcingViewer tab={{id:7,title:"Work",account_id:1,header_row:1,refreshed_at:0}}/></QueryClientProvider>)
+ await screen.findByText("Aging")
+ expect(screen.getByText("Fresh")).toBeTruthy()
+ expect(screen.queryByText("Lapsed")).toBeNull()
+ expect(screen.getAllByText("Expiring soon").length).toBeGreaterThan(0)
+ expect(screen.getByRole("button",{name:/To do 2/}).getAttribute("aria-pressed")).toBe("true")
+ fireEvent.click(screen.getByRole("button",{name:/Expired 1/}))
+ await screen.findByText("Lapsed")
+ expect(screen.queryByText("Aging")).toBeNull()
  expect(api.post).not.toHaveBeenCalled()
 })

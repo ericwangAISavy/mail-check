@@ -96,6 +96,21 @@ const index = {
   ],
 };
 const clients: QueryClient[] = [];
+it("opens a compact sheet and keeps the saved cell version when editing", async () => {
+  const {rows, ...metadata} = snapshot;
+  const packed = {...metadata, row_dates: [null, "2026-10-20"], cell_entries: [[1, 0, "Café", 7, {bold: true}]], confirmation_times: []};
+  vi.mocked(fetch).mockImplementation(async (url) => new Response(JSON.stringify(url === "/api/sourcing" ? index : packed), {
+    headers: {"content-type": "application/json"},
+  }));
+  const post = vi.spyOn(api, "post").mockResolvedValue(snapshot);
+  mount();
+  await waitFor(() => expect(screen.getByLabelText("Saved company").textContent).toBe("Café"));
+  expect(fetch).toHaveBeenCalledWith("/api/sourcing/tabs/1?compact=true", expect.objectContaining({signal: expect.any(AbortSignal)}));
+  fireEvent.click(screen.getByRole("button", {name: "Edit company"}));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/save", expect.objectContaining({changes: [
+    expect.objectContaining({row_id: "row-one", column_id: "company", expected_version: 7, value: "New company"}),
+  ]})), {timeout: 4000});
+});
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -601,16 +616,16 @@ it("deletes selected job rows using their stable identities from the toolbar", a
 it("refreshes a clean sheet when the global check finishes", async () => {
   mount();
   await screen.findByText("Saved");
-  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length;
   act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
-  await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBeGreaterThan(calls));
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length).toBeGreaterThan(calls));
 });
 it("preserves active edits when the global check finishes", async () => {
   mount();
   fireEvent.click(await screen.findByRole("button", {name: "Start typing"}));
-  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length;
   act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
-  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBe(calls);
+  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length).toBe(calls);
 });
 
 it("warns which bidders have no links on the selected date and hides it for Undated", async () => {
@@ -634,13 +649,13 @@ it("warns which bidders have no links on the selected date and hides it for Unda
 it('does not discard a slow initial sheet response when focus triggers another refresh', async () => {
   let finish!: (value: Response) => void;
   const original=vi.mocked(fetch).getMockImplementation()!;
-  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1?compact=true'
     ? new Promise<Response>(resolve=>{finish=resolve}) : original(url,init));
   mount();
   await screen.findByText('Loading your spreadsheet…');
   fireEvent(window,new Event('focus'));
   fireEvent(window,new Event('mailcheck:check-completed'));
-  expect(vi.mocked(fetch).mock.calls.filter(([url])=>String(url)==='/api/sourcing/tabs/1')).toHaveLength(1);
+  expect(vi.mocked(fetch).mock.calls.filter(([url])=>String(url)==='/api/sourcing/tabs/1?compact=true')).toHaveLength(1);
   await act(async()=>finish({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>snapshot} as Response));
   expect((await screen.findByLabelText('Saved company')).textContent).toBe('Acme');
 });
@@ -649,7 +664,7 @@ it('ends a stalled sheet load with a retryable timeout instead of an endless spi
   const timer=vi.spyOn(window,'setTimeout');
   const original=vi.mocked(fetch).getMockImplementation()!;
   let signal:AbortSignal|undefined;
-  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1?compact=true'
     ? new Promise<Response>((_resolve,reject)=>{
         signal=init?.signal as AbortSignal;
         signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')));
@@ -669,7 +684,7 @@ it('ends a stalled sheet load with a retryable timeout instead of an endless spi
 it('cancels the old sheet request when leaving the page',async()=>{
   const original=vi.mocked(fetch).getMockImplementation()!;
   let signal:AbortSignal|undefined;
-  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1?compact=true'
     ? new Promise<Response>((_resolve,reject)=>{
         signal=init?.signal as AbortSignal;
         signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')));

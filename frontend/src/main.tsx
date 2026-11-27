@@ -1,5 +1,5 @@
 import { clearAssetRecoveryMarker } from "@/lib/asset-recovery"
-import { readBrowserPreference } from "@/lib/browser-preferences"
+import { initAppearance } from "@/lib/appearance"
 import "@fontsource-variable/geist/wght.css"
 import "./index.css"
 import "./cyber.css"
@@ -18,6 +18,8 @@ import "./design/operations.css"
 import "./design/workspaces.css"
 import "./design/auth-monitoring.css"
 import "./design/states.css"
+import "./design/appearance.css"
+import "./design/themes.css"
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { createBrowserRouter, RouterProvider } from "react-router-dom"
@@ -41,12 +43,9 @@ const router = createBrowserRouter([{ path: "*", element: <AppErrorBoundary><App
 const LocalMonitor = React.lazy(() => import("./components/local-monitor"))
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } } })
 
-// Match the sign-in screen to the saved theme before the workspace mounts.
-const savedTheme = readBrowserPreference("mailcheck.theme", "dark")
-const initialDark = savedTheme === "dark" || (savedTheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
-document.documentElement.classList.toggle("dark", initialDark)
-document.documentElement.dataset.theme = initialDark ? "dark" : "light"
-document.documentElement.style.colorScheme = initialDark ? "dark" : "light"
+// Match the sign-in screen to this device's saved mode before the workspace mounts.
+// A person's own theme is applied once their session is known.
+initAppearance()
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

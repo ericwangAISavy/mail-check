@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { LogIn, UsersRound, UserRound, LockKeyhole, Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { api, setWorkspaceIdentity, type Session } from "@/lib/api"
+import { appearanceIdentity, setAppearanceIdentity } from "@/lib/appearance"
 import { Button } from "@/components/ui/button"
 import { Loading } from "@/components/common"
 import "@fontsource-variable/manrope/wght.css"
@@ -81,6 +82,11 @@ export function AuthGate({children}:{children:ReactNode}) {
   const pageScope=JSON.stringify([data?.workspace_id || "legacy",data?.user_id ?? data?.username ?? "legacy",data?.role,data?.bidder_id ?? null])
   const identity=JSON.stringify([pageScope,Boolean(data?.must_change_password),Boolean(data?.managed)])
   const [activeIdentity,setActiveIdentity]=useState("")
+  // Before paint, so no one briefly sees the previous person's colors.
+  const person=appearanceIdentity(data)
+  useLayoutEffect(()=>{
+    if(!session.isPending)setAppearanceIdentity(person)
+  },[person,session.isPending])
   useEffect(()=>{
     if(session.isPending)return
     setWorkspaceIdentity(data?.workspace_id,identity)

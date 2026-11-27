@@ -15,7 +15,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 56
+SCHEMA_VERSION = 57
 SHARED_SCHEMA_MIN_VERSION = 50
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
@@ -252,6 +252,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("application_receipts", "job_refs", "TEXT NOT NULL DEFAULT '[]'"),
     ("interview_events", "interviewers", "TEXT NOT NULL DEFAULT '[]'"),
     ("interview_calendar_state", "interview_related", "INTEGER NOT NULL DEFAULT 0"),
+    # When a sourcing row first held a job; the 7-day work queue is measured from it.
+    ("native_rows", "created_at", "REAL"),
 ]
 
 

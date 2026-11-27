@@ -330,7 +330,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         if path.rstrip('/') in ('/job-links','/api/job-links') and not (
                 identity and identity['role']=='admin' and (identity.get('is_owner') or identity.get('job_links_access'))):
             return JSONResponse({'error':'The owner has not granted Job links access to this admin.'},403,headers={'Cache-Control':'no-store'})
-        restricted_settings = path == '/system-monitoring' or path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
+        # Every admin may open the Settings page for their own sign-in, appearance and alerts;
+        # the workspace-wide settings behind these APIs stay with the owner.
+        restricted_settings = path == '/system-monitoring' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)
         try:

@@ -2,6 +2,45 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.37.1 — 2026-11-26
+
+Clearer Job Sourcing page
+
+- Jobs saved before the server upgrade now age from their sourcing day, so Expired and Carryover counts are correct instead of 0.
+- Picking a date shows that day's full history; Back to work queue returns to To do.
+- Job links show their site with the full address on hover, role and company columns get more room, and the missing-links warning is a compact chip.
+- Empty views explain what to do next.
+
+## 3.37.0 — 2026-11-26
+
+Job sourcing work queue
+
+- Job sourcing opens on To do: every unfinished job from any day stays there until it is checked or seven days pass, with Completed, Expired and All for history
+- New today, Carryover and Expiring soon counts sit above the table, jobs in their last 48 hours show a quiet Expiring soon marker and lead the list, and each profile tab shows its To do count
+- Admins see each bidder's outstanding and expiring work in the bidder picker; the date picker is now an optional history filter
+
+## 3.36.0 — 2026-11-26
+
+Personal settings for every admin
+
+- Every admin can now open Settings to change their own sign-in password, choose their appearance and turn on urgent mail alerts
+- Model, checking, Outlook, local rules and privacy settings stay with the owner, and the server still refuses those changes from other admins
+
+## 3.35.0 — 2026-11-26
+
+Signature themes
+
+- Settings > Appearance offers nine curated themes, each with light and dark versions: Classic Cyan, Iris, Midnight, Forest, Champagne, Bordeaux, Monograph, Cobalt and Terracotta
+- Each administrator's theme and mode are personal and restore at sign-in; changing yours never changes anyone else's or any workspace setting
+- Themes apply instantly without reloading data, and status, chart and calendar colors keep their meaning in every theme
+
+## 3.34.10 — 2026-11-26
+
+Faster Job Sourcing sheet loading
+
+- Open large Job Sourcing sheets faster with compact data for the editor and read-only viewer.
+- Reduce sheet loading work while preserving formatting, check timestamps, and edit versions.
+
 ## 3.34.9 — 2026-11-26
 
 Faster Bidder management loading

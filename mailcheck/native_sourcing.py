@@ -69,6 +69,84 @@ def new_id():
     return uuid.uuid4().hex
 
 
+# Work-queue lifecycle. Nothing is stored except when a row first held a job
+# (native_rows.created_at); status is derived from that and the check cell.
+LIFETIME_SECONDS = 7 * 24 * 3600
+WARNING_SECONDS = 48 * 3600
+QUEUE_ZONE = "America/Chicago"
+_HAS_JOB = """EXISTS (SELECT 1 FROM native_cells jc JOIN native_columns jcol ON jcol.id=jc.column_id
+    WHERE jc.row_id={row}.id AND COALESCE(jcol.kind,'')!='check'
+    AND trim(jc.value, char(9)||char(10)||char(13)||' ')!='')"""
+
+
+def _day_start(day, zone=QUEUE_ZONE):
+    from datetime import datetime, time as day_time
+    from zoneinfo import ZoneInfo
+    return datetime.combine(day, day_time.min, ZoneInfo(zone)).timestamp()
+
+
+def today_start(now=None):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    current = datetime.fromtimestamp(time.time() if now is None else now, ZoneInfo(QUEUE_ZONE))
+    return _day_start(current.date())
+
+
+def sync_created(conn, tab_id, now=None, *, clear=False):
+    """Stamp rows the moment they first hold a job. Edits, checks, date moves and
+    reordering never change the stamp. Rows emptied by a save are reset by
+    compact_blank_rows; `clear` re-checks the whole sheet after structural
+    operations, which are rare, so ordinary saves never scan every job."""
+    stamp = time.time() if now is None else now
+    conn.execute(f"UPDATE native_rows SET created_at=? WHERE tab_id=? AND created_at IS NULL AND {_HAS_JOB.format(row='native_rows')}", (stamp, tab_id))
+    if clear:
+        conn.execute(f"UPDATE native_rows SET created_at=NULL WHERE tab_id=? AND created_at IS NOT NULL AND NOT {_HAS_JOB.format(row='native_rows')}", (tab_id,))
+
+
+def backfill_created(conn, now=None):
+    """One-time upgrade: existing jobs start at the beginning of their sourcing day
+    (Chicago); jobs that never had a day start now. Already-stamped rows are kept."""
+    stamp = time.time() if now is None else now
+    pending = f"created_at IS NULL AND {_HAS_JOB.format(row='native_rows')}"
+    for (day,) in conn.execute(f"SELECT DISTINCT work_date FROM native_rows WHERE work_date IS NOT NULL AND {pending}").fetchall():
+        try:
+            start = _day_start(date.fromisoformat(day))
+        except (TypeError, ValueError):
+            continue
+        conn.execute(f"UPDATE native_rows SET created_at=? WHERE work_date=? AND {pending}", (start, day))
+    conn.execute(f"UPDATE native_rows SET created_at=? WHERE {pending}", (stamp,))
+
+
+def workload(conn, tab_ids, now=None):
+    """To do, new today, carryover, expiring soon, completed and expired per sheet,
+    in one grouped query."""
+    if not tab_ids:
+        return {}
+    current = time.time() if now is None else now
+    expire_before, warn_before, day = current - LIFETIME_SECONDS, current - LIFETIME_SECONDS + WARNING_SECONDS, today_start(current)
+    placeholders = ",".join("?" for _ in tab_ids)
+    # One pass over the sheets' cells, grouped per row, rather than two correlated
+    # lookups per row: this runs on every sheet-list request.
+    rows = conn.execute(f"""SELECT tab_id,
+        SUM(CASE WHEN NOT done AND created_at>? THEN 1 ELSE 0 END) AS todo,
+        SUM(CASE WHEN NOT done AND created_at>? AND created_at>=? THEN 1 ELSE 0 END) AS new_today,
+        SUM(CASE WHEN NOT done AND created_at>? AND created_at<=? THEN 1 ELSE 0 END) AS expiring,
+        SUM(CASE WHEN done THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN NOT done AND created_at<=? THEN 1 ELSE 0 END) AS expired,
+        COUNT(*) AS total
+        FROM (SELECT r.tab_id, COALESCE(r.created_at, ?) AS created_at,
+                MAX(col.kind='check' AND c.value='true') AS done,
+                MAX(COALESCE(col.kind,'')!='check' AND trim(c.value, char(9)||char(10)||char(13)||' ')!='') AS job
+              FROM native_rows r JOIN native_cells c ON c.row_id=r.id JOIN native_columns col ON col.id=c.column_id
+              WHERE r.tab_id IN ({placeholders}) GROUP BY r.id)
+        WHERE job GROUP BY tab_id""", (expire_before, expire_before, day, expire_before, warn_before, expire_before, current, *tab_ids)).fetchall()
+    counts = {tab_id: {"todo": 0, "new_today": 0, "carryover": 0, "expiring": 0, "completed": 0, "expired": 0, "all": 0} for tab_id in tab_ids}
+    for row in rows:
+        counts[row["tab_id"]] = {"todo": row["todo"], "new_today": row["new_today"], "carryover": row["todo"] - row["new_today"],
+                                 "expiring": row["expiring"], "completed": row["completed"], "expired": row["expired"], "all": row["total"]}
+    return counts
+
+
 @contextmanager
 def atomic(conn, *, deferred=False):
     """SQLite serializes the version check and its writes across app processes."""
@@ -180,12 +258,12 @@ def owned(conn, tab_id, principal):
     return dict(row)
 
 
-def snapshot(conn, tab):
+def snapshot(conn, tab, *, compact=False):
     if conn.in_transaction:
-        return _snapshot(conn, tab)
+        return _snapshot(conn, tab, compact=compact)
     conn.execute("BEGIN")
     try:
-        return _snapshot(conn, tab)
+        return _snapshot(conn, tab, compact=compact)
     finally:
         conn.rollback()
 
@@ -201,7 +279,7 @@ def _check_snapshot_budget(conn, tab):
         raise SnapshotTooLarge("This sheet contains too much text to open safely. Export CSV to preserve your data, then split it into smaller sheets.")
 
 
-def _snapshot(conn, tab):
+def _snapshot(conn, tab, *, compact=False):
     _check_snapshot_budget(conn, tab)
     tab = conn.execute("SELECT t.*,COALESCE(a.label,t.title) AS account_title FROM native_tabs t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tab["id"],)).fetchone()
     columns = [
@@ -217,18 +295,48 @@ def _snapshot(conn, tab):
     row_records = [
         dict(r)
         for r in conn.execute(
-            "SELECT id,work_date FROM native_rows WHERE tab_id=? ORDER BY position,id",
+            "SELECT id,work_date,created_at FROM native_rows WHERE tab_id=? ORDER BY position,id",
             (tab["id"],),
         )
     ]
     row_ids = [r["id"] for r in row_records]
-    cells = {
-        (r["row_id"], r["column_id"]): r
-        for r in conn.execute(
-            "SELECT c.* FROM native_cells c JOIN native_rows r ON r.id=c.row_id WHERE r.tab_id=?",
-            (tab["id"],),
-        )
+    result = {
+        "id": tab["id"],
+        "title": tab["account_title"],
+        "revision": str(tab["revision"]),
+        "structure_revision": tab["structure_revision"],
+        "row_ids": ["", *row_ids],
+        "row_dates": [None, *[r["work_date"] for r in row_records]],
+        # The work queue derives To do, Expired and Expiring soon from these. The
+        # snapshot stays identical for an unchanged sheet; the clock comes from the
+        # response's Date header.
+        "row_created": [None, *[r["created_at"] for r in row_records]],
+        "columns": columns,
+        "header_row": 1,
+        "refreshed_at": tab["updated_at"],
+        "migration_notice": tab["migration_notice"],
+        "properties": {
+            "gridProperties": {"rowCount": len(row_ids) + 1, "columnCount": len(columns)}
+        },
     }
+    stored_cells = conn.execute(
+        "SELECT c.* FROM native_cells c JOIN native_rows r ON r.id=c.row_id WHERE r.tab_id=?",
+        (tab["id"],),
+    )
+    confirmed_times = {r['row_id']: r['confirmed_at'] for r in conn.execute(
+        "SELECT e.row_id,e.confirmed_at FROM sourcing_check_activity e JOIN native_rows r ON r.id=e.row_id WHERE r.tab_id=?", (tab['id'],))}
+    if compact:
+        row_positions = {key: i for i, key in enumerate(row_ids, start=1)}
+        column_positions = {column['id']: i for i, column in enumerate(columns)}
+        result['cell_entries'] = [
+            [row_positions[cell['row_id']], column_positions[cell['column_id']],
+             cell['value'], cell['version'], json.loads(cell['style']) if cell['style'] != '{}' else {}]
+            for cell in stored_cells if cell['column_id'] in column_positions
+        ]
+        result['confirmation_times'] = [[row_positions[key], stamp] for key, stamp in confirmed_times.items() if stamp is not None]
+        return result
+
+    cells = {(r["row_id"], r["column_id"]): r for r in stored_cells}
     rows = [
         [
             {
@@ -242,8 +350,6 @@ def _snapshot(conn, tab):
             for c in columns
         ]
     ]
-    confirmed_times = {r['row_id']:r['confirmed_at'] for r in conn.execute(
-        "SELECT e.row_id,e.confirmed_at FROM sourcing_check_activity e JOIN native_rows r ON r.id=e.row_id WHERE r.tab_id=?", (tab['id'],))}
     for row_id in row_ids:
         row = []
         for column in columns:
@@ -266,22 +372,8 @@ def _snapshot(conn, tab):
                 }
             )
         rows.append(row)
-    return {
-        "id": tab["id"],
-        "title": tab["account_title"],
-        "revision": str(tab["revision"]),
-        "structure_revision": tab["structure_revision"],
-        "row_ids": ["", *row_ids],
-        "row_dates": [None, *[r["work_date"] for r in row_records]],
-        "columns": columns,
-        "rows": rows,
-        "header_row": 1,
-        "refreshed_at": tab["updated_at"],
-        "migration_notice": tab["migration_notice"],
-        "properties": {
-            "gridProperties": {"rowCount": len(rows), "columnCount": len(columns)}
-        },
-    }
+    result['rows'] = rows
+    return result
 
 
 def search_rows(conn, tab, words, context=""):
@@ -337,6 +429,7 @@ def check_operation(conn, tab_id, operation, payload):
 
 
 def record_operation(conn, tab_id, operation, payload, *, structural=False, filtered=None):
+    sync_created(conn, tab_id, clear=structural)
     conn.execute(
         "UPDATE native_tabs SET revision=revision+1,structure_revision=structure_revision+?,updated_at=? WHERE id=?",
         (int(structural), time.time(), tab_id),
@@ -370,8 +463,13 @@ def date_scope(value):
     return value
 
 
-def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
+def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False, assign_date=None):
     scope = date_scope(work_date)
+    # The work queue edits jobs from many days at once: only blank rows that
+    # receive a job take this date; rows that already have a day keep it.
+    assign = None if assign_date is None else date_scope(assign_date)
+    if assign_date is not None and (scope != "all" or assign in ("all", None)):
+        raise ValueError("Choose a valid date for new jobs.")
     if not 1 <= len(changes) <= MAX_CELLS:
         raise ValueError("Save between 1 and 10,000 cells at a time.")
     payload = {
@@ -379,6 +477,7 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
         "changes": changes,
         **({"compact_rows": True} if compact_rows else {}),
         **({"work_date": work_date} if work_date != "all" else {}),
+        **({"assign_date": assign_date} if assign_date is not None else {}),
     }
     with atomic(conn):
         if not check_operation(conn, tab["id"], operation, payload):
@@ -474,6 +573,10 @@ def save(conn, tab, operation, changes, *, work_date="all", compact_rows=False):
                     "INSERT INTO native_cells(row_id,column_id,value,style,version) VALUES(?,?,?,?,1) ON CONFLICT(row_id,column_id) DO UPDATE SET value=excluded.value,style=excluded.style,version=native_cells.version+1",
                     (row_id, column_id, value, json.dumps(style)),
                 )
+            if assign is not None:
+                for start in range(0, len(row_ids), PROTECTION_BATCH_SIZE):
+                    batch = row_ids[start:start + PROTECTION_BATCH_SIZE]
+                    conn.execute(f"UPDATE native_rows SET work_date=? WHERE work_date IS NULL AND id IN ({','.join('?' for _ in batch)}) AND {_HAS_JOB.format(row='native_rows')}", (assign, *batch))
             filtered=sourcing_filters.filter_rows(conn,tab,candidates)
             from .sourcing_activity import record
             record(conn, "manual-edit")
@@ -600,6 +703,7 @@ def migrate(conn):
                             )
 
         upgrade_verification_columns(conn)
+        backfill_created(conn)
 
 
 def upgrade_verification_columns(conn):
@@ -627,7 +731,7 @@ def compact_blank_rows(conn, tab_id):
     keep = blanks[-1] if blanks else new_id()
     conn.executemany("DELETE FROM native_rows WHERE id=?", [(row_id,) for row_id in blanks if row_id != keep])
     last = conn.execute("SELECT COALESCE(MAX(position),-1)+1 FROM native_rows WHERE tab_id=? AND id!=?", (tab_id, keep)).fetchone()[0]
-    conn.execute("INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,work_date=NULL", (keep, tab_id, last))
+    conn.execute("INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,work_date=NULL,created_at=NULL", (keep, tab_id, last))
     conn.execute("DELETE FROM native_cells WHERE row_id=?", (keep,))
     after=[tuple(row) for row in conn.execute('SELECT id,work_date FROM native_rows WHERE tab_id=? ORDER BY position,id',(tab_id,))]
     return before!=after

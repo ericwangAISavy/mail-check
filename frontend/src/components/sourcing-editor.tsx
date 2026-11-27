@@ -23,18 +23,25 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
-import { api, request, downloadFile } from "@/lib/api";
+import { api, downloadFile, serverNow } from "@/lib/api";
 import {
   defaultView,
   checkedSourcingRows,
   chicagoDay,
+  chicagoDayStart,
+  nextQueueBoundary,
+  queueCounts,
   visibleRows,
   hasUnexpectedEdits,
   mergeChanges,
   nativeChanges,
   normalStyle,
+  readSourcingSheet,
   type CellStyle,
   type Change,
+  type QueueCounts,
+  type QueueFocus,
+  type QueueStatus,
   type Selection,
   type SheetView,
   type Snapshot,
@@ -52,6 +59,7 @@ import SourcingImport from "./sourcing-import";
 import SourcingProgress, { useSourcingProgress } from "./sourcing-progress";
 import SourcingDays from "./sourcing-days";
 import { SheetGrid } from "./sourcing-grid";
+import SourcingQueueBar from "./sourcing-queue";
 function restoredSheetView(value: string): SheetView {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -80,6 +88,7 @@ export default function SourcingEditor({
   onDayChange,
   daySlot = null,
   fullToolbar = false,
+  onQueueCounts,
 }: {
   tab: Tab;
   onDirty: (dirty: boolean) => void;
@@ -91,6 +100,8 @@ export default function SourcingEditor({
   daySlot?: HTMLElement | null;
   /** Show the editor's own tool row (undo, rows, filters, checks, import/export). */
   fullToolbar?: boolean;
+  /** Live queue counts for this sheet, for the account tab badge. */
+  onQueueCounts?: (counts: QueueCounts) => void;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [changes, setChanges] = useState<Change[]>([]),
@@ -117,9 +128,18 @@ export default function SourcingEditor({
   const compactAfterPaste = useRef(false);
   const [exportError,setExportError] = useState("");
   const [rowDeleteNotice, setRowDeleteNotice] = useState("");
-  const [day, setDay] = useState(initialDay || chicagoDay());
+  // The work queue opens on To do across all days; a day is only a history filter.
+  const [day, setDay] = useState(initialDay ?? "");
   useEffect(() => { onDayChange?.(day); }, [day, onDayChange]);
-  const scopedView = useMemo(() => ({ ...view, day }), [view, day]);
+  const [status, setStatus] = useState<QueueStatus>(initialDay ? "all" : "todo"),
+    [focus, setFocus] = useState<QueueFocus | null>(null),
+    [now, setNow] = useState(() => serverNow());
+  // Jobs completed while viewing To do stay in place until the view changes, so rows do not jump.
+  const [completedHere, setCompletedHere] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => { setCompletedHere(new Set()); }, [status, focus, day]);
+  const dayStart = useMemo(() => chicagoDayStart(now), [now]);
+  const scope = day || "all";
+  const scopedView = useMemo(() => ({ ...view, day, queue: { status, focus, now, dayStart, keep: completedHere } }), [view, day, status, focus, now, dayStart, completedHere]);
   const [assignOpen, setAssignOpen] = useState(false),
     [assignDay, setAssignDay] = useState(chicagoDay());
   const assignContext = useRef<{ revision: string; ids: string[] } | null>(
@@ -157,6 +177,18 @@ export default function SourcingEditor({
       typing ||
       assignOpen,
     locked = saving || !!error || importOpen;
+  const counts = useMemo(() => snapshot ? queueCounts(snapshot, changes, now, dayStart) : null, [snapshot, changes, now, dayStart]);
+  // A ref, so a caller passing a new function each render cannot cause a render loop.
+  const reportCounts = useRef(onQueueCounts);
+  reportCounts.current = onQueueCounts;
+  useEffect(() => { if (counts) reportCounts.current?.(counts); }, [counts]);
+  useEffect(() => {
+    // Re-evaluate exactly when the next job crosses into "expiring soon" or "expired", or at midnight.
+    if (!snapshot) return;
+    const wait = Math.max(1000, Math.min(nextQueueBoundary(snapshot, changes, now, dayStart) - serverNow() + 250, 2 ** 31 - 1));
+    const timer = window.setTimeout(() => setNow(serverNow()), wait);
+    return () => window.clearTimeout(timer);
+  }, [snapshot, changes, now, dayStart]);
   const load = useCallback(async () => {
     if (
       pendingLoad.current ||
@@ -176,7 +208,7 @@ export default function SourcingEditor({
     }, 30_000);
     setLoading(true);
     try {
-      const data = await request<Snapshot>(`/api/sourcing/tabs/${tab.id}`, { signal: controller.signal });
+      const data = await readSourcingSheet(tab.id, controller.signal);
       if (
         alive.current &&
         sequence === loadSequence.current &&
@@ -192,6 +224,7 @@ export default function SourcingEditor({
         // Polling an unchanged sheet must not erase the last check's reasons.
         setSnapshot(base.current && base.current.id===data.id && base.current.revision===data.revision
           ? {...data,verification:base.current.verification} : data);
+        setNow(serverNow());
         setChanges([]);
         setError("");
         lastAction.current = null;
@@ -307,7 +340,9 @@ export default function SourcingEditor({
       const payload = {
         operation: saveOperation.current.id,
         changes,
-        work_date: day,
+        work_date: scope,
+        // In the queue, new jobs take today's date; older jobs keep theirs.
+        ...(day ? {} : {assign_date: chicagoDay(new Date(serverNow()))}),
         ...(compactAfterPaste.current ? {compact_rows: true} : {}),
       };
       await execute(
@@ -318,7 +353,7 @@ export default function SourcingEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
     }
-  }, [execute, tab.id, day, runJobOperation]);
+  }, [execute, tab.id, day, scope, runJobOperation]);
   useEffect(() => {
     if (
       !changes.length ||
@@ -362,6 +397,12 @@ export default function SourcingEditor({
     if (undo.length) {
       history.current.push({ undo, redo });
       future.current = [];
+    }
+    if (status === "todo") {
+      const checks = new Set(snapshot.columns.flatMap((column, col) => column.kind === "check" ? [col] : []));
+      // By row id: a save can re-order or compact the sheet, so row positions are not stable.
+      const done = next.filter(change => checks.has(change.col) && change.value === "true").map(change => snapshot.row_ids[change.row]).filter(Boolean);
+      if (done.some(row => !completedHere.has(row))) setCompletedHere(new Set([...completedHere, ...done]));
     }
     setChanges(next);
   };
@@ -424,7 +465,7 @@ export default function SourcingEditor({
       operation: operationId(),
       revision:
         structureContext.current?.snapshot.revision || snapshot.revision,
-      work_date: day,
+      work_date: scope,
       ...command,
     };
     await execute(
@@ -444,7 +485,7 @@ export default function SourcingEditor({
     if (!ids.length) return;
     if (ids.length > 1000) {setRowDeleteNotice("Select up to 1,000 rows to delete at a time."); return;}
     setRowDeleteNotice("");
-    const payload = {operation: operationId(), revision: current.revision, action: "delete_rows", ids, work_date: day};
+    const payload = {operation: operationId(), revision: current.revision, action: "delete_rows", ids, work_date: scope};
     await execute(async () => {
       const result = await api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/structure`, payload);
       void client.invalidateQueries({queryKey: ["payments"]});
@@ -505,7 +546,7 @@ export default function SourcingEditor({
               row_ids: snapshot?.row_ids,
               columns: snapshot?.columns,
               changes,
-              work_date: day,
+              work_date: scope,
             },
             null,
             2,
@@ -531,7 +572,7 @@ export default function SourcingEditor({
     const payload = {
       operation: operationId(),
       revision: snapshot.revision,
-      work_date: day,
+      work_date: day || chicagoDay(new Date(serverNow())),
       rows,
     };
     await execute(async () => {
@@ -543,7 +584,7 @@ export default function SourcingEditor({
     }, true);
   };
   const checkApplications = async () => {
-    if (!snapshot || day === "undated" || day === "all" || dirty || locked || typingRef.current) return;
+    if (!snapshot || !day || day === "undated" || day === "all" || dirty || locked || typingRef.current) return;
     const payload = {operation: operationId(), revision: snapshot.revision, work_date: day};
     await execute(async () => {
       const result = await api.post<Snapshot>(`/api/sourcing/tabs/${tab.id}/verify`, payload);
@@ -560,24 +601,26 @@ export default function SourcingEditor({
     if (highlightId && resolvedHighlight.current !== highlightId) {
       const index = snapshot.row_ids.indexOf(highlightId);
       if (index > 0) {
-        setDay(snapshot.row_dates?.[index] || "undated");
+        setStatus("all");
+        setFocus(null);
+        setDay("");
         resolvedHighlight.current = highlightId;
       }
     }
-    const visible = visibleRows(snapshot, [], { ...defaultView, day }).slice(1);
+    const visible = visibleRows(snapshot, [], { ...defaultView, day, queue: scopedView.queue }).slice(1);
     setSelection((previous) =>
       previous.rows.length > 0 &&
       previous.rows.every((r) => visible.includes(r))
         ? previous
         : { rows: visible.slice(0, 1), columns: previous.columns },
     );
-  }, [day, snapshot, highlightId]);
+  }, [day, snapshot, highlightId, scopedView.queue]);
   const selectedJobs = snapshot
     ? selection.rows.filter(
         (r) =>
           r > 0 &&
           snapshot.rows[r]?.some((c) => String(c.value)) &&
-          (!snapshot.row_dates ||
+          (!day || !snapshot.row_dates ||
             snapshot.row_dates[r] === (day === "undated" ? null : day)),
       )
     : [];
@@ -606,7 +649,7 @@ export default function SourcingEditor({
         `/api/sourcing/tabs/${tab.id}/structure`,
         payload,
       );
-      if (alive.current) setDay(payload.work_date);
+      if (alive.current && day) setDay(payload.work_date);
       return result;
     }, true);
   };
@@ -639,11 +682,14 @@ export default function SourcingEditor({
       {!fullToolbar && daySlot && createPortal(
         <SourcingDays
           compact
+          allowAll
           day={day}
           onChange={(next) => {
             history.current = [];
             future.current = [];
             setDay(next);
+            setStatus(next ? "all" : "todo"); // a day is history: show all of it
+            setFocus(null);
             setView(defaultView);
           }}
           disabled={locked || dirty || loading || !!structureOpen}
@@ -653,11 +699,14 @@ export default function SourcingEditor({
         />, daySlot)}
       {fullToolbar && <div className="sourcing-command-bar">
       <SourcingDays
+        allowAll
         day={day}
         onChange={(next) => {
           history.current = [];
           future.current = [];
           setDay(next);
+          setStatus(next ? "all" : "todo");
+          setFocus(null);
           setView(defaultView);
         }}
         disabled={locked || dirty || loading || !!structureOpen}
@@ -746,7 +795,7 @@ export default function SourcingEditor({
         </Button>
         <Button size="icon" variant="ghost" className="sheet-export" aria-label="Export CSV" disabled={dirty || saving} onClick={async () => {
           setExportError("");
-          try { await downloadFile(`/api/sourcing/tabs/${tab.id}/export?work_date=${encodeURIComponent(day)}`, `applications-${day}.csv`) }
+          try { await downloadFile(`/api/sourcing/tabs/${tab.id}/export?work_date=${encodeURIComponent(scope)}`, `applications-${day || "all"}.csv`) }
           catch(e) { setExportError(e instanceof Error ? e.message : "Could not export CSV.") }
         }}><Download size={16}/></Button>
         <Button
@@ -889,6 +938,20 @@ export default function SourcingEditor({
       {!progress && snapshot?.filtered && (snapshot.filtered.duplicates + snapshot.filtered.blocked_companies + (snapshot.filtered.blocked_roles||0) > 0) && <p role="status" className="form-hint">Filtered new rows: {snapshot.filtered.duplicates} duplicate links, {snapshot.filtered.blocked_companies} blocked companies, {snapshot.filtered.blocked_roles||0} blocked roles.</p>}
       {exportError && <p role="alert" className="inline-error">{exportError}</p>}
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
+      {snapshot && counts && (
+        <SourcingQueueBar counts={counts} status={status} focus={focus} onStatus={setStatus} onFocus={setFocus} />
+      )}
+      {snapshot && day && (
+        <p className="sourcing-history-note" role="status">
+          Showing jobs sourced on {day === "undated" ? "no date" : day}.{" "}
+          <button type="button" onClick={() => { setDay(""); setStatus("todo"); setFocus(null); }}>Back to work queue</button>
+        </p>
+      )}
+      {snapshot && counts && !focus && counts[status] === 0 && (
+        <p className="sourcing-history-note" role="status">
+          {status === "todo" ? "Nothing to do. Paste or import new jobs below." : status === "completed" ? "No completed jobs yet." : status === "expired" ? "No expired jobs. Unfinished jobs expire 7 days after they are added." : "No jobs yet. Paste or import jobs below."}
+        </p>
+      )}
       {snapshot ? (
         <SheetGrid
           snapshot={snapshot}
@@ -978,7 +1041,7 @@ export default function SourcingEditor({
                 snapshot={snapshot}
                 runOperation={runJobOperation}
                 progress={progress}
-                day={day}
+                day={day || chicagoDay(new Date(serverNow()))}
                 onBusy={(busy) => {
                   if (busy) loadSequence.current++;
                   inFlight.current = busy;

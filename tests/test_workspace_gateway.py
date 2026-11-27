@@ -243,15 +243,27 @@ def test_signing_into_another_admin_revokes_the_previous_browser_session(system)
         assert store.identity(browser.cookies.get('offerpath_session'))['username']=='alice'
 
 
-@pytest.mark.parametrize('path',['/settings','/api/settings','/api/settings/model','/api/settings/test','/api/rules','/api/autocheck'])
+@pytest.mark.parametrize('path',['/api/settings','/api/settings/model','/api/settings/test','/api/rules','/api/autocheck'])
 def test_added_admin_cannot_access_settings_or_setting_mutations(system,path):
     app,store,pool=system
     store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
     temporary=store.login('alice','temporary-pass-123','setup');store.change_password(temporary,'alice-final-pass-123')
     with TestClient(app) as client:
         login(client,'alice','alice-final-pass-123')
-        result=client.get(path) if path in ('/settings','/api/settings','/api/settings/model') else client.post(path,json={})
+        result=client.get(path) if path in ('/api/settings','/api/settings/model') else client.post(path,json={})
         assert result.status_code==403,result.text
+        assert not pool.visited
+
+
+def test_added_admin_opens_personal_settings_page_but_not_workspace_settings(system):
+    app,store,pool=system
+    store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    temporary=store.login('alice','temporary-pass-123','setup');store.change_password(temporary,'alice-final-pass-123')
+    with TestClient(app) as client:
+        login(client,'alice','alice-final-pass-123')
+        assert client.get('/settings').status_code!=403
+        assert client.get('/api/settings').status_code==403
+        assert client.get('/system-monitoring').status_code==403
         assert not pool.visited
 
 

@@ -39,7 +39,8 @@ it("signs an additional admin into their own workspace without owner controls",a
   expect(api.login).toHaveBeenCalledWith("admin","alice-password-123",undefined,"alice")
   expect(screen.getByText("Alice workspace")).toBeTruthy()
   expect(screen.queryByRole("link",{name:"Admin management"})).toBeNull()
-  expect(screen.queryByRole("link",{name:"Settings"})).toBeNull()
+  // Added admins reach their personal Settings; workspace-wide settings stay with the owner.
+  expect(screen.getByRole("link",{name:"Settings"})).toBeTruthy()
   expect(screen.getByRole("button",{name:"Change password"})).toBeTruthy()
   expect(screen.queryByRole("button",{name:/Auto-check/})).toBeNull()
 })

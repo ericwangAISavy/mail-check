@@ -15,6 +15,10 @@ export function setWorkspaceIdentity(id?: string, identity?: string) {
   }
 }
 export function getWorkspaceIdentity() {return workspaceId}
+/** The server's clock, learned from each response's Date header (second precision),
+ * so time-based rules agree with the server even when this computer's clock is off. */
+let serverClockOffset = 0
+export function serverNow() { return Date.now() + serverClockOffset }
 export function getWorkspaceIdentityRevision() { return identityRevision }
 export function subscribeWorkspaceIdentity(listener: () => void) {
   identityListeners.add(listener)
@@ -69,6 +73,9 @@ async function performRequest<T>(url: string, init: RequestInit = {}): Promise<T
     throw new ApiError(`Could not connect to OfferPath. ${mutating?advice:"Check your connection and try again."}`,0)
   }
   init.signal?.throwIfAborted()
+  const serverDate = Date.parse(response.headers.get("date") || "")
+  // A cached response (it carries Age) still has its original, older Date.
+  if (!Number.isNaN(serverDate) && !response.headers.has("age")) serverClockOffset = serverDate - Date.now()
   if (!url.startsWith("/api/auth/") && requestRevision !== identityRevision) throw new ApiError("Workspace changed. Reload before continuing.",409)
   const contentType = (response.headers.get("content-type") || "").toLowerCase()
   let html=contentType.includes("html")

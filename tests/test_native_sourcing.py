@@ -26,6 +26,31 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_compact_sheet_read_preserves_cell_versions_and_metadata(self):
+        base = self.snapshot()
+        result = self.native.append(self.conn, self.tab(), 'compact-seed', base['revision'],
+            [['Café', 'Engineer', 'HTTPS://jobs.test/1']], work_date='2026-10-20')
+        row = result['row_ids'][1]
+        self.conn.execute("UPDATE native_cells SET style=?,version=7 WHERE row_id=? AND column_id=?",
+                          ('{"bold": true}', row, result['columns'][0]['id']))
+        from datetime import datetime, timezone
+        from mailcheck.sourcing_activity import confirm
+        confirm(self.conn, row, datetime(2026, 10, 20, tzinfo=timezone.utc), 'receipt')
+        self.conn.commit()
+
+        url = f'/api/sourcing/tabs/{self.tab_id}'
+        full = self.client.get(url)
+        compact = self.client.get(f'{url}?compact=true')
+        self.assertEqual(compact.status_code, 200, compact.text)
+        self.assertEqual(full.status_code, 200, full.text)
+        packed = compact.json()
+        dense = full.json()
+        self.assertIn([1, 0, 'Café', 7, {'bold': True}], packed.pop('cell_entries'))
+        self.assertEqual(packed.pop('confirmation_times'), [[1, '2026-10-20T00:00:00+00:00']])
+        self.assertEqual(dense['rows'][1][2]['link'], 'HTTPS://jobs.test/1')
+        del dense['rows']
+        self.assertEqual(packed, dense)
+
     def test_partial_clear_preserves_structure_revision_for_undo(self):
         base=self.snapshot()
         self.native.append(self.conn,self.tab(),'partial-seed',base['revision'],[['Acme','Engineer','https://jobs.test/acme']])
