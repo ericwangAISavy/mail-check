@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SheetGrid } from "./sourcing-grid";
+import { SourcingJobAge } from "./sourcing-job-age";
 import type { Snapshot } from "@/lib/sourcing";
 
 beforeEach(() => {
@@ -65,6 +66,84 @@ it('copies whole rows in row mode and hides the unused trailing input row',()=>{
  expect(setData).toHaveBeenCalledWith('text/plain','Acme\tEngineer\thttps://jobs.test/1\tfalse')
  expect(screen.queryByRole('gridcell',{name:'2'})).toBeNull()
 })
+
+it("preserves the exact clipboard and paste contract for a dragged row range", () => {
+  const data = snapshot();
+  data.row_ids.push("row2");
+  data.rows.push([cell('Beta "AI"'), cell("Senior\tEngineer"), cell("https://jobs.test/2?ref=mail"), cell("true")]);
+  const append = vi.fn(), setData = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} onAppendRows={append} rowMode />);
+  const grid = screen.getByRole("grid");
+  fireEvent.mouseDown(screen.getByRole("gridcell", {name: "Acme"}), {button: 0, buttons: 1});
+  fireEvent.mouseMove(screen.getByRole("gridcell", {name: 'Beta "AI"'}), {buttons: 1, clientY: 38});
+  fireEvent.mouseUp(document);
+  fireEvent.copy(grid, {clipboardData: {setData}});
+  const payload = 'Acme\tEngineer\thttps://jobs.test/1\tfalse\n"Beta ""AI"""\t"Senior\tEngineer"\thttps://jobs.test/2?ref=mail\ttrue';
+  expect(setData.mock.calls).toEqual([["text/plain", payload]]);
+  fireEvent.paste(grid, {clipboardData: {getData: (type: string) => type === "text/plain" ? payload : ""}});
+  expect(append).toHaveBeenCalledWith([
+    ["Acme", "Engineer", "https://jobs.test/1", ""],
+    ['Beta "AI"', "Senior\tEngineer", "https://jobs.test/2?ref=mail", ""],
+  ]);
+});
+
+it("selects through Added without copying it or changing which source rows Delete clears", () => {
+  const data = snapshot();
+  data.row_ids.push("row2");
+  data.rows.push([cell("Beta"), cell("Designer"), cell("https://jobs.test/2"), cell("false")]);
+  data.row_created = [null, Date.now() / 1000 - 7_200, null];
+  const setData = vi.fn(), change = vi.fn();
+  render(<SheetGrid snapshot={data} changes={[]} onChange={change} rowMode showAdded />);
+  expect(screen.getAllByRole("columnheader").map(header => header.textContent)).toEqual(["#", "Company", "Role", "Added", "Job link", "Check"]);
+  const ageCells = screen.getAllByRole("gridcell").filter(cell => cell.classList.contains("sheet-added-col"));
+  expect(ageCells[0].querySelector("time")?.textContent).toContain("2h");
+  expect(ageCells[1].textContent).toContain("—");
+  const grid = screen.getByRole("grid");
+  fireEvent.mouseDown(ageCells[0], {button: 0, buttons: 1});
+  fireEvent.mouseMove(ageCells[1], {buttons: 1, clientY: 38});
+  fireEvent.mouseUp(document);
+  fireEvent.copy(grid, {clipboardData: {setData}});
+  expect(setData.mock.calls).toEqual([["text/plain", "Acme\tEngineer\thttps://jobs.test/1\tfalse\nBeta\tDesigner\thttps://jobs.test/2\tfalse"]]);
+  fireEvent.keyDown(grid, {key: "Delete"});
+  const cleared = change.mock.calls[0][0];
+  expect(cleared.map(({row, col}: {row: number; col: number}) => [row, col])).toEqual([
+    [1, 0], [1, 1], [1, 2], [1, 3], [2, 0], [2, 1], [2, 2], [2, 3],
+  ]);
+});
+
+it("keeps a selected range tied to its saved row IDs after a background insertion", () => {
+  const data = snapshot();
+  data.rows.push([cell("Beta"), cell("Designer"), cell("https://jobs.test/2"), cell("false")]);
+  data.row_ids.push("row2");
+  const setData = vi.fn(), change = vi.fn();
+  const {rerender} = render(<SheetGrid snapshot={data} changes={[]} onChange={change} rowMode showAdded />);
+  fireEvent.mouseDown(screen.getByRole("gridcell", {name: "Acme"}), {button: 0, buttons: 1});
+  fireEvent.mouseMove(screen.getByRole("gridcell", {name: "Beta"}), {buttons: 1, clientY: 38});
+  fireEvent.mouseUp(document);
+  const inserted = [cell("New company"), cell("Researcher"), cell("https://jobs.test/3"), cell("false")];
+  const refreshed = {...data, row_ids: ["", "new-row", ...data.row_ids.slice(1)], rows: [data.rows[0], inserted, ...data.rows.slice(1)]};
+  rerender(<SheetGrid snapshot={refreshed} changes={[]} onChange={change} rowMode showAdded />);
+  const grid = screen.getByRole("grid");
+  fireEvent.copy(grid, {clipboardData: {setData}});
+  expect(setData.mock.calls).toEqual([["text/plain", "Acme\tEngineer\thttps://jobs.test/1\tfalse\nBeta\tDesigner\thttps://jobs.test/2\tfalse"]]);
+  fireEvent.keyDown(grid, {key: "Delete"});
+  expect(new Set(change.mock.calls[0][0].map(({row}: {row: number}) => refreshed.row_ids[row]))).toEqual(new Set(["row1", "row2"]));
+});
+
+it("uses elapsed time across daylight saving and exposes exact Chicago timestamps", () => {
+  const added = Date.parse("2026-10-31T14:00:00Z");
+  const now = Date.parse("2026-11-01T14:00:00Z");
+  const {rerender} = render(<SourcingJobAge added={added} now={now} expiring={false} />);
+  expect(screen.getByText("1d").getAttribute("datetime")).toBe("2026-10-31T14:00:00.000Z");
+  expect(screen.getByText(/Added Oct 31, 2026/).textContent).toContain("CDT");
+  rerender(<SourcingJobAge added={now - 30 * 60_000} now={now} expiring={false} />);
+  expect(screen.getByText("30m")).toBeTruthy();
+  rerender(<SourcingJobAge added={now - 30_000} now={now} expiring={false} />);
+  expect(screen.getByText("Now")).toBeTruthy();
+  rerender(<SourcingJobAge added={added} now={added + 6 * 24 * 3600_000} expiring />);
+  expect(screen.getByRole("img", {name: "Expiring soon"})).toBeTruthy();
+  expect(screen.getByText(/Expires Nov 7, 2026/).textContent).toContain("CST");
+});
 it("shows the saved checked state and disables editing while saving", () => {
   const data = snapshot(); data.rows[1][3] = cell("true");
   render(<SheetGrid snapshot={data} changes={[]} onChange={vi.fn()} disabled/>);

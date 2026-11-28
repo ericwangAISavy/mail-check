@@ -45,13 +45,17 @@ def test_directory_login_read_only_and_tenant_isolation(system,worker_mock):
             assert bidder.get(path).status_code==200,path
         assert bidder.get('/api/messages/1').status_code==200
         assert bidder.get('/api/triage').status_code==200
+        assert bidder.get('/settings').status_code==200
+        assert bidder.get('/api/inbox/alerts').status_code==200
+        assert bidder.get('/api/settings').status_code==403
+        assert bidder.post('/api/settings',json={}).status_code==403
         assert bidder.get('/inbox').status_code==200
         assert bidder.post('/api/messages/1/handled').status_code==200
         assert bidder.post('/api/messages/1/reply',json={}).status_code==403
         assert bidder.get('/api/messages/1/body').status_code==403
         assert bidder.get('/api/dashboard').json()=={'worker':'secret-legacy','viewer':'bidder'}
         assert bidder.get('/api/dashboard',headers={'x-offerpath-workspace':'other'}).status_code==409
-        for path in ['/api/accounts','/api/settings','/api/status','/api/interviews','/api/admin/users','/api/auth/bidders/manage','/settings']:
+        for path in ['/api/accounts','/api/settings','/api/status','/api/interviews','/api/admin/users','/api/auth/bidders/manage']:
             assert bidder.get(path).status_code==403,path
         for path in ['/api/check','/api/payments/refresh','/api/payments/bidders/1/amount','/api/admin/switch','/api/auth/password','/api/auth/bidders/1/password']:
             assert bidder.post(path,json={}).status_code==403,path
@@ -159,6 +163,9 @@ def test_bidder_sourcing_read_allowlist(system,worker_mock):
             assert bidder.get(path).status_code==403,path
         for action in ['save','append','verify','structure','import','archive','delete']:
             assert bidder.post('/api/sourcing/tabs/7/'+action,json={}).status_code==403
+        assert bidder.post('/api/sourcing/tabs/7/opened',json={'row_id':'job','job_created_at':1}).status_code==200
+        assert worker_mock[-1].headers['x-offerpath-bidder']=='1'
+        assert bidder.post('/api/sourcing/tabs/7/opened/other',json={}).status_code==403
 
 
 def test_typed_bidder_username_and_private_directories(system,worker_mock):

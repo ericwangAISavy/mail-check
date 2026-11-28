@@ -25,10 +25,13 @@ const PREFIX = "offerpath.appearance.v1:"
 export const isThemeId = (value: unknown): value is ThemeId => THEMES.some(theme => theme.id === value)
 export const isMode = (value: unknown): value is AppearanceMode => value === "system" || value === "light" || value === "dark"
 
-/** Appearance belongs to a person, never a workspace: admins by their stable id, bidders by theirs. */
-export function appearanceIdentity(session?: { role?: string | null; user_id?: number; bidder_id?: number } | null): string | undefined {
+/** Admin IDs are global. Bidder IDs are local to their workspace. */
+export function appearanceIdentity(session?: { role?: string | null; user_id?: number; bidder_id?: number; workspace_id?: string } | null): string | undefined {
   if (session?.role === "admin") return `admin:${session.user_id ?? "local"}`
-  if (session?.role === "bidder" && session.bidder_id != null) return `bidder:${session.bidder_id}`
+  if (session?.role === "bidder" && session.bidder_id != null) {
+    const workspace = session.workspace_id
+    return workspace && workspace !== "legacy" ? `bidder:${encodeURIComponent(workspace)}:${session.bidder_id}` : `bidder:${session.bidder_id}`
+  }
   return undefined
 }
 

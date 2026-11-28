@@ -15,7 +15,7 @@ from . import config
 from .models import Classification, NormalizedMessage
 
 # Version 39 was used by a later-reverted release; do not reuse it.
-SCHEMA_VERSION = 57
+SCHEMA_VERSION = 61
 SHARED_SCHEMA_MIN_VERSION = 50
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
@@ -205,6 +205,7 @@ INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_handled ON messages(handled_at);
 CREATE INDEX IF NOT EXISTS idx_messages_acct_date ON messages(account_id, date_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_fetched ON messages(fetched_at, id);
 CREATE INDEX IF NOT EXISTS idx_messages_handled_date ON messages(handled_at, date_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_received
     ON messages(julianday(COALESCE(date_utc, fetched_at)), id);
@@ -365,6 +366,11 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                         FROM messages m WHERE m.account_id=r.account_id AND m.message_id=r.message_id)
                         WHERE r.category IN ('interview_invite','rejection') AND r.job_refs='[]'
                         AND EXISTS (SELECT 1 FROM messages m WHERE m.account_id=r.account_id AND m.message_id=r.message_id)""")
+                if version < 61:
+                    from . import calendar_colors
+                    conn.execute(calendar_colors.SCHEMA)
+                    conn.execute(calendar_colors.DEFAULT_SCHEMA)
+                    calendar_colors.assign_defaults(conn)
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
@@ -454,6 +460,8 @@ def add_account(
     folder: str = "INBOX",
     provider: str = "imap",
 ) -> int:
+    from .calendar_colors import assign_defaults
+
     cur = conn.execute(
         "INSERT INTO accounts (id, label, email, provider, imap_host, imap_port, use_ssl,"
         " folder, created_at) VALUES ((SELECT COALESCE(MAX(id),0)+1 FROM ("
@@ -461,6 +469,7 @@ def add_account(
         "UNION ALL SELECT account_id AS id FROM bidder_assignments)), ?, ?, ?, ?, ?, ?, ?, ?)",
         (label, email, provider, imap_host, imap_port, int(use_ssl), folder, _now()),
     )
+    assign_defaults(conn)
     conn.commit()
     return int(cur.lastrowid)
 
@@ -912,6 +921,17 @@ def bidder_info_scope(bidder_id):
         AND ba.start_date<=? AND (ba.end_date IS NULL OR ba.end_date>=?))""",[bidder_id,day,day])
 
 
+def latest_bidder_mail_after(conn, bidder_id: int, after: str, after_id: int):
+    scope, values = bidder_info_scope(bidder_id)
+    return conn.execute(
+        """SELECT m.id, m.fetched_at
+        FROM messages m JOIN accounts a ON a.id=m.account_id
+        WHERE (m.fetched_at,m.id) > (?,?)""" + scope +
+        " ORDER BY m.fetched_at DESC,m.id DESC LIMIT 1",
+        [after, after_id, *values],
+    ).fetchone()
+
+
 def category_counts(
     conn: sqlite3.Connection,
     *,
@@ -1081,6 +1101,7 @@ def triage_counts(
     search: str | None = None,
     bidder_id: int | None = None,
     handled: bool | None = None,
+    after_pk: int | None = None,
 ) -> tuple[dict[str, int], dict[str, int]]:
     """Headline numbers for the action queue: actionable, informational, done.
 
@@ -1117,6 +1138,10 @@ def triage_counts(
     if account_label:
         sql += " AND a.label = ?"
         params.append(account_label)
+    if after_pk is not None:
+        # Messages stored after the newest one a person has already seen.
+        sql += " AND m.id > ?"
+        params.append(after_pk)
     sql += " GROUP BY c.category, done"
 
     categories: dict[str, int] = {}
@@ -1140,9 +1165,15 @@ def queue_counts(
     since_iso: str | None = None,
     account_label: str | None = None,
     search: str | None = None,
+    after_pk: int | None = None,
 ) -> dict[str, int]:
-    _, summary = triage_counts(conn, since_iso=since_iso, account_label=account_label, search=search)
+    _, summary = triage_counts(conn, since_iso=since_iso, account_label=account_label, search=search, after_pk=after_pk)
     return summary
+
+
+def latest_message_pk(conn: sqlite3.Connection) -> int:
+    """The newest stored message id; ids only grow, so it marks "seen up to here"."""
+    return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0])
 
 
 def messages_in_categories(

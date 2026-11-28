@@ -1,13 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DataGrid,
+  renderHeaderCell,
   type Column,
   type DataGridHandle,
   type RenderEditCellProps,
 } from "react-data-grid";
 import "react-data-grid/lib/styles.css";
-import { ExternalLink } from "lucide-react";
+import { ArrowDownUp, Clock3, ExternalLink } from "lucide-react";
+import { SourcingJobAge, useSourcingAgeClock } from "./sourcing-job-age";
 import {
+  addedColumnIndex,
   columnName,
   checkedSourcingRows,
   sourcingColumnTitle,
@@ -18,8 +21,10 @@ import {
   serializeTSV,
   rowLifecycle,
   jobSite,
+  jobAddedAt,
   visibleRows,
   type Change,
+  type JobAgeOrder,
   type Selection,
   type SheetView,
   type Snapshot,
@@ -31,9 +36,12 @@ export function SheetGrid({
   onChange,
   disabled = false,
   rowMode = false,
+  showAdded = false,
   highlightRow,
   view = defaultView,
   onSelection,
+  onSelectionGestureChange,
+  onAgeOrderChange,
   onResize,
   onEditingChange,
   onPaste,
@@ -46,9 +54,12 @@ export function SheetGrid({
   disabled?: boolean;
   /** Browse/select whole rows; bulk paste appends jobs instead of editing cells. */
   rowMode?: boolean;
+  showAdded?: boolean;
   highlightRow?: number;
   view?: SheetView;
   onSelection?: (selection: Selection) => void;
+  onSelectionGestureChange?: (active: boolean) => void;
+  onAgeOrderChange?: (order: JobAgeOrder | undefined) => void;
   onResize?: (col: number, width: number) => void;
   onEditingChange?: (active: boolean) => void;
   onPaste?: () => void;
@@ -61,7 +72,9 @@ export function SheetGrid({
     extending = useRef(false),
     stopDrag = useRef<() => void>(() => {});
   const [position, setPosition] = useState(anchor.current);
+  const ageNow = useSourcingAgeClock(showAdded);
   const count = snapshot.columns.length;
+  const headerHeight = rowMode ? 36 : 28;
   const checkedRows = useMemo(()=>checkedSourcingRows(snapshot,changes),[snapshot,changes]);
   const visible = useMemo(
     () => visibleRows(snapshot, changes, view).filter(row=>row>0 && (!rowMode || snapshot.columns.some((column,c)=>column.kind!=='check' && String(snapshot.rows[row]?.[c]?.value ?? '').trim()))),
@@ -95,7 +108,7 @@ export function SheetGrid({
         ...snapshot.rows[row]?.[col]?.style,
         ...drafts.get(`${row}:${col}`)?.style,
       }).wrap);
-      offsets.push(offsets[offsets.length - 1] + (wrapped ? 64 : 30));
+      offsets.push(offsets[offsets.length - 1] + (wrapped ? 64 : rowMode ? 36 : 30));
     }
     return offsets;
   }, [visible, snapshot, drafts, rowMode]);
@@ -119,9 +132,31 @@ export function SheetGrid({
     setPosition(previous=>previous.row===next.row && previous.col===next.col ? previous : next);
     notify(anchor.current, next);
   };
-  const rowOrder = visible.map(row => snapshot.row_ids[row]).join(":");
-  useEffect(() => {
+  const rowIds = useMemo(() => visible.map(row => snapshot.row_ids[row]), [visible, snapshot.row_ids]);
+  const rowOrder = rowIds.join(":");
+  const selectionContext = JSON.stringify(showAdded ? [highlightRow, view.day, view.find, view.filter, view.filterColumn,
+    view.direction, view.sortColumn, view.queue?.status, view.queue?.focus, view.queue?.reverse, view.queue?.ageOrder] : [highlightRow, view.day]);
+  const previousSelectionView = useRef<{ context: string; ids: string[] } | null>(null);
+  useLayoutEffect(() => {
     stopDrag.current();
+    const previous = previousSelectionView.current;
+    previousSelectionView.current = { context: selectionContext, ids: rowIds };
+    if (showAdded && previous?.context === selectionContext && rowIds.length) {
+      const start = Math.min(anchor.current.row, selected.current.row);
+      const end = Math.max(anchor.current.row, selected.current.row);
+      const rangeIds = previous.ids.slice(start, end + 1);
+      const rangeSet = new Set(rangeIds);
+      const first = rowIds.findIndex(id => rangeSet.has(id));
+      if (first >= 0) {
+        const last = rangeIds.every((id, index) => rowIds[first + index] === id) ? first + rangeIds.length - 1 : first;
+        const forward = anchor.current.row <= selected.current.row;
+        anchor.current = { row: forward ? first : last, col: 0 };
+        selected.current = { row: forward ? last : first, col: 0 };
+        setPosition(selected.current);
+        notify(anchor.current, selected.current);
+        return;
+      }
+    }
     const index =
       highlightRow === undefined ? -1 : visible.indexOf(highlightRow);
     const rowIdx = index >= 0 ? index : 0;
@@ -133,7 +168,7 @@ export function SheetGrid({
       grid.current?.scrollToCell({ rowIdx, idx: 1 });
       grid.current?.setActivePosition({ rowIdx, idx: 1 });
     }
-  }, [highlightRow, view.day, rowOrder]);
+  }, [selectionContext, rowOrder, showAdded]);
   useEffect(() => () => stopDrag.current(), []);
   const apply = (values: Change[]) => {
     if (disabled) return;
@@ -211,21 +246,32 @@ export function SheetGrid({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+  // In the work view, Job link and Check are compact fixed action columns side by side;
+  // Company and Role share the rest. The row number takes only what it needs.
+  const numberWidth = rowMode ? 44 : 48;
+  const addedWidth = 64;
+  const actionWidth = (col: Snapshot["columns"][number]) => {
+    if (!rowMode) return null;
+    if (col.kind === "link") return showAdded ? 62 : 76;
+    if (col.kind === "check") return showAdded ? 54 : 64;
+    return null;
+  };
   const flexible = (col: Snapshot["columns"][number]) =>
-    col.kind !== "check" && (!col.width || col.width === 220);
-  const fixedWidth = snapshot.columns.reduce((sum, col) => sum + (flexible(col) ? 0 : col.width || 76), 48);
+    col.kind !== "check" && actionWidth(col) == null && (showAdded && (col.kind === "company" || col.kind === "role") || !col.width || col.width === 220);
+  const fixedWidth = snapshot.columns.reduce((sum, col) => sum + (flexible(col) ? 0 : actionWidth(col) ?? (col.width || 76)), numberWidth + (showAdded ? addedWidth : 0));
   const flexibleCount = snapshot.columns.filter(flexible).length;
   // Role and company carry the meaning people scan for; the link column only needs its site.
-  const weight = (col: Snapshot["columns"][number]) => col.kind === "role" ? 1.35 : col.kind === "link" ? 0.8 : 1;
+  const weight = (col: Snapshot["columns"][number]) => col.kind === "role" ? showAdded ? 1.8 : 1.35 : col.kind === "link" ? 0.8 : 1;
   const flexibleWeight = snapshot.columns.filter(flexible).reduce((sum, col) => sum + weight(col), 0);
   const textWidth = (col: Snapshot["columns"][number]) => viewportWidth && flexibleCount
-    ? Math.max(140, Math.floor((viewportWidth - fixedWidth) * weight(col) / flexibleWeight))
+    ? Math.max(140, Math.floor((viewportWidth - fixedWidth - 2) * weight(col) / flexibleWeight))
     : 220;
   const columns: Column<Row>[] = [
     {
       key: "id",
-      name: "",
-      width: 48,
+      name: rowMode ? "#" : "",
+      width: numberWidth,
+      minWidth: showAdded ? numberWidth : undefined,
       frozen: true,
       renderCell: ({ row }) => (
         <span className="sheet-row-number">
@@ -236,7 +282,8 @@ export function SheetGrid({
     ...snapshot.columns.map((definition, c): Column<Row> => ({
       key: String(c),
       name: sourcingColumnTitle(definition,c),
-      width: flexible(definition) ? textWidth(definition) : definition.width || 76,
+      width: flexible(definition) ? textWidth(definition) : actionWidth(definition) ?? (definition.width || 76),
+      headerCellClass: rowMode && (definition.kind === "link" || definition.kind === "check") ? "sheet-action-col" : rowMode && definition.kind === "company" ? "sheet-company-col" : undefined,
       resizable: !disabled && !rowMode,
       editable: (row) =>
         !disabled && !rowMode && !checkedRows.has(row.id) && definition.kind !== "check" && row.id > 0,
@@ -245,26 +292,31 @@ export function SheetGrid({
       ),
       cellClass: (row) => {
         const index = indices.get(row.id) ?? 0;
-        return index >= Math.min(anchor.current.row, position.row) &&
+        const state = index >= Math.min(anchor.current.row, position.row) &&
           index <= Math.max(anchor.current.row, position.row) &&
           c >= 0 && c < count
           ? "sheet-range-cell"
           : row.id === 0
             ? "sheet-heading-cell"
             : undefined;
+        return [state, rowMode && definition.kind === "company" ? "sheet-company-col" : undefined,
+          showAdded && definition.kind === "role" ? "sheet-role-col" : undefined].filter(Boolean).join(" ") || undefined;
       },
       renderCell: ({ row }) => {
         const cell = snapshot.rows[row.id]?.[c],
           change = drafts.get(`${row.id}:${c}`),
           style = normalStyle({ ...cell?.style, ...change?.style }),
           text = String(row[String(c)]);
-        if (definition.kind === "check" && row.id > 0) return <input
+        if (definition.kind === "check" && row.id > 0) {
+          const input = <input
           type="checkbox" aria-label={`Check row ${(indices.get(row.id) ?? 0)+1}`}
           title={cell?.checked_at ? `Confirmation received ${new Intl.DateTimeFormat("en-US", {timeZone:"America/Chicago",dateStyle:"medium",timeStyle:"short"}).format(new Date(cell.checked_at))} · Chicago` : text === "true" ? "Checked; no matching confirmation timestamp recorded" : "Not checked"}
           className="sourcing-check" checked={text === "true"} disabled={disabled || text === "true" || !snapshot.columns.some((column, index) => column.kind === "link" && String(row[String(index)]).trim())}
           onClick={event => event.stopPropagation()}
           onChange={event => { if (!disabled && text !== "true") apply([{row: row.id, col: c, value: String(event.target.checked)}]); }}
-        />;
+          />;
+          return showAdded ? <label className="sheet-check-target" onClick={event => event.stopPropagation()}>{input}</label> : input;
+        }
         return (
           <span
             className={`native-cell-content ${!rowMode && style.wrap ? "is-wrapped" : ""}`}
@@ -276,29 +328,37 @@ export function SheetGrid({
             }}
             title={text}
           >
-            {definition.kind === "company" && row.id > 0 && view?.queue && rowLifecycle(snapshot, row.id, (_, col) => String(row[String(col)] ?? ""), view.queue.now, view.queue.dayStart).expiring ? (
-              <><span className="sheet-company-text">{text}</span><span className="sheet-expiring">Expiring soon</span></>
+            {!showAdded && definition.kind === "company" && row.id > 0 && view.queue && rowLifecycle(snapshot, row.id, (_, col) => String(row[String(col)] ?? ""), view.queue.now, view.queue.dayStart).expiring ? (
+              <><span className="sheet-expiring" role="img" aria-label="Expiring soon" title="Expiring soon: less than 48 hours left"><Clock3 size={14} aria-hidden="true" /></span><span className="sheet-company-text">{text}</span></>
             ) : definition.kind === "link" && /^https?:\/\//i.test(text) ? (
               <a
                 href={text}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => { e.stopPropagation(); if(!e.ctrlKey&&!e.metaKey)e.preventDefault(); }}
-                title={`${text}
+                title={`${rowMode ? jobSite(text) + " · " : ""}${text}
 ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"Click to select row. Ctrl/Cmd+click to open."}`}
                 className={rowMode ? "sheet-link-site" : undefined}
                 aria-label={rowMode ? text : undefined}
               >
-                {rowMode ? <>{jobSite(text)}<ExternalLink size={12} aria-hidden="true" /></> : text}
+                {rowMode ? <ExternalLink size={15} aria-hidden="true" /> : text}
               </a>
             ) : (
-              text
+              showAdded && (definition.kind === "company" || definition.kind === "role") ? <span className="sheet-job-text">{text}</span> : text
             )}
           </span>
         );
       },
     })),
   ];
+  if (showAdded) columns.splice(1 + addedColumnIndex(snapshot.columns), 0, {
+    key: "added", name: "Added", width: addedWidth, sortable: !!onAgeOrderChange,
+    headerCellClass: "sheet-added-col", cellClass: "sheet-added-col",
+    renderHeaderCell: props => props.sortDirection ? renderHeaderCell(props)
+      : <span className="sheet-age-label">Added<ArrowDownUp size={11} aria-hidden="true" /></span>,
+    renderCell: ({ row }) => <SourcingJobAge added={jobAddedAt(snapshot, row.id)} now={ageNow}
+      expiring={!!view.queue && rowLifecycle(snapshot, row.id, (_, col) => String(row[String(col)] ?? ""), view.queue.now, view.queue.dayStart).expiring} />,
+  });
   return (
     <>
       {!rowMode && <div className="sheet-formula-bar">
@@ -313,7 +373,7 @@ ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"C
       <DataGrid
         ref={grid}
         aria-label={ariaLabel}
-        className={`sourcing-grid${rowMode ? ' is-row-mode' : ''}`}
+        className={`sourcing-grid${rowMode ? ' is-row-mode' : ''}${showAdded ? ' has-added' : ''}`}
         columns={columns}
         rows={rows}
         rowKeyGetter={(r) => snapshot.row_ids[r.id] || "header"}
@@ -321,7 +381,9 @@ ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"C
           const index = indices.get(row.id) ?? 0;
           return rowOffsets[index + 1] - rowOffsets[index];
         }}
-        headerRowHeight={28}
+        headerRowHeight={headerHeight}
+        sortColumns={showAdded && view.queue?.ageOrder ? [{ columnKey: "added", direction: view.queue.ageOrder === "asc" ? "ASC" : "DESC" }] : undefined}
+        onSortColumnsChange={onAgeOrderChange && (sort => onAgeOrderChange(sort[0]?.direction === "ASC" ? "asc" : sort[0]?.direction === "DESC" ? "desc" : undefined))}
         renderers={empty ? {noRowsFallback: (
           <div role="row" className="sheet-paste-row">
             <div role="gridcell" tabIndex={0} className="sheet-paste-target" aria-label="Paste copied job rows here"
@@ -337,14 +399,16 @@ ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"C
         }}
         onActivePositionChange={({ rowIdx, column }) => {
           if (rowIdx >= 0 && column)
-            select({ row: rowIdx, col: column.key==="id"?0:Number(column.key) }, extending.current);
+            select({ row: rowIdx, col: rowMode || column.key === "id" ? 0 : Number(column.key) }, extending.current);
         }}
         onCellMouseDown={({ rowIdx, column }, event) => {
           stopDrag.current();
           extending.current = event.shiftKey;
-          select({ row: rowIdx, col: column.key==="id"?0:Number(column.key) }, event.shiftKey);
-          if (event.button !== 0 || (event.target as Element).closest("input"))
+          select({ row: rowIdx, col: rowMode || column.key === "id" ? 0 : Number(column.key) }, event.shiftKey);
+          if (event.button !== 0 || (event.target as Element).closest("input,.sheet-check-target"))
             return;
+          if (showAdded && disabled) return;
+          onSelectionGestureChange?.(true);
           const start = { x: event.clientX, y: event.clientY };
           let pointer = start, dragging = false;
           let frame = 0, lastTime = 0, active = true;
@@ -356,7 +420,7 @@ ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"C
             const row = cell?.closest('[role="row"]');
             if (!cell || !row || !grid.current?.element?.contains(cell)) return;
             const r = Number(row.getAttribute("aria-rowindex")) - 2,
-              c = Math.max(0,Number(cell.getAttribute("aria-colindex")) - 2);
+              c = rowMode ? 0 : Math.max(0,Number(cell.getAttribute("aria-colindex")) - 2);
             if (r < 0 || r >= visible.length || c < 0 || c >= count) return;
             extending.current = true;
             select({ row: r, col: c }, true);
@@ -369,7 +433,7 @@ ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"C
             if (dragging && element && visible.length) {
               const rect = element.getBoundingClientRect();
               const viewportTop = rect.top + element.clientTop;
-              const bodyTop = viewportTop + 28;
+              const bodyTop = viewportTop + headerHeight;
               const top = Math.max(0, bodyTop), bottom = Math.min(window.innerHeight, viewportTop + element.clientHeight);
               const band = Math.min(40, (bottom - top) / 3);
               if (band > 0 && pointer.x >= rect.left && pointer.x <= rect.right) {
@@ -400,11 +464,13 @@ ${checkedRows.has(row.id)?"Checked job · read only. Ctrl/Cmd+click to open.":"C
           };
           const stop = () => {
             active = false;
+            stopDrag.current = () => {};
             window.cancelAnimationFrame(frame);
             extending.current = false;
             document.removeEventListener("mousemove", move);
             document.removeEventListener("mouseup", stop);
             window.removeEventListener("blur", stop);
+            onSelectionGestureChange?.(false);
           };
           stopDrag.current = stop;
           document.addEventListener("mousemove", move);

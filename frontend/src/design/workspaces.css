@@ -15,7 +15,6 @@
  :root body .app-frame .outlook-day-heading.is-today { border-top-color:var(--primary); background:color-mix(in srgb,var(--primary) 9%,var(--surface)); }
  :root body .app-frame .outlook-day-heading.is-today > span { color:var(--primary); }
  :root body .app-frame .outlook-hour-label > span { font-size:10.5px; font-weight:500; color:var(--muted-foreground); font-variant-numeric:tabular-nums; }
- :root body .app-frame .outlook-calendar .outlook-time-event { border-radius:6px; box-shadow:0 0 0 1px var(--card),0 2px 6px #0000002e; }
  :root body .app-frame .outlook-calendar .outlook-time-event:hover { box-shadow:0 0 0 1px var(--card),0 6px 16px #00000052; }
  :root body .app-frame .outlook-calendar .outlook-month-event { border-radius:5px; }
  :root body .app-frame .outlook-month-weekday { font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
@@ -128,9 +127,9 @@
  :root body .app-frame .sourcing-history-note { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0; padding:6px var(--ui-gutter); border-bottom:1px solid var(--ui-hairline); background:var(--surface); color:var(--text-soft); font-size:12px; }
  :root body .app-frame .sourcing-history-note button { padding:0; border:0; background:none; color:var(--primary); font:inherit; font-weight:550; cursor:pointer; }
  :root body .app-frame .sourcing-history-note button:hover { text-decoration:underline; text-underline-offset:3px; }
- :root body .app-frame :is(.native-cell-content,.sheet-company-cell):has(.sheet-expiring) { display:flex; align-items:baseline; gap:8px; min-width:0; }
+ :root body .app-frame :is(.native-cell-content,.sheet-company-cell):has(.sheet-expiring) { display:flex; align-items:center; gap:6px; min-width:0; }
  :root body .app-frame .sheet-company-text, :root body .app-frame .sheet-company-cell > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
- :root body .app-frame .sheet-expiring { flex:none; color:var(--warning); font-size:11.5px; font-weight:550; white-space:nowrap; }
+ :root body .app-frame .sheet-expiring { flex:none; display:inline-flex; align-items:center; color:var(--destructive); cursor:help; }
  :root body .app-frame .sourcing-tab-todo { display:inline-block; min-width:18px; margin-left:7px; padding:0 5px; border-radius:999px; background:color-mix(in srgb,var(--foreground) 9%,transparent); color:var(--text-soft); font-size:11px; font-weight:600; line-height:17px; text-align:center; font-variant-numeric:tabular-nums; }
  :root body .app-frame .sourcing-tab-list > button[aria-selected="true"] .sourcing-tab-todo { background:color-mix(in srgb,var(--primary) 18%,transparent); color:var(--foreground); }
 }
@@ -159,3 +158,99 @@
 .sourcing-grid .native-cell-content a.sheet-link-site { display:inline-flex; align-items:center; gap:5px; max-width:100%; }
 .sourcing-grid .native-cell-content a.sheet-link-site svg { flex:none; opacity:.6; }
 .sourcing-viewer-link a { min-width:0; }
+
+/* Work-queue status row: square-edged tabs with an underline for the selection,
+   quiet counts, and application search aligned to the right end of the row. */
+:root body .app-frame .sourcing-queue { align-items:stretch; flex-wrap:nowrap; gap:16px; }
+:root body .app-frame .sourcing-queue-tabs { gap:2px; padding:0; align-self:stretch; }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab { align-items:center; gap:7px; padding:11px 12px 10px; border:0; border-radius:4px 4px 0 0; box-shadow:none; font-weight:550; }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab::after { content:none; }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab:hover:not(:disabled) { background:var(--ui-row-hover); color:var(--foreground); }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab[aria-pressed="true"] { color:var(--foreground); font-weight:650; box-shadow:inset 0 -2px 0 var(--primary); }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab:focus-visible { outline:2px solid var(--ring); outline-offset:-2px; }
+:root body .app-frame .sourcing-queue .sourcing-queue-count { font-size:12px; font-weight:500; color:var(--muted-foreground); opacity:1; font-variant-numeric:tabular-nums; }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab[aria-pressed="true"] .sourcing-queue-count { color:var(--text-soft, var(--muted-foreground)); }
+:root body .app-frame .sourcing-queue-aside { display:flex; align-items:center; margin-left:auto; min-width:0; }
+:root body .app-frame .sourcing-queue-aside:empty { display:none; }
+:root body .app-frame .sourcing-queue-aside .sourcing-search { width:300px; max-width:100%; margin:0; flex:none; }
+:root body .app-frame .sourcing-queue-aside .sourcing-search input { width:100%; min-width:0; }
+@media (max-width:760px) {
+  :root body .app-frame .sourcing-queue { flex-wrap:wrap; }
+  :root body .app-frame .sourcing-queue-aside { flex:1 1 100%; padding-bottom:8px; }
+  :root body .app-frame .sourcing-queue-aside .sourcing-search { width:100%; }
+}
+
+/* Missing submissions: a compact warning that opens the bidder list. */
+:root body .app-frame .sourcing-page .sourcing-missing-links { position:relative; overflow:visible; padding:0; border:0; background:transparent; max-width:none; height:auto; }
+:root body .app-frame .sourcing-page .sourcing-missing-links > button { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:1px solid color-mix(in srgb,var(--warning) 55%,transparent); border-radius:8px; background:color-mix(in srgb,var(--warning) 9%,transparent); color:var(--warning); font-size:12.5px; font-weight:600; white-space:nowrap; cursor:pointer; }
+:root body .app-frame .sourcing-page .sourcing-missing-links > button:hover { background:color-mix(in srgb,var(--warning) 16%,transparent); }
+:root body .app-frame .sourcing-page .sourcing-missing-links > button:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+:root body .app-frame .sourcing-page .sourcing-missing-popover { position:absolute; top:calc(100% + 6px); left:0; z-index:30; min-width:220px; max-width:320px; max-height:280px; overflow:auto; padding:10px 0 6px; border:1px solid var(--border); border-radius:8px; background:var(--popover, var(--card)); color:var(--foreground); box-shadow:0 12px 32px rgb(0 0 0 / .28); }
+:root body .app-frame .sourcing-page .sourcing-missing-popover p { margin:0 12px 6px; color:var(--muted-foreground); font-size:11.5px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; }
+:root body .app-frame .sourcing-page .sourcing-missing-popover ul { margin:0; padding:0; list-style:none; }
+:root body .app-frame .sourcing-page .sourcing-missing-popover li { padding:6px 12px; font-size:13px; }
+:root body .app-frame .sourcing-page .sourcing-missing-popover li + li { border-top:1px solid var(--ui-hairline, var(--border)); }
+
+/* Status line under the sheet. */
+:root body .app-frame .sourcing-queue-footer { flex:none; display:flex; justify-content:space-between; gap:12px; padding:7px var(--ui-gutter, 16px); border-top:1px solid var(--ui-hairline, var(--border)); background:var(--card); color:var(--muted-foreground); font-size:12px; font-variant-numeric:tabular-nums; }
+:root body .app-frame .sourcing-queue-footer > span:first-child { color:var(--text-soft, var(--foreground)); font-weight:600; }
+
+/* ── Job Sourcing header: labelled fields, then search, then the work queue. ── */
+:root body .app-frame .sourcing-page .sourcing-toolbar.sourcing-header { flex-direction:column; flex-wrap:nowrap; align-items:stretch; gap:12px; padding:14px var(--ui-gutter, 16px) 12px; min-height:0; }
+:root body .app-frame .sourcing-page .sourcing-header-fields { display:grid; grid-template-columns:minmax(160px,220px) minmax(0,1fr) auto; align-items:end; gap:12px; }
+:root body .app-frame .sourcing-page .sourcing-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+:root body .app-frame .sourcing-page .sourcing-field-label { color:var(--text-soft, var(--muted-foreground)); font-size:12.5px; font-weight:550; }
+:root body .app-frame .sourcing-page .sourcing-select { position:relative; display:flex; align-items:center; gap:8px; height:38px; min-width:0; padding:0 12px; border:1px solid var(--border); border-radius:8px; background:var(--ui-field, var(--background)); color:var(--muted-foreground); }
+:root body .app-frame .sourcing-page .sourcing-select:hover { border-color:color-mix(in srgb,var(--foreground) 22%,var(--border)); }
+:root body .app-frame .sourcing-page .sourcing-select:focus-within { border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 22%,transparent); }
+:root body .app-frame .sourcing-page .sourcing-select > svg { flex:none; }
+:root body .app-frame .sourcing-page .sourcing-select select { flex:1 1 auto; min-width:0; max-width:none; height:100%; margin:0; padding:0; border:0; outline:0; box-shadow:none; background:transparent; color:var(--foreground); font-size:14px; font-weight:650; text-overflow:ellipsis; appearance:none; -webkit-appearance:none; cursor:pointer; }
+:root body .app-frame .sourcing-page .sourcing-select select:disabled { cursor:default; opacity:.7; }
+:root body .app-frame .sourcing-page .sourcing-select select option { color:var(--foreground); background:var(--popover, var(--card)); font-weight:500; }
+:root body .app-frame .sourcing-page .sourcing-select-count { flex:none; color:var(--muted-foreground); font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums; }
+:root body .app-frame .sourcing-page .sourcing-account-row { display:flex; align-items:center; gap:8px; min-width:0; }
+:root body .app-frame .sourcing-page .sourcing-account-row .sourcing-select { flex:1 1 auto; }
+:root body .app-frame .sourcing-page .sourcing-account-row .btn { flex:none; width:38px; height:38px; min-height:38px; border-radius:8px; }
+:root body .app-frame .sourcing-page .sourcing-account-row .sourcing-delete-tab:hover:not(:disabled) { color:var(--destructive); border-color:color-mix(in srgb,var(--destructive) 45%,var(--border)); }
+:root body .app-frame .sourcing-page .sourcing-field-settings .btn { height:38px; min-height:38px; gap:7px; padding-inline:14px; border-radius:8px; font-weight:600; }
+:root body .app-frame .sourcing-page .sourcing-header-row { display:flex; align-items:center; gap:10px; min-width:0; }
+:root body .app-frame .sourcing-page .sourcing-header-row .sourcing-search { flex:1 1 auto; max-width:none; min-width:0; height:38px; min-height:38px; margin:0; padding:0 12px; border-radius:8px; }
+:root body .app-frame .sourcing-page .sourcing-header-row .sourcing-search input { width:100%; height:34px; font-size:13.5px; }
+:root body .app-frame .sourcing-page .sourcing-header-row .sourcing-toolbar-days .sheet-days { padding-left:0; border-left:0; }
+:root body .app-frame .sourcing-page .sourcing-header-row .sourcing-missing-links { flex:none; margin-left:auto; }
+:root body .app-frame .sourcing-page .sourcing-header-row .sourcing-missing-popover { left:auto; right:0; }
+@media (max-width:900px) {
+  :root body .app-frame .sourcing-page .sourcing-header-fields { grid-template-columns:1fr; }
+  :root body .app-frame .sourcing-page .sourcing-header-row { flex-wrap:wrap; }
+  :root body .app-frame .sourcing-page .sourcing-header-row .sourcing-search { flex-basis:100%; }
+}
+
+/* Work queue: status tabs on their own underlined row, then breakdown pills and order. */
+:root body .app-frame .sourcing-queue { flex-direction:column; flex-wrap:nowrap; align-items:stretch; justify-content:flex-start; gap:0; padding:0 var(--ui-gutter, 16px); }
+:root body .app-frame .sourcing-queue-tabs { border-bottom:1px solid var(--ui-hairline, var(--border)); }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab { padding:12px 12px 11px; }
+:root body .app-frame .sourcing-queue-filters { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:46px; padding:8px 0; }
+:root body .app-frame .sourcing-queue-pills { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+:root body .app-frame .sourcing-queue-pill { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 11px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--text-soft, var(--muted-foreground)); font-size:12.5px; font-weight:550; cursor:pointer; }
+:root body .app-frame .sourcing-queue-pill > span { color:var(--muted-foreground); font-weight:600; font-variant-numeric:tabular-nums; }
+:root body .app-frame .sourcing-queue-pill:hover:not(:disabled) { background:var(--ui-row-hover); color:var(--foreground); }
+:root body .app-frame .sourcing-queue-pill[aria-pressed="true"] { border-color:color-mix(in srgb,var(--primary) 45%,transparent); background:color-mix(in srgb,var(--primary) 16%,transparent); color:var(--foreground); font-weight:650; }
+:root body .app-frame .sourcing-queue-pill[aria-pressed="true"] > span { color:var(--foreground); }
+:root body .app-frame .sourcing-queue-pill.is-expiring, :root body .app-frame .sourcing-queue-pill.is-expiring > span { color:var(--warning); }
+:root body .app-frame .sourcing-queue-pill.is-expiring[aria-pressed="true"] { border-color:color-mix(in srgb,var(--warning) 55%,transparent); background:color-mix(in srgb,var(--warning) 12%,transparent); }
+:root body .app-frame .sourcing-queue-pill:disabled { opacity:.5; cursor:default; }
+:root body .app-frame .sourcing-queue-pill:focus-visible, :root body .app-frame .sourcing-queue-order:focus-visible { outline:2px solid var(--ring); outline-offset:1px; }
+:root body .app-frame .sourcing-queue-order { display:inline-flex; align-items:center; gap:6px; height:30px; margin-left:auto; padding:0 10px; border:0; border-radius:6px; background:transparent; color:var(--text-soft, var(--muted-foreground)); font-size:12.5px; font-weight:600; cursor:pointer; }
+:root body .app-frame .sourcing-queue-order:hover:not(:disabled) { background:var(--ui-row-hover); color:var(--foreground); }
+
+/* Filter toggle at the right end of the field row; the missing-submissions warning sits
+   beside it so it stays visible while the search and date row is hidden. */
+:root body .app-frame .sourcing-page .sourcing-header-fields { grid-template-columns:minmax(160px,220px) minmax(0,1fr) auto auto; }
+:root body .app-frame .sourcing-page .sourcing-field-tools { flex-direction:row; align-items:center; justify-content:flex-end; gap:8px; align-self:end; }
+:root body .app-frame .sourcing-page .sourcing-field-tools .sourcing-missing-links > button { height:38px; border-radius:8px; }
+:root body .app-frame .sourcing-page .sourcing-field-tools .sourcing-missing-popover { left:auto; right:0; }
+:root body .app-frame .sourcing-page .sourcing-tools-toggle { position:relative; height:38px; min-height:38px; gap:7px; padding-inline:14px; border-radius:8px; font-weight:600; }
+:root body .app-frame .sourcing-page .sourcing-tools-toggle[aria-expanded="true"] { border-color:color-mix(in srgb,var(--primary) 45%,var(--border)); background:color-mix(in srgb,var(--primary) 12%,transparent); color:var(--foreground); }
+:root body .app-frame .sourcing-page .sourcing-tools-active { position:absolute; top:6px; right:6px; width:7px; height:7px; border-radius:50%; background:var(--primary); box-shadow:0 0 0 2px var(--card); }
+:root body .app-frame .sourcing-page .sourcing-header-row[hidden] { display:none; }
+@media (max-width:900px) { :root body .app-frame .sourcing-page .sourcing-field-tools { justify-content:flex-start; } }

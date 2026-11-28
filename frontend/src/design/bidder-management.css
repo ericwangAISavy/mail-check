@@ -1,0 +1,192 @@
+/* Bidder management: one composed workspace.
+   Header toolbar → summary strip (+ deduction policy row) → daily breakdown → confirmation
+   analytics (summary, legend and a quiet weekly heatmap above one primary chart).
+   34px controls, 8px control radii, 12px surfaces, hairline dividers, theme tokens only. */
+
+/* ── Header toolbar ── */
+:root body .app-frame .bm-page .page-heading { align-items:center; gap:12px; margin-bottom:14px; }
+:root body .app-frame .bm-page .page-heading h1 { font-size:22px; font-weight:650; letter-spacing:-.01em; }
+:root body .app-frame .bm-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:6px; }
+:root body .app-frame .bm-controls .btn[data-size="icon"] { width:34px; height:34px; min-height:34px; border-radius:8px; }
+:root body .app-frame .bm-controls .btn[data-size="sm"] { height:34px; min-height:34px; padding-inline:12px; border-radius:8px; font-size:13px; font-weight:500; }
+:root body .app-frame :is(.bm-controls,.bm-analytics) .bm-select select { height:34px; min-height:34px; font-size:13px; font-weight:500; }
+:root body .app-frame .bm-week { position:relative; display:inline-flex; }
+:root body .app-frame .bm-week-button {
+  display:inline-flex; align-items:center; gap:8px; height:34px; padding:0 10px 0 12px;
+  border:1px solid var(--border); border-radius:8px; background:var(--ui-field, transparent);
+  color:var(--foreground); font:inherit; font-size:13px; font-weight:500; white-space:nowrap; cursor:pointer;
+}
+:root body .app-frame .bm-week-button > svg { color:var(--muted-foreground); flex:none; }
+:root body .app-frame .bm-week-button:hover:not(:disabled) { background:var(--ui-row-hover, var(--muted)); }
+:root body .app-frame .bm-week-button:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+/* The native date input stays in the page (so it can open) but invisible under its button. */
+:root body .app-frame .bm-week-input { position:absolute; left:0; bottom:0; width:100%; height:1px; padding:0; border:0; opacity:0; pointer-events:none; }
+
+/* ── Summary strip ── */
+:root body .app-frame .bm-summary { margin-bottom:16px; border:1px solid var(--border); border-radius:12px; background:var(--card); }
+:root body .app-frame .bm-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+:root body .app-frame .bm-metric { display:flex; align-items:flex-start; gap:14px; padding:18px 22px; }
+:root body .app-frame .bm-metric + .bm-metric { border-left:1px solid var(--ui-hairline, var(--border)); }
+:root body .app-frame .bm-metric > svg { flex:none; width:20px; height:20px; margin-top:2px; color:var(--muted-foreground); }
+:root body .app-frame .bm-metric > div { display:grid; gap:2px; min-width:0; }
+:root body .app-frame .bm-metric span { color:var(--text-soft, var(--muted-foreground)); font-size:12.5px; font-weight:500; }
+:root body .app-frame .bm-metric strong { color:var(--foreground); font-size:26px; font-weight:650; line-height:1.15; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+:root body .app-frame .bm-metric small { color:var(--muted-foreground); font-size:12px; }
+:root body .app-frame .bm-policy { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:10px 22px; border-top:1px solid var(--ui-hairline, var(--border)); font-size:13px; }
+:root body .app-frame .bm-policy > svg { color:var(--muted-foreground); flex:none; }
+:root body .app-frame .bm-policy > strong { font-weight:600; }
+:root body .app-frame .bm-policy > span { color:var(--muted-foreground); }
+:root body .app-frame .bm-policy .bm-policy-edit { margin-left:auto; height:30px; min-height:30px; gap:6px; color:var(--primary); font-size:13px; font-weight:500; }
+:root body .app-frame .bm-popover {
+  position:absolute; right:14px; top:calc(100% - 4px); z-index:40; width:min(400px, calc(100vw - 32px)); padding:16px;
+  border:1px solid var(--border); border-radius:10px; background:var(--surface-raised, var(--popover, var(--card)));
+  box-shadow:0 12px 32px rgb(0 0 0 / .32);
+}
+:root[data-theme="light"] body .app-frame .bm-popover { box-shadow:0 12px 28px rgb(15 23 42 / .12), 0 1px 2px rgb(15 23 42 / .06); }
+:root body .app-frame .bm-popover .payment-deduction-rule { margin:0; padding:0; border:0; background:transparent; box-shadow:none; }
+:root body .app-frame .bm-popover .payment-deduction-rule h2 { margin:0 0 10px; font-size:14px; font-weight:600; }
+:root body .app-frame .bm-popover .payment-deduction-rule form { display:grid; gap:10px; }
+:root body .app-frame .bm-popover .payment-deduction-rule label { display:grid; gap:5px; color:var(--muted-foreground); font-size:12.5px; font-weight:500; }
+:root body .app-frame .bm-popover .payment-deduction-rule input { height:34px; }
+
+/* ── Daily breakdown ── */
+:root body .app-frame .bm-page .payment-breakdown { border-radius:12px; }
+:root body .app-frame .bm-page .payment-section-heading h2 { font-size:17px; font-weight:650; }
+:root body .app-frame .bm-page .payment-section-heading p { color:var(--muted-foreground); font-size:12.5px; }
+:root body .app-frame .bm-page .payment-table :is(th,td).payment-today { background:color-mix(in srgb,var(--primary) 7%,transparent); }
+:root body .app-frame .bm-page .payment-table thead th.payment-today { box-shadow:inset 0 2px 0 var(--primary); color:var(--primary); }
+:root body .app-frame .bm-page .payment-table .payment-checked-count { color:var(--foreground); font-weight:600; }
+:root body .app-frame .bm-page .payment-table .payment-reply-count { color:var(--muted-foreground); font-weight:400; }
+:root body .app-frame .bm-page .payment-future { color:color-mix(in srgb,var(--muted-foreground) 70%,transparent); }
+
+/* ── Confirmation analytics ── */
+:root body .app-frame .bm-analytics { margin-top:16px; padding:20px 22px 14px; border:1px solid var(--border); border-radius:12px; background:var(--card); }
+:root body .app-frame .bm-analytics-head h2 { margin:0; font-size:17px; font-weight:650; letter-spacing:-.005em; }
+:root body .app-frame .bm-analytics-head p { margin:3px 0 0; color:var(--muted-foreground); font-size:12.5px; }
+:root body .app-frame .bm-analytics-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-top:14px; }
+:root body .app-frame .bm-segment { display:inline-flex; gap:2px; padding:3px; border:1px solid var(--border); border-radius:9px; background:var(--ui-field, transparent); }
+:root body .app-frame .bm-segment button { height:28px; padding:0 12px; border:0; border-radius:6px; background:transparent; color:var(--muted-foreground); font:inherit; font-size:13px; font-weight:500; cursor:pointer; }
+:root body .app-frame .bm-segment button:hover { color:var(--foreground); }
+:root body .app-frame .bm-segment button[aria-pressed="true"] { background:color-mix(in srgb,var(--primary) 16%,transparent); color:var(--foreground); font-weight:600; }
+:root body .app-frame .bm-segment button:focus-visible { outline:2px solid var(--ring); outline-offset:1px; }
+:root body .app-frame .bm-analytics-filters { display:flex; gap:8px; }
+:root body .app-frame .bm-note { margin:8px 0 0; color:var(--muted-foreground); font-size:12px; }
+:root body .app-frame .bm-analytics-top { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:16px 32px; margin-top:18px; }
+:root body .app-frame .bm-analytics-summary { display:grid; gap:12px; min-width:0; }
+:root body .app-frame .bm-kpi { display:flex; align-items:center; gap:14px; }
+:root body .app-frame .bm-kpi > strong { font-size:34px; font-weight:650; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+:root body .app-frame .bm-kpi > div { display:grid; gap:2px; }
+:root body .app-frame .bm-kpi span { font-size:13px; font-weight:600; }
+:root body .app-frame .bm-kpi small { color:var(--muted-foreground); font-size:12px; }
+:root body .app-frame .bm-analytics-nav { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+:root body .app-frame .bm-analytics-nav .btn[data-size="icon"] { width:32px; height:34px; min-height:34px; border-radius:8px; }
+:root body .app-frame .bm-analytics-nav .btn[data-size="sm"] { height:34px; min-height:34px; border-radius:8px; font-size:13px; font-weight:500; }
+:root body .app-frame .bm-analytics-nav .bm-select { margin-left:6px; }
+:root body .app-frame .bm-analytics .activity-legend { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0; padding:0; border:0; }
+:root body .app-frame .bm-analytics .activity-legend button { display:inline-flex; align-items:center; gap:7px; height:26px; padding:0 2px; border:0; border-radius:6px; background:transparent; color:var(--text-soft, var(--foreground)); font:inherit; font-size:13px; font-weight:500; cursor:pointer; }
+:root body .app-frame .bm-analytics .activity-legend button i { width:9px; height:9px; border-radius:50%; }
+:root body .app-frame .bm-analytics .activity-legend button:hover { color:var(--foreground); }
+:root body .app-frame .bm-analytics .activity-legend:has(button[aria-pressed="true"]) button:not([aria-pressed="true"]) { opacity:.45; }
+:root body .app-frame .bm-analytics .activity-legend button[aria-pressed="true"] { color:var(--foreground); font-weight:600; }
+:root body .app-frame .bm-analytics .activity-legend button:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+
+/* Weekly heatmap: a quiet micro-visualization in the top-right. */
+:root body .app-frame .bm-heatmap { width:330px; }
+:root body .app-frame .bm-heatmap > summary { display:flex; align-items:center; gap:8px; margin-bottom:8px; list-style:none; font-size:12px; cursor:default; }
+:root body .app-frame .bm-heatmap > summary::-webkit-details-marker { display:none; }
+:root body .app-frame .bm-heatmap > summary strong { font-size:12.5px; font-weight:600; }
+:root body .app-frame .bm-heatmap > summary > span { color:var(--muted-foreground); }
+:root body .app-frame .bm-heat-key { display:inline-flex; align-items:center; gap:3px; margin-left:auto; font-size:11px; }
+:root body .app-frame .bm-heat-key i { width:9px; height:9px; border-radius:2px; background:color-mix(in srgb,var(--primary) 25%,var(--card)); }
+:root body .app-frame .bm-heat-key i:nth-of-type(2) { background:color-mix(in srgb,var(--primary) 45%,var(--card)); }
+:root body .app-frame .bm-heat-key i:nth-of-type(3) { background:color-mix(in srgb,var(--primary) 65%,var(--card)); }
+:root body .app-frame .bm-heat-key i:nth-of-type(4) { background:color-mix(in srgb,var(--primary) 85%,var(--card)); margin-right:3px; }
+:root body .app-frame .bm-heat-grid { display:grid; grid-template-columns:26px repeat(24,minmax(0,1fr)); gap:2px; align-items:center; }
+:root body .app-frame .bm-heat-grid > small { overflow:visible; color:var(--muted-foreground); font-size:9.5px; line-height:1; white-space:nowrap; }
+:root body .app-frame .bm-heat-grid .heatmap-row > span:first-child { color:var(--muted-foreground); font-size:10px; line-height:1; }
+:root body .app-frame .bm-heat-grid .heat-cell { display:block; height:9px; border-radius:2px; background:color-mix(in srgb,var(--foreground) 7%,transparent); }
+:root body .app-frame .bm-heat-grid .heat-cell.level-1 { background:color-mix(in srgb,var(--primary) 25%,var(--card)); }
+:root body .app-frame .bm-heat-grid .heat-cell.level-2 { background:color-mix(in srgb,var(--primary) 45%,var(--card)); }
+:root body .app-frame .bm-heat-grid .heat-cell.level-3 { background:color-mix(in srgb,var(--primary) 65%,var(--card)); }
+:root body .app-frame .bm-heat-grid .heat-cell.level-4 { background:color-mix(in srgb,var(--primary) 85%,var(--card)); }
+:root body .app-frame .bm-heat-grid .heat-cell.is-upcoming { background:transparent; box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--foreground) 7%,transparent); }
+:root body .app-frame .bm-heat-grid .heat-cell:focus-visible { outline:2px solid var(--ring); outline-offset:1px; }
+
+/* Primary chart */
+:root body .app-frame .bm-analytics .activity-chart-scroll { margin-top:14px; }
+:root body .app-frame .bm-analytics .activity-chart { min-width:560px; }
+:root body .app-frame .bm-analytics .activity-empty { margin-top:14px; }
+:root body .app-frame .bm-analytics-foot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid var(--ui-hairline, var(--border)); color:var(--muted-foreground); font-size:12.5px; }
+:root body .app-frame .bm-analytics-foot > span { display:inline-flex; align-items:center; gap:7px; }
+
+@media (max-width:1100px) {
+  :root body .app-frame .bm-analytics-top { grid-template-columns:minmax(0,1fr); }
+  :root body .app-frame .bm-heatmap { width:100%; max-width:420px; }
+  :root body .app-frame .bm-heatmap > summary { cursor:pointer; }
+  :root body .app-frame .bm-heatmap:not([open]) > summary { margin-bottom:0; }
+}
+@media (max-width:760px) {
+  :root body .app-frame .bm-metric + .bm-metric { border-left:0; border-top:1px solid var(--ui-hairline, var(--border)); }
+  :root body .app-frame .bm-page .page-heading { flex-wrap:wrap; }
+  :root body .app-frame .bm-controls { justify-content:flex-start; }
+}
+:root body .app-frame .bm-popover .payment-deduction-rule :is(input,.btn) { width:100%; }
+:root body .app-frame .bm-popover .payment-deduction-rule input { text-align:left; }
+
+/* ── Round 2: compact proportions, one scroll container, flat heatmap cells ── */
+:root body .app-frame .bm-page .page-heading { min-height:44px; margin-bottom:10px; }
+:root body .app-frame .bm-page .page-heading h1 { font-size:20px; }
+/* Summary: label on top, value with its note on one line. */
+:root body .app-frame .bm-metric { align-items:center; gap:12px; padding:12px 20px; }
+:root body .app-frame .bm-metric > svg { width:18px; height:18px; margin-top:0; }
+:root body .app-frame .bm-metric > div { grid-template-columns:auto minmax(0,1fr); align-items:baseline; column-gap:10px; row-gap:2px; }
+:root body .app-frame .bm-metric > div > span { grid-column:1 / -1; }
+:root body .app-frame .bm-metric strong { font-size:24px; }
+:root body .app-frame .bm-metric small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+:root body .app-frame .bm-policy { min-height:34px; padding:4px 20px; }
+:root body .app-frame .bm-policy .bm-policy-edit { height:26px; min-height:26px; padding-inline:8px; }
+/* Breakdown: compact rows, single-line headers, even-width numbers, clear row kinds. */
+:root body .app-frame .bm-page .payment-breakdown { padding:14px 0 0; }
+:root body .app-frame .bm-page .payment-section-heading { padding:0 20px 10px; }
+:root body .app-frame .bm-page .payment-table { font-variant-numeric:tabular-nums; }
+:root body .app-frame .bm-page .payment-table thead th { height:36px; padding:0 12px; white-space:nowrap; font-size:12.5px; font-weight:500; vertical-align:middle; }
+:root body .app-frame .bm-page .payment-table thead th small { display:inline; margin-left:4px; }
+:root body .app-frame .bm-page .payment-table tbody :is(th,td), :root body .app-frame .bm-page .payment-table tfoot :is(th,td) { height:38px; padding:0 12px; vertical-align:middle; }
+:root body .app-frame .bm-page .payment-table tbody th .payment-row-total { display:none; }
+:root body .app-frame .bm-page .payment-table :is(th,td).payment-today { background:color-mix(in srgb,var(--primary) 6%,transparent); }
+:root body .app-frame .bm-page .payment-table thead th.payment-today { box-shadow:inset 0 2px 0 color-mix(in srgb,var(--primary) 70%,transparent); }
+:root body .app-frame .bm-page .payment-table tr.payment-account-detail :is(th,td) { height:32px; color:var(--muted-foreground); font-size:12.5px; background:color-mix(in srgb,var(--foreground) 2%,transparent); }
+:root body .app-frame .bm-page .payment-table tr.payment-account-detail th { padding-left:40px; font-weight:400; }
+:root body .app-frame .bm-page .payment-table tr.payment-unallocated :is(th,td) { color:var(--muted-foreground); font-style:italic; }
+:root body .app-frame .bm-page .payment-table tfoot :is(th,td) { border-top:1px solid var(--border); background:color-mix(in srgb,var(--foreground) 3%,transparent); font-weight:600; }
+:root body .app-frame .bm-page .payment-table tfoot th { color:var(--text-soft, var(--foreground)); }
+/* Analytics: title row with filters; controls stack tightly on the left; chart right after. */
+:root body .app-frame .bm-analytics { padding:16px 20px 12px; }
+:root body .app-frame .bm-analytics-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; }
+:root body .app-frame .bm-analytics-title { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; }
+:root body .app-frame .bm-analytics-head p { margin:0; }
+:root body .app-frame .bm-analytics-top { margin-top:12px; gap:12px 32px; }
+:root body .app-frame .bm-analytics-summary { gap:10px; }
+:root body .app-frame .bm-segment { justify-self:start; }
+:root body .app-frame .bm-kpi-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px 28px; }
+:root body .app-frame .bm-kpi > strong { font-size:30px; }
+:root body .app-frame .bm-analytics .activity-chart-scroll { margin-top:6px; overflow-y:hidden; }
+:root body .app-frame .bm-analytics .activity-chart { min-width:0; }
+/* Heatmap: short, wide cells; it never sets the header's height. */
+:root body .app-frame .bm-heatmap { width:320px; align-self:start; }
+:root body .app-frame .bm-heatmap > summary { margin-bottom:6px; }
+:root body .app-frame .bm-heat-grid { row-gap:3px; column-gap:2px; }
+:root body .app-frame .bm-heat-grid .heat-cell { min-height:0; height:9px; border:0; border-radius:2px; aspect-ratio:auto; box-shadow:none; }
+:root body .app-frame .bm-heat-grid .heat-cell:not(.is-upcoming):not([class*="level-"]) { background:color-mix(in srgb,var(--foreground) 7%,transparent); }
+:root body .app-frame .bm-heat-grid .heat-cell.level-0 { background:color-mix(in srgb,var(--foreground) 6%,transparent); }
+:root body .app-frame .bm-heat-grid .heat-cell.is-upcoming { background:color-mix(in srgb,var(--foreground) 2.5%,transparent); box-shadow:none; }
+:root body .app-frame .bm-heat-grid .heatmap-row > span:first-child { padding:0; font-size:9.5px; }
+:root body .app-frame .bm-heat-grid > small { font-size:9px; }
+:root body .app-frame .bm-analytics .bm-now-label { paint-order:stroke; stroke:var(--card); stroke-width:3px; }
+/* Match the app-wide table rule's strength so this page's denser rows apply. */
+:root body .app-frame.app-frame.app-frame .bm-page .payment-table tbody :is(td,th),
+:root body .app-frame.app-frame.app-frame .bm-page .payment-table tfoot :is(td,th) { height:38px; padding:0 12px; }
+:root body .app-frame.app-frame.app-frame .bm-page .payment-table tr.payment-account-detail :is(td,th) { height:32px; }
+:root body .app-frame.app-frame.app-frame .bm-page .payment-table tr.payment-account-detail th { padding-left:40px; }
+:root body .app-frame.app-frame.app-frame .bm-page .payment-table thead th { padding:0 12px; }
+:root body .app-frame .bm-page .page-heading { padding-top:6px; padding-bottom:6px; }

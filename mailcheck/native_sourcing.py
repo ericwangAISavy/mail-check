@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS native_rows (
  id TEXT PRIMARY KEY, tab_id INTEGER NOT NULL REFERENCES native_tabs(id) ON DELETE CASCADE, position INTEGER NOT NULL, work_date TEXT
 );
 CREATE INDEX IF NOT EXISTS native_row_order ON native_rows(tab_id,position);
+CREATE TABLE IF NOT EXISTS sourcing_opened_links (
+ bidder_id INTEGER NOT NULL REFERENCES bidders(id) ON DELETE CASCADE,
+ account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+ row_id TEXT NOT NULL REFERENCES native_rows(id) ON DELETE CASCADE,
+ job_created_at REAL NOT NULL,
+ PRIMARY KEY(bidder_id,account_id,row_id)
+);
+CREATE INDEX IF NOT EXISTS sourcing_opened_links_row ON sourcing_opened_links(row_id);
 CREATE TABLE IF NOT EXISTS native_cells (
  row_id TEXT NOT NULL REFERENCES native_rows(id) ON DELETE CASCADE,
  column_id TEXT NOT NULL REFERENCES native_columns(id) ON DELETE CASCADE,
@@ -239,6 +247,48 @@ def _create_tab(
     return tab_id
 
 
+def _chicago_today():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo(QUEUE_ZONE)).date().isoformat()
+
+
+def missing_assigned_sheets(conn, day, bidder_id=None):
+    """Assignments that have not ended (current or starting later) of active bidders whose
+    workbook has no sheet for that account yet. A sheet that exists, even archived, is
+    never recreated."""
+    return conn.execute(
+        "SELECT DISTINCT b.id AS book_id, s.account_id FROM bidder_assignments s "
+        "JOIN accounts a ON a.id=s.account_id "
+        "JOIN bidders p ON p.id=s.bidder_id AND p.removed_at IS NULL "
+        "JOIN native_books b ON b.bidder_id=s.bidder_id "
+        "WHERE (s.end_date IS NULL OR s.end_date>=?) AND (? IS NULL OR s.bidder_id=?) "
+        "AND NOT EXISTS (SELECT 1 FROM native_tabs t WHERE t.book_id=b.id AND t.account_id=s.account_id) "
+        "ORDER BY b.id, s.account_id",
+        (day, bidder_id, bidder_id),
+    ).fetchall()
+
+
+def ensure_assigned_sheets(conn, day, bidder_id=None):
+    """Give every currently assigned account its profile sheet, so assigning an account is
+    all an admin does. Runs inside the caller's transaction; returns the new tab ids."""
+    if bidder_id is not None:
+        _create_book(conn, bidder_id, "Applications")
+    else:
+        conn.execute(
+            "INSERT OR IGNORE INTO native_books(bidder_id,title) "
+            "SELECT DISTINCT s.bidder_id,'Applications' FROM bidder_assignments s "
+            "JOIN bidders p ON p.id=s.bidder_id AND p.removed_at IS NULL "
+            "WHERE (s.end_date IS NULL OR s.end_date>=?) "
+            "AND NOT EXISTS (SELECT 1 FROM native_books b WHERE b.bidder_id=s.bidder_id)",
+            (day,),
+        )
+    return [
+        _create_tab(conn, row["book_id"], row["account_id"], "")
+        for row in missing_assigned_sheets(conn, day, bidder_id)
+    ]
+
+
 def create_tab(conn, book_id, account_id, title):
     with atomic(conn):
         return _create_tab(conn, book_id, account_id, title)
@@ -266,6 +316,40 @@ def snapshot(conn, tab, *, compact=False):
         return _snapshot(conn, tab, compact=compact)
     finally:
         conn.rollback()
+
+
+def opened_rows(conn, tab):
+    return [
+        row["row_id"]
+        for row in conn.execute(
+            """SELECT opened.row_id FROM sourcing_opened_links opened
+            JOIN native_rows r ON r.id=opened.row_id AND r.created_at=opened.job_created_at
+            WHERE opened.bidder_id=? AND opened.account_id=? AND r.tab_id=?""",
+            (tab["bidder_id"], tab["account_id"], tab["id"]),
+        )
+    ]
+
+
+def mark_link_opened(conn, tab, row_id, job_created_at):
+    if tab["account_id"] is None:
+        return False
+    link = conn.execute(
+        """SELECT c.value FROM native_rows r
+        JOIN native_columns col ON col.tab_id=r.tab_id AND col.kind='link'
+        JOIN native_cells c ON c.column_id=col.id AND c.row_id=r.id
+        WHERE r.id=? AND r.tab_id=? AND r.created_at=?""",
+        (row_id, tab["id"], job_created_at),
+    ).fetchone()
+    if not link or not link["value"].lower().startswith(("https://", "http://")):
+        return False
+    conn.execute(
+        """INSERT INTO sourcing_opened_links (bidder_id,account_id,row_id,job_created_at)
+        VALUES (?,?,?,?) ON CONFLICT(bidder_id,account_id,row_id) DO UPDATE
+        SET job_created_at=excluded.job_created_at
+        WHERE job_created_at!=excluded.job_created_at""",
+        (tab["bidder_id"], tab["account_id"], row_id, job_created_at),
+    )
+    return True
 
 
 def _check_snapshot_budget(conn, tab):
@@ -704,6 +788,9 @@ def migrate(conn):
 
         upgrade_verification_columns(conn)
         backfill_created(conn)
+        # Every assigned account has its sheet, so nobody has to add one by hand.
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bidder_assignments'").fetchone():
+            ensure_assigned_sheets(conn, _chicago_today())
 
 
 def upgrade_verification_columns(conn):

@@ -1,0 +1,276 @@
+/* Account slots are persisted as integers. Keep the palette index stable. */
+.account-color-0 { --calendar-accent: #54b7d3; --calendar-fill: #203743; --calendar-light-accent: #23768d; --calendar-light-fill: #e0f1f6; }
+.account-color-1 { --calendar-accent: #39b5a5; --calendar-fill: #203a38; --calendar-light-accent: #21796e; --calendar-light-fill: #dff2ee; }
+.account-color-2 { --calendar-accent: #a18ae4; --calendar-fill: #332d46; --calendar-light-accent: #7254a3; --calendar-light-fill: #eee7f8; }
+.account-color-3 { --calendar-accent: #dbac63; --calendar-fill: #3c3428; --calendar-light-accent: #8d611f; --calendar-light-fill: #f8eedc; }
+.account-color-4 { --calendar-accent: #d58daf; --calendar-fill: #3d2d3b; --calendar-light-accent: #98537a; --calendar-light-fill: #f6e7ef; }
+.account-color-5 { --calendar-accent: #6095e8; --calendar-fill: #26364d; --calendar-light-accent: #3866ae; --calendar-light-fill: #e4edfb; }
+.account-color-6 { --calendar-accent: #df8b7d; --calendar-fill: #3d2d2d; --calendar-light-accent: #a24c42; --calendar-light-fill: #faeae6; }
+.account-color-7 { --calendar-accent: #8dbb7d; --calendar-fill: #2d3a2c; --calendar-light-accent: #507342; --calendar-light-fill: #e8f1e3; }
+
+:root[data-theme="light"] :is([class^="account-color-"], [class*=" account-color-"]) {
+  --calendar-accent: var(--calendar-light-accent);
+  --calendar-fill: var(--calendar-light-fill);
+}
+
+.outlook-calendar {
+  --calendar-event-title: color-mix(in srgb, var(--foreground) 90%, white);
+  --calendar-event-warning: #f0c278;
+}
+:root[data-theme="light"] .outlook-calendar {
+  --calendar-event-title: var(--foreground);
+  --calendar-event-warning: #79500c;
+}
+
+.outlook-calendar .interview-event:is(.outlook-time-event, .outlook-month-event) {
+  --calendar-event-edge: color-mix(in srgb, var(--calendar-accent) 38%, var(--calendar-fill));
+  --calendar-event-secondary: color-mix(in srgb, var(--calendar-event-title) 78%, var(--calendar-fill));
+  --calendar-event-hover: color-mix(in srgb, var(--calendar-fill) 90%, var(--calendar-accent));
+  --calendar-event-past: color-mix(in srgb, var(--calendar-fill) 84%, var(--background));
+  --calendar-event-outline: var(--calendar-accent);
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--calendar-event-edge);
+  border-inline-start: 3px solid var(--calendar-accent);
+  border-radius: 5px;
+  background: var(--calendar-fill);
+  color: var(--calendar-event-title);
+  box-shadow: none;
+  text-align: start;
+  cursor: pointer;
+  overflow: hidden;
+  font: inherit;
+  opacity: 1;
+  transform: none;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.outlook-calendar .interview-event.is-past:is(.outlook-time-event, .outlook-month-event) {
+  background: var(--calendar-event-past);
+}
+.outlook-calendar .interview-event:is(.outlook-time-event, .outlook-month-event):hover {
+  z-index: 3;
+  background: var(--calendar-event-hover);
+  border-color: color-mix(in srgb, var(--calendar-accent) 70%, var(--calendar-fill));
+  border-inline-start-color: var(--calendar-accent);
+}
+.outlook-calendar .interview-event:is(.outlook-time-event, .outlook-month-event):is(.is-selected, :focus-visible) {
+  z-index: 4;
+  outline: 2px solid var(--calendar-event-outline);
+  outline-offset: 1px;
+}
+
+.outlook-calendar .outlook-time-event {
+  position: absolute;
+  z-index: 2;
+  container: calendar-event / inline-size;
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  padding: 4px 7px;
+}
+.outlook-calendar .outlook-time-event.is-short {
+  align-items: center;
+  padding-block: 0;
+}
+.outlook-calendar .oc-ev-body {
+  display: grid;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.outlook-calendar .oc-ev-body > strong {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.outlook-calendar .oc-ev-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--calendar-event-title);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 15px;
+}
+.outlook-calendar .oc-ev-title + svg { margin-inline-start: auto; }
+.outlook-calendar .oc-ev-body :is(.oc-time, .oc-meta),
+.outlook-calendar .outlook-month-event > time {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--calendar-event-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 13px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outlook-calendar .outlook-time-event.is-short .oc-ev-body {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 7px;
+}
+.outlook-calendar .outlook-time-event.is-short .oc-time { justify-self: end; }
+.outlook-calendar .oc-time-start { display: none; }
+@container calendar-event (max-width: 124px) {
+  .outlook-calendar .outlook-time-event.is-short .oc-ev-body { grid-template-columns: minmax(0, 1fr); }
+  .outlook-calendar .outlook-time-event.is-short .oc-time { display: none; }
+}
+@container calendar-event (max-width: 103px) {
+  .outlook-calendar .oc-time-range { display: none; }
+  .outlook-calendar .oc-time-start { display: inline; }
+}
+
+.outlook-calendar .interview-event svg { flex: none; width: 12px; height: 12px; filter: none; }
+.outlook-calendar .interview-event .interview-feedback-indicator.is-warning { color: var(--calendar-event-warning); stroke-width: 2; }
+.outlook-calendar .interview-event .interview-feedback-indicator.is-normal { color: var(--calendar-event-secondary); }
+.outlook-calendar .interview-event.cancelled .oc-ev-title { text-decoration: line-through; text-decoration-thickness: 1px; }
+.outlook-calendar .calendar-event-cancelled { color: var(--calendar-event-secondary); }
+
+.outlook-calendar .outlook-month-event {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 24px;
+  margin-top: 3px;
+  padding: 1px 5px;
+}
+.outlook-calendar .outlook-month-event > time { flex: none; }
+.outlook-calendar .outlook-now-line { border-top-color: color-mix(in srgb, var(--oc-now) 78%, var(--background)); }
+
+.calendar-color-chip {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--calendar-accent);
+}
+.outlook-account-name .calendar-color-chip { width: 9px; height: 9px; border-radius: 50%; }
+
+.calendar-colors-menu {
+  --calendar-swatch-check: #0d1520;
+  position: fixed;
+  z-index: 49;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover, var(--card));
+  color: var(--foreground);
+  box-shadow: var(--shadow-resting-md);
+}
+:root[data-theme="light"] .calendar-colors-menu { --calendar-swatch-check: #fff; }
+.calendar-color-header { position: relative; padding: 14px 40px 11px 14px; }
+.calendar-color-header h3 { margin: 0; font-size: 15px; font-weight: 650; line-height: 20px; }
+.calendar-color-header p { margin: 5px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
+.calendar-color-close {
+  position: absolute;
+  inset: 9px 9px auto auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.calendar-color-close:hover { background: var(--ui-row-hover, var(--muted)); color: var(--foreground); }
+.calendar-color-accounts {
+  display: grid;
+  gap: 2px;
+  min-height: 45px;
+  max-height: min(240px, 33dvh);
+  padding: 3px 9px 5px;
+  overflow: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+.calendar-color-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 9px;
+  min-height: 41px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: start;
+  cursor: pointer;
+}
+.calendar-color-row:hover { background: var(--ui-row-hover, var(--muted)); }
+.calendar-color-row[aria-pressed="true"] {
+  border-color: var(--ui-hairline, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--popover, var(--card)));
+}
+.calendar-color-account { display: grid; gap: 1px; min-width: 0; }
+.calendar-color-account > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-color-account strong { font-size: 12px; font-weight: 600; line-height: 15px; }
+.calendar-color-account small { color: var(--muted-foreground); font-size: 11px; line-height: 14px; }
+.calendar-color-edit { color: var(--muted-foreground); }
+
+.calendar-color-palette { flex: none; margin: 6px 12px 0; padding: 10px 2px 8px; border-top: 1px solid var(--ui-hairline, var(--border)); }
+.calendar-palette-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+.calendar-palette-heading > span { color: var(--muted-foreground); font-size: 11px; }
+.calendar-swatches { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 4px; }
+.calendar-swatch {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.calendar-swatch > span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--calendar-accent);
+  color: var(--calendar-swatch-check);
+}
+.calendar-swatch:hover { background: var(--ui-row-hover, var(--muted)); }
+.calendar-swatch[aria-checked="true"] > span { outline: 1px solid var(--calendar-accent); outline-offset: 2px; }
+.calendar-swatch[aria-disabled="true"] { cursor: progress; }
+.calendar-color-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  margin-top: 2px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.calendar-color-reset:hover:not(:disabled) { background: var(--ui-row-hover, var(--muted)); }
+.calendar-color-reset:disabled { color: var(--muted-foreground); cursor: default; }
+.calendar-colors-menu button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+@media (max-width: 350px) {
+  .calendar-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .outlook-calendar .interview-event:is(.outlook-time-event, .outlook-month-event) { transition: none; }
+}
+@media (forced-colors: active) {
+  .calendar-swatch > span, .calendar-color-chip { forced-color-adjust: none; }
+  .calendar-color-row[aria-pressed="true"] { border-color: Highlight; }
+}

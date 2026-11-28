@@ -1,0 +1,134 @@
+/* Tables, one look everywhere: plain sentence-case headers, medium-weight cells,
+   hairline row dividers with no column lines, roomy rows and a soft hover. The job
+   sheets add a rounded frame, a small "#" column, "Open ↗" links and round checks.
+   Doubled .app-frame lifts these rules above older page-specific table styles. */
+
+/* ── Every HTML table ── */
+:root body .app-frame.app-frame.app-frame table { border-collapse:separate; border-spacing:0; }
+:root body .app-frame.app-frame.app-frame table thead th {
+  padding:10px 14px;
+  border:0;
+  border-bottom:1px solid var(--border);
+  background:transparent;
+  color:color-mix(in srgb,var(--foreground) 78%,transparent);
+  font-size:12.5px;
+  font-weight:500;
+  letter-spacing:0;
+  text-transform:none;
+  white-space:nowrap;
+}
+:root body .app-frame.app-frame.app-frame table tbody :is(td,th) {
+  padding:11px 14px;
+  border:0;
+  border-bottom:1px solid var(--ui-hairline, var(--border));
+  color:var(--foreground);
+  font-size:13px;
+  font-weight:500;
+  vertical-align:middle;
+}
+:root body .app-frame.app-frame.app-frame table tbody tr:last-child > :is(td,th) { border-bottom:0; }
+:root body .app-frame.app-frame.app-frame table tbody tr:hover > :is(td,th) { background:var(--ui-row-hover, color-mix(in srgb,var(--foreground) 4%,transparent)); }
+:root body .app-frame.app-frame.app-frame :is(.monitor-table-scroll,.quality-table-wrap) { border:1px solid var(--border); border-radius:10px; overflow:auto; }
+
+/* ── Job sheet grid (Job sourcing, Job links) ── */
+:root body .app-frame .sourcing-grid.is-row-mode {
+  --rdg-border-color:var(--ui-hairline, var(--border));
+  --rdg-background-color:var(--card);
+  --rdg-header-background-color:var(--card);
+  --rdg-row-hover-background-color:var(--ui-row-hover, color-mix(in srgb,var(--foreground) 4%,transparent));
+  margin:0 var(--ui-gutter, 16px);
+  width:auto;
+  border:1px solid var(--border);
+  border-bottom:0;
+  border-radius:10px 10px 0 0;
+  background:var(--card);
+  font-size:13px;
+}
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-cell { border-inline-end:0; border-block-end:1px solid var(--rdg-border-color); padding-inline:14px; }
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-header-row .rdg-cell {
+  border-block-end:1px solid var(--border);
+  background:var(--card);
+  color:color-mix(in srgb,var(--foreground) 78%,transparent);
+  font-size:12.5px;
+  font-weight:500;
+  letter-spacing:0;
+  text-transform:none;
+}
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row .rdg-cell { color:var(--foreground); font-weight:500; }
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row:hover .rdg-cell { background-color:var(--rdg-row-hover-background-color); }
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-cell-frozen { box-shadow:none; }
+/* "#": small, muted, tucked into the top-left like a footnote. */
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row .rdg-cell:first-child { padding-inline:8px 0; }
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-row-number { display:block; height:100%; padding-top:5px; color:var(--muted-foreground); font-size:10px; font-weight:500; line-height:1; text-align:left; font-variant-numeric:tabular-nums; }
+/* Job link: "Open ↗" in the link colour; the site and address are in the tooltip. */
+:root body .app-frame .sourcing-grid.is-row-mode .native-cell-content a.sheet-link-site,
+:root body .app-frame .sourcing-viewer-table a.sheet-link-site { display:inline-flex; align-items:center; gap:5px; color:var(--primary); font-weight:500; text-decoration:none; }
+:root body .app-frame .sourcing-grid.is-row-mode .native-cell-content a.sheet-link-site:hover,
+:root body .app-frame .sourcing-viewer-table a.sheet-link-site:hover { text-decoration:underline; text-underline-offset:3px; }
+:root body .app-frame :is(.sourcing-grid,.sourcing-viewer-table) a.sheet-link-site svg { flex:none; opacity:.85; }
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-checked-row .native-cell-content a.sheet-link-site { color:#12b886; }
+/* Check: a round outline that fills green with a tick when done. */
+:root body .app-frame .sourcing-grid input.sourcing-check {
+  appearance:none; -webkit-appearance:none;
+  width:20px; height:20px; margin:0;
+  border:1.5px solid color-mix(in srgb,var(--foreground) 42%,transparent);
+  border-radius:50%;
+  background:transparent center / 12px 12px no-repeat;
+  cursor:pointer;
+  vertical-align:middle;
+  transition:border-color .12s ease, background-color .12s ease;
+}
+:root body .app-frame .sourcing-grid input.sourcing-check:hover:not(:disabled) { border-color:var(--primary); }
+:root body .app-frame .sourcing-grid input.sourcing-check:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+:root body .app-frame .sourcing-grid input.sourcing-check:checked,
+:root body .app-frame .sourcing-grid input.sourcing-check:disabled:checked {
+  appearance:none; -webkit-appearance:none;
+  width:20px; height:20px;
+  border:1.5px solid #12b886;
+  border-radius:50%;
+  background-position:center; background-size:12px 12px; background-repeat:no-repeat;
+  background-color:#12b886;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  cursor:default;
+  opacity:1;
+}
+:root body .app-frame .sourcing-grid input.sourcing-check:disabled:not(:checked) { opacity:.35; cursor:not-allowed; }
+/* The status line closes the frame. */
+:root body .app-frame .sheet-editor .sourcing-queue-footer {
+  margin:0 var(--ui-gutter, 16px) 12px;
+  padding:10px 14px;
+  border:1px solid var(--border);
+  border-top:1px solid var(--ui-hairline, var(--border));
+  border-radius:0 0 10px 10px;
+  background:var(--card);
+  font-size:13px;
+}
+:root body .app-frame .sheet-editor .sourcing-queue-footer > span:first-child { color:var(--foreground); font-weight:600; }
+
+/* ── Bidder read-only job table ── */
+:root body .app-frame .sourcing-viewer-scroll { margin:0 var(--ui-gutter, 16px); border:1px solid var(--border); border-bottom:0; border-radius:10px 10px 0 0; background:var(--card); }
+:root body .app-frame.app-frame.app-frame .sourcing-viewer-table thead th { position:sticky; top:0; z-index:1; background:var(--card); }
+:root body .app-frame.app-frame.app-frame .sourcing-viewer-table tbody th { width:40px; padding:6px 0 0 10px; color:var(--muted-foreground); font-size:10px; font-weight:500; vertical-align:top; }
+:root body .app-frame.app-frame.app-frame .sourcing-viewer-table :is(td,th) { white-space:normal; }
+
+/* ── Round 2: one clean frame. The queue rows above the sheet drop their own
+   bottom rule (the frame's top edge replaces it) and sit tighter, giving rows back. ── */
+:root body .app-frame .sheet-editor .sourcing-queue,
+:root body .app-frame .sourcing-viewer .sourcing-queue { border-bottom:0; }
+:root body .app-frame .sourcing-queue .sourcing-queue-tab { padding:10px 12px 9px; }
+:root body .app-frame .sourcing-queue-filters { min-height:0; padding:8px 0 10px; }
+:root body .app-frame .sourcing-grid.is-row-mode { box-shadow:none; overflow-x:hidden; }
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-header-row .rdg-cell:first-child,
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row .rdg-cell:first-child { border-inline-end:0; }
+:root body .app-frame .sheet-editor .sourcing-history-note { margin:0 var(--ui-gutter, 16px) 8px; padding:8px 12px; border:1px solid var(--ui-hairline, var(--border)); border-radius:8px; }
+
+/* ── Round 3: status tabs and the order toggle share one row; inside the framed
+   sheet, checked rows rely on their green check instead of a left bar that would
+   double the frame edge. Selection keeps its tint. ── */
+:root body .app-frame .sourcing-queue-tabrow { display:flex; align-items:stretch; justify-content:space-between; gap:12px; border-bottom:1px solid var(--ui-hairline, var(--border)); }
+:root body .app-frame .sourcing-queue-tabrow .sourcing-queue-tabs { border-bottom:0; }
+:root body .app-frame .sourcing-queue-tabrow .sourcing-queue-order { align-self:center; }
+:root body .app-frame .sourcing-queue:not(:has(.sourcing-queue-filters)) { padding-bottom:10px; }
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row > .rdg-cell:first-child,
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-checked-row > .rdg-cell:first-child,
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row.sheet-row-selected:not(.sheet-checked-row) > .rdg-cell:first-child { box-shadow:none; }

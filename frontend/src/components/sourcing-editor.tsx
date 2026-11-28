@@ -12,6 +12,7 @@ import {
 import { UNSAFE_DataRouterContext } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
+  ArrowDownUp,
   Check,
   Download,
   Filter,
@@ -39,6 +40,7 @@ import {
   readSourcingSheet,
   type CellStyle,
   type Change,
+  type JobAgeOrder,
   type QueueCounts,
   type QueueFocus,
   type QueueStatus,
@@ -59,7 +61,7 @@ import SourcingImport from "./sourcing-import";
 import SourcingProgress, { useSourcingProgress } from "./sourcing-progress";
 import SourcingDays from "./sourcing-days";
 import { SheetGrid } from "./sourcing-grid";
-import SourcingQueueBar from "./sourcing-queue";
+import SourcingQueueBar, { queueOrder } from "./sourcing-queue";
 function restoredSheetView(value: string): SheetView {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -87,6 +89,8 @@ export default function SourcingEditor({
   initialDay,
   onDayChange,
   daySlot = null,
+  queueEnd,
+  queueBelow,
   fullToolbar = false,
   onQueueCounts,
 }: {
@@ -98,6 +102,9 @@ export default function SourcingEditor({
   onDayChange?: (day: string) => void;
   /** Page toolbar element that hosts the day controls. */
   daySlot?: HTMLElement | null;
+  /** Table-level controls the page adds to the status bar (Filter) and its panel. */
+  queueEnd?: React.ReactNode;
+  queueBelow?: React.ReactNode;
   /** Show the editor's own tool row (undo, rows, filters, checks, import/export). */
   fullToolbar?: boolean;
   /** Live queue counts for this sheet, for the account tab badge. */
@@ -133,13 +140,15 @@ export default function SourcingEditor({
   useEffect(() => { onDayChange?.(day); }, [day, onDayChange]);
   const [status, setStatus] = useState<QueueStatus>(initialDay ? "all" : "todo"),
     [focus, setFocus] = useState<QueueFocus | null>(null),
+    [reverse, setReverse] = useState(false),
+    [ageOrder, setAgeOrder] = useState<JobAgeOrder>(),
     [now, setNow] = useState(() => serverNow());
   // Jobs completed while viewing To do stay in place until the view changes, so rows do not jump.
   const [completedHere, setCompletedHere] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => { setCompletedHere(new Set()); }, [status, focus, day]);
   const dayStart = useMemo(() => chicagoDayStart(now), [now]);
   const scope = day || "all";
-  const scopedView = useMemo(() => ({ ...view, day, queue: { status, focus, now, dayStart, keep: completedHere } }), [view, day, status, focus, now, dayStart, completedHere]);
+  const scopedView = useMemo(() => ({ ...view, day, queue: { status, focus, now, dayStart, keep: completedHere, reverse, ageOrder } }), [view, day, status, focus, now, dayStart, completedHere, reverse, ageOrder]);
   const [assignOpen, setAssignOpen] = useState(false),
     [assignDay, setAssignDay] = useState(chicagoDay());
   const assignContext = useRef<{ revision: string; ids: string[] } | null>(
@@ -168,6 +177,7 @@ export default function SourcingEditor({
     lastAction = useRef<(() => Promise<Snapshot>) | null>(null),
     saveOperation = useRef<{ body: string; id: string } | null>(null),
     resizeTimer = useRef(0);
+  const selecting = useRef(false), deferredLoad = useRef(false), deferredClock = useRef(false);
   draft.current = changes;
   base.current = snapshot;
   auxDirty.current = importDirty || assignOpen;
@@ -186,10 +196,14 @@ export default function SourcingEditor({
     // Re-evaluate exactly when the next job crosses into "expiring soon" or "expired", or at midnight.
     if (!snapshot) return;
     const wait = Math.max(1000, Math.min(nextQueueBoundary(snapshot, changes, now, dayStart) - serverNow() + 250, 2 ** 31 - 1));
-    const timer = window.setTimeout(() => setNow(serverNow()), wait);
+    const timer = window.setTimeout(() => {
+      if (selecting.current) deferredClock.current = true;
+      else setNow(serverNow());
+    }, wait);
     return () => window.clearTimeout(timer);
   }, [snapshot, changes, now, dayStart]);
   const load = useCallback(async () => {
+    if (selecting.current) { deferredLoad.current = true; return; }
     if (
       pendingLoad.current ||
       inFlight.current ||
@@ -209,6 +223,7 @@ export default function SourcingEditor({
     setLoading(true);
     try {
       const data = await readSourcingSheet(tab.id, controller.signal);
+      if (selecting.current) { deferredLoad.current = true; return; }
       if (
         alive.current &&
         sequence === loadSequence.current &&
@@ -238,6 +253,12 @@ export default function SourcingEditor({
       if (alive.current && sequence === loadSequence.current) setLoading(false);
     }
   }, [tab.id]);
+  const selectionGesture = (active: boolean) => {
+    selecting.current = active;
+    if (active || !alive.current) return;
+    if (deferredClock.current) { deferredClock.current = false; setNow(serverNow()); }
+    if (deferredLoad.current) { deferredLoad.current = false; void load(); }
+  };
   useEffect(() => {
     alive.current = true;
     void load();
@@ -939,7 +960,9 @@ export default function SourcingEditor({
       {exportError && <p role="alert" className="inline-error">{exportError}</p>}
       {rowDeleteNotice && <p role="status" className="form-hint">{rowDeleteNotice}</p>}
       {snapshot && counts && (
-        <SourcingQueueBar counts={counts} status={status} focus={focus} onStatus={setStatus} onFocus={setFocus} />
+        <SourcingQueueBar counts={counts} status={status} focus={focus} reverse={reverse} ageOrder={ageOrder}
+          onStatus={value => { setStatus(value); setFocus(null); setReverse(false); setAgeOrder(undefined); }} onFocus={setFocus}
+          onReverse={value => { setAgeOrder(undefined); setReverse(ageOrder ? false : value); }} end={queueEnd} below={queueBelow} />
       )}
       {snapshot && day && (
         <p className="sourcing-history-note" role="status">
@@ -959,9 +982,12 @@ export default function SourcingEditor({
           onChange={edit}
           disabled={locked}
           rowMode={!fullToolbar}
+          showAdded={!fullToolbar}
           highlightRow={focusRow}
           view={scopedView}
           onSelection={next => {setSelection(next); setRowDeleteNotice("")}}
+          onSelectionGestureChange={!fullToolbar ? selectionGesture : undefined}
+          onAgeOrderChange={!fullToolbar ? setAgeOrder : undefined}
           onResize={resize}
           onEditingChange={setTyping}
           onPaste={() => {compactAfterPaste.current = true}}
@@ -972,6 +998,10 @@ export default function SourcingEditor({
           {loading ? "Loading your spreadsheet…" : "Sheet is unavailable."}
         </div>
       )}
+      {snapshot && counts && !fullToolbar && <p className="sourcing-table-foot" aria-live="polite">
+        <span>{selection.rows.length > 1 && <strong>{selection.rows.length.toLocaleString()} selected</strong>}{!day && !focus && !view.find.trim() && !view.filter ? `${counts[status].toLocaleString()} ${status === "todo" ? "pending" : status === "all" ? "" : status} ${counts[status] === 1 ? "job" : "jobs"}`.replace("  ", " ") : ""}</span>
+        <span><ArrowDownUp size={13} aria-hidden="true" />{ageOrder ? `Sorted ${queueOrder(status, reverse, ageOrder).toLowerCase()}` : view.direction !== "none" ? "Sorted by column" : status === "todo" && !reverse ? "Sorted by priority" : `Sorted ${queueOrder(status, reverse).toLowerCase()}`}</span>
+      </p>}
       {snapshot && (
         <>
           <Dialog open={assignOpen} onOpenChange={setAssignOpen}>

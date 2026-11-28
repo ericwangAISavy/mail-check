@@ -70,6 +70,21 @@ it('contains keyboard focus in mobile navigation and restores it on Escape',asyn
   expect(document.activeElement).toBe(trigger)
 })
 
+it.each([
+  ["owner", {role:"admin",is_owner:true}, ["Workspace","Interviews","Jobs","Management","Administration"], ["/","/dashboard","/interviews","/interview-processes","/sourcing","/job-links","/payments","/accounts","/settings","/admin-management"]],
+  ["admin", {role:"admin",is_owner:false}, ["Workspace","Interviews","Jobs","Management","Administration"], ["/","/dashboard","/interviews","/interview-processes","/sourcing","/payments","/accounts","/settings"]],
+  ["bidder", {role:"bidder",bidder_id:1}, ["Workspace","Jobs","Management","Administration"], ["/inbox","/dashboard","/sourcing","/payments","/settings"]],
+] as const)("groups only the destinations visible to the %s", async(_,identity,groups,links)=>{
+  vi.mocked(api.session).mockResolvedValue({...identity,managed:true,workspace_id:"legacy"})
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/settings"]}><App/></MemoryRouter></QueryClientProvider>)
+  const nav=await screen.findByRole("navigation",{name:"Main navigation"})
+  expect(Array.from(nav.querySelectorAll("[role=group]"),group=>document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent)).toEqual(groups)
+  expect(Array.from(nav.querySelectorAll("a"),link=>link.getAttribute("href"))).toEqual(links)
+  expect(nav.querySelector("[aria-current=page]")?.textContent).toBe("Settings")
+  expect(screen.getByRole("button",{name:/view update history/}).closest(".sidebar-footer")).toBeTruthy()
+})
+
 it("aborts the header status poll when the workspace unmounts", async () => {
   let signal: AbortSignal | undefined
   vi.spyOn(api, "status").mockImplementation((nextSignal) => new Promise((_resolve, reject) => {
@@ -288,6 +303,57 @@ it('gives bidders the restricted inbox navigation without admin triage or accoun
  expect(screen.queryByRole('link',{name:'Triage'})).toBeNull()
  expect(screen.queryByRole('link',{name:'Accounts'})).toBeNull()
  expect(await screen.findByText('All mail for your assigned accounts.')).toBeTruthy()
+})
+
+it("gives bidders a Settings page for appearance and personal mail alerts", async () => {
+ vi.mocked(api.session).mockResolvedValue({role:"bidder",managed:true,workspace_id:"legacy",bidder_id:1})
+ const settings=vi.spyOn(api,"settings")
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/inbox"]}><App/></MemoryRouter></QueryClientProvider>)
+ fireEvent.click(await screen.findByRole("link",{name:"Settings"}))
+ expect(await screen.findByRole("heading",{name:"Appearance"})).toBeTruthy()
+ expect(screen.getByRole("switch",{name:"Desktop notifications"})).toBeTruthy()
+ expect(screen.getByRole("switch",{name:"Play a sound"})).toBeTruthy()
+ expect(screen.queryByRole("heading",{name:"Sign-in passwords"})).toBeNull()
+ expect(settings).not.toHaveBeenCalled()
+})
+
+it("alerts for new assigned mail once and keeps listening outside Settings", async () => {
+ vi.mocked(api.session).mockResolvedValue({role:"bidder",managed:true,workspace_id:"legacy",bidder_id:12})
+ const stored=new Map<string,string>()
+ vi.mocked(localStorage.getItem).mockImplementation(key=>stored.get(key)??null)
+ vi.mocked(localStorage.setItem).mockImplementation((key,value)=>{stored.set(key,value)})
+ const notify=vi.fn()
+ vi.stubGlobal("Notification",class {
+  static permission="default"
+  static async requestPermission(){this.permission="granted";return this.permission}
+  constructor(title:string,options:NotificationOptions){notify(title,options)}
+ })
+ const start={after:"2026-11-27T12:00:00+00:00",after_id:0}
+ const later={after:"2026-11-27T12:00:10+00:00",after_id:44}
+ let incoming=false
+ const read=vi.spyOn(globalThis,"fetch").mockImplementation(async url=>{
+  const path=String(url)
+  const data=path.startsWith("/api/inbox/alerts")
+   ? path.includes("?")&&incoming&&!path.includes("after_id=44") ? {cursor:later,message:44} : {cursor:path.includes("after_id=44")?later:start,message:null}
+   : {configured:false}
+  return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}})
+ })
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/settings"]}><App/></MemoryRouter></QueryClientProvider>)
+ expect(read.mock.calls.some(([url])=>String(url).startsWith("/api/inbox/alerts"))).toBe(false)
+ fireEvent.click(await screen.findByRole("switch",{name:"Desktop notifications"}))
+ await waitFor(()=>expect(client.getQueryData(["bidder-inbox-alerts",'["legacy",12]'])).toEqual({cursor:start,message:null}))
+ expect(notify).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole("link",{name:"Inbox"}))
+ await screen.findByRole("heading",{name:"Inbox"})
+ incoming=true
+ await act(()=>client.invalidateQueries({queryKey:["bidder-inbox-alerts"]}))
+ await waitFor(()=>expect(notify).toHaveBeenCalledTimes(1))
+ expect(notify).toHaveBeenCalledWith("New email in OfferPath",expect.objectContaining({tag:'offerpath-mail:["legacy",12]:44',silent:true}))
+ await act(()=>client.invalidateQueries({queryKey:["bidder-inbox-alerts"]}))
+ expect(notify).toHaveBeenCalledTimes(1)
+ expect(read.mock.calls.some(([url])=>String(url).includes("after_id=44"))).toBe(true)
 })
 
 function CurrentAddress() {

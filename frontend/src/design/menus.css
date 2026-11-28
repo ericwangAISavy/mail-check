@@ -1,0 +1,200 @@
+/* Selects and menus — one standard for the whole app (loaded last).
+   Triggers: 13px / medium, quiet frame, muted chevron, neutral hover, ring on focus.
+   Native option lists: 13px regular; the chosen option is a soft accent tint, not a bar.
+   Popover menus: raised surface, 10px corners, hairline border, soft shadow, 4px inset;
+   rows are 32px, 13px regular, muted icons, soft hover, a check for the selected row,
+   red for destructive rows. */
+
+/* ── Native <select> option lists ── */
+:root body select option, :root body select optgroup { font-size:13px; font-weight:400; }
+:root body select option:checked:not(:disabled) {
+  color:var(--foreground);
+  background-color:color-mix(in srgb,var(--primary) 24%,var(--surface-raised, var(--card)));
+  font-weight:500;
+}
+
+/* ── Custom select triggers (Job Sourcing scope, calendar view) ── */
+:root body .app-frame .sourcing-page .sourcing-topbar .sourcing-select select { font-size:13px; font-weight:600; }
+:root body .app-frame .sourcing-page .sourcing-select > svg:last-child,
+:root body .app-frame .oc-panel .oc-select > svg { width:14px; height:14px; color:var(--muted-foreground); }
+:root body .app-frame .oc-panel .oc-select select { font-size:13px; font-weight:500; }
+
+/* ── Popover menus ── */
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu,.sourcing-menu,.timezone-picker-popup,.sourcing-missing-popover) {
+  padding:4px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--surface-raised, var(--popover, var(--card)));
+  box-shadow:0 12px 32px rgb(0 0 0 / .32);
+  color:var(--foreground);
+  font-size:13px;
+  font-weight:400;
+}
+:root[data-theme="light"] body :is(.app-frame,.dialog-content) :is(.outlook-menu,.sourcing-menu,.timezone-picker-popup,.sourcing-missing-popover) {
+  box-shadow:0 12px 28px rgb(15 23 42 / .12), 0 1px 2px rgb(15 23 42 / .06);
+}
+/* Rows (not the Colors grid or real buttons inside a menu). */
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button:not(.btn),
+:root body :is(.app-frame,.dialog-content) .timezone-picker-popup [role="option"] {
+  display:flex; align-items:center; gap:8px;
+  width:100%; min-height:32px; margin:0; padding:0 10px;
+  border:0; border-radius:6px; background:transparent;
+  color:var(--foreground); font:inherit; font-size:13px; font-weight:400; line-height:1.3;
+  text-align:left; cursor:pointer;
+}
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button:not(.btn) > svg { flex:none; width:15px; height:15px; color:var(--muted-foreground); }
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button:not(.btn):is(:hover,:focus-visible),
+:root body :is(.app-frame,.dialog-content) .timezone-picker-popup [role="option"]:is(:hover,.is-active) {
+  background:var(--ui-row-hover, var(--muted)); outline:0;
+}
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button:not(.btn)[aria-pressed="true"],
+:root body :is(.app-frame,.dialog-content) .timezone-picker-popup [role="option"][aria-selected="true"] { font-weight:500; }
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button:not(.btn)[aria-pressed="true"] > svg,
+:root body :is(.app-frame,.dialog-content) .timezone-picker-popup [role="option"] > svg { color:var(--primary); }
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu,.sourcing-menu) > button.is-danger,
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu,.sourcing-menu) > button.is-danger > svg { color:var(--destructive); }
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu,.sourcing-menu) > button:disabled { opacity:.5; cursor:default; background:transparent; }
+/* Labelled fields inside a menu (Go to date). */
+:root body .app-frame .outlook-menu > label { display:grid; gap:6px; padding:8px 10px; color:var(--muted-foreground); font-size:12px; font-weight:500; }
+:root body .app-frame .outlook-menu > label input { height:32px; font-size:13px; }
+
+/* ── Timezone picker ── */
+/* Trigger keeps one width open or closed, so neighbours never jump. */
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input input,
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input input[aria-expanded="true"] {
+  width:8.5em; font-size:13px; font-weight:500; cursor:pointer;
+}
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input input[aria-expanded="true"] { cursor:text; }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input input::placeholder { color:var(--muted-foreground); font-weight:400; opacity:1; }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input > svg { position:static; transform:none; width:14px; height:14px; color:var(--muted-foreground); }
+:root body .app-frame .timezone-picker-popup { width:300px; }
+:root body .app-frame .timezone-picker-popup [role="listbox"] { max-height:288px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+:root body .app-frame .timezone-picker-popup [role="option"] { justify-content:space-between; }
+:root body .app-frame .timezone-picker-popup [role="option"] > svg { flex:none; width:14px; height:14px; }
+:root body .app-frame .timezone-picker-popup > p { margin:0; padding:10px; color:var(--muted-foreground); font-size:13px; }
+
+/* Destructive rows stay red over the generic row colour. */
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button.is-danger:not(.btn),
+:root body :is(.app-frame,.dialog-content) :is(.outlook-menu:not(.calendar-colors-menu),.sourcing-menu) > button.is-danger:not(.btn) > svg { color:var(--destructive); }
+
+/* Job sheet rows: every cell centred on the same line; the row number sits with the row,
+   and "expiring soon" is the amber clock used by the Expiring soon filter. */
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row .rdg-cell { display:flex; align-items:center; }
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-row-number { display:flex; align-items:center; height:auto; padding:0; font-size:11px; color:var(--muted-foreground); }
+:root body .app-frame .sourcing-grid.is-row-mode .native-cell-content { display:flex; align-items:center; gap:7px; min-width:0; width:100%; }
+:root body .app-frame :is(.sourcing-grid,.sourcing-viewer-table) .sheet-expiring { display:inline-flex; flex:none; align-items:center; color:var(--warning); cursor:help; }
+:root body .app-frame .sourcing-viewer-table tbody th { vertical-align:middle; padding-top:0; font-size:11px; }
+/* Company column: names start at one fixed position; the clock sits in a reserved slot before them. */
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-company-col { padding-left:34px; }
+/* Body cells anchor the clock; header cells must keep react-data-grid's sticky positioning. */
+:root body .app-frame .sourcing-grid.is-row-mode .rdg-row .sheet-company-col { position:relative; }
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-company-col .native-cell-content { position:static; }
+:root body .app-frame .sourcing-grid.is-row-mode .sheet-company-col .sheet-expiring { position:absolute; left:12px; top:50%; transform:translateY(-50%); }
+
+:root body .app-frame .interviews-page .oc-panel .oc-toolbar .calendar-interview-counts { margin-left:10px; padding-left:14px; gap:0; cursor:default; }
+:root body .app-frame .interviews-page .oc-panel .oc-toolbar .calendar-interview-counts > strong { margin:0; color:var(--text-soft, var(--foreground)); font-size:13px; font-weight:500; }
+:root body .app-frame .interviews-page .oc-panel .oc-toolbar-end { flex-wrap:nowrap; }
+/* Extra rows the page adds to the calendar's More menu (Retry analysis), then a divider. */
+:root body .app-frame .oc-more-menu .oc-menu-extra { margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--ui-hairline, var(--border)); }
+:root body .app-frame .oc-more-menu .oc-menu-extra > button {
+  display:flex; align-items:center; gap:8px; width:100%; min-height:32px; margin:0; padding:0 10px;
+  border:0; border-radius:6px; background:transparent; color:var(--foreground); font:inherit; font-size:13px; font-weight:400; text-align:left; cursor:pointer;
+}
+:root body .app-frame .oc-more-menu .oc-menu-extra > button > svg { flex:none; width:15px; height:15px; color:var(--warning); }
+:root body .app-frame .oc-more-menu .oc-menu-extra > button:is(:hover,:focus-visible) { background:var(--ui-row-hover, var(--muted)); outline:0; }
+:root body .app-frame .oc-more-menu .oc-menu-extra > button:disabled { opacity:.5; cursor:default; }
+/* Feedback warning: a small amber icon in the card's top-right corner; the title keeps its
+   place at the strip and reserves room so it never runs under the icon. */
+
+/* Job Sourcing Bidder / Account selectors: a styleable picker (Chrome's customizable select)
+   matching the app's menus. Browsers without support keep the native list. */
+@supports (appearance: base-select) {
+  :root body .app-frame .sourcing-page .sourcing-select select,
+  :root body .app-frame .sourcing-page .sourcing-select select::picker(select) { appearance:base-select; }
+  :root body .app-frame .sourcing-page .sourcing-select select { padding:0; border:0; background:transparent; color:var(--foreground); font-size:13px; font-weight:600; }
+  :root body .app-frame .sourcing-page .sourcing-select select::picker-icon { display:none; }
+  :root body .app-frame .sourcing-page .sourcing-select select::picker(select) {
+    margin-top:8px; min-width:240px; max-height:min(380px, 70vh); padding:4px; overflow:auto;
+    border:1px solid var(--border); border-radius:10px;
+    background:var(--surface-raised, var(--popover, var(--card))); color:var(--foreground);
+    box-shadow:0 12px 32px rgb(0 0 0 / .32);
+    font-size:13px; font-weight:400;
+  }
+  :root[data-theme="light"] body .app-frame .sourcing-page .sourcing-select select::picker(select) { box-shadow:0 12px 28px rgb(15 23 42 / .12), 0 1px 2px rgb(15 23 42 / .06); }
+  :root body .app-frame .sourcing-page .sourcing-select select option {
+    display:flex; align-items:center; gap:8px; min-height:32px; padding:0 10px; border-radius:6px;
+    background:transparent; color:var(--foreground); font-size:13px; font-weight:400; font-style:normal; cursor:pointer;
+  }
+  :root body .app-frame .sourcing-page .sourcing-select select option:is(:hover,:focus-visible) { background:var(--ui-row-hover, var(--muted)); outline:0; }
+  :root body .app-frame .sourcing-page .sourcing-select select option:checked { background:transparent; color:var(--foreground); font-weight:500; }
+  :root body .app-frame .sourcing-page .sourcing-select select option:checked:is(:hover,:focus-visible) { background:var(--ui-row-hover, var(--muted)); }
+  :root body .app-frame .sourcing-page .sourcing-select select option::checkmark { order:1; margin-left:auto; color:var(--primary); }
+  :root body .app-frame .sourcing-page .sourcing-select select option[value=""]:disabled { display:none; }
+  :root body .app-frame .sourcing-page .sourcing-select select option.sourcing-deleted-bidder { color:var(--muted-foreground); }
+}
+@supports (appearance: base-select) {
+  :root body .app-frame .sourcing-page .sourcing-select select { display:inline-flex; align-items:center; align-self:stretch; height:auto; min-height:0; margin:0; line-height:1.2; }
+}
+
+/* Every single-choice select in the app opens the same styled picker as the menus above.
+   Triggers keep their existing look (frame, arrow, size); only the list is replaced.
+   Browsers without customizable select keep their standard list. */
+@supports (appearance: base-select) {
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]),
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])::picker(select) { appearance:base-select; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) { display:inline-flex; align-items:center; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])::picker-icon { display:none; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])::picker(select) {
+    margin-top:6px; min-width:anchor-size(width); max-height:min(380px, 70vh); padding:4px; overflow:auto;
+    border:1px solid var(--border); border-radius:10px;
+    background:var(--surface-raised, var(--popover, var(--card))); color:var(--foreground);
+    box-shadow:0 12px 32px rgb(0 0 0 / .32);
+    font-size:13px; font-weight:400;
+  }
+  :root[data-theme="light"] body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])::picker(select) { box-shadow:0 12px 28px rgb(15 23 42 / .12), 0 1px 2px rgb(15 23 42 / .06); }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) :is(option,optgroup) {
+    min-height:32px; padding:0 10px; border-radius:6px;
+    background:transparent; color:var(--foreground); font-size:13px; font-weight:400; font-style:normal;
+  }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option { display:flex; align-items:center; gap:8px; cursor:pointer; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option:is(:hover,:focus-visible) { background:var(--ui-row-hover, var(--muted)); outline:0; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option:checked { background:transparent; color:var(--foreground); font-weight:500; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option:checked:is(:hover,:focus-visible) { background:var(--ui-row-hover, var(--muted)); }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option::checkmark { order:1; margin-left:auto; color:var(--primary); }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option:disabled { color:var(--muted-foreground); cursor:default; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) optgroup { color:var(--muted-foreground); font-size:12px; font-weight:600; }
+  /* The calendar View trigger is frameless inside its wrapper. */
+  :root body .app-frame .oc-panel .oc-select select { height:100%; padding:0 16px 0 0; border:0; background:transparent; font-size:13px; font-weight:500; }
+}
+
+@supports (appearance: base-select) {
+  @media not (forced-colors: active) {
+    /* The styled picker wins over older page rules that forced the native look. */
+    :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]),
+    :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple])::picker(select) { appearance:base-select !important; -webkit-appearance:base-select !important; }
+  }
+  /* Wrapped selects (label + value inside one frame): the list hangs from the whole frame —
+     same left edge, at least the same width, 6px below — not from the inner value. */
+  :root body .app-frame :is(.sourcing-select,.oc-select) { anchor-name:--select-frame; anchor-scope:--select-frame; }
+  :root body .app-frame :is(.sourcing-select,.oc-select) select::picker(select) {
+    position-anchor:--select-frame;
+    inset:auto; margin:0;
+    top:calc(anchor(bottom) + 6px); left:anchor(left);
+    min-width:anchor-size(width);
+    position-try-fallbacks:flip-block;
+  }
+  /* The frame shows focus; the inner select does not draw a second ring. */
+  :root body .app-frame :is(.sourcing-select,.oc-select) select:focus,
+  :root body .app-frame :is(.sourcing-select,.oc-select) select:focus-visible { outline:0; box-shadow:none; border:0; }
+}
+@supports (appearance: base-select) {
+  /* Lists measure their minimum width from the whole frame. */
+  :root body .app-frame :is(.sourcing-select,.oc-select) select::picker(select) { min-width:anchor-size(--select-frame width); }
+  /* Rows sit on the list surface; only hover/focus tint them (older option backgrounds removed). */
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) :is(option,optgroup) { background-color:transparent !important; }
+  :root body :is(.app-frame,.dialog-content,.local-monitor-status) select:not([multiple]) option:is(:hover,:focus-visible) { background-color:var(--ui-row-hover, var(--muted)) !important; }
+}
+@supports (appearance: base-select) {
+  :root body .app-frame :is(.sourcing-select,.oc-select) select::picker(select) { min-inline-size:anchor-size(--select-frame inline) !important; box-sizing:border-box; }
+}
+

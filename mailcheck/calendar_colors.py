@@ -9,6 +9,30 @@ PALETTE_SIZE = 8
 SCHEMA = '''CREATE TABLE IF NOT EXISTS account_calendar_colors (
     account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     color INTEGER NOT NULL CHECK(color >= 0))'''
+DEFAULT_SCHEMA = '''CREATE TABLE IF NOT EXISTS account_calendar_defaults (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    color INTEGER NOT NULL CHECK(color >= 0 AND color < 8))'''
+
+
+def default_colors(conn: sqlite3.Connection) -> dict[int, int]:
+    return dict(conn.execute('SELECT account_id, color FROM account_calendar_defaults'))
+
+
+def assign_defaults(conn: sqlite3.Connection) -> None:
+    """Allocate unused slots once, within the account creation or migration transaction."""
+    defaults = default_colors(conn)
+    chosen = colors(conn)
+    used = set((defaults | chosen).values())
+    for (account_id,) in conn.execute('SELECT id FROM accounts ORDER BY id'):
+        if account_id in defaults:
+            continue
+        # Retain a familiar automatic color where possible, including on upgrade.
+        preferred = (account_id - 1) % 6
+        order = (preferred, *range(PALETTE_SIZE))
+        slot = next((color for color in order if color not in used), (account_id - 1) % PALETTE_SIZE)
+        conn.execute('INSERT INTO account_calendar_defaults(account_id,color) VALUES(?,?)', (account_id, slot))
+        if account_id not in chosen:
+            used.add(slot)
 
 
 def colors(conn: sqlite3.Connection) -> dict[int, int]:

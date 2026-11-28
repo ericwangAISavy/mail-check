@@ -115,21 +115,7 @@
  :root body .app-frame .application-activity-chart .activity-total-label text { fill:var(--text-soft); font-weight:600; transform:translateY(8px); }
  :root body .app-frame .activity-tooltip-item { font-size:12px; }
 
- /* Calendar events: flat account tint, a solid identity edge and legible detail.
-    Feedback warnings keep their own stronger treatment. */
- :root body .app-frame .outlook-calendar :is(.outlook-time-event,.outlook-month-event):not(:has(.interview-feedback-indicator.is-warning)) { background:color-mix(in srgb,var(--oc-event) 86%,var(--card)); border-color:color-mix(in srgb,var(--oc-event-edge) 40%,transparent); box-shadow:inset 3px 0 0 var(--oc-event-accent),0 0 0 1px var(--card); }
- :root body .app-frame .outlook-calendar :is(.outlook-time-event,.outlook-month-event):not(:has(.interview-feedback-indicator.is-warning)):hover { background:var(--oc-event); border-color:var(--oc-event-accent); box-shadow:inset 3px 0 0 var(--oc-event-accent),0 0 0 1px var(--card),0 6px 16px #00000047; }
- :root body .app-frame .outlook-calendar .outlook-time-event { padding-left:9px; }
- /* Detail text takes its event's own hue instead of one fixed blue on every account. */
- :root:not([data-theme="light"]) body .app-frame .outlook-calendar .interview-event { --oc-event-detail:color-mix(in srgb,var(--oc-event-text) 72%,var(--oc-event-accent)); }
- :root body .app-frame .outlook-calendar .outlook-time-event > strong { font-weight:620; letter-spacing:-.005em; }
- :root body .app-frame .outlook-calendar .outlook-time-event > span:not(.interview-feedback-indicator) { font-variant-numeric:tabular-nums; }
- /* Past events recede by saturation more than by fading their text. */
- :root body .app-frame .outlook-calendar :is(.outlook-time-event,.outlook-month-event).is-past:not(:has(.interview-feedback-indicator.is-warning)) { opacity:.86; filter:saturate(.55); }
- :root body .app-frame .outlook-calendar :is(.outlook-time-event,.outlook-month-event).is-past:is(:hover,:focus-visible) { opacity:1; filter:none; }
- :root body .app-frame .outlook-calendar :is(.outlook-time-event,.outlook-month-event):focus-visible { outline:2px solid var(--foreground); outline-offset:1px; }
 }
-@media screen and (max-width:700px) { :root body .app-frame .outlook-calendar .outlook-time-event { padding-left:5px; } }
 @media screen and (forced-colors:active) {
  :root body .app-frame input.sourcing-check:disabled:checked { appearance:auto; }
  /* The system text backplate would paint HighlightText on Canvas (black on black). */

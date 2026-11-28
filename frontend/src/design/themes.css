@@ -921,8 +921,7 @@
 }
 /* Signature themes only (Classic keeps its own component colors). */
 :root[data-palette]:not([data-palette="classic"]) .profile-quality { --quality-series-0:var(--category-color-0); --quality-series-1:var(--category-color-1); --quality-series-2:var(--category-color-2); --quality-series-3:var(--category-color-3); --quality-series-4:var(--category-color-4); --quality-series-5:var(--category-color-5); --quality-series-6:var(--category-color-6); --quality-series-7:var(--category-color-7); }
-/* Calendar: each account keeps its identity accent; the dark fill is drawn from that accent on the theme surface. */
-:root[data-palette]:not([data-palette="classic"],[data-theme="light"]) .outlook-calendar .interview-event { --oc-event:color-mix(in srgb,var(--oc-event-accent) 24%,var(--card)); --oc-event-edge:color-mix(in srgb,var(--oc-event-accent) 48%,var(--card)); }
+/* The current day follows the workspace theme. */
 :root[data-palette]:not([data-palette="classic"]) .outlook-calendar { --oc-today:color-mix(in srgb,var(--primary) 6%,var(--card)); }
 /* The totals trend line follows the theme accent instead of Classic's blue-violet. */
 :root[data-palette]:not([data-palette="classic"]) { --activity-trend-blue:var(--primary); --activity-trend-violet:color-mix(in srgb,var(--primary) 55%,var(--foreground)); --activity-label-dot:var(--primary); }

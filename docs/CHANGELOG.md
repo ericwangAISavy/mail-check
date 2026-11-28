@@ -2,6 +2,305 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.44.0 — 2026-11-27
+
+Added job age and clearer Job Sourcing tables
+
+- Job Sourcing shows when each job became available, with oldest and newest sorting, exact timestamps and expiration cues.
+- The table header stays readable while scrolling, and row selection, clipboard, paste and deletion keep their existing behavior.
+
+## 3.43.0 — 2026-11-27
+
+Graph-first operational dashboard
+
+- The Dashboard now shows two weekly summaries (applications week to date and calendar interviews this week) with previous-week comparisons, four-week averages and trends.
+- One large analytics workspace with Profile quality, Bidder productivity and Workload tabs draws smooth weekly or daily trend lines with direct line names, tooltips, series isolation and an optional data view; tables and bar charts are removed.
+- Range choices of 4, 8, 12 weeks or custom dates; compact payments with cents and a needs-attention summary.
+- Interview conversion and rejection rate show N/A with the reason when too few outcome emails can be matched to applications, and applications that predate reply history are no longer counted as eligible.
+
+## 3.42.1 — 2026-11-27
+
+Dashboard interviews match the calendar
+
+- Dashboard interview counts (KPI, profile quality, weekly averages, trends and the weekly chart) now count interviews on the Interview calendar instead of invitation emails, so This week matches the calendar's count; cancelled interviews are excluded and shared interviews count once.
+
+## 3.42.0 — 2026-11-27
+
+Operational intelligence dashboard
+
+- The Dashboard is now one operational page: KPIs for applications, interview invitations, same-cohort application-to-interview conversion and offers, each compared with the previous period.
+- A needs-attention bar links to unconfirmed checks, expiring links, carried-over work, bidders below the daily minimum, account sync failures and unclassified mail.
+- Sortable profile quality table with interviews this week, weekly averages over completed weeks, same-cohort interview and rejection rates, offers and an 8-week trend.
+- Weekly profile outcome chart, daily or weekly workload chart with optional backlog, bidder productivity table with carryover, availability and completion rate, and a payment overview.
+- Metric definitions are documented in docs/METRICS.md and shown as tooltips; values that cannot be derived show N/A.
+
+## 3.41.4 — 2026-11-27
+
+Calendar feedback warnings
+
+- The interview calendar shows warning triangles only for company feedback tagged in-person, linkedin, or fuck. Scheduling and analysis statuses stay in the event details.
+
+## 3.41.3 — 2026-11-27
+
+Refined interview calendar colors
+
+- Interview events keep readable account colors in light and dark themes, with clear warning, cancellation, and selection indicators.
+- The account color picker updates the calendar immediately, remembers choices, and gives new accounts unused default colors when possible.
+
+## 3.41.2 — 2026-11-27
+
+Refined job sourcing table
+
+- The job table is part of the workspace instead of a framed card: 36px rows, quiet headers and separators, Company over Role, and a compact row-number column.
+- Job link and Check are compact side-by-side action columns: an icon-only external link and a square checkbox.
+- Selected rows use a soft tint with a thin accent edge, expiry clocks are smaller and softer, and a slim line under the table shows the job count and sort order.
+
+## 3.41.1 — 2026-11-27
+
+Refined workspace navigation
+
+- Navigation groups daily work by function, with Settings and Admin management near the bottom and version history in the footer.
+- The compact sidebar and mobile drawer have clearer active states, stable queue counts, and keyboard-accessible navigation labels.
+
+## 3.41.0 — 2026-11-27
+
+Bidder settings and new mail alerts
+
+- Bidders can choose a personal theme and color mode in Settings.
+- New email in assigned inboxes can trigger a desktop notification or chime while OfferPath is open.
+
+## 3.40.0 — 2026-11-27
+
+Remember opened job links
+
+- Job sourcing now shades rows when bidders open a job link and remembers them across visits and devices for each applicant account.
+
+## 3.39.1 — 2026-11-27
+
+Refined Bidder management
+
+- Bidder management is denser and calmer: a 47px header, a compact summary strip and policy row, 38px table rows with single-line dates, aligned numbers and clearly marked totals, accounts and unallocated rows.
+- The analytics controls sit in one compact block and the chart follows directly; the weekly heatmap uses short, wide cells and no longer stretches the section.
+- The chart drops the hatched future area, uses a thin Now line, small end markers and direct labels such as Nifemi 38 placed beside each line without overlapping; disabled report copying explains it unlocks when the week ends.
+
+## 3.39.0 — 2026-11-27
+
+New-since-last-visit Triage badge
+
+- The Triage badge keeps the queue size quiet and adds a small 'N new' when actionable emails arrived since you last opened Triage; opening Triage clears it. The collapsed sidebar shows a dot instead.
+
+## 3.38.18 — 2026-11-27
+
+Redesigned Bidder management
+
+- Bidder management has one header toolbar (week range, This week, bidder, refresh), a summary strip with Checked today, Checked this week and Payments recorded, and a deduction policy row whose editor opens in a popover.
+- The daily breakdown highlights today as one continuous column, shows upcoming days as a dash, and keeps checked counts strong with confirmed counts secondary.
+- Confirmation analytics combines its controls, a headline count with receipt-time reconciliation, an interactive legend and a compact weekly heatmap above one chart drawn with smooth curves, a soft fill, labelled latest values and a Now marker; lines never extend past the present.
+
+## 3.38.17 — 2026-11-27
+
+Styled dropdowns everywhere; Profile quality removed
+
+- Every dropdown in the app opens a styled list matching the app's menus: 13px rows, soft hover and a check on the current choice (browsers without support keep the standard list).
+- Lists from labelled selectors such as Bidder, Account and the calendar View line up with the whole button and match its width.
+- The Profile quality section is removed from the Dashboard.
+
+## 3.38.16 — 2026-11-27
+
+Styled Job Sourcing pickers
+
+- The Bidder and Account pickers on Job Sourcing open a list styled like the app's menus: soft surface, 13px rows, gentle hover, a check on the current choice, muted deleted bidders and no placeholder row. Browsers without support keep the standard list.
+
+## 3.38.15 — 2026-11-27
+
+Leaner calendar toolbar and card fixes
+
+- The calendar toolbar shows just the interview count (Intro and Technical totals are in its tooltip); the need-review chip is gone and Retry analysis moved into the More menu, so all controls fit on one line.
+- Very short interview cards show only their title, and a feedback warning sits as a small icon in the card's top-right corner.
+- The Company column header in Job Sourcing stays fixed while the sheet scrolls.
+
+## 3.38.14 — 2026-11-27
+
+Aligned job sheet rows
+
+- Job sheet rows centre every cell on one line, including the row number.
+- Jobs close to expiring show the amber clock used by the Expiring soon filter instead of a warning triangle, in a reserved slot so company names always line up.
+
+## 3.38.13 — 2026-11-27
+
+Consistent selects and menus
+
+- Dropdown option lists use 13px regular text, with the chosen option shown as a soft accent tint instead of a solid bold bar.
+- All popover menus (calendar More, Colors, date picker, timezone, sheet actions, missing submissions, review) share one raised surface and 32px rows with muted icons, soft hover, a check for the selected item and red destructive actions.
+- The calendar timezone picker keeps the same width when opened for searching, with lighter option rows and a muted chevron.
+
+## 3.38.12 — 2026-11-27
+
+Calmer period selector
+
+- The interview calendar's date range selector uses the same 13px medium text as the other toolbar controls, a quiet frame and a muted chevron.
+
+## 3.38.11 — 2026-11-27
+
+Compact calendar date header
+
+- The interview calendar's day headers are a single 38px line such as Mon Nov 30, Tue Dec 1, Wed 2: title-case weekday in a quieter colour, the month shown on the first day and when it changes, and today's date as a small accent chip.
+- The time gutter and day dividers run through the header, which has a faint tint and stays fixed while scrolling.
+
+## 3.38.10 — 2026-11-27
+
+Cleaner interview cards
+
+- Interview cards no longer show a calendar icon; text starts beside the colour strip with even padding, and neighbouring cards have a little more space between them. A feedback warning still shows its amber icon.
+
+## 3.38.9 — 2026-11-27
+
+Hatched strip always visible
+
+- Rescheduled, open-ended and still-being-analyzed interviews always show their hatched account-colour strip with square left corners, at rest and on hover, whatever other status they also have.
+
+## 3.38.8 — 2026-11-27
+
+Clear feedback warnings on interview cards
+
+- Only shared-feedback warnings mark an interview card: a single amber warning icon at the start of the card, kept even on narrow cards, with no red outline or glow.
+- Interviews whose analysis needs review show the normal calendar icon.
+- Interviews still being analyzed use the same clean hatched strip as rescheduled ones instead of a separate striped overlay.
+
+## 3.38.7 — 2026-11-27
+
+Calmer interview cards
+
+- Interview card text is smaller (12px titles, 11px times).
+- Rescheduled or open-ended interviews show a solid account-colour strip with a fine hatch and square left corners.
+- Hovering a card outlines it exactly in its account colour and brings it to the front; the Needs attention line is replaced by the amber warning icon alone.
+
+## 3.38.6 — 2026-11-27
+
+Refined interview event cards
+
+- Interview cards have a square left edge with a 4px account strip, rounded right corners, and a fill and 1px border tinted from the account colour.
+- Each card leads with a calendar icon, or an amber warning when it needs attention, followed by the title, a compact time like 9:30 – 10:00 AM, and the meeting platform with a video icon.
+- Content adapts to the card: short events show the title, 30-45 minute events add the time, longer ones add the platform or Needs attention, and narrow overlapping cards drop the icon to keep the title readable.
+- Hover, focus and the opened interview show a ring without shifting layout; rescheduled and open-ended events keep a striped strip, and cancelled titles are struck through.
+
+## 3.38.5 — 2026-11-27
+
+Straight event edges
+
+- Interview event cards have a square left edge so the account colour strip runs straight.
+
+## 3.38.4 — 2026-11-27
+
+Calendar typography
+
+- Interview calendar text follows the app's type scale: lighter event titles, even-width times and dates, a calmer date selector, and hour labels like 1 PM.
+
+## 3.38.3 — 2026-11-27
+
+Interview calendar as the workspace
+
+- The calendar fills the window with no surrounding frame: quiet hour lines, a tinted today column with a Today pill, and 9:00 AM style time labels.
+- Interview cards are rounded, tinted with their account colour and marked by a rounded colour strip; company, time and platform read at a glance, and 30-minute interviews show two lines.
+- Needs review shows as an amber line instead of a dashed box; finished and cancelled interviews recede, rescheduled or open-ended ones keep a striped strip, and the open interview is outlined.
+- The review alert sits beside the interview counts, toolbar controls share one size, and a slim key explains the markers and the timezone.
+
+## 3.38.2 — 2026-11-27
+
+Compact Job Sourcing and calendar workspaces
+
+- Job Sourcing has a one-line scope bar (Bidder / Account) with account settings, the missing-submissions alert and a sheet menu (manage workbooks, delete sheet) on the right.
+- Status tabs, the To do breakdown, Filter and order share one table bar; search and dates open under it, and the duplicate status footer is gone, so the table starts much higher.
+- The interview calendar uses one toolbar (navigation, interview summary, view, timezone, colors, filter, refresh, more) with no extra card, title or footer, and its grid fills the window.
+
+## 3.38.1 — 2026-11-27
+
+Sheets for every assigned account
+
+- Every account assigned to an active bidder now has its Job Sourcing sheet, including assignments that start later; missing sheets are created for all workspaces when the server starts.
+
+## 3.38.0 — 2026-11-27
+
+Automatic profile sheets and tidy filters
+
+- Assigning an account to a bidder creates that account's profile sheet automatically; the Add profile sheet button and dialog are gone.
+- Search and date controls on Job Sourcing are hidden until you click Filter at the right of the top row; applying a search or date opens them, and a dot on Filter shows filters are applied.
+- The missing-submissions warning sits beside Filter so it stays visible.
+
+## 3.37.11 — 2026-11-27
+
+Consistent tables and calendar cards
+
+- Tables share one look: sentence-case headers, medium-weight rows, hairline dividers without column lines and a soft hover.
+- Job sheets sit in a rounded frame with a small # column, Open links, round green checks and the status line as their footer, without a stray horizontal scrollbar.
+- Outside To do, the order toggle joins the status tab row, giving the sheet more room.
+- Calendar event cards have no outline, a 3px accent edge, 3px corners and compact text; 'Needs attention' events use a dashed outline.
+
+## 3.37.10 — 2026-11-26
+
+Redesigned interview calendar
+
+- The interview calendar has a titled header with a need-review chip and a More menu (split view, share, print, expand).
+- Navigation uses a compact period label, a View dropdown, a short timezone picker and a refresh button.
+- A summary row shows the interview total with Intro and Technical filter chips beside Colors and Filter.
+- The grid sits in a rounded frame with centred day headings, compact event cards, dashed 'Needs attention' cards and a footer with Business hours and the timezone.
+
+## 3.37.9 — 2026-11-26
+
+Cleaner interview calendar events
+
+- Interview event bars are flat account-coloured cards with a solid left edge, bold company and centred detail; events needing attention show a striped edge.
+- Calendar day headings show a large date over a small spaced weekday.
+
+## 3.37.8 — 2026-11-26
+
+Job Sourcing header layout
+
+- The header has labelled Bidder, Applicant account and Account settings fields; the applicant account is chosen from a selector showing its To do count, with add and delete sheet buttons beside it.
+- Search covers the selected applicant account and sits on its own row with the date controls and missing-submissions warning.
+- Under the status tabs, All pending, New today, Carryover and Expiring soon filters return beside a Priority/Newest order toggle.
+
+## 3.37.7 — 2026-11-26
+
+Job Sourcing page refinements
+
+- Missing job links show as a compact 'N missing submissions' warning that opens the list of bidders.
+- The expiring-soon icon sits before the company name.
+- A status line under the sheet shows how many jobs the view holds and how they are ordered.
+
+## 3.37.6 — 2026-11-26
+
+Simpler Job Sourcing work view
+
+- Add profile sheet is a single, direct form with the bidder's current sheets listed below it.
+- Status tabs use a clean underline style with quieter counts; the New today, Carryover and Expiring soon strip is removed.
+- Application search sits at the right end of the status row; the sourcing settings gear is removed (Manage all workbooks is in the Add profile sheet dialog).
+- Jobs close to expiring show a small red warning icon instead of a text label.
+
+## 3.37.5 — 2026-11-26
+
+Add profile sheet for the current bidder
+
+- The + next to a bidder's profile sheets now opens Add profile sheet for that bidder only, instead of the full Job sourcing settings list.
+
+## 3.37.4 — 2026-11-26
+
+Clear work-queue tab selection
+
+- The selected work-queue tab (To do, Completed, Expired, All) is now clearly highlighted.
+
+## 3.37.3 — 2026-11-26
+
+Cleaner sourcing toolbar
+
+- The workbook title next to the bidder selector is removed.
+
+## 3.37.2 — 2026-11-26
+
+Simpler bidder selector
+
+- The bidder selector shows only the bidder's name; job counts stay in the work queue.
+
 ## 3.37.1 — 2026-11-26
 
 Clearer Job Sourcing page

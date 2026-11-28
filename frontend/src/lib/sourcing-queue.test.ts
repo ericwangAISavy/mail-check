@@ -37,6 +37,13 @@ it("keeps unfinished jobs from earlier days in To do, oldest and expiring first"
   expect(names(fixture, visibleRows(fixture, [], queue("todo")))).toEqual(["Expiring", "Yesterday", "Today"])
 })
 
+it("sorts by exact availability and keeps missing stamps last in both directions", () => {
+  const data = sheet([["Unknown", false, null], ["Newest", false, NOW - HOUR], ["Oldest", false, NOW - 30 * HOUR], ["Same time", false, NOW - HOUR]])
+  const view = queue("todo")
+  expect(names(data, visibleRows(data, [], { ...view, queue: { ...view.queue, ageOrder: "asc" } }))).toEqual(["Oldest", "Newest", "Same time", "Unknown"])
+  expect(names(data, visibleRows(data, [], { ...view, queue: { ...view.queue, ageOrder: "desc" } }))).toEqual(["Newest", "Same time", "Oldest", "Unknown"])
+})
+
 it("separates completed, expired and all history", () => {
   expect(names(fixture, visibleRows(fixture, [], queue("completed")))).toEqual(["DoneOld"])
   expect(names(fixture, visibleRows(fixture, [], queue("expired")))).toEqual(["Expired"])

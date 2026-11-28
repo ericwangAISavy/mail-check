@@ -87,7 +87,7 @@ it("uses checked applications for overall totals and preserves bidder filtering"
   mount()
   const heading = await screen.findByText("Checked applications this week")
   expect(heading.parentElement!.querySelector("strong")!.textContent).toBe("6")
-  const today = screen.getByText("Today")
+  const today = screen.getByText("Checked today")
   expect(today.parentElement!.querySelector("strong")!.textContent).toBe("6")
   const footer = document.querySelector("tfoot tr")!
   expect(within(footer as HTMLElement).getAllByRole("cell")[0].textContent).toBe("6 / 6")
@@ -325,6 +325,7 @@ it('saves the daily rule explicitly and refreshes net pay while preserving recor
  vi.mocked(request).mockImplementation(async()=>report)
  vi.mocked(api.post).mockImplementation(async()=>{report={...report,deduction_rule:{minimum_daily:60,amount_cents:200},bidders:[{...report.bidders[0],calculated_amount_cents:160,deduction_total_cents:200}]};return {ok:true}})
  mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Edit policy'}));
  const minimum=await screen.findByLabelText('Minimum daily checked applications') as HTMLInputElement
  expect(minimum.value).toBe('50')
  expect((screen.getByLabelText('Daily deduction (USD)') as HTMLInputElement).value).toBe('1.00')
@@ -341,6 +342,7 @@ it('saves the daily rule explicitly and refreshes net pay while preserving recor
 it('retains entered rule values on a save failure',async()=>{
  vi.mocked(api.post).mockRejectedValue(new Error('Could not save daily rule'))
  mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Edit policy'}));
  fireEvent.change(await screen.findByLabelText('Minimum daily checked applications'),{target:{value:'80'}})
  fireEvent.click(screen.getByRole('button',{name:'Save deduction rule'}))
  expect(await screen.findByRole('alert')).toHaveProperty('textContent','Could not save daily rule')
@@ -364,6 +366,7 @@ it('preserves a dirty rule across report refetches and requires loading a change
  let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
  vi.mocked(request).mockImplementation(async()=>report)
  mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Edit policy'}));
  const minimum=await screen.findByLabelText('Minimum daily checked applications') as HTMLInputElement
  const amount=screen.getByLabelText('Daily deduction (USD)') as HTMLInputElement
  fireEvent.change(minimum,{target:{value:'80'}})
@@ -391,10 +394,11 @@ it('syncs a clean rule on report refetch and protects an unseen concurrent updat
  let report:any={...data(),deduction_rule:{minimum_daily:50,amount_cents:100}}
  vi.mocked(request).mockImplementation(async()=>report)
  mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Edit policy'}));
  const minimum=await screen.findByLabelText('Minimum daily checked applications') as HTMLInputElement
  report={...report,deduction_rule:{minimum_daily:60,amount_cents:200}}
  await act(async()=>{await clients[0].refetchQueries({queryKey:['payments']})})
- expect(minimum.value).toBe('60')
+ await waitFor(()=>expect(minimum.value).toBe('60'))
  expect((screen.getByLabelText('Daily deduction (USD)') as HTMLInputElement).value).toBe('2.00')
  vi.mocked(api.post).mockRejectedValue(new Error('Daily deduction rule changed elsewhere. Load the saved rule and try again.'))
  fireEvent.change(minimum,{target:{value:'80'}})
@@ -475,7 +479,7 @@ it('shows coworker payment amounts when payment and team visibility are enabled'
  expect(within(peer).getByLabelText('Before / after deductions').textContent).toBe('$3.60 / $2.60')
  expect(within(peer).getByText('Recorded paid: $9.00')).toBeTruthy()
  expect(screen.getAllByLabelText('Before / after deductions')).toHaveLength(2)
- expect(screen.queryByRole('button',{name:'By account'})).toBeNull()
+ expect(screen.queryByLabelText('Activity grouping')).toBeNull()
 })
 it('resets a selected coworker when team visibility is revoked',async()=>{
  let report:any=data();report.other_work_visible=true

@@ -149,6 +149,37 @@ class PaymentTests(unittest.TestCase):
         for route in ('/api/payments/bidders','/api/payments/bidders/1','/api/payments/bidders/1/assignments','/api/payments/assignments/1/end','/api/payments/bidders/1/paid','/api/payments/bidders/1/remove'):
             self.assertEqual(self.client.post(route,json={}).status_code,403)
 
+    def sheets_for(self, bidder_id):
+        return self.conn.execute("SELECT t.account_id,t.archived FROM native_tabs t JOIN native_books b ON b.id=t.book_id WHERE b.bidder_id=?", (bidder_id,)).fetchall()
+
+    def test_assigning_an_account_creates_its_profile_sheet(self):
+        self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-12"}).status_code,200)
+        self.assertEqual([(row["account_id"], row["archived"]) for row in self.sheets_for(3)], [(self.account, 0)])
+        # A later assignment of the same account never duplicates the sheet.
+        self.client.post('/api/payments/assignments/1/end',json={"end_date":"2026-10-25"})
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-26"}).status_code,200)
+        self.assertEqual(len(self.sheets_for(3)), 1)
+
+    def test_future_assignments_get_their_sheet_now_and_archived_or_ended_ones_are_left_alone(self):
+        from mailcheck import native_sourcing as sheets
+        self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-27"}).status_code,200)
+        self.assertEqual(len(self.sheets_for(3)), 1)  # starts later, already has its sheet
+        self.conn.execute("UPDATE native_tabs SET archived=1"); self.conn.commit()
+        self.assertEqual(sheets.ensure_assigned_sheets(self.conn, "2026-10-28"), [])
+        self.assertEqual([row["archived"] for row in self.sheets_for(3)], [1])
+        self.conn.execute("DELETE FROM native_tabs"); self.conn.execute("UPDATE bidder_assignments SET end_date='2026-10-27'"); self.conn.commit()
+        self.assertEqual(sheets.ensure_assigned_sheets(self.conn, "2026-10-28"), [])  # ended: no sheet
+
+    def test_upgrade_creates_missing_sheets_for_every_open_assignment(self):
+        from mailcheck import native_sourcing as sheets
+        self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-12"}).status_code,200)
+        self.conn.execute("DELETE FROM native_tabs"); self.conn.execute("DELETE FROM native_books"); self.conn.commit()
+        sheets.migrate(self.conn)
+        self.assertEqual([row["account_id"] for row in self.sheets_for(3)], [self.account])
+
     def test_admin_creates_bidder_assigns_accounts_and_records_manual_amount(self):
         self.message("one")
         self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)

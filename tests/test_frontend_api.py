@@ -46,6 +46,36 @@ class FrontendApiTests(unittest.TestCase):
         self.assertEqual(response.json()["counts"], {})
         self.assertIn("actionable", self.client.get("/api/queue-counts").json())
 
+    def test_calendar_defaults_use_each_unused_color_and_keep_explicit_overrides(self):
+        initial = self.client.get("/api/interviews").json()["accounts"][0]
+        response = self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": 7})
+        self.assertEqual(response.status_code, 200, response.text)
+        for index in range(7):
+            db.add_account(self.conn, label=f"Applicant {index}", email=f"applicant{index}@example.test")
+        accounts = self.client.get("/api/interviews").json()["accounts"]
+        chosen = {a["id"]: a["calendar_color"] if a["calendar_color"] is not None else a["calendar_default_color"] for a in accounts}
+        self.assertEqual(set(chosen.values()), set(range(8)))
+        original = next(a for a in accounts if a["id"] == self.account_id)
+        self.assertEqual(original["calendar_default_color"], initial["calendar_default_color"])
+        another = next(a for a in accounts if a["id"] != self.account_id)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{another['id']}", json={"color": 7}).status_code, 200)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": None}).status_code, 200)
+        reset = next(a for a in self.client.get("/api/interviews").json()["accounts"] if a["id"] == self.account_id)
+        self.assertIsNone(reset["calendar_color"])
+        self.assertEqual(reset["calendar_default_color"], initial["calendar_default_color"])
+
+    def test_calendar_default_migration_preserves_existing_color_choices(self):
+        from contextlib import closing
+        from mailcheck import calendar_colors
+
+        calendar_colors.set_color(self.conn, self.account_id, 5)
+        self.conn.execute("DROP TABLE account_calendar_defaults")
+        self.conn.execute("PRAGMA user_version = 60")
+        self.conn.commit()
+        with closing(db.connect(self.path)) as conn:
+            self.assertEqual(calendar_colors.colors(conn)[self.account_id], 5)
+            self.assertIn(calendar_colors.default_colors(conn)[self.account_id], range(8))
+
     def test_concurrent_settings_updates_preserve_unrelated_fields(self):
         import threading
         from concurrent.futures import ThreadPoolExecutor
@@ -253,6 +283,22 @@ class FrontendApiTests(unittest.TestCase):
         if done:
             db.set_handled(self.conn, pk, True)
         return pk
+
+    def test_queue_counts_report_items_new_since_the_last_seen_message(self):
+        first = self.add_message("one")
+        self.add_message("two", done=True)
+        baseline = self.client.get("/api/queue-counts").json()
+        self.assertEqual(baseline["actionable"], 1)
+        self.assertNotIn("new", baseline)
+        seen = baseline["latest"]
+        self.assertGreaterEqual(seen, first)
+        self.assertEqual(self.client.get(f"/api/queue-counts?seen={seen}").json()["new"], 0)
+        self.add_message("three")
+        self.add_message("four", category="info_request")  # searchable, not in the action queue
+        after = self.client.get(f"/api/queue-counts?seen={seen}").json()
+        self.assertEqual(after["actionable"], 2)
+        self.assertEqual(after["new"], 1)
+        self.assertGreater(after["latest"], seen)
 
     def test_bootstrap_exposes_readiness_navigation_and_taxonomy(self):
         self.add_message("one")

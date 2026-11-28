@@ -5,10 +5,12 @@ const root = document.documentElement
 beforeEach(() => { localStorage.clear(); initAppearance() })
 afterEach(() => { localStorage.clear(); setAppearanceIdentity(undefined) })
 
-it("keys appearance by the person, never by workspace or display name", () => {
+it("uses global admin IDs and workspace-local bidder IDs", () => {
   expect(appearanceIdentity({ role: "admin", user_id: 7 })).toBe("admin:7")
   expect(appearanceIdentity({ role: "admin" })).toBe("admin:local")
   expect(appearanceIdentity({ role: "bidder", bidder_id: 4 })).toBe("bidder:4")
+  expect(appearanceIdentity({ role: "bidder", bidder_id: 4, workspace_id: "legacy" })).toBe("bidder:4")
+  expect(appearanceIdentity({ role: "bidder", bidder_id: 4, workspace_id: "team-2" })).toBe("bidder:team-2:4")
   expect(appearanceIdentity({ role: null })).toBeUndefined()
 })
 

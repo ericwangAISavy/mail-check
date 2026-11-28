@@ -190,8 +190,6 @@
 .app-header .brand-mark { width: 36px; height: 36px; filter: drop-shadow(0 0 9px color-mix(in srgb, var(--primary) 55%, transparent)); }
 .app-header .brand-word { flex: none; padding-right: .08em; font-family: var(--display-font); font-size: 22px; line-height: 1; font-style: italic; font-weight: 800; letter-spacing: -.045em; white-space: nowrap; color: var(--foreground); }
 .app-header .brand-word span { color: var(--primary); font-weight: 800; text-shadow: 0 0 16px color-mix(in srgb, var(--primary) 40%, transparent); }
-.app-header .brand-version { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--primary) 8%, var(--card)); color: var(--primary); font-size: 11px; font-weight: 600; letter-spacing: .01em; box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 22%, transparent), inset 0 0 8px color-mix(in srgb, var(--primary) 10%, transparent); }
-.app-header .brand-version:hover { background: color-mix(in srgb, var(--primary) 14%, var(--card)); }
 :root[data-theme="light"] .app-header .brand-word span { text-shadow: none; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .app-header .brand-word span { text-shadow: none; } }
 /* The header shares the frame's columns: the identity spans the sidebar, and
@@ -207,29 +205,18 @@
 }
 .app-header .top-left { flex: 1 1 auto; min-width: 0; }
 
-/* Collapse control: an icon button pinned to the sidebar's bottom-right corner,
-   inset from both edges, and centred when the sidebar is collapsed. */
-.sidebar-collapse { position: sticky; bottom: 0; z-index: 1; display: inline-grid; flex: none; place-items: center; align-self: flex-end; width: 36px; height: 36px; margin: auto -3px 3px auto; padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--muted-foreground); cursor: pointer; transition: background-color .16s ease, border-color .16s ease, color .16s ease; }
-.sidebar-collapse:hover { color: var(--foreground); border-color: var(--input); background: var(--surface); }
-.sidebar-collapse:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.sidebar-collapse svg { flex: none; }
-.sidebar-collapsed .sidebar-collapse { align-self: center; margin-inline: auto; }
-@media (max-width: 900px) { .sidebar-collapse { display: none; } }
 /* The identity lives in the header; older sidebar rules must not restyle it. A
    collapsed sidebar keeps just the mark, so the breadcrumb stays on the page edge. */
 .app-frame .app-header .brand-word { display: inline-block; }
-.app-frame .app-header .brand-version { display: inline-block; }
 @media screen and (min-width: 701px) {
   .app-frame.sidebar-collapsed > .app-header { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) auto; }
   .app-frame.sidebar-collapsed .app-header .brand-header { justify-content: center; padding: 0; }
-  .app-frame.sidebar-collapsed .app-header :is(.brand-word, .brand-version) { display: none; }
+  .app-frame.sidebar-collapsed .app-header .brand-word { display: none; }
   .app-frame.sidebar-collapsed .app-header .brand-mark { width: 34px; height: 34px; }
 }
-.sidebar .workspace-label { margin-top: 22px; }
 @media screen and (max-width: 700px) {
   .app-header .brand-mark { width: 30px; height: 30px; }
   .app-header .brand-word { font-size: 18px; }
-  .app-frame .app-header .brand-version { display: none; }
   .app-frame .app-header .brand-mark { width: 30px; height: 30px; }
 }
 /* Keep the identity within the sidebar column so the breadcrumb stays aligned. */
@@ -242,7 +229,6 @@
   .app-frame:not(.sidebar-collapsed) .app-header .brand-lockup { gap: 10px; }
   .app-frame:not(.sidebar-collapsed) .app-header .brand-mark { width: 30px; height: 30px; }
   .app-frame:not(.sidebar-collapsed) .app-header .brand-word { font-size: 19px; }
-  .app-frame:not(.sidebar-collapsed) .app-header .brand-version { padding: 2px 7px; font-size: 10px; }
 }
 
 /* Error borders must outrank every theme's resting field border (both themes). */
@@ -282,13 +268,6 @@
   .app-frame > .app-header .top-actions > .btn[data-variant="default"] { width: 38px; padding: 0; }
   .app-frame > .app-header .top-actions > .btn[data-variant="default"] > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
-/* With the icon-only sidebar, the header shows just the mark above it. */
-@media screen and (min-width: 701px) and (max-width: 900px) {
-  .app-frame > .app-header { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) auto; }
-  .app-frame .app-header .brand-header { justify-content: center; padding: 0; }
-  .app-frame .app-header :is(.brand-word, .brand-version) { display: none; }
-  .app-frame .app-header .brand-mark { width: 32px; height: 32px; }
-}
 /* Phones: identity, menu and account controls on the first row; the check
    controls take a full second row. */
 @media screen and (max-width: 700px) {
@@ -312,6 +291,3 @@
 @keyframes route-progress-in { to { opacity: 1; } }
 @keyframes route-progress-run { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
 @media (prefers-reduced-motion: reduce) { .route-progress::before { width: 100%; animation: none; opacity: .7; } }
-/* The clicked item is highlighted at once; a soft pulse marks it as loading. */
-@media (prefers-reduced-motion: no-preference) { .sidebar .side-link.is-pending { animation: nav-pending 1s ease-in-out infinite; } }
-@keyframes nav-pending { 50% { opacity: .78; } }

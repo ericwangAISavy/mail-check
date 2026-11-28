@@ -14,16 +14,17 @@ from .web.auth import _password, _record
 
 # Explicit endpoints, never prefix-based access to future admin routes.
 VIEWER_APIS = frozenset(('/api/applications/today', '/api/bootstrap', '/api/dashboard', '/api/dashboard/accounts',
+                         '/api/inbox/alerts',
                          '/api/realtime/capabilities', '/api/realtime/events',
                          '/api/payments', '/api/payments/activity', '/api/sourcing', '/api/sourcing/search', '/api/triage'))
-VIEWER_PAGES = frozenset(('/', '/dashboard', '/payments', '/login', '/sourcing', '/inbox'))
+VIEWER_PAGES = frozenset(('/', '/dashboard', '/payments', '/login', '/sourcing', '/inbox', '/settings'))
 
 
 def viewer_read_allowed(path, method):
-    """Explicit reads plus scoped Done only; message handlers enforce assignment/category."""
+    """Explicit reads and two bidder actions with endpoint-level ownership checks."""
     import re
-    if method=='POST' and re.fullmatch(r'/api/messages/[0-9]+/handled',path):
-        return True
+    if method == 'POST':
+        return re.fullmatch(r'/api/(?:messages/[0-9]+/handled|sourcing/tabs/[0-9]+/opened)', path) is not None
     return method in ('GET', 'HEAD') and (re.fullmatch(r'/api/messages/[0-9]+',path) is not None or path in VIEWER_APIS or path in VIEWER_PAGES
         or re.fullmatch(r'/api/sourcing/tabs/[0-9]+',path) is not None
 )

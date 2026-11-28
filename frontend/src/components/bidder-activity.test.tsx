@@ -6,7 +6,7 @@ import { request } from "@/lib/api"
 import BidderActivity from "./bidder-activity"
 vi.mock("@/lib/api", () => ({request: vi.fn()}))
 const probe = vi.hoisted(() => ({tooltip: null as any, content: null as any, lines: [] as string[], dots: {} as Record<string, (props:any)=>any>}))
-vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; probe.content = props.content; return null}, XAxis: () => null, YAxis: () => null}))
+vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, ComposedChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Area: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, Customized: () => null, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; probe.content = props.content; return null}, XAxis: () => null, YAxis: () => null}))
 const clients: QueryClient[] = []
 afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers()})
 function payload() {
@@ -39,7 +39,7 @@ it("filters graph and heatmap by bidder without redundant cards or summary table
 it("does not invent historical activity when no checks are recorded", async () => {
   vi.mocked(request).mockResolvedValue({...payload(), bidders:[],timeline:[],check_count:0}); mount()
   expect(await screen.findByText("No confirmations in this day")).toBeTruthy()
-  expect(screen.getByText('Confirmation times in America/Chicago.')).toBeTruthy()
+  expect(screen.getByText(/^America\/Chicago/)).toBeTruthy()
 })
 it("offers a retry when activity cannot be loaded", async () => {
   vi.mocked(request).mockRejectedValue(new Error("Offline")); mount()
@@ -57,14 +57,14 @@ it("switches to account trends and filters an account without mixing bidder cont
   ]
   vi.mocked(request).mockResolvedValue({...base,accounts,account_timeline:base.timeline.map(p => ({...p,counts:{"10":p.counts["1"],"20":p.counts["2"]}}))})
   mount(); await screen.findByRole("button", {name:"Alex"})
-  fireEvent.click(screen.getByRole("button", {name:"By account"}))
+  fireEvent.change(screen.getByLabelText("Activity grouping"),{target:{value:"accounts"}})
   expect(await screen.findByRole("button", {name:"s****d@outlook.com"})).toBeTruthy()
   expect(document.body.innerHTML).not.toContain("shared@outlook.com")
   expect(document.body.innerHTML).not.toContain("other@outlook.com")
   fireEvent.click(screen.getByRole("button", {name:"s****d@outlook.com"}))
   expect(screen.queryByText("o****r@outlook.com", {selector:"th"})).toBeNull()
   expect(screen.getByLabelText("2026-10-12, 10am: 5 matched checked links")).toBeTruthy()
-  fireEvent.click(screen.getByRole("button", {name:"By bidder"}))
+  fireEvent.change(screen.getByLabelText("Activity grouping"),{target:{value:"bidders"}})
   expect(await screen.findByRole("button", {name:"Alex"})).toBeTruthy()
 })
 
@@ -97,7 +97,7 @@ it("formats tooltip dates safely during mode changes and uses connected lines", 
   expect(() => probe.tooltip("2026-10-12", [])).not.toThrow()
   expect(probe.tooltip("stale label", [{payload:{at:"2026-10-12T15:00:00Z",stamp:Date.parse("2026-10-12T15:00:00Z")}}])).toContain("10:00:00 AM")
   for (const value of [undefined,null,"",NaN,"invalid"]) expect(() => probe.tooltip(value, [])).not.toThrow()
-  expect(probe.lines.every(type => type === "linear")).toBe(true)
+  expect(probe.lines.every(type => type === "monotone")).toBe(true)
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
   expect(probe.tooltip("stale", [{payload:{at:"2026-10-12"}}])).toBe("Oct 12")
   expect(() => probe.tooltip(123, [])).not.toThrow()
@@ -142,7 +142,7 @@ it("plots running totals that stay flat in quiet intervals for bidders and accou
   fireEvent.click(screen.getByRole("button",{name:"Check runs"}))
   expect(plotted().map((p:any)=>p["1"])).toEqual([0,3,3,5])
   fireEvent.click(screen.getByRole("button",{name:"Confirmation time"}))
-  fireEvent.click(screen.getByRole("button",{name:"By account"}))
+  fireEvent.change(screen.getByLabelText("Activity grouping"),{target:{value:"accounts"}})
   expect(plotted().map((p:any)=>p["10"])).toEqual([0,3,3,5])
 })
 
@@ -154,18 +154,19 @@ it("offers original interval counts and cumulative totals and marks only value c
   vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",confirmations:points,runs:points,account_confirmations:[],account_runs:[]}})
   mount();await screen.findByRole("button",{name:"Alex"})
   const values=()=>JSON.parse(screen.getByTestId("chart-points").getAttribute("data-points")!).map((p:any)=>p["1"])
-  const dot=(index:number)=>probe.dots["1"]({index,cx:20,cy:20,stroke:"cyan"}).type
+  const dot=(index:number)=>probe.dots["1"]({index,cx:20,cy:20}).props.className
   expect(values()).toEqual([0,3,3,5])
-  expect(dot(0)).toBe("g")
-  expect(dot(1)).toBe("circle")
-  expect(dot(2)).toBe("g")
-  expect(dot(3)).toBe("circle")
-  fireEvent.click(screen.getByRole("button",{name:"Per interval"}))
+  // Only the latest value of each line is marked (with its number); no per-change dots.
+  expect(dot(0)).toBeUndefined()
+  expect(dot(1)).toBeUndefined()
+  expect(dot(2)).toBeUndefined()
+  expect(dot(3)).toBe("bm-endpoint")
+  fireEvent.change(screen.getByLabelText("Graph display"),{target:{value:"interval"}})
   expect(values()).toEqual([3,0,2])
-  expect(screen.getByRole("button",{name:"Per interval"}).getAttribute("aria-pressed")).toBe("true")
+  expect((screen.getByLabelText("Graph display") as HTMLSelectElement).value).toBe("interval")
   fireEvent.click(screen.getByRole("button",{name:"By day"}))
   expect(values()).toEqual([5])
-  fireEvent.click(screen.getByRole("button",{name:"Cumulative"}))
+  fireEvent.change(screen.getByLabelText("Graph display"),{target:{value:"cumulative"}})
   expect(values()).toEqual([0,5])
 })
 
@@ -203,11 +204,13 @@ it('reconciles untimed checks and includes them in the daily chart without inven
  data.workday={date:'2026-10-12',start:'2026-10-12T05:00:00Z',end:'2026-10-13T05:00:00Z',confirmations:[{at:'2026-10-12T15:00:00Z',source:'confirmation',counts:{'1':5,'2':2}}],account_confirmations:[],runs:[],account_runs:[],totals:{'1':{checked:8,timed:5,without_time:3},'2':{checked:2,timed:2,without_time:0}}}
  vi.mocked(request).mockResolvedValue(data);mount()
  await screen.findByRole('button',{name:'Alex'})
- expect(screen.getByText(/Selected day:/).textContent).toContain('10 checked = 7 with receipt time + 3 without receipt time')
+ expect(document.querySelector('.bm-kpi strong')!.textContent).toBe('10')
+ expect(screen.getByRole('status',{name:'Receipt time reconciliation'}).textContent).toContain('7 with receipt time · 3 without')
  let points=JSON.parse(screen.getByTestId('chart-points').getAttribute('data-points')!)
  expect(points.at(-1)['1']).toBe(5)
  fireEvent.click(screen.getByRole('button',{name:'Alex'}))
- expect(screen.getByText(/Selected day:/).textContent).toContain('8 checked = 5 with receipt time + 3 without receipt time')
+ expect(document.querySelector('.bm-kpi strong')!.textContent).toBe('8')
+ expect(screen.getByRole('status',{name:'Receipt time reconciliation'}).textContent).toContain('5 with receipt time · 3 without')
  fireEvent.click(screen.getByRole('button',{name:'By day'}))
  points=JSON.parse(screen.getByTestId('chart-points').getAttribute('data-points')!)
  expect(points.at(-1)['1']).toBe(8)

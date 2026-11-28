@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 from .. import db, native_sourcing as sheets, sourcing_csv, payments
 
 Text = Annotated[str, Field(max_length=50_000)]
@@ -29,6 +29,12 @@ class Book(BaseModel):
 class Tab(BaseModel):
     account_id: int
     title: str = Field(default="", max_length=100)
+
+
+class OpenedLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row_id: Key
+    job_created_at: FiniteFloat
 
 
 class Style(BaseModel):
@@ -265,6 +271,14 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
                     "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id)",
                     (is_admin, identity["bidder_id"]),
                 )
+            # Assigning an account is enough: its profile sheet appears on its own.
+            sheet_day = payments.today().isoformat()
+            scope = None if is_admin else identity["bidder_id"]
+            if not viewer and sheets.missing_assigned_sheets(conn, sheet_day, scope):
+                if conn.in_transaction:
+                    conn.commit()
+                with sheets.atomic(conn):
+                    sheets.ensure_assigned_sheets(conn, sheet_day, scope)
             books = [
                 dict(r)
                 for r in conn.execute(
@@ -389,11 +403,24 @@ def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
         with db.session() as conn:
             if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
             try:
-                data = sheets.snapshot(conn, owned(conn, tab_id, req), compact=compact)
+                with sheets.atomic(conn, deferred=True):
+                    tab = owned(conn, tab_id, req)
+                    data = sheets.snapshot(conn, tab, compact=compact)
+                    if principal(req)["role"] == "bidder":
+                        data["opened_row_ids"] = sheets.opened_rows(conn, tab)
             except sheets.SnapshotTooLarge as exc:
                 raise HTTPException(413, str(exc))
         # The snapshot already contains JSON-compatible values.
         return JSONResponse(data)
+
+    @router.post("/api/sourcing/tabs/{tab_id}/opened")
+    def open_link(tab_id: int, body: OpenedLink, req: Request):
+        if principal(req)["role"] != "bidder":
+            raise HTTPException(403, "Bidder access required.")
+        with db.session() as conn, sheets.atomic(conn):
+            if not sheets.mark_link_opened(conn, owned(conn, tab_id, req), body.row_id, body.job_created_at):
+                raise HTTPException(404, "Job link not found.")
+        return {"ok": True}
 
     @router.post("/api/sourcing/tabs/{tab_id}/save")
     def save(tab_id: int, body: Save, req: Request):

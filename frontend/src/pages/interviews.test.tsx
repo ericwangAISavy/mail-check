@@ -37,7 +37,7 @@ it("renders real records in the work week with date navigation",async()=>{
 })
 it("keeps only Check now beside the calendar date row",async()=>{
   mount();await screen.findByRole("button",{name:"Check now"})
-  for(const name of ["Month","Week","Day","Work week","Split view","Filter","Print","Refresh"])expect(screen.queryByRole("button",{name})).toBeNull()
+  for(const name of ["Month","Week","Day","Work week","Split view","Print","Refresh"])expect(screen.queryByRole("button",{name})).toBeNull()
   expect(screen.getByRole("button",{name:"Check now"}).closest(".outlook-date-bar")).not.toBeNull()
 })
 it("opens event details and persists only fields explicitly corrected",async()=>{
@@ -233,12 +233,13 @@ it('keeps invalid analyses visible as needing review instead of claiming complet
   return url.startsWith('/api/interviews?')?{...result,analysis:progress}:result
  })
  mount()
- await screen.findByText('341/364 complete')
- expect(screen.getByText('23 need review')).toBeTruthy()
- expect(screen.getByText('Retries paused')).toBeTruthy()
+ expect(await screen.findByRole('status',{name:'Interview counts'})).toBeTruthy()
+ expect(screen.queryByText(/need review/)).toBeNull() // no toolbar chip
  expect(screen.queryByText(/Automatic retry scheduled/)).toBeNull()
- expect(screen.queryByText('Invalid analysis fields: confidence')).toBeNull()
- expect(screen.getByText('23 need review').getAttribute('title')).toBe('Invalid analysis fields: confidence')
- fireEvent.click(screen.getByRole('button',{name:'Retry analysis now'}))
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}))
+ const retry=await screen.findByRole('button',{name:/Retry analysis · 23 need review/})
+ expect(retry.getAttribute('title')).toBe('Invalid analysis fields: confidence')
+ fireEvent.click(retry)
  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/analysis/retry'))
 })
+

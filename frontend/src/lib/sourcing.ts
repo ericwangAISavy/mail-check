@@ -27,6 +27,7 @@ export interface Snapshot {
   id: number;
   rows: Cell[][];
   row_ids: string[];
+  opened_row_ids?: string[];
   row_dates?: (string | null)[];
   /** Seconds since the epoch when each row first held a job; null for blank rows. */
   row_created?: (number | null)[];
@@ -131,6 +132,26 @@ export function sourcingColumnTitle(column: Pick<SheetColumn,"kind"|"title">,ind
   const titles:Record<string,string>={company:"Company",role:"Role",link:"Job link",check:"Check"}
   return (column.kind&&titles[column.kind])||column.title||columnName(index)
 }
+
+export function addedColumnIndex(columns: SheetColumn[]) {
+  const link = columns.findIndex(column => column.kind === "link");
+  if (link >= 0) return link;
+  const check = columns.findIndex(column => column.kind === "check");
+  return check >= 0 ? check : columns.length;
+}
+
+export function jobAddedAt(snapshot: Snapshot, row: number): number | null {
+  const stamp = snapshot.row_created?.[row];
+  return stamp != null && Number.isFinite(stamp) && Math.abs(stamp) <= 8.64e12 ? stamp * 1000 : null;
+}
+
+export type JobAgeOrder = "asc" | "desc";
+
+export function compareJobAge(snapshot: Snapshot, leftRow: number, rightRow: number, order: JobAgeOrder) {
+  const left = jobAddedAt(snapshot, leftRow), right = jobAddedAt(snapshot, rightRow);
+  if (left == null || right == null) return left == null ? right == null ? leftRow - rightRow : 1 : -1;
+  return (order === "asc" ? left - right : right - left) || leftRow - rightRow;
+}
 /* Work queue. Matches mailcheck/native_sourcing.py: a job is any row with company,
    role or link text; it is completed once checked; an unfinished job expires 168 hours
    after it was first created, and is "expiring soon" in its last 48 hours. */
@@ -138,7 +159,7 @@ export const QUEUE_LIFETIME_MS = 7 * 24 * 3600_000
 export const QUEUE_WARNING_MS = 48 * 3600_000
 export type QueueStatus = "todo" | "completed" | "expired" | "all"
 export type QueueFocus = "new" | "carryover" | "expiring"
-export interface QueueView { status: QueueStatus; focus: QueueFocus | null; now: number; dayStart: number; keep?: ReadonlySet<string> }
+export interface QueueView { status: QueueStatus; focus: QueueFocus | null; now: number; dayStart: number; keep?: ReadonlySet<string>; ageOrder?: JobAgeOrder; /** Flip the default order (To do oldest first, history newest first). */ reverse?: boolean }
 export interface RowLifecycle { job: boolean; done: boolean; expired: boolean; expiring: boolean; isNew: boolean; created: number }
 export interface QueueCounts { todo: number; new_today: number; carryover: number; expiring: number; completed: number; expired: number; all: number }
 
@@ -426,10 +447,13 @@ export function visibleRows(
         (!filter ||
           value(r, view.filterColumn).toLocaleLowerCase().includes(filter)),
     );
-  if (queue && view.direction === "none") {
+  if (queue?.ageOrder) {
+    const order = queue.ageOrder;
+    rows.sort((a, b) => compareJobAge(snapshot, a, b, order));
+  } else if (queue && view.direction === "none") {
     // To do runs oldest first, so jobs closest to expiring lead; history runs newest
     // first. Row position breaks ties, and blank input rows stay last.
-    const oldestFirst = queue.status === "todo";
+    const oldestFirst = (queue.status === "todo") !== !!queue.reverse;
     rows.sort((a, b) => {
       const left = lifecycle(a), right = lifecycle(b);
       if (left.job !== right.job) return left.job ? -1 : 1;
@@ -437,7 +461,7 @@ export function visibleRows(
       return (oldestFirst ? left.created - right.created : right.created - left.created) || a - b;
     });
   }
-  if (view.direction !== "none")
+  if (!queue?.ageOrder && view.direction !== "none")
     rows.sort((a, b) => {
       const left = value(a, view.sortColumn),
         right = value(b, view.sortColumn);

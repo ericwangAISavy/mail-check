@@ -10,10 +10,13 @@ from .sourcing_verification import company_key,role_key
 HORIZONS=(7,14,30)
 
 
-def report(conn,*,as_of=None,history_since=None,account=None,bidder=None):
+def match(conn,*,as_of=None,account=None,bidder=None):
+    """Distinct confirmed applications with their first matched interview and rejection.
+
+    Returns the application groups (each with ``outcomes``), the in-scope test, account
+    labels and the outcome receipts that matched no single application (``unmatched``).
+    Shared by the cohort report below and the dashboard metrics layer."""
     now=as_of or datetime.now(timezone.utc)
-    today=now.astimezone(ZONE).date()
-    through={str(h):(today-timedelta(days=h+1)).isoformat() for h in HORIZONS}
     scope='';params=[now.isoformat()]
     if account:
         scope+=' AND account_id IN (SELECT id FROM accounts WHERE label=?)';params.append(account)
@@ -28,13 +31,6 @@ def report(conn,*,as_of=None,history_since=None,account=None,bidder=None):
     def in_scope(aid,day):
         return (not account or labels.get(aid)==account) and (bidder is None or any(
             r['account_id']==aid and r['start_date']<=day and (not r['end_date'] or r['end_date']>=day) for r in assignments))
-    profiles={}
-    def profile(aid):
-        return profiles.setdefault(aid,dict(id=aid,label=labels.get(aid,f'Profile #{aid} (removed)'),color_slot=slots.get(aid,len(slots)+aid),daily={},duplicates=0,
-            unmatched=dict(interview=0,rejection=0)))
-    for aid,label in labels.items():
-        if (not account or label==account) and (bidder is None or any(r['account_id']==aid for r in assignments)):
-            profile(aid)
     groups=applications((r for r in rows if r['category']=='application_ack'),ZONE)
     index=defaultdict(list)
     for group in groups:
@@ -43,6 +39,7 @@ def report(conn,*,as_of=None,history_since=None,account=None,bidder=None):
     # SQLite's julianday sort rounds below a millisecond; bisect requires exact order.
     for values in index.values():values.sort(key=lambda group:group['stamp'])
     stamps={key:[g['stamp'] for g in values] for key,values in index.items()}
+    unmatched=[]
     for row in rows:
         if row['category']=='application_ack':continue
         stamp=receipt_stamp(row['received_at'])
@@ -67,8 +64,27 @@ def report(conn,*,as_of=None,history_since=None,account=None,bidder=None):
             group=candidates[0]
             previous=group['outcomes'][metric]
             group['outcomes'][metric]=min(previous,stamp) if previous else stamp
-        elif in_scope(row['account_id'],stamp.astimezone(ZONE).date().isoformat()):
-            profile(row['account_id'])['unmatched'][metric]+=1
+        else:
+            unmatched.append((row['account_id'],metric,stamp,(company,role,tuple(sorted(refs)))))
+    return dict(now=now,labels=labels,slots=slots,assignments=assignments,in_scope=in_scope,groups=groups,unmatched=unmatched)
+
+
+def report(conn,*,as_of=None,history_since=None,account=None,bidder=None):
+    matched=match(conn,as_of=as_of,account=account,bidder=bidder)
+    now,labels,slots,assignments,in_scope=(matched[k] for k in ('now','labels','slots','assignments','in_scope'))
+    today=now.astimezone(ZONE).date()
+    through={str(h):(today-timedelta(days=h+1)).isoformat() for h in HORIZONS}
+    profiles={}
+    def profile(aid):
+        return profiles.setdefault(aid,dict(id=aid,label=labels.get(aid,f'Profile #{aid} (removed)'),color_slot=slots.get(aid,len(slots)+aid),daily={},duplicates=0,
+            unmatched=dict(interview=0,rejection=0)))
+    for aid,label in labels.items():
+        if (not account or label==account) and (bidder is None or any(r['account_id']==aid for r in assignments)):
+            profile(aid)
+    for aid,metric,stamp,_key in matched['unmatched']:
+        if in_scope(aid,stamp.astimezone(ZONE).date().isoformat()):
+            profile(aid)['unmatched'][metric]+=1
+    groups=matched['groups']
     for group in groups:
         aid=group['account_id'];day=group['day']
         if not in_scope(aid,day):continue

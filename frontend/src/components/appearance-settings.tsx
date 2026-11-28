@@ -31,7 +31,7 @@ export function AppearanceSettings() {
   const remembered = (ok: boolean) => { if (!ok) toast("Your appearance changed, but this browser could not save it. It will return to the previous look next time.", "error") }
   const reset = () => { remembered(resetAppearance()); toast("Appearance reset to Classic Cyan, dark mode.", "success") }
   return <section id="appearance" className="settings-section">
-    <div className="settings-section-title"><span className="section-symbol"><Palette size={17} /></span><div><h2>Appearance</h2><p>Your own theme and mode. Other admins keep theirs.</p></div></div>
+    <div className="settings-section-title"><span className="section-symbol"><Palette size={17} /></span><div><h2>Appearance</h2><p>Choose your theme and color mode.</p></div></div>
     <Card className="settings-card appearance-card">
       <fieldset className="appearance-mode">
         <legend>Mode</legend>

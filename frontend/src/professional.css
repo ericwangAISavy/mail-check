@@ -236,7 +236,6 @@ body { letter-spacing: 0; }
 .sign-in-card form > button { font-size: 14px; }
 .app-footer { font-size: 11px; color: var(--muted-foreground); border: 0; }
 .outlook-calendar { --oc-line: var(--border); --oc-bg: var(--card); --oc-toolbar: var(--surface); }
-.outlook-calendar .interview-event { border-radius: 5px; }
 @media (max-width: 1150px) and (min-width: 701px) {
   .topbar { padding-inline: 16px; gap: 8px; }
   .top-right { gap: 8px; }

@@ -956,7 +956,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 if role == "bidder":
                     if path == "/" and request.method in ("GET", "HEAD"):
                         return RedirectResponse("/dashboard", status_code=303)
-                    allowed = path in ("/sourcing", "/api/sourcing", "/dashboard", "/api/dashboard", "/api/dashboard/accounts", "/api/applications/today", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
+                    allowed = path in ("/sourcing", "/api/sourcing", "/dashboard", "/api/dashboard", "/api/dashboard/accounts", "/api/dashboard/metrics", "/api/applications/today", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
                     from ..bidder_access import viewer_read_allowed
                     allowed |= viewer_read_allowed(path,request.method)
                     allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
@@ -1129,9 +1129,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 active_sources = [source for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]]
                 event["account_labels"] = sorted({source["account_label"] for source in active_sources})
                 event["analysis_pending"] = any(source["analysis_pending"] for source in active_sources if not account or source["account_label"] == account)
-            from ..calendar_colors import colors as calendar_colors
-            chosen = calendar_colors(conn)
-            accounts = [{"id":a.id,"label":a.label,"email":a.email,"calendar_color":chosen.get(a.id)} for a in db.list_accounts(conn, only_enabled=True)]
+            from .. import calendar_colors
+            chosen = calendar_colors.colors(conn)
+            defaults = calendar_colors.default_colors(conn)
+            accounts = [
+                {"id": a.id, "label": a.label, "email": a.email, "calendar_color": chosen.get(a.id),
+                 "calendar_default_color": defaults.get(a.id)}
+                for a in db.list_accounts(conn, only_enabled=True)
+            ]
             companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
             from ..calendar_queue import progress
             analysis = progress(conn)
@@ -1325,7 +1330,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/payments/bidders/{bidder_id}/assignments")
     def assign_bidder(bidder_id: int, body: payments.AssignmentBody):
-        return payment_write(lambda conn: payments.assign(conn, bidder_id, body))
+        def assign(conn):
+            payments.assign(conn, bidder_id, body)
+            # The assigned account's profile sheet is created with the assignment.
+            from ..native_sourcing import ensure_assigned_sheets
+            ensure_assigned_sheets(conn, payments.today().isoformat(), bidder_id)
+        return payment_write(assign)
 
     @app.post("/api/payments/assignments/{assignment_id}")
     def edit_bidder_assignment(assignment_id: int, body: payments.AssignmentBody):
@@ -1393,12 +1403,39 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 filters=filters.model_copy(update={'bidder':request.state.bidder_id,'q':'','focus_date':None,'focus_category':None,'status':'all','action':'all'})
             return dashboard_data(conn, filters, retention_days=cfg.check.retain_days,graphs_only=request.state.role=='bidder')
 
+    @app.get("/api/dashboard/metrics")
+    def api_dashboard_metrics(request: Request, weeks: int | None = None, start: str | None = None, end: str | None = None,
+                              account: str | None = None, bidder: int | None = None):
+        """Operational dashboard metrics (docs/METRICS.md); read-only."""
+        from .. import dashboard_metrics
+        try:
+            first = date.fromisoformat(start) if start else None
+            last = date.fromisoformat(end) if end else None
+        except ValueError:
+            return _err("Dates must use YYYY-MM-DD.")
+        admin = request.state.role == "admin"
+        if request.state.role == "bidder":
+            bidder = request.state.bidder_id
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            try:
+                return dashboard_metrics.report(conn, weeks=weeks, start=first, end=last, account=account or None,
+                                                bidder=bidder, admin=admin)
+            except ValueError as exc:
+                return _err(str(exc))
+
     @app.get("/api/queue-counts")
-    def api_queue_counts(request: Request):
+    def api_queue_counts(request: Request, seen: int | None = None):
         if request.state.role != "admin":
             return _err("Admin access required.", 403)
         with db.session(read_deadline=page_read_deadline(request)) as conn:
-            return db.queue_counts(conn, since_iso=_default_since())
+            since = _default_since()
+            counts = dict(db.queue_counts(conn, since_iso=since))
+            # "latest" lets the browser remember what was seen; "new" counts actionable
+            # queue items stored after that point.
+            counts["latest"] = db.latest_message_pk(conn)
+            if seen is not None:
+                counts["new"] = db.queue_counts(conn, since_iso=since, after_pk=max(seen, 0))["actionable"]
+            return counts
 
     @app.get("/api/applications/today")
     def api_applications_today(request: Request):
@@ -1450,6 +1487,23 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get('/inbox')
     def bidder_inbox_page():
         return frontend_page() or PlainTextResponse('Build the React console first.',status_code=503)
+
+    @app.get("/api/inbox/alerts")
+    def bidder_inbox_alerts(request: Request, after: datetime | None = None, after_id: int = Query(0, ge=0, le=2**63-1)):
+        """A lightweight cursor over newly collected mail in the bidder's current inbox."""
+        if request.state.role != "bidder":
+            return _err("Bidder access required.", 403)
+        if after is None:
+            return {"cursor": {"after": datetime.now(timezone.utc).isoformat(), "after_id": 0}, "message": None}
+        if after.tzinfo is None:
+            return _err("The mail cursor needs a time zone.", 422)
+        stamp = after.astimezone(timezone.utc).isoformat()
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            newest = db.latest_bidder_mail_after(conn, request.state.bidder_id, stamp, after_id)
+        if newest:
+            return {"cursor": {"after": newest["fetched_at"], "after_id": newest["id"]}, "message": newest["id"]}
+        return {"cursor": {"after": stamp, "after_id": after_id}, "message": None}
 
     @app.get("/api/triage", response_model=TriageResponse)
     def api_triage(request: Request, view: str = "queue", category: str | None = None,
@@ -1899,6 +1953,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         page = frontend_page()
         if page:
             return page
+        if request.state.role == "bidder":
+            return PlainTextResponse("Build the React console first.", status_code=503)
         state = _state()
         return TEMPLATES.TemplateResponse(
             request,

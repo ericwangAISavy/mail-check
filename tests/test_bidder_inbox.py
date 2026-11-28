@@ -80,6 +80,31 @@ class BidderInboxTests(unittest.TestCase):
         self.assertEqual(handled.status_code, 200)
         self.assertEqual(handled.json()['summary']['done'], 1)
 
+    def test_mail_alerts_start_at_current_mail_and_follow_assignment_scope(self):
+        mine, _, _ = self.prepare()
+        self.assertEqual(self.client.get('/api/inbox/alerts').status_code, 403)
+        sign_in_bidder(self.client)
+        start = self.client.get('/api/inbox/alerts')
+        self.assertEqual(start.status_code, 200, start.text)
+        self.assertIsNone(start.json()['message'])
+        cursor = start.json()['cursor']
+        other = self.message('new-other', account=self.other)
+        db.save_classification(self.conn, mine, Classification(category='other'), 'test', '2')
+        self.conn.commit()
+        self.assertIsNone(self.client.get('/api/inbox/alerts', params=cursor).json()['message'])
+        fresh = self.message('new-application', category='application_ack')
+        self.conn.commit()
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers = {'x-offerpath-worker': 'trusted', 'x-offerpath-viewer': 'bidder', 'x-offerpath-bidder': '1'}
+            response = worker.get('/api/inbox/alerts', params=cursor, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['message'], fresh)
+            self.assertNotEqual(response.json()['message'], other)
+            self.assertIsNone(worker.get('/api/inbox/alerts', params=response.json()['cursor'], headers=headers).json()['message'])
+            self.conn.execute('UPDATE accounts SET enabled=0 WHERE id=?', (self.account,))
+            self.conn.commit()
+            self.assertIsNone(worker.get('/api/inbox/alerts', params=cursor, headers=headers).json()['message'])
+
     def test_reassignment_and_disabled_accounts_revoke_access_but_reclassification_does_not(self):
         mine,_,_=self.prepare()
         sign_in_bidder(self.client)

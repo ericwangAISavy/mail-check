@@ -69,9 +69,7 @@
 .outlook-calendar {
   --oc-bg: #08151e; --oc-toolbar: #0a1822; --oc-hover: #102b3b; --oc-line: #1b3949;
   --oc-half-line: #142e3c; --oc-text: #edf5fc; --oc-muted: #b5c6d5;
-  --oc-blue: #26a9ff; --oc-today: #0c2331; --oc-event: #063c5c;
-  --oc-event-edge: #078ec8; --oc-event-accent: #00bdf2;
-  --oc-event-text:#fff; --oc-event-detail:#c4d9eb; --oc-now:#ff5d50;
+  --oc-blue: #26a9ff; --oc-today: #0c2331; --oc-now:#ff5d50;
   position: relative; min-width: 0; border: 1px solid var(--oc-line); border-radius: 3px;
   background: var(--oc-bg); color: var(--oc-text); font-family: "Segoe UI", Arial, sans-serif;
   font-size: var(--text-small); isolation: isolate;
@@ -130,24 +128,6 @@
 .outlook-calendar .outlook-day-column.is-today { background: var(--oc-today); outline: none; }
 .outlook-hour-line { position: relative; height: var(--hour-height); border-top: 1px solid var(--oc-line); pointer-events: none; }
 .outlook-hour-line::after { content: ""; position: absolute; top: 50%; left: 0; right: 0; border-top: 1px dashed var(--oc-half-line); }
-.outlook-calendar .outlook-time-event { position: absolute; display: block; min-width: 0; margin: 0; padding: 3px 7px; border: 1px solid var(--oc-event-edge); border-left: 3px solid var(--oc-event-accent); border-radius: 3px; background:var(--oc-event); color:var(--oc-event-text); overflow: hidden; text-align: left; cursor: pointer; box-shadow: none; font: inherit; font-size: var(--text-small); line-height: 1.2; z-index: 2; }
-.outlook-time-event > strong, .outlook-time-event > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: inherit; line-height: 1.2; }
-.outlook-time-event > strong { color: inherit; font-weight: 600; }
-.outlook-calendar .outlook-time-event:hover { filter:none; background:color-mix(in srgb,var(--oc-event) 90%,var(--oc-event-accent)); z-index:3; }
-/* Each account owns a palette; status never replaces its fill color. */
-.outlook-calendar .interview-event.account-color-0 { --oc-event: #084665; --oc-event-edge: #087eab; --oc-event-accent: #00bceb; }
-.outlook-calendar .interview-event.account-color-1 { --oc-event: #06433e; --oc-event-edge: #087e70; --oc-event-accent: #00d3ad; }
-.outlook-calendar .interview-event.account-color-2 { --oc-event: #422b76; --oc-event-edge: #7955b6; --oc-event-accent: #ae7aee; }
-.outlook-calendar .interview-event.account-color-3 { --oc-event: #673d1a; --oc-event-edge: #a46c2a; --oc-event-accent: #ffc367; }
-.outlook-calendar .interview-event.account-color-4 { --oc-event: #662d50; --oc-event-edge: #ad5388; --oc-event-accent: #ff8bca; }
-.outlook-calendar .interview-event.account-color-5 { --oc-event: #283b79; --oc-event-edge: #5879cc; --oc-event-accent: #91b1ff; }
-.outlook-calendar .interview-event.account-color-6 { --oc-event: #6a2b2b; --oc-event-edge: #b2554f; --oc-event-accent: #ff8f84; }
-.outlook-calendar .interview-event.account-color-7 { --oc-event: #2f4a1d; --oc-event-edge: #5f8f35; --oc-event-accent: #a8e06d; }
-.outlook-calendar .outlook-time-event.rescheduled, .outlook-calendar .outlook-time-event.needs-review, .outlook-calendar .outlook-time-event.duration-unknown { border-top-style: dashed; border-right-style: dashed; border-bottom-style: dashed; }
-.outlook-time-event.cancelled strong, .outlook-month-event.cancelled strong { text-decoration: line-through; }
-
-.outlook-time-event.is-short { padding-top: 1px; padding-bottom: 1px; }
-.outlook-time-event.is-short > span { display: none; }
 .outlook-now-line { position: absolute; left: 0; right: 0; z-index: 3; border-top:2px solid var(--oc-now); pointer-events: none; }
 .outlook-month-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); background: var(--oc-bg); }
 .outlook-month-weekday { padding: 9px 8px; color: var(--oc-muted); border-bottom: 1px solid var(--oc-line); border-right: 1px solid var(--oc-line); text-align: center; font-size: var(--text-small); }
@@ -157,9 +137,6 @@
 .outlook-calendar .outlook-month-day.is-today { background: var(--oc-today); outline: 1px solid var(--oc-blue); outline-offset: -1px; }
 .outlook-month-day .calendar-day-label { border: 0; padding: 2px 4px; background: none; color: var(--oc-text); font: inherit; cursor: pointer; }
 .outlook-month-day.is-today .calendar-day-label { color: var(--oc-blue); font-weight: 600; }
-.outlook-calendar .outlook-month-event { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; height: 24px; margin-top: 3px; padding: 2px 4px; background:var(--oc-event); color:var(--oc-event-text); border: 1px solid var(--oc-event-edge); border-left: 3px solid var(--oc-event-accent); border-radius: 3px; text-align: left; font: inherit; font-size: var(--text-small); cursor: pointer; overflow: hidden; }
-.outlook-month-event time { flex: none; }
-.outlook-month-event strong { min-width: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font: inherit; }
 .outlook-calendar .calendar-more { padding: 3px 0; background: none; border: 0; font: inherit; color: var(--oc-blue); cursor: pointer; }
 .calendar-expanded { position: fixed; inset: 0; z-index: 45; border-radius: 0; display: flex; flex-direction: column; }
 .calendar-expanded .outlook-calendars { flex: 1; min-height: 0; overflow-y: auto; }
@@ -186,14 +163,11 @@
   .outlook-day-headers, .outlook-time-grid { grid-template-columns: 42px repeat(var(--calendar-days),minmax(0,1fr)); }
   .outlook-day-heading { padding: 8px 3px 4px; }
   .outlook-day-heading > span:last-child { max-width: 100%; overflow: hidden; }
-  .outlook-calendar .outlook-time-event { padding-right: 2px; padding-left: 3px; border-left-width: 3px; }
   .outlook-hour-label > span { left: 3px; }
   .outlook-month-weekday { padding: 7px 1px; }
   .outlook-month-weekday > span { display: none; }
   .outlook-month-weekday abbr { display: inline; }
   .outlook-calendar .outlook-month-day { padding: 2px; min-height: 85px; }
-  .outlook-month-event time { display: none; }
-  .outlook-month-event { gap: 1px; }
   .outlook-menu { min-width: 205px; }
 
 }
@@ -208,13 +182,11 @@
   .outlook-date-bar > .btn,.outlook-period > svg,.outlook-zone { display: none; }
   .outlook-date-bar { padding: 5px; min-height: 32px; }
   .outlook-period { font-size: var(--text-body); }
-  .outlook-calendar .outlook-time-event { font-size: var(--text-small); }
   .outlook-account-calendar { break-inside: avoid; }
 }
 .outlook-command-bar .outlook-menu { left: auto; right: 0; }
 
 .outlook-calendar-notices { border-top: 1px solid var(--oc-line); border-bottom: 0; padding: 3px 12px; font-size: var(--text-small); }
-.outlook-time-event.is-medium > span:last-child { display: none; }
 
 
 /* Keep the calendar inside the workspace, with scrolling confined to its grid. */
@@ -304,12 +276,6 @@
   .outlook-date-bar > .btn:first-child { background: var(--oc-bg); }
   .outlook-day-heading > span:first-child { font-weight: 500; }
   .outlook-day-heading.is-today > span:last-child { color: var(--oc-muted); }
-  .outlook-calendar .outlook-time-event, .outlook-calendar .outlook-month-event {
-    box-shadow: inset 0 1px 0 #ffffff0a, 0 2px 5px #0002;
-  }
-  .outlook-time-event > span { color:var(--oc-event-detail); }
-  .outlook-calendar .outlook-time-event:hover,
-  .outlook-calendar .outlook-month-event:hover { filter:none; background:color-mix(in srgb,var(--oc-event) 90%,var(--oc-event-accent)); }
   .outlook-now-line::before {
     content: ""; position: absolute; left: -4px; top: -5px;
     width: 8px; height: 8px; border-radius: 50%; background:var(--oc-now);
@@ -333,15 +299,6 @@
     --oc-text:var(--foreground); --oc-muted:var(--muted-foreground); --oc-blue:var(--primary);
     --oc-today:color-mix(in srgb,var(--primary) 6%,var(--card)); --oc-now:#c9362a;
   }
-  :root[data-theme="light"] .outlook-calendar .interview-event { --oc-event-detail:var(--oc-event-text); }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-0 { --oc-event:#e0f2fe; --oc-event-edge:#75bcd5; --oc-event-accent:#047da7; --oc-event-text:#083d5b; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-1 { --oc-event:#dcf5ed; --oc-event-edge:#73c2b0; --oc-event-accent:#087b68; --oc-event-text:#084f46; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-2 { --oc-event:#f0e8ff; --oc-event-edge:#baa0e4; --oc-event-accent:#7950b8; --oc-event-text:#4b2e7e; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-3 { --oc-event:#fff1dc; --oc-event-edge:#e2bd7f; --oc-event-accent:#a36a13; --oc-event-text:#714512; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-4 { --oc-event:#fce6f0; --oc-event-edge:#dca0bd; --oc-event-accent:#a13f70; --oc-event-text:#772a51; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-5 { --oc-event:#e8eeff; --oc-event-edge:#a1b5e2; --oc-event-accent:#4267a9; --oc-event-text:#294b81; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-6 { --oc-event:#fde7e4; --oc-event-edge:#e3a49d; --oc-event-accent:#b4453d; --oc-event-text:#7a2b25; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-7 { --oc-event:#ecf6df; --oc-event-edge:#a9cc82; --oc-event-accent:#4f7e1f; --oc-event-text:#35561a; }
   :root[data-theme="light"] .outlook-calendar .btn[aria-pressed="true"] { color:var(--primary); background:var(--accent); border-color:var(--primary); }
   :root[data-theme="light"] .outlook-calendar .btn[aria-pressed="true"] svg { color:var(--primary); }
 }
@@ -424,131 +381,4 @@
 /* Check now sits at the end of the date row, which is now the calendar's top row. */
 .outlook-date-bar > .interview-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: 12px; }
 @media (max-width: 700px) { .outlook-date-bar > .interview-actions { margin: 6px 0 0 auto; } }
-
-/* Account colors: a fixed modern palette, picked per account from the date bar. */
-:root { --calendar-swatch-0:#00bceb; --calendar-swatch-1:#00d3ad; --calendar-swatch-2:#ae7aee; --calendar-swatch-3:#ffc367;
-  --calendar-swatch-4:#ff8bca; --calendar-swatch-5:#91b1ff; --calendar-swatch-6:#ff8f84; --calendar-swatch-7:#a8e06d; }
-:root[data-theme="light"] { --calendar-swatch-0:#047da7; --calendar-swatch-1:#087b68; --calendar-swatch-2:#7950b8; --calendar-swatch-3:#a36a13;
-  --calendar-swatch-4:#a13f70; --calendar-swatch-5:#4267a9; --calendar-swatch-6:#b4453d; --calendar-swatch-7:#4f7e1f; }
 .calendar-colors > .outlook-period { display:inline-flex; align-items:center; gap:6px; font-size:var(--text-body,13px); font-weight:600; }
-.calendar-colors-menu { left:auto; right:0; width:min(470px,92vw); display:grid; gap:2px; padding:8px; }
-.calendar-color-row { display:grid; grid-template-columns:minmax(0,1fr) auto 40px; align-items:center; gap:10px; padding:6px 6px; border-radius:8px; }
-.calendar-color-row:hover { background:color-mix(in srgb,var(--foreground) 5%,transparent); }
-.calendar-color-account { font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.calendar-color-account strong { font-weight:600; }
-.calendar-color-account > span { color:var(--muted-foreground); }
-.calendar-swatches { display:flex; gap:5px; }
-.calendar-colors-menu .calendar-swatch { display:grid; flex:none; place-items:center; width:20px; height:20px; padding:0; border:0; border-radius:50%; cursor:pointer;
-  width:20px; min-width:20px; background:var(--sw); color:#06121d; box-shadow:inset 0 0 0 1px rgb(0 0 0 / .18); transition:transform .12s; }
-:root[data-theme="light"] .calendar-colors-menu .calendar-swatch { color:#fff; }
-.calendar-colors-menu .calendar-swatch:hover:not(:disabled) { transform:scale(1.15); background:var(--sw); }
-.calendar-colors-menu .calendar-swatch[aria-checked="true"] { box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--sw); }
-.calendar-colors-menu .calendar-swatch:focus-visible { outline:2px solid var(--ring); outline-offset:3px; }
-.calendar-colors-menu .calendar-swatch:disabled { cursor:progress; opacity:.6; }
-.swatch-0{--sw:var(--calendar-swatch-0)}.swatch-1{--sw:var(--calendar-swatch-1)}.swatch-2{--sw:var(--calendar-swatch-2)}.swatch-3{--sw:var(--calendar-swatch-3)}
-.swatch-4{--sw:var(--calendar-swatch-4)}.swatch-5{--sw:var(--calendar-swatch-5)}.swatch-6{--sw:var(--calendar-swatch-6)}.swatch-7{--sw:var(--calendar-swatch-7)}
-.calendar-colors-menu .calendar-color-reset { display:inline; width:auto; justify-self:end; border:0; background:none; padding:0; font:inherit; font-size:11.5px; color:var(--primary); cursor:pointer; }
-.calendar-colors-menu .calendar-color-reset:hover { text-decoration:underline; background:none; }
-.calendar-color-reset.is-auto { color:var(--muted-foreground); cursor:default; text-decoration:none; }
-
-/* ---- Event bars: calm glass cards with a soft tint (kept last so it wins). ---- */
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event) {
-  --ev-tint: color-mix(in srgb, var(--oc-event-accent) 16%, var(--oc-event));
-  border: 1px solid color-mix(in srgb, var(--oc-event-edge) 55%, transparent);
-  border-left-width: 1px;
-  border-radius: 7px;
-  /* A barely-there diagonal tint and a lit top edge; the accent is an inset
-     bar so the rounded corners stay clean. */
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / .05), transparent 38%),
-    linear-gradient(135deg, var(--ev-tint), var(--oc-event) 70%);
-  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 1px 2px rgb(0 0 0 / .28), 0 4px 12px -6px rgb(0 0 0 / .45);
-  padding-left: 9px;
-  transition: transform .14s ease, box-shadow .14s ease, opacity .14s ease, filter .14s ease;
-}
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event) > strong { letter-spacing: .005em; }
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event):hover {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / .07), transparent 40%),
-    linear-gradient(135deg, color-mix(in srgb, var(--oc-event-accent) 24%, var(--oc-event)), var(--oc-event) 72%);
-  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 2px 4px rgb(0 0 0 / .3), 0 10px 22px -10px color-mix(in srgb, var(--oc-event-accent) 45%, transparent);
-  transform: translateY(-1px);
-  filter: none;
-}
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event):focus-visible {
-  outline: 2px solid var(--oc-event-accent); outline-offset: 1px;
-}
-/* No dashed outlines: states read through tone, not texture. */
-.outlook-calendar .outlook-time-event:is(.rescheduled, .needs-review, .duration-unknown),
-.outlook-calendar .outlook-month-event:is(.rescheduled, .needs-review) { border-style: solid; }
-/* Past events (already over): the same card, lightly transparent. */
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past { opacity: .5; box-shadow: inset 3px 0 0 var(--oc-event-accent); }
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past:hover,
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past:focus-visible { opacity: .92; }
-/* Unknown end time: the card softly fades out at the bottom instead. */
-.outlook-calendar .outlook-time-event.duration-unknown { -webkit-mask-image: linear-gradient(180deg, #000 62%, rgb(0 0 0 / .35)); mask-image: linear-gradient(180deg, #000 62%, rgb(0 0 0 / .35)); }
-.outlook-calendar :is(.outlook-time-event, .outlook-month-event).cancelled:not(.is-past) { opacity: .7; }
-@media (prefers-reduced-motion: reduce) {
-  .outlook-calendar :is(.outlook-time-event, .outlook-month-event) { transition: none; }
-  .outlook-calendar :is(.outlook-time-event, .outlook-month-event):hover { transform: none; }
-}
-:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event) {
-  --ev-tint: color-mix(in srgb, var(--oc-event-accent) 10%, var(--oc-event));
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / .55), transparent 40%),
-    linear-gradient(135deg, var(--ev-tint), var(--oc-event) 72%);
-  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 1px 2px rgb(15 35 60 / .08), 0 4px 10px -6px rgb(15 35 60 / .18);
-}
-:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event):hover {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / .6), transparent 42%),
-    linear-gradient(135deg, color-mix(in srgb, var(--oc-event-accent) 16%, var(--oc-event)), var(--oc-event) 74%);
-  box-shadow: inset 3px 0 0 var(--oc-event-accent), 0 2px 4px rgb(15 35 60 / .1), 0 10px 20px -10px color-mix(in srgb, var(--oc-event-accent) 40%, transparent);
-}
-:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event, .outlook-month-event).is-past { opacity: .55; }
-
-.outlook-calendar .outlook-month-event.analysis-deferred { position: relative; }
-
-/* Keep profile colors/patterns visible; warnings add a separate danger outline. */
-.outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning) {
-  border:1px solid #ff7389;
-  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 1px #ff526870,0 3px 12px #ff38534a;
-  opacity:1;
-  -webkit-mask-image:none;
-  mask-image:none;
-}
-.outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning):hover {
-  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 2px #ff73898c,0 4px 14px #ff38535c;
-}
-.outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning):focus-visible { outline-color:#ff7389; }
-.outlook-calendar :is(.outlook-time-event,.outlook-month-event) .interview-feedback-indicator.is-warning {
-  color:#ffe296;
-  fill:#7f300a;
-  vertical-align:-3px;
-  filter:drop-shadow(0 0 3px #ffbd4759);
-}
-:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning) {
-  border-color:#c52b47;
-  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 1px #c52b4740,0 2px 10px #c52b4733;
-}
-:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning):hover {
-  box-shadow:inset 4px 0 0 var(--oc-event-accent),0 0 0 2px #c52b4770,0 4px 14px #c52b4740;
-}
-:root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event) .interview-feedback-indicator.is-warning {
-  color:#9c1730;
-  fill:#ffe08a;
-}
-.outlook-calendar .interview-event.analysis-deferred::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 5px;
-  pointer-events: none;
-  background: repeating-linear-gradient(135deg, var(--oc-event-accent) 0 2px, var(--oc-event) 2px 4px);
-}
-
-@media screen {
- .outlook-calendar :is(.outlook-time-event,.outlook-month-event).is-past { opacity:.74; }
- :root[data-theme="light"] .outlook-calendar :is(.outlook-time-event,.outlook-month-event).is-past { opacity:.82; }
- :root .outlook-calendar :is(.outlook-time-event,.outlook-month-event):has(.interview-feedback-indicator.is-warning) { opacity:1; }
-}

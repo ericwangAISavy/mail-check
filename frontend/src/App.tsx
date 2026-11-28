@@ -1,13 +1,13 @@
 import { readBrowserPreference, writeBrowserPreference } from "@/lib/browser-preferences"
 import { getAppearance, setMode, subscribeAppearance } from "@/lib/appearance"
 import { PageQueryBoundary } from "@/lib/page-state"
-import ReleaseHistory from "@/components/release-history"
+import WorkspaceSidebar, { workspaceNavigationLabel } from "@/components/workspace-sidebar"
 import ChangePassword from "@/components/change-password"
 import { OfferPathMark } from "@/components/offerpath-mark"
-import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react"
 import { Navigate, NavLink, Route, Routes, UNSAFE_DataRouterContext, useLocation, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, ChevronRight, CircleHelp, Inbox, LoaderCircle, Mails, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings, ShieldCheck, Sun, UsersRound, Workflow } from "lucide-react"
+import { Activity, ChevronRight, CircleHelp, LoaderCircle, Moon, PanelLeftOpen, Plus, Sun } from "lucide-react"
 import { api, request } from "@/lib/api"
 import { parseStamp, timeAgo } from "@/lib/relative-time"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import { Loading, PageHeading, ToastProvider, useToast } from "@/components/comm
 import type { Bootstrap } from "@/lib/types"
 import { AuthGate, useAuth } from "@/components/auth"
 import { useRealtimeUpdates } from "@/lib/realtime"
+import { bidderAlertScope, useBidderAlertPreferences, useBidderMailAlerts } from "@/lib/bidder-mail-alerts"
 
 // Each page's code downloads on demand. Navigation can start that download
 // early (hover, focus, press) so a click rarely waits for the network.
@@ -54,20 +55,6 @@ const AccountsPage = lazy(pageImports.accounts)
 const AdminManagement = lazy(pageImports.adminManagement)
 const SettingsPage = lazy(pageImports.settings)
 const PersonalSettingsPage = lazy(() => pageImports.settings().then(module => ({ default: module.PersonalSettingsPage })))
-
-const sections = [
-  { to: "/", label: "Triage", icon: Inbox },
-  { to: "/inbox", label: "Inbox", icon: Inbox },
-  { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
-  { to: "/interviews", label: "Interview", icon: CalendarDays },
-  { to: "/interview-processes", label: "Interview pipeline", icon: Workflow },
-  { to: "/sourcing", label: "Job sourcing", icon: BriefcaseBusiness },
-  { to: "/job-links", label: "Job links", icon: Search },
-  { to: "/payments", label: "Bidder management", icon: UsersRound },
-  { to: "/accounts", label: "Accounts", icon: Mails },
-  { to: "/settings", label: "Settings", icon: Settings },
-  { to: "/admin-management", label: "Admin management", icon: ShieldCheck },
-]
 
 function ThemeControl() {
   const theme = useSyncExternalStore(subscribeAppearance, getAppearance).mode
@@ -246,6 +233,8 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
     const controls=()=>Array.from(mobileNavPanel.current?.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),[tabindex="0"]')||[]).filter(element=>getComputedStyle(element).display!=='none'&&getComputedStyle(element).visibility!=='hidden')
     controls()[0]?.focus()
     const keyboard=(event:KeyboardEvent)=>{
+      const dialog = document.activeElement?.closest('[role="dialog"]')
+      if (event.defaultPrevented || dialog && dialog !== mobileNavPanel.current) return
       if(event.key==='Escape'){event.preventDefault();setMobileNav(false);return}
       if(event.key!=='Tab')return
       const items=controls(),first=items[0],last=items[items.length-1]
@@ -273,42 +262,50 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
   useEffect(() => dataRouter?.subscribe((state) => {
     if ([...state.blockers.values()].some((blocker) => blocker.state === "blocked")) setPendingPath(null)
   }), [dataRouter])
+  // "New" = actionable queue items stored after the newest message this person had seen on
+  // Triage (remembered per workspace and user in this browser). A first visit sets the baseline.
+  const seenKey = `offerpath:triage-seen:${session?.workspace_id || "default"}:${session?.username || ""}`
+  const readSeen = useCallback(() => { try { const value = localStorage.getItem(seenKey); return value == null || !/^\d+$/.test(value) ? null : Number(value) } catch { return null } }, [seenKey])
+  const [seen, setSeen] = useState<number | null>(readSeen)
+  useEffect(() => { setSeen(readSeen()) }, [readSeen])
   const queue = useQuery({
-    queryKey: ["bootstrap", "queue-counts"],
-    queryFn: ({signal}) => request<{actionable: number}>("/api/queue-counts", {signal}),
-    enabled: admin && bootstrap.counts.actionable === undefined && !["/settings", "/admin-management", "/job-links"].includes(location.pathname),
+    queryKey: ["bootstrap", "queue-counts", seen],
+    queryFn: ({signal}) => request<{actionable: number; latest?: number; new?: number}>(`/api/queue-counts${seen != null ? `?seen=${seen}` : ""}`, {signal}),
+    enabled: admin && !["/settings", "/admin-management", "/job-links"].includes(location.pathname),
     refetchInterval: 60_000,
+    placeholderData: previous => previous,
   })
   const actionable = bootstrap.counts.actionable ?? queue.data?.actionable ?? 0
+  const latestSeen = queue.data?.latest
+  const onTriage = location.pathname === "/"
+  useEffect(() => {
+    if (latestSeen == null || !(seen == null || onTriage && latestSeen !== seen)) return
+    try { localStorage.setItem(seenKey, String(latestSeen)) } catch { /* this visit only */ }
+    setSeen(latestSeen)
+  }, [latestSeen, onTriage, seen, seenKey])
+  const fresh = !onTriage && seen != null ? queue.data?.new ?? 0 : 0
   // The queue size in the tab title is visible from other tabs and the taskbar.
   useEffect(() => { document.title = actionable > 0 ? `(${actionable}) OfferPath` : "OfferPath" }, [actionable])
   const toggleSidebar = () => { const next = !collapsed; setCollapsed(next); writeBrowserPreference("mailcheck.sidebar", next ? "collapsed" : "expanded") }
+  const navigateSidebar = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if (location.pathname.replace(/\/$/, "") === path.replace(/\/$/, "")) event.preventDefault()
+    else setPendingPath(path)
+    setMobileNav(false)
+  }
 
   return <div data-offerpath-workspace className={`app-frame ${collapsed ? "sidebar-collapsed" : ""}`}>
     <header className="topbar app-header">
-      <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={30} /></span><span className="brand-word">Offer<span>Path</span></span></button><ReleaseHistory /></div>
-      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" ref={mobileNavTrigger} aria-expanded={mobileNav} aria-controls="workspace-navigation" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{sections.find((s) => s.to === (pendingPath ?? location.pathname) || s.to === "/interview-processes" && location.pathname === "/interview-processes/legacy")?.label || "Triage"}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
+      <div className="brand-header"><button className="brand-lockup" onClick={() => { const home = admin ? "/" : "/dashboard"; if (location.pathname !== home) navigate(home) }} aria-label="OfferPath home"><span className="brand-mark"><OfferPathMark size={28} /></span><span className="brand-word">Offer<span>Path</span></span></button></div>
+      <div className="top-left"><Button variant="ghost" size="icon" className="mobile-menu" ref={mobileNavTrigger} aria-expanded={mobileNav} aria-controls="workspace-navigation" onClick={() => setMobileNav(true)} aria-label="Open navigation"><PanelLeftOpen /></Button><div className="crumb"><span>Workspace</span><ChevronRight size={14} /><strong>{workspaceNavigationLabel(pendingPath ?? location.pathname)}</strong></div>{(admin || !location.pathname.startsWith("/payments")) && <DailyApplicationCount count={bootstrap.counts.applications_today}/>}</div>
       <div className="top-right"><ThemeControl /><span className="signed-in-role">{!admin ? (session?.bidder_name ? `${session.bidder_name} · Bidder` : "Bidder") : session?.is_owner ? "Owner" : "Admin"}</span>{admin && !canManageSettings && <ChangePassword />}<Button variant="ghost" size="sm" onClick={() => void signOut().catch((error) => toast(error instanceof Error ? error.message : "Could not sign out.", "error"))}>Sign out</Button>{admin && location.pathname !== "/admin-management" && location.pathname !== "/job-links" && <JobStatus bootstrap={bootstrap} />}</div>
       {pendingPath && <div className="route-progress" role="progressbar" aria-label="Opening page" />}
     </header>
-    {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
-    <aside ref={mobileNavPanel} id="workspace-navigation" inert={compactNav&&!mobileNav} role={mobileNav?'dialog':undefined} aria-modal={mobileNav?true:undefined} aria-label={mobileNav?'Navigation':undefined} className={`sidebar ${mobileNav ? "mobile-open" : ""}`}>
-      <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav className="side-nav" aria-label="Main navigation">{sections.filter(s => s.to !== "/inbox" || !admin).filter(s => !["/admin-management"].includes(s.to) || session?.is_owner).filter(s=>s.to!=="/settings" || admin).filter(s=>s.to!=="/job-links" || canViewJobLinks).filter((s) => admin || s.to === "/inbox" || s.to === "/dashboard" || s.to === "/payments" || s.to === "/sourcing").map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={(event) => {
-        // Keep the current URL, including filters updated through browser history.
-        // Modified clicks retain the link's normal browser behavior.
-        const plain = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
-        if (plain && to === location.pathname) {
-          event.preventDefault()
-          setMobileNav(false)
-        } else if (plain) {
-          setPendingPath(to)
-          setMobileNav(false)
-        }
-      }} onPointerEnter={() => preloadRoute(to)} onFocus={() => preloadRoute(to)} onPointerDown={() => preloadRoute(to)}
-      end={to === "/"} className={({ isActive }) => `side-link ${(pendingPath ? pendingPath === to : isActive) ? "active" : ""}${pendingPath === to ? " is-pending" : ""}`} title={collapsed ? label : undefined}><Icon size={18} /><span>{label}</span>{label === "Triage" && actionable > 0 && <span className="nav-count">{actionable}</span>}</NavLink>)}</nav>
-      <button type="button" className="sidebar-collapse" onClick={toggleSidebar} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>{collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>
-    </aside>
+    {mobileNav && <div className="mobile-scrim" aria-hidden="true" onClick={() => setMobileNav(false)} />}
+    <WorkspaceSidebar panelRef={mobileNavPanel} admin={admin} owner={!!session?.is_owner} canViewJobLinks={canViewJobLinks}
+      drawer={compactNav || mobileNav} open={mobileNav} collapsed={collapsed} pendingPath={pendingPath}
+      actionable={actionable} fresh={fresh} onNavigate={navigateSidebar} onPreload={preloadRoute}
+      onToggle={toggleSidebar} onClose={() => setMobileNav(false)} />
 
     <section className={`app-content ${["/sourcing","/job-links"].includes(location.pathname) ? "sourcing-workspace" : ""}`}>
       {session?.workspace_id && <div className="workspace-banner"><span>Workspace: <strong>{session.workspace_name}</strong></span><span>{session.is_owner ? session.workspace_id === "legacy" ? "Owner’s original workspace" : "Owner access · another admin’s workspace" : session.username}</span>{session.is_owner && <NavLink to="/admin-management">Manage admins / switch workspace</NavLink>}</div>}
@@ -326,7 +323,7 @@ function Workspace({ bootstrap }: { bootstrap: Bootstrap }) {
         <Route path="/payments" element={<PaymentsPage readOnly={!admin} />} />
         <Route path="/accounts" element={admin ? <AccountsPage canManageSettings={canManageSettings} /> : <Navigate to="/dashboard" replace />} />
         <Route path="/admin-management" element={session?.is_owner ? <AdminManagement /> : <Navigate to="/" replace />} />
-        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : admin ? <PersonalSettingsPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/settings" element={canManageSettings ? <SettingsPage bootstrap={bootstrap} /> : <PersonalSettingsPage />} />
         <Route path="/login" element={<Navigate to={admin ? "/" : "/dashboard"} replace />} />
         <Route path="*" element={admin ? <UnknownRoute /> : <Navigate to="/dashboard" replace />} />
       </Routes></Suspense></PageQueryBoundary></main>
@@ -348,12 +345,16 @@ function Recovery({ message, retry, retrying }: { message: string; retry: () => 
   return <main className="recovery-page"><div className="brand-mark"><OfferPathMark size={30} /></div><p className="eyebrow">SAFE RECOVERY</p><h1>{configurationError ? "Check your local settings" : "Workspace temporarily unavailable"}</h1><p className="recovery-description">{configurationError ? "Settings need an update before OfferPath can open." : "OfferPath could not load your workspace. Try connecting again shortly."}</p><Card className="recovery-card"><pre>{message}</pre><Button onClick={retry} disabled={retrying}>Retry connection</Button>{canManageSettings ? <Button variant="outline" onClick={() => navigate("/settings")}>Try settings</Button> : <p>Ask the owner to review the shared Settings.</p>}</Card></main>
 }
 
+function BidderMailAlertMonitor({ scope, preferences }: { scope: string; preferences: number }) {
+  useBidderMailAlerts(scope, preferences)
+  return null
+}
+
 function ReadyApp() {
   useRealtimeUpdates()
   const path=useLocation().pathname
   const controlPage = path === "/admin-management" || path === "/job-links"
-  const {role,session}=useAuth()
-  const settingsRecovery=path==="/settings"&&role==="admin"&&(!session?.workspace_id||!!session.is_owner)
+  const settingsRecovery=path==="/settings"
   const { data, isPending, error, refetch, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: ({ signal }) => api.bootstrap(signal), retry: false, refetchInterval: 60_000, enabled: !controlPage })
   if (controlPage || settingsRecovery) return <Workspace bootstrap={settingsRecovery && data ? data : {readiness:{model:false,accounts:false,privacy_ack:true,outlook:false},counts:{},taxonomy:[],presets:[],last_run:"",account_count:0}} />
   if (isPending) return <div role="status" className="loading-state" data-offerpath-bootstrap>Connecting to your workspace…</div>
@@ -363,4 +364,11 @@ function ReadyApp() {
   return <><Workspace bootstrap={data!} />{error && <div role="status" className="fixed bottom-4 right-4 z-50 max-w-md rounded-xl border border-border bg-card p-4 shadow-lg"><p>Workspace updates are temporarily unavailable.</p><Button onClick={() => void refetch()} disabled={isFetching}>Retry connection</Button></div>}</>
 }
 
-export default function App() { return <ToastProvider><AuthGate><ReadyApp /></AuthGate></ToastProvider> }
+function SignedInApp() {
+  const { session } = useAuth()
+  const scope = bidderAlertScope(session)
+  const preferences = useBidderAlertPreferences(scope)
+  return <>{preferences !== 0 && <BidderMailAlertMonitor key={scope} scope={scope} preferences={preferences} />}<ReadyApp /></>
+}
+
+export default function App() { return <ToastProvider><AuthGate><SignedInApp /></AuthGate></ToastProvider> }

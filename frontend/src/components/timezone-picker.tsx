@@ -2,7 +2,8 @@ import {useEffect,useId,useMemo,useRef,useState} from "react"
 import {ChevronDown,Check} from "lucide-react"
 import {browserTimezone,timezoneChoices} from "@/lib/calendar-timezone"
 
-export default function TimezonePicker({value,onChange}:{value:string;onChange:(value:string)=>void}) {
+/** display: a short label (e.g. "CST") shown while closed; the full name is the title. */
+export default function TimezonePicker({value,onChange,display}:{value:string;onChange:(value:string)=>void;display?:string}) {
   const [open,setOpen]=useState(false)
   const [query,setQuery]=useState("")
   const [active,setActive]=useState(0)
@@ -30,7 +31,7 @@ export default function TimezonePicker({value,onChange}:{value:string;onChange:(
   },[active,open,listId])
   return <div ref={root} className="timezone-picker" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setOpen(false)}}>
     <div className="timezone-picker-input">
-      <input role="combobox" aria-label="Calendar timezone" aria-expanded={open} aria-controls={open?listId:undefined} aria-autocomplete="list" aria-activedescendant={open&&filtered[active]?`${listId}-${active}`:undefined} autoComplete="off" spellCheck={false} value={open?query:label} placeholder="Search timezones…" onFocus={show} onClick={show} onChange={event=>{setQuery(event.target.value);setActive(0);setOpen(true)}} onKeyDown={event=>{
+      <input role="combobox" aria-label="Calendar timezone" aria-expanded={open} aria-controls={open?listId:undefined} aria-autocomplete="list" aria-activedescendant={open&&filtered[active]?`${listId}-${active}`:undefined} autoComplete="off" spellCheck={false} value={open?query:display??label} title={label} placeholder="Search timezones…" onFocus={show} onClick={show} onChange={event=>{setQuery(event.target.value);setActive(0);setOpen(true)}} onKeyDown={event=>{
         if(event.key==="ArrowDown"||event.key==="ArrowUp"){
           event.preventDefault()
           if(!open){show();return}

@@ -1,219 +1,165 @@
-import {Children,isValidElement} from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
 import { ToastProvider } from "@/components/common"
 import { api } from "@/lib/api"
-import type { Bootstrap } from "@/lib/types"
+import { accountAliases, changeText, money, type DashboardMetrics } from "@/lib/dashboard-metrics"
 import DashboardPage from "./dashboard"
 
-const chart = vi.hoisted(() => ({ date: "2026-09-14",rows:[] as Record<string,any>[] }))
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: any) => <div>{children}</div>,
-  ComposedChart: ({ children,data }: any) => {chart.rows=data;return <div>{Children.toArray(children).filter(child=>!isValidElement(child)||child.type!=="defs")}</div>},
-  Bar: ({ name, onClick }: any) => <button aria-label={`Chart segment ${name}`} onClick={() => onClick({ date: chart.date })}>Bar</button>,
-  Line: () => null, LineChart: ({ data }: any) => <output aria-label="quality points">{JSON.stringify(data)}</output>,
-  BarChart: ({ data }: any) => <output aria-label="quality bars">{JSON.stringify(data)}</output>,
-  Area: () => null, Rectangle: () => null, CartesianGrid: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null,
+  ComposedChart: ({ children, data }: any) => <div data-testid="chart" data-rows={JSON.stringify(data)}>{children}</div>,
+  Line: ({ dataKey, name }: any) => <span data-testid={`line-${dataKey}`}>{name}</span>,
+  CartesianGrid: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null, Customized: () => null,
 }))
-const bootstrap: Bootstrap = { readiness: { model: true, accounts: true, privacy_ack: true, outlook: false }, counts: {}, taxonomy: [], presets: [], last_run: "Never checked", account_count: 1 }
+
+const empty = { interview_rate: [null, null], rejection_rate: [null, null] }
+const bidderPoint = (over: Record<string, unknown> = {}) => ({ carryover: 2, new: 8, available: 10, completed: 7, expired: 1, remaining: 2, completion_rate: 0.7, checked: 7, ...over })
+const buckets = [{ start: "2026-11-30", partial: false }, { start: "2026-12-07", partial: true }]
+const work = { buckets, series: [{ id: 1, name: "Alex", points: [bidderPoint(), bidderPoint({ checked: 3 })] }],
+  workload: [{ new: 20, checked: 25, backlog: 9, expired: 1 }, { new: 5, checked: 3, backlog: 11, expired: 0 }] }
+const metrics = (over: Partial<DashboardMetrics> = {}): DashboardMetrics => ({
+  as_of: "2026-12-09T18:00:00+00:00", timezone: "America/Chicago", today: "2026-12-09",
+  range: { weeks: 8, start: "2026-10-19", end: "2026-12-13" },
+  summaries: { week_start: "2026-12-07", week_end: "2026-12-13",
+    applications: { current: 1123, previous_comparable: 663, previous_full: 977, average: 1453.5, average_weeks: 4, change: { absolute: 460, percent: 69.4 },
+      trend: [{ week: "2026-11-30", value: 977, partial: false }, { week: "2026-12-07", value: 1123, partial: true }] },
+    interviews: { scheduled: 15, so_far: 9, previous_so_far: 0, previous_full: 0, average: 22, average_weeks: 4, change: { absolute: 15, percent: null },
+      trend: [{ week: "2026-11-30", value: 0, partial: false }, { week: "2026-12-07", value: 15, partial: true }] } },
+  profiles: { weeks: buckets, cohort_days: 14, mature_through: "2026-11-24", replies_since: "2026-11-10",
+    rates: { interview_rate: { available: false, reason: "Only 89 of 235 emails can be matched.", emails: 235, matched: 89, share: 0.38 },
+      rejection_rate: { available: true, reason: null, emails: 10, matched: 9, share: 0.9 } },
+    series: [{ id: 1, label: "thomas.dan@example.test", email: "thomas.dan@example.test", color: 5, points: { interviews: [9, 7], applications: [300, 200], rejections: [12, 4], ...empty,
+      rejection_rate: [{ value: 0.25, hits: 1, base: 4 }, null] } },
+    { id: 2, label: "eric.wang@example.test", email: "eric.wang@example.test", color: 4, points: { interviews: [6, 4], applications: [100, 90], rejections: [3, 1], ...empty } }] },
+  bidders: { daily: work, weekly: work, history_since: "2026-10-19" },
+  attention: [{ id: "missing_confirmations", severity: "warning", count: 233, href: "/sourcing", label: "Unconfirmed links", detail: "Checked." },
+    { id: "expiring_links", severity: "warning", count: 272, href: "/sourcing", label: "Expiring within 48 hours", detail: "Soon." }],
+  payments: { week_start: "2026-12-07", week_end: "2026-12-13", currency: "USD", gross_cents: 3505, deductions_cents: 0, net_payable_cents: 3505, recorded_cents: 0,
+    outstanding_cents: null, reconciled: false, week_ended: false, missing_rates: [], checked: 907, bidders: 6 },
+  ...over,
+})
 const clients: QueryClient[] = []
-const data = () => ({ filters: { start: "2026-09-15", end: "2026-10-14" }, summary: { total: 7, pending_attention: 2, completed: 1, unclassified: 0, retryable: 0 },
-  categories: [{ name: "offer", label: "Offer", tier: "act", count: 0 }, { name: "rejection", label: "Rejection", tier: "info", count: 7 }],
-  daily: [{ date: "2026-09-15", total: 7, counts: { offer: 0, rejection: 7 }, partial: false }],
-  history: { retention_days: 30 }, messages: { items: [], total: 0, page: 1, total_pages: 0, page_size: 50 } })
 beforeEach(() => {
-  chart.date = "2026-09-14"
-  vi.spyOn(api, "dashboard").mockImplementation(async () => data())
-  vi.spyOn(api, "dashboardAccounts").mockResolvedValue({ accounts: [{ label: "personal" }] })
-  vi.spyOn(api, "accounts").mockResolvedValue({ accounts: [{ id: 1, label: "personal", email: "me@example.test", provider: "imap", imap_host: "imap.example.test", imap_port: 993, use_ssl: true, folder: "INBOX", enabled: false }], outlook_ready: false })
+  vi.spyOn(api, "dashboardMetrics").mockImplementation(async () => metrics())
+  vi.spyOn(api, "dashboardAccounts").mockResolvedValue({ accounts: [{ label: "thomas.dan@example.test" }, { label: "Beta" }], bidders: [{ id: 1, name: "Alex" }] })
 })
-afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.restoreAllMocks() })
 function mount(path = "/dashboard", readOnly = false) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   clients.push(client)
-  const page = <QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><ToastProvider><DashboardPage bootstrap={bootstrap} readOnly={readOnly} /></ToastProvider></MemoryRouter></QueryClientProvider>
-  return render(page)
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><ToastProvider><DashboardPage readOnly={readOnly} /></ToastProvider></MemoryRouter></QueryClientProvider>)
 }
-async function lastParam(name: string, value: string | null) {
-  await waitFor(() => {
-    const calls = vi.mocked(api.dashboard).mock.calls
-    expect(calls[calls.length - 1][0].get(name)).toBe(value)
-  })
-}
+const lastParams = () => { const calls = vi.mocked(api.dashboardMetrics).mock.calls; return calls[calls.length - 1][0] }
+const rows = async () => JSON.parse((await screen.findByTestId("chart")).getAttribute("data-rows")!)
 
-it("keeps all four metrics and uses actual account inclusion state", async () => {
+it("formats changes, cents and short account names", () => {
+  expect(changeText({ absolute: 460, percent: 69.4 })).toBe("+460 (+69.4%)")
+  expect(changeText({ absolute: -10, percent: -40 })).toBe("−10 (−40%)")
+  expect(changeText({ absolute: 15, percent: null })).toBe("+15")
+  expect(changeText(null)).toBeNull()
+  expect(money(3505)).toBe("$35.05")
+  expect(accountAliases([{ id: 1, label: "eric.wang.swe1115@x.test" }, { id: 2, label: "eric.wang@x.test" }, { id: 3, label: "timJones1228@x.test" }, { id: 4, label: "Personal" }]))
+    .toEqual({ 1: "Eric 2", 2: "Eric", 3: "Tim", 4: "Personal" })
+})
+
+it("shows two weekly summaries with labelled comparisons and no data table", async () => {
   mount()
-  await screen.findByText("Messages collected")
-  expect(screen.getByText("Unclassified")).toBeTruthy()
-  expect(await screen.findByText("Paused")).toBeTruthy()
-  expect(screen.queryByText("Connected", { exact: true })).toBeNull()
-  expect(screen.queryByText(/\+12%/)).toBeNull()
+  const apps = (await screen.findByRole("heading", { name: /Applications this week/ })).closest("section")!
+  expect(within(apps).getByText("1,123")).toBeTruthy()
+  expect(within(apps).getByText("+460 (+69.4%)")).toBeTruthy()
+  expect(within(apps).getByText("vs 663 by this time last week")).toBeTruthy()
+  expect(within(apps).getByText("4-week average 1,454")).toBeTruthy()
+  const meetings = screen.getByRole("heading", { name: /Interviews this week/ }).closest("section")!
+  expect(within(meetings).getByText("15")).toBeTruthy()
+  expect(within(meetings).getByText("9 started so far")).toBeTruthy()
+  expect(within(meetings).getByText("vs last week’s full schedule")).toBeTruthy()
+  expect(screen.queryByRole("table")).toBeNull()
 })
-it("quick ranges replace custom dates while preserving other filters", async () => {
-  mount("/dashboard?start=2026-09-15&end=2026-10-14&account=personal&status=pending&focus_date=2026-09-15&page=2")
-  fireEvent.click(await screen.findByRole("button", { name: "2 weeks" }))
-  await lastParam("days", "14"); await lastParam("start", null); await lastParam("end", null)
-  await lastParam("focus_date", null); await lastParam("account", "personal"); await lastParam("status", "pending")
-  await lastParam("page", "1")
-  expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe("14")
-  expect(screen.getByRole("button", { name: "2 weeks" }).getAttribute("aria-pressed")).toBe("true")
+
+it("charts calendar interviews per profile by default with the unfinished week dashed", async () => {
+  mount()
+  expect(await screen.findByRole("heading", { name: "Weekly interview performance" })).toBeTruthy()
+  const data = await rows()
+  expect([data[0]["s:p1"], data[1]["s:p1"]]).toEqual([9, null])
+  expect([data[0]["d:p1"], data[1]["d:p1"]]).toEqual([9, 7])
+  expect(screen.getByTestId("line-s:p2").textContent).toBe("Eric")
 })
-it("keeps quick range buttons synchronized with the date dropdown", async () => {
-  mount(); await screen.findByLabelText("Date range")
-  await lastParam("days", "7")
-  expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe("7")
-  expect(screen.getByRole("button", { name: "1 week" }).getAttribute("aria-pressed")).toBe("true")
-  for (const [days, label] of [["7", "1 week"], ["90", "3 months"]]) {
-    fireEvent.click(screen.getByRole("button", { name: label }))
-    await lastParam("days", days)
-    expect((screen.getByLabelText("Date range") as HTMLSelectElement).value).toBe(days)
-  }
-  fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "14" } })
-  expect(screen.getByRole("button", { name: "2 weeks" }).getAttribute("aria-pressed")).toBe("true")
+
+it("switches profile metrics and explains an unreliable rate instead of charting it", async () => {
+  mount()
+  fireEvent.click(await screen.findByRole("button", { name: "Applications" }))
+  expect((await rows())[0]["s:p1"]).toBe(300)
+  fireEvent.click(screen.getByRole("button", { name: "Interview conversion" }))
+  expect(await screen.findByText("Only 89 of 235 emails can be matched.")).toBeTruthy()
+  expect(screen.queryByTestId("chart")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Rejection rate" }))
+  expect((await rows())[0]["s:p1"]).toBe(0.25)
 })
-it("propagates every filter through one grouping control", async () => {
-  mount(); await screen.findByLabelText("Date range")
-  fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "7" } }); await lastParam("days", "7")
-  fireEvent.change(screen.getByLabelText("Group by"), { target: { value: "week" } }); await lastParam("interval", "week")
-  expect(screen.getAllByLabelText("Group by")).toHaveLength(1)
-  expect(screen.queryByLabelText("Chart grouping")).toBeNull()
-  expect((screen.getByLabelText("Group by") as HTMLSelectElement).value).toBe("week")
-  fireEvent.change(screen.getByLabelText("Account"), { target: { value: "personal" } }); await lastParam("account", "personal")
-  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "pending" } }); await lastParam("status", "pending")
-  fireEvent.click(screen.getByRole("button", { name: "More" }))
-  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "yes" } }); await lastParam("action", "yes")
+
+it("replaces the graph per tab, with bidder metrics and workload series toggles", async () => {
+  mount()
+  fireEvent.click(await screen.findByRole("tab", { name: "Bidder productivity" }))
+  expect((await rows())[0]["s:b1"]).toBe(0.7)
+  fireEvent.click(screen.getByRole("button", { name: "Checked" }))
+  expect((await rows())[1]["d:b1"]).toBe(3)
+  fireEvent.click(screen.getByRole("tab", { name: "Workload" }))
+  expect((await rows())[0]).toMatchObject({ "s:new": 20, "s:checked": 25 })
+  expect(screen.queryByTestId("line-s:backlog")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Backlog" }))
+  expect(await screen.findByTestId("line-s:backlog")).toBeTruthy()
+  expect(screen.getAllByTestId("chart").length).toBe(1)
 })
-it("clears stale date focus when changing the date range", async () => {
-  mount("/dashboard?focus_date=2026-09-15&focus_category=rejection")
-  await screen.findByLabelText("Date range")
-  fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "7" } })
-  await lastParam("focus_date", null); await lastParam("focus_category", null)
+
+it("reveals the numbers only on request", async () => {
+  mount()
+  fireEvent.click(await screen.findByRole("button", { name: "View data" }))
+  const table = screen.getByRole("table", { name: "Weekly interview performance data" })
+  expect(within(table).getByText("Dec 7 (in progress)")).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", { name: "Hide data" }))
+  expect(screen.queryByRole("table")).toBeNull()
 })
-it("does not show a successful refresh when the API request fails", async () => {
-  mount(); await screen.findByText("Messages collected")
-  vi.mocked(api.dashboard).mockRejectedValue(new Error("Refresh is offline"))
-  fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
-  await screen.findByText("Refresh is offline")
-  expect(screen.queryByText("Activity refreshed.")).toBeNull()
-  expect(screen.getByText("Messages collected")).toBeTruthy()
+
+it("keeps payments exact and links attention items to their pages", async () => {
+  mount()
+  const pay = (await screen.findByRole("heading", { name: "Payments" })).closest("section")!
+  expect(within(pay).getAllByText("$35.05").length).toBe(2)
+  expect(within(pay).queryByText("Outstanding")).toBeNull()
+  expect(within(pay).getByRole("link", { name: /View breakdown/ }).getAttribute("href")).toBe("/payments")
+  expect(screen.getByRole("link", { name: /233\s*Unconfirmed links/ }).getAttribute("href")).toBe("/sourcing")
 })
-it("uses the same series color for filtered chart legends", async () => {
-  mount(); await screen.findByText("Messages collected")
-  const legend = document.querySelector(".chart-legend")!
-  const button = within(legend as HTMLElement).getByRole("button", { name: /Rejection/ })
-  expect((button.querySelector("span") as HTMLElement).style.backgroundColor).toBe("var(--category-color-1)")
-})
-it("does not fetch admin account details for a guest", async () => {
-  mount("/dashboard", true); await screen.findByText("Messages collected")
-  expect(api.accounts).not.toHaveBeenCalled()
-  expect(screen.queryByRole("link", { name: /Manage accounts/ })).toBeNull()
-})
-it("filters by bidder together with account and resets the selection", async () => {
-  vi.mocked(api.dashboardAccounts).mockResolvedValue({ accounts: [{ label: "personal" }], bidders: [{ id: 7, name: "Alex" }] })
-  mount("/dashboard?account=personal&page=2")
-  await screen.findByRole("option", { name: "Alex" })
-  fireEvent.change(screen.getByLabelText("Bidder"), { target: { value: "7" } })
-  await lastParam("bidder", "7")
-  await lastParam("account", "personal")
-  await lastParam("page", "1")
+
+it("sends range and entity filters and resets them", async () => {
+  mount()
+  await screen.findByRole("heading", { name: "Payments" })
+  expect(lastParams().get("weeks")).toBe("8")
+  fireEvent.change(screen.getByLabelText("Graph range"), { target: { value: "12" } })
+  await waitFor(() => expect(lastParams().get("weeks")).toBe("12"))
+  fireEvent.change(screen.getByLabelText("Account"), { target: { value: "Beta" } })
+  await waitFor(() => expect(lastParams().get("account")).toBe("Beta"))
+  fireEvent.change(await screen.findByLabelText("Bidder"), { target: { value: "1" } })
+  await waitFor(() => expect(lastParams().get("bidder")).toBe("1"))
   fireEvent.click(screen.getByRole("button", { name: "Reset" }))
-  await lastParam("bidder", null)
-  expect((screen.getByLabelText("Bidder") as HTMLSelectElement).value).toBe("")
+  await waitFor(() => expect(lastParams().toString()).toBe("weeks=8"))
 })
 
-it("hides refresh and account management for bidder viewers",async()=>{
-  mount("/dashboard",true)
-  await screen.findByRole("heading",{name:"Dashboard"})
-  expect(screen.queryByRole("button",{name:"Refresh"})).toBeNull()
-  expect(screen.queryByRole("link",{name:/Manage accounts/})).toBeNull()
-  expect(api.accounts).not.toHaveBeenCalled()
+it("custom ranges wait for both dates", async () => {
+  mount("/dashboard?start=2026-11-01&end=")
+  expect(await screen.findByText("Choose a start and end date.")).toBeTruthy()
+  expect(api.dashboardMetrics).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText("Through"), { target: { value: "2026-12-05" } })
+  await waitFor(() => expect(lastParams().toString()).toBe("start=2026-11-01&end=2026-12-05"))
 })
 
-it("recovers from a gateway outage using Try again",async()=>{
- vi.mocked(api.dashboard).mockRejectedValue(new Error("OfferPath is temporarily unavailable (502). Please try again shortly."))
- mount()
- await screen.findByText("Dashboard is unavailable")
- expect(screen.getByText(/temporarily unavailable \(502\)/)).toBeTruthy()
- vi.mocked(api.dashboard).mockResolvedValue(data())
- fireEvent.click(screen.getByRole("button",{name:"Try again"}))
- await screen.findByText("Messages collected")
- expect(screen.queryByText("Dashboard is unavailable")).toBeNull()
-})
-
-it("can reset invalid saved filters instead of retrying the same invalid request",async()=>{
- vi.mocked(api.dashboard).mockImplementation(async params=>{
-  if(params.get("days")!=="7")throw new Error("Choose a range of at most 90 calendar days")
-  return data()
- })
- mount("/dashboard?days=365&q=old-filter")
- await screen.findByText("Dashboard is unavailable")
- fireEvent.click(screen.getByRole("button",{name:"Clear filters"}))
- await screen.findByText("Messages collected")
- await lastParam("days","7");await lastParam("q",null)
-})
-
-it("uses the same real totals and category counts for weekly stacks and the trend",async()=>{
- const result=data();result.summary.total=13;result.categories[1].count=13
- result.daily=[{date:"2026-09-15",total:5,counts:{offer:0,rejection:5},partial:false},{date:"2026-09-16",total:8,counts:{offer:0,rejection:8},partial:false}]
- vi.mocked(api.dashboard).mockResolvedValue(result)
- mount("/dashboard?interval=week")
- await waitFor(()=>expect(chart.rows).toEqual([{date:"2026-09-14",total:13,partial:false,counts:{offer:0,rejection:13}}]))
-})
-
-it('shows only graphs and own account selector for bidders',async()=>{
- mount('/dashboard',true)
- await screen.findByText('Messages collected')
- expect(screen.queryByText('ACCOUNT STATUS')).toBeNull()
- expect(screen.queryByLabelText('Search stored mail')).toBeNull()
- expect(screen.queryByText('Find a message')).toBeNull()
- expect(document.getElementById('message-explorer')).toBeNull()
- expect(screen.queryByLabelText('Bidder')).toBeNull()
- expect(api.accounts).not.toHaveBeenCalled()
- expect(screen.getByLabelText('Account')).toBeTruthy()
- expect(screen.getByText('Applications over time')).toBeTruthy()
-})
-
-it("shows filters and skips explorer rows while the initial history read is pending", async () => {
-  vi.mocked(api.dashboard).mockReturnValue(new Promise(() => {}))
+it("never sends a bidder filter for bidder sign-ins and shows load errors with a retry", async () => {
+  mount("/dashboard?bidder=7", true)
+  await screen.findByRole("heading", { name: "Payments" })
+  expect(screen.queryByLabelText("Bidder")).toBeNull()
+  expect(lastParams().get("bidder")).toBeNull()
+  cleanup()
+  vi.mocked(api.dashboardMetrics).mockRejectedValue(new Error("Database is busy"))
   mount()
-  expect(await screen.findByLabelText("Date range")).toBeTruthy()
-  await lastParam("include_messages", null)
-  expect(vi.mocked(api.dashboard).mock.lastCall?.[2]).toBe(false)
-  expect(screen.queryByText("Messages collected")).toBeNull()
-})
-
-
-it("shows an honest unavailable state instead of falling back to raw email ratios", async () => {
-  vi.mocked(api.dashboard).mockResolvedValue({ ...data(), profile_quality: { personal: { "2026-09-01": { applications: 1, interview: 3, rejection: 0 } } } })
-  mount()
-  expect(await screen.findByText(/Application outcome analysis is unavailable/)).toBeTruthy()
-  expect(screen.queryByText("300.0%")).toBeNull()
-})
-
-it("renders matched application cohorts, recent counts and uncertainty", async () => {
-  const windows = { "14": { eligible: 100, interview: 8, rejection: 30, answered: 35 } }
-  vi.mocked(api.dashboard).mockResolvedValue({ ...data(), profile_outcomes: {
-    version: 1, history_since: "2026-09-01", timezone: "America/Chicago", mature_through: { "7": "2026-09-22", "14": "2026-09-15", "30": "2026-08-30" },
-    accounts: [{ id: 1, label: "personal", duplicates: 4, unmatched: { interview: 2, rejection: 1 }, daily: { "2026-09-01": { applications: 100, windows }, "2026-09-25": { applications: 10, windows: {} } } }]
-  } })
-  mount()
-  expect(await screen.findByText("8.0%")).toBeTruthy()
-  expect(screen.getByText("110 / 10")).toBeTruthy()
-  expect(screen.getByText(/3 unlinked outcome emails excluded/)).toBeTruthy()
-  expect(screen.queryByText(/4 duplicate confirmations excluded/)).toBeNull()
-  expect(screen.getByText('110 / 10').getAttribute('title')).toBe('4 duplicate confirmations excluded')
-  expect(screen.queryByText(/95%/)).toBeNull()
-  expect((screen.getByRole("combobox", { name: "Response window" }) as HTMLSelectElement).value).toBe("14")
-  expect(screen.getByRole("button", { name: "28-day trend" }).getAttribute("aria-pressed")).toBe("true")
-  fireEvent.click(screen.getByText('Options'))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Show counting details and confidence ranges' }))
-  expect(screen.getByText(/4 duplicate confirmations excluded/)).toBeTruthy()
-  expect(screen.getAllByText(/95%/).length).toBeGreaterThan(0)
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Show counting details and confidence ranges' }))
-  expect(screen.queryByText(/95%/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'personal' }))
-  expect(screen.getByText(/No visible cohort has enough observed applications/)).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'personal' }).getAttribute('aria-pressed')).toBe('false')
+  expect(await screen.findByText("Database is busy")).toBeTruthy()
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy()
 })

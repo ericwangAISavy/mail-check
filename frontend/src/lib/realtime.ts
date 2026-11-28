@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/components/auth'
 import { getWorkspaceIdentity, getWorkspaceIdentityRevision, request, subscribeWorkspaceIdentity } from './api'
+import { BIDDER_ALERT_QUERY } from './bidder-mail-alerts'
 
 /** SSE is only an invalidation hint; normal authenticated reads remain authoritative. */
 export function connectRealtime(workspace: string, changed: ()=>void | Promise<void>, sessionEnded: ()=>void) {
@@ -74,7 +75,7 @@ export function useRealtimeUpdates() {
     const keys=new Set(['bootstrap','accounts','triage','reader','dashboard','payments','interviews',
       'pipeline','interview-processes','sourcing','sourcing-index','sourcing-search','sourcing-viewer','dashboard-accounts',
       'sourcing-filters','sourcing-role-filters','sourcing-delete-preview','bidder-management','bidder-access','bidder-visibility','followups','reply-context',
-      'interview-job','status','applications-today','realtime-accounts'])
+      'interview-job','status','applications-today','realtime-accounts',BIDDER_ALERT_QUERY])
     return connectRealtime(session.workspace_id,
       ()=>client.invalidateQueries({predicate:query=>keys.has(String(query.queryKey[0]))}),
       ()=>{void client.invalidateQueries({queryKey:['auth']})})

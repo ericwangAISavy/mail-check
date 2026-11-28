@@ -11,6 +11,10 @@ import "./settings.css"
 import { EmptyState, Loading, PageHeading, Switch, useToast } from "@/components/common"
 import { useAuth } from "@/components/auth"
 import { AppearanceSettings } from "@/components/appearance-settings"
+import {
+  bidderAlertScope, DESKTOP_ALERT, setBidderAlertPreference, showBidderMailAlert,
+  SOUND_ALERT, unlockBidderAlertSound, useBidderAlertPreferences,
+} from "@/lib/bidder-mail-alerts"
 
 export function PasswordSettings() {
   const { signOut } = useAuth()
@@ -65,16 +69,75 @@ function NotificationSettings() {
   return <section id="notifications" className="settings-section"><div className="settings-section-title"><span className="section-symbol"><Check size={17} /></span><div><h2>Notifications</h2><p>Choose what this browser brings to your attention.</p></div></div><Card className="settings-card"><div className="switch-row"><div><strong>Urgent mail alerts</strong><small>Notify once for interviews, timed assessments, and offers.</small></div><Switch checked={notify} label="Urgent mail browser notifications" onChange={(checked) => void notification(checked)} /></div>{notify && <Button variant="outline" size="sm" onClick={testNotification}>Test notification</Button>}</Card></section>
 }
 
+function BidderNotificationSettings() {
+  const { session } = useAuth()
+  const scope = bidderAlertScope(session)
+  const preferences = useBidderAlertPreferences(scope)
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const change = async (channel: number, enabled: boolean) => {
+    if (enabled && channel === DESKTOP_ALERT) {
+      if (typeof Notification === "undefined") {
+        toast("Desktop notifications are unavailable in this browser.", "error")
+        return
+      }
+      setBusy(true)
+      try {
+        const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission
+        if (permission !== "granted") {
+          toast("Allow notifications for OfferPath in your browser settings.", "error")
+          return
+        }
+      } catch {
+        toast("Your browser couldn’t enable desktop notifications.", "error")
+        return
+      } finally {
+        setBusy(false)
+      }
+    }
+    if (enabled && channel === SOUND_ALERT) {
+      if (typeof AudioContext === "undefined") {
+        toast("Alert sounds are unavailable in this browser.", "error")
+        return
+      }
+      void unlockBidderAlertSound()
+    }
+    if (!setBidderAlertPreference(scope, channel, enabled)) toast("This browser couldn’t save your alert settings.", "error")
+  }
+  const test = async () => {
+    if (preferences & SOUND_ALERT) await unlockBidderAlertSound()
+    if (!showBidderMailAlert(preferences)) toast("Check this browser’s permissions and sound settings.", "error")
+  }
+  return <section id="notifications" className="settings-section">
+    <div className="settings-section-title"><span className="section-symbol"><Check size={17} /></span><div><h2>Notifications</h2><p>Get alerts for new mail in your assigned inboxes while OfferPath is open.</p></div></div>
+    <Card className="settings-card">
+      <div className="switch-row">
+        <div><strong>Desktop notifications</strong><small>Show a notification in this browser when OfferPath collects new mail.</small></div>
+        <Switch checked={Boolean(preferences & DESKTOP_ALERT)} label="Desktop notifications" disabled={busy} onChange={enabled => void change(DESKTOP_ALERT, enabled)} />
+      </div>
+      <div className="switch-row">
+        <div><strong>Play a sound</strong><small>Play a short chime after you’ve interacted with OfferPath.</small></div>
+        <Switch checked={Boolean(preferences & SOUND_ALERT)} label="Play a sound" onChange={enabled => void change(SOUND_ALERT, enabled)} />
+      </div>
+      {preferences !== 0 && <Button variant="outline" size="sm" onClick={() => void test()}>Test alert</Button>}
+    </Card>
+  </section>
+}
+
 /** Settings for admins who are not the owner: only what is theirs. Workspace-wide
  * settings (model, checking, Outlook, local rules, privacy) stay with the owner. */
 export function PersonalSettingsPage() {
+  const { role } = useAuth()
+  const bidder = role === "bidder"
+  const sections = [["appearance", "Appearance"], ["notifications", "Notifications"]]
+  if (!bidder) sections.unshift(["sign-in", "Sign-in"])
   return <div className="page-wrap settings-page personal-settings">
-    <PageHeading title="Settings" description="Your sign-in, appearance and alerts. Workspace settings are managed by the owner." />
-    <div className="settings-layout"><nav className="settings-nav" aria-label="Settings sections">{[["sign-in", "Sign-in"], ["appearance", "Appearance"], ["notifications", "Notifications"]].map(([id, label]) => <a href={`#${id}`} key={id}>{label}</a>)}</nav>
+    <PageHeading title="Settings" description={bidder ? "Your appearance and new mail alerts." : "Your sign-in, appearance and alerts. Workspace settings are managed by the owner."} />
+    <div className="settings-layout"><nav className="settings-nav" aria-label="Settings sections">{sections.map(([id, label]) => <a href={`#${id}`} key={id}>{label}</a>)}</nav>
       <div className="settings-sections"><div className="settings-form-sections">
-        <PasswordSettings />
+        {!bidder && <PasswordSettings />}
         <AppearanceSettings />
-        <NotificationSettings />
+        {bidder ? <BidderNotificationSettings /> : <NotificationSettings />}
       </div></div>
     </div>
   </div>

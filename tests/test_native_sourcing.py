@@ -762,6 +762,57 @@ class NativeSheetTests(unittest.TestCase):
                 structure(self.conn,self.tab(),'rename-'+column['id'],before['revision'],{'action':'rename_column','column_id':column['id'],'title':'Changed'})
         self.assertEqual(self.snapshot(),before)
 
+    def test_bidder_opened_links_are_private_and_independent_of_sheet_edits(self):
+        from fastapi.testclient import TestClient
+        from mailcheck.web.app import create_app
+
+        result = self.native.append(self.conn, self.tab(), 'open-seed', self.snapshot()['revision'],
+            [['Acme', 'Engineer', 'https://jobs.test/1'], ['Beta', 'Engineer', 'https://jobs.test/2']])
+        row_id = result['row_ids'][1]
+        payload = {'row_id': row_id, 'job_created_at': result['row_created'][1]}
+        other_book = self.native.create_book(self.conn, 2, 'Other')
+        other_tab = self.native.create_tab(self.conn, other_book, self.account_id, 'Other')
+        before = self.snapshot()
+        before_activity = self.conn.execute('SELECT COUNT(*) FROM sourcing_check_activity').fetchone()[0]
+        url = f'/api/sourcing/tabs/{self.tab_id}'
+        other_url = f'/api/sourcing/tabs/{other_tab}'
+        worker = {'x-offerpath-worker': 'worker-secret'}
+        alex = {**worker, 'x-offerpath-viewer': 'bidder', 'x-offerpath-bidder': '1'}
+        blair = {**alex, 'x-offerpath-bidder': '2'}
+
+        with TestClient(create_app(worker_secret='worker-secret')) as client:
+            self.assertEqual(client.get(url, headers=alex).json()['opened_row_ids'], [])
+            self.assertEqual(client.post(f'{url}/opened', headers=worker, json=payload).status_code, 403)
+            self.assertEqual(client.post(f'{url}/opened', headers=blair, json=payload).status_code, 404)
+            self.assertEqual(client.post(f'{other_url}/opened', headers=blair, json=payload).status_code, 404)
+            for _ in range(2):
+                response = client.post(f'{url}/opened', headers=alex, json=payload)
+                self.assertEqual(response.status_code, 200, response.text)
+            self.assertNotIn('opened_row_ids', client.get(url, headers=worker).json())
+            self.assertEqual(client.get(other_url, headers=blair).json()['opened_row_ids'], [])
+            self.assertEqual(client.get(url, headers=blair).status_code, 404)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM sourcing_check_activity').fetchone()[0], before_activity)
+
+        self.conn.execute("UPDATE native_rows SET position=99 WHERE id=?", (row_id,))
+        self.conn.commit()
+        with TestClient(create_app(worker_secret='worker-secret')) as client:
+            saved = client.get(f'{url}?compact=true', headers=alex).json()
+            self.assertEqual(saved['opened_row_ids'], [row_id])
+            self.assertNotEqual(saved['row_ids'].index(row_id), 1)
+        self.assertEqual([tuple(row) for row in self.conn.execute(
+            'SELECT bidder_id,account_id,row_id FROM sourcing_opened_links')], [(1, self.account_id, row_id)])
+
+        # A cleared row slot can later hold a different job with the same row ID.
+        self.conn.execute("UPDATE native_rows SET created_at=created_at+1 WHERE id=?", (row_id,))
+        self.conn.commit()
+        with TestClient(create_app(worker_secret='worker-secret')) as client:
+            self.assertEqual(client.get(url, headers=alex).json()['opened_row_ids'], [])
+            self.assertEqual(client.post(f'{url}/opened', headers=alex, json=payload).status_code, 404)
+            payload['job_created_at'] += 1
+            self.assertEqual(client.post(f'{url}/opened', headers=alex, json=payload).status_code, 200)
+            self.assertEqual(client.get(url, headers=alex).json()['opened_row_ids'], [row_id])
+
     def test_appended_job_fields_are_single_line(self):
         base=self.snapshot()
         result=self.native.append(self.conn,self.tab(),'newline-append',base['revision'],[

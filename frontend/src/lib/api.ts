@@ -137,6 +137,7 @@ export const api = {
   accounts: (signal?: AbortSignal) => request<{ accounts: Account[]; outlook_ready: boolean }>("/api/accounts", { signal }),
   settings: (signal?: AbortSignal) => request<{ settings: Settings; rules: { category: string; sender: string | null; sender_domain: string | null; subject_contains: string | null }[]; categories: { name: string; label: string }[]; config_path: string; db_path: string }>("/api/settings", { signal }),
   activeModel: (signal?: AbortSignal) => request<{ model: string | null; loaded: boolean; message: string }>("/api/settings/model", { signal }),
+  dashboardMetrics: (params: URLSearchParams, signal?: AbortSignal) => request<import("./dashboard-metrics").DashboardMetrics>(`/api/dashboard/metrics?${params}`, { signal }),
   dashboard: (params: URLSearchParams, signal?: AbortSignal, includeMessages = true) =>
     request<Record<string, any>>(`/api/dashboard?${params}`, {
       signal,
