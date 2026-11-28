@@ -1,16 +1,20 @@
 """Network-facing multi-workspace gateway; business APIs execute in isolated workers."""
 from __future__ import annotations
 import asyncio
+import logging
+import os
+import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
+from .static_files import CompressedStaticFiles, PortableStaticFiles
 from starlette.requests import ClientDisconnect
 from pydantic import BaseModel, Field
 
@@ -25,6 +29,22 @@ from .auth import AuthStore, AuthFileError
 
 COOKIE='offerpath_session'
 HERE=Path(__file__).parent
+READ_REQUEST_TIMEOUT = 25.0
+AUTH_REQUEST_TIMEOUT = 5.0
+WORKER_CONNECT_TIMEOUT = 2.0
+RETRYABLE_READ_TRANSPORT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError)
+
+# Process-wide, lazily started and bounded independently of browser DB work.
+# The gateway has one serving loop; authentication must stay off that loop.
+_worker_control_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='offerpath-control')
+
+
+class CompressedPageResponse(Response):
+    """Negotiate compression for large, buffered page data at the public gateway."""
+
+    async def __call__(self, scope, receive, send):
+        from starlette.middleware.gzip import GZipMiddleware
+        await GZipMiddleware(super().__call__, minimum_size=2048, compresslevel=1)(scope, receive, send)
 
 
 class _NoWorkerCookies(DefaultCookiePolicy):
@@ -57,6 +77,7 @@ class NewAdmin(BaseModel):
 class AdminUpdate(BaseModel):
     enabled: bool | None = None
     password: str | None = Field(default=None,min_length=12,max_length=256)
+    job_links_access: bool | None = None
 
 
 class AdminRemoval(BaseModel):
@@ -72,22 +93,42 @@ class Switch(BaseModel):
     workspace_id: str = Field(min_length=1,max_length=32)
 
 
-def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True):
+def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,store=None,pool=None,gateway_url='http://127.0.0.1:52400',start_workers=True,tunnel_mode=False,worker_mode=None,amqp_url=None):
     if not 1<=max_workspaces<=64:raise ValueError('Choose 1–64 maximum workspaces.')
     original_config=config.config_path(); original_db=config.db_path(); original_auth=config.config_dir()/'web-auth.json'
     store=store or ControlStore(config.control_dir(),AuthStore(lambda:original_auth),max_workspaces)
+    worker_mode=worker_mode or os.environ.get('OFFERPATH_WORKER_MODE','legacy')
+    if worker_mode not in {'legacy','shared'}:
+        raise ValueError('OFFERPATH_WORKER_MODE must be legacy or shared.')
+    shared=worker_mode=='shared'
+    amqp_url=amqp_url or os.environ.get('AMQP_URL')
+    if shared and not amqp_url:
+        raise ValueError('Shared worker mode requires AMQP_URL; existing jobs are not moved automatically.')
+    if pool is None and shared:
+        from ..shared.pool import SharedPool
+        pool=SharedPool(store,gateway_url,(original_config,original_db,original_auth),
+            size=int(os.environ.get('OFFERPATH_API_WORKERS','2')),
+            job_size=int(os.environ.get('OFFERPATH_COLLECTION_WORKERS','2')),amqp_url=amqp_url,
+            model_size=int(os.environ.get('OFFERPATH_MODEL_WORKERS','2')))
     pool=pool or WorkerPool(store,gateway_url,(original_config,original_db,original_auth))
+    subscriber=None
     backup_manager=BackupManager(BackupLayout(original_config,original_db,store.root),store._lock)
     admin_change_lock=threading.Lock()
+    bidder_change_lock=asyncio.Lock()
     bidder_access=BidderAccess(store)
     model_slots=asyncio.Semaphore(1)
     leases={}
     worker_clients={}
+    pending_workers={}
+    settings_notifications={}
 
     def new_worker_client():
-        return httpx.AsyncClient(trust_env=False, timeout=660,
+        # Connects are local; preserve long dispatched writes without allowing
+        # a dead listener to tie up the gateway for eleven minutes. Expire idle
+        # sockets before the worker's five-second HTTP keep-alive timeout.
+        return httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(660, connect=WORKER_CONNECT_TIMEOUT, pool=2),
             cookies=CookieJar(policy=_NoWorkerCookies()),
-            limits=httpx.Limits(max_connections=None, max_keepalive_connections=64, keepalive_expiry=30))
+            limits=httpx.Limits(max_connections=64, max_keepalive_connections=32, keepalive_expiry=4))
 
     @asynccontextmanager
     async def worker_http_client():
@@ -107,6 +148,20 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # passing store.workspace(...) as a to_thread argument blocks the loop.
         return pool.ensure(store.workspace(wid))
 
+    async def ready_workspace(wid):
+        # Coalesce startup waits in the serving loop. A cancelled browser read
+        # must not cancel readiness shared by other users or the scheduler.
+        key=(asyncio.get_running_loop(),wid)
+        task=pending_workers.get(key)
+        if task is None or task.done():
+            task=asyncio.create_task(asyncio.to_thread(ensure_workspace,wid))
+            pending_workers[key]=task
+            def finished(done):
+                if pending_workers.get(key) is done:pending_workers.pop(key,None)
+                if not done.cancelled():done.exception()
+            task.add_done_callback(finished)
+        return await asyncio.shield(task)
+
     async def recover_leases():
         while True:
             await asyncio.sleep(5)
@@ -120,6 +175,43 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             try:await asyncio.to_thread(backup_manager.run_due)
             except Exception:pass  # The manager retains the error and retries; never stop other workspaces.
 
+    async def notify_settings():
+        async def notify(workspace):
+            wid=workspace['id']
+            if wid=='legacy':
+                return
+            try:
+                member=await ready_workspace(wid)
+                headers={'x-offerpath-worker':member.token,'x-offerpath-workspace':wid}
+                async with worker_http_client() as client:
+                    result=await client.post(
+                        f'http://127.0.0.1:{member.port}/_internal/settings-updated',
+                        headers=headers, timeout=5,
+                    )
+                    result.raise_for_status()
+            except (httpx.HTTPError, RuntimeError, OSError, ValueError, sqlite3.Error):
+                logging.getLogger(__name__).warning('Could not reload schedule for workspace %s',wid)
+
+        while True:
+            loop=asyncio.get_running_loop()
+            _, pending=settings_notifications[loop]
+            pending.clear()
+            try:
+                workspaces=await asyncio.to_thread(store.enabled_workspaces)
+                await asyncio.gather(*(notify(workspace) for workspace in workspaces))
+            except (sqlite3.Error, OSError):
+                logging.getLogger(__name__).exception('Could not list workspaces for schedule reload.')
+            if not pending.is_set():
+                settings_notifications.pop(loop)
+                return
+
+    def schedule_settings_notification():
+        loop=asyncio.get_running_loop()
+        if loop in settings_notifications:
+            settings_notifications[loop][1].set()
+        else:
+            settings_notifications[loop]=(asyncio.create_task(notify_settings()),asyncio.Event())
+
     @asynccontextmanager
     async def lifespan(app):
         loop=asyncio.get_running_loop()
@@ -129,16 +221,19 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             monitor=asyncio.create_task(pool.monitor()) if start_workers else None
             recovery=asyncio.create_task(recover_leases())
             backups=asyncio.create_task(backup_loop()) if start_workers else None
+            if subscriber is not None and start_workers:
+                subscriber.start()
             try:yield
             finally:
-                if backups:
-                    backups.cancel()
-                    with suppress(asyncio.CancelledError):await backups
-                if monitor:
-                    monitor.cancel()
-                    with suppress(asyncio.CancelledError):await monitor
-                recovery.cancel()
-                with suppress(asyncio.CancelledError):await recovery
+                if subscriber is not None and start_workers:
+                    await subscriber.stop()
+                notification=settings_notifications.pop(loop,(None,None))[0]
+                for task in (notification,backups,monitor,recovery):
+                    if task is None:continue
+                    task.cancel()
+                    try:await task
+                    except asyncio.CancelledError:pass
+                    except Exception:logging.getLogger(__name__).exception('Background gateway task failed; continuing shutdown cleanup.')
                 try:
                     client=worker_clients.pop(loop,None)
                     if client is not None:
@@ -146,7 +241,9 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 finally:
                     await asyncio.to_thread(pool.close)
 
-    app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,lifespan=lifespan)
+    app=FastAPI(title='OfferPath',docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
+    from .request_diagnostics import RequestDiagnostics
+    from ..shared.health_evidence import failure
     @app.exception_handler(ClientDisconnect)
     async def client_disconnected(request: Request, exc: ClientDisconnect):
         # A closed tab or cancelled fetch is not an application failure.
@@ -158,8 +255,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     internal_host=urlparse(gateway_url).hostname
     if internal_host:hosts.add(internal_host.lower())
     assets=HERE/'frontend_dist'/'assets'
-    if assets.is_dir():app.mount('/assets',StaticFiles(directory=assets),name='assets')
-    app.mount('/static',StaticFiles(directory=HERE/'static'),name='static')
+    if assets.is_dir():app.mount('/assets',CompressedStaticFiles(PortableStaticFiles(directory=assets)),name='assets')
+    app.mount('/static',CompressedStaticFiles(PortableStaticFiles(directory=HERE/'static')),name='static')
 
     def page():
         return FileResponse(HERE/'frontend_dist'/'index.html',headers={'Cache-Control':'no-store'})
@@ -172,6 +269,12 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     def identity_for(token):
         return store.identity(token) or bidder_access.identity(token)
 
+    def replace_session(token,previous):
+        # Session revocation writes SQLite and identity lookup can read the
+        # owner auth file. Keep all login storage work off the serving loop.
+        store.logout(previous);bidder_access.logout(previous)
+        return identity_for(token)
+
     def owner(request):
         identity=request.state.identity
         if not identity or not identity['is_owner']:raise HTTPException(403,'Owner access required.')
@@ -182,8 +285,11 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         host=urlparse('//'+request.headers.get('host','')).hostname or ''
         if host.lower() not in hosts:return JSONResponse({'error':'Unrecognised Host header.'},403)
         path=request.url.path
+        if path == '/hooks/microsoft':
+            return await call_next(request)
         if path.startswith('/_internal/'):
-            wid=await asyncio.to_thread(pool.authenticate_worker,request.headers.get('x-offerpath-worker',''))
+            wid=await asyncio.get_running_loop().run_in_executor(
+                _worker_control_executor, pool.authenticate_worker, request.headers.get('x-offerpath-worker',''))
             if not wid:return JSONResponse({'error':'Internal access denied.'},403)
             request.state.worker=wid
             return await call_next(request)
@@ -191,14 +297,27 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
             origin=request.headers.get('origin')
             if (origin and origin!=f'{request.url.scheme}://{request.headers.get("host","")}') or request.headers.get('sec-fetch-site')=='cross-site':return JSONResponse({'error':'Cross-origin requests are not allowed.'},403)
         asset_request=path.startswith('/assets/')
-        try:identity=None if asset_request else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
-        except (AuthFileError,ValueError,OSError):return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
+        public_file=asset_request or path.startswith('/static/') or path=='/login'
+        if request.method in ('GET','HEAD'):
+            request.state.read_deadline=asyncio.get_running_loop().time()+READ_REQUEST_TIMEOUT
+        try:
+            async with asyncio.timeout(AUTH_REQUEST_TIMEOUT):
+                identity=None if public_file else await asyncio.to_thread(identity_for,request.cookies.get(COOKIE))
+        except (TimeoutError,sqlite3.Error) as exc:
+            request.state.failure_evidence = failure(exc)
+            logging.getLogger(__name__).warning('Session storage is busy or unavailable (%s); authentication request deferred.',type(exc).__name__)
+            return JSONResponse({'error':'Authentication is temporarily unavailable. Try again shortly.'},503,headers={'Retry-After':'1','Cache-Control':'no-store'})
+        except (AuthFileError,ValueError,OSError) as exc:
+            request.state.failure_evidence = failure(exc)
+            return JSONResponse({'error':'Owner authentication is unavailable. Restore the original sign-in file.'},503)
         request.state.identity=identity
         public=path in ('/login','/api/auth/login','/api/auth/logout','/api/auth/session') or path.startswith(('/assets/','/static/'))
         if not public:
             if not identity:
                 return JSONResponse({'error':'Sign in to continue.'},401) if path.startswith('/api/') else RedirectResponse('/login',303)
             expected=request.headers.get('x-offerpath-workspace')
+            if path == '/api/realtime/events' and request.method == 'GET':
+                expected=request.query_params.get('workspace')
             if not expected and request.method=='GET' and path.startswith('/api/admin/backups/file/'):
                 expected=request.query_params.get('workspace')
             if path.startswith('/api/') and expected!=identity['workspace_id']:
@@ -207,37 +326,59 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                 return JSONResponse({'error':'Change your temporary password before opening the workspace.'},403) if path.startswith('/api/') else page()
         if identity and identity['role']=='bidder' and not path.startswith(('/assets/','/static/')):
             if path not in ('/api/auth/session','/api/auth/logout') and not viewer_read_allowed(path,request.method):
-                return JSONResponse({'error':'Bidder access is read-only and limited to Dashboard, Bidder management, and your Job sourcing.'},403)
-        restricted_settings = path == '/settings' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
+                return JSONResponse({'error':'Bidder access is limited to your Inbox, Dashboard, Bidder management, and Job sourcing.'},403)
+        if path.rstrip('/') in ('/job-links','/api/job-links') and not (
+                identity and identity['role']=='admin' and (identity.get('is_owner') or identity.get('job_links_access'))):
+            return JSONResponse({'error':'The owner has not granted Job links access to this admin.'},403,headers={'Cache-Control':'no-store'})
+        # Every admin may open the Settings page for their own sign-in, appearance and alerts;
+        # the workspace-wide settings behind these APIs stay with the owner.
+        restricted_settings = path == '/system-monitoring' or path.startswith(('/api/settings','/api/rules')) or path.rstrip('/') == '/api/autocheck'
         if identity and restricted_settings and not identity['is_owner']:
             return JSONResponse({'error':'Settings are managed by the owner.'},403)
-        try:response=await call_next(request)
+        try:
+            if request.method in ('GET','HEAD'):
+                async with asyncio.timeout_at(request.state.read_deadline):response=await call_next(request)
+            else:response=await call_next(request)
+        except TimeoutError as exc:
+            request.state.failure_evidence = failure(exc)
+            response=JSONResponse({'error':'This page took too long to load. Try again shortly.'},504,headers={'Retry-After':'1'})
         except RevokedSession as exc:
             response=JSONResponse({"error":str(exc)},401)
         except (ValueError,PermissionError) as exc:
             response=JSONResponse({'error':str(exc)},403 if isinstance(exc,PermissionError) else 400)
-        except AuthFileError:
+        except AuthFileError as exc:
+            request.state.failure_evidence = failure(exc)
             response=JSONResponse({'error':'The original owner sign-in file is unavailable.'},503)
+        except sqlite3.Error as exc:
+            request.state.failure_evidence = failure(exc)
+            logging.getLogger(__name__).warning('Control database request deferred (%s, %s).', type(exc).__name__, getattr(exc,'sqlite_errorname','unknown'))
+            response=JSONResponse({'error':'Control storage is temporarily unavailable. Check whether your action completed before retrying.'},503,headers={'Retry-After':'2'})
         response.headers.update({'Cache-Control':('public, max-age=31536000, immutable' if asset_request and response.status_code in (200,206,304) else 'no-store'),'X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY'})
         return response
 
     @app.get('/_internal/ping')
-    def ping():return {'ok':True}
+    async def ping():return {'ok':True}
 
     @app.post('/_internal/model/acquire')
     async def acquire(request:Request):
         # asyncio.Semaphore queues pending tasks FIFO. Lease expiry recovers dead workers.
         try:await asyncio.wait_for(model_slots.acquire(),timeout=600)
         except asyncio.TimeoutError:raise HTTPException(503,'The shared model queue is busy.')
-        if not await asyncio.to_thread(pool.authenticate_worker,request.headers.get('x-offerpath-worker','')):
-            model_slots.release();raise HTTPException(403,'Workspace worker is no longer active.')
-        import secrets
-        token=secrets.token_urlsafe(32)
-        loop=asyncio.get_running_loop()
-        def release():
-            if leases.pop(token,None):model_slots.release()
-        leases[token]=(request.state.worker,loop.call_later(900,release),request.headers['x-offerpath-worker'])
-        return {'lease':token}
+        try:
+            if not await asyncio.to_thread(pool.authenticate_worker,request.headers.get('x-offerpath-worker','')):
+                raise HTTPException(403,'Workspace worker is no longer active.')
+            import secrets
+            token=secrets.token_urlsafe(32)
+            loop=asyncio.get_running_loop()
+            def release():
+                if leases.pop(token,None):model_slots.release()
+            leases[token]=(request.state.worker,loop.call_later(900,release),request.headers['x-offerpath-worker'])
+            return {'lease':token}
+        except BaseException:
+            # Cancellation can arrive while validating a worker after acquiring
+            # capacity. Until a lease exists, no expiry timer can recover it.
+            model_slots.release()
+            raise
 
     @app.post('/_internal/model/release')
     async def release(request:Request):
@@ -262,8 +403,8 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         except ValueError:raise HTTPException(429,'Too many sign-in attempts. Try again in a minute.',headers={'Retry-After':'60'})
         if not token:raise HTTPException(401,'Incorrect username or password.')
         # Replacing this browser's identity must invalidate in-flight old-session requests.
-        store.logout(request.cookies.get(COOKIE));bidder_access.logout(request.cookies.get(COOKIE))
-        return cookie(JSONResponse(identity_for(token)),token)
+        identity=await asyncio.to_thread(replace_session,token,request.cookies.get(COOKIE))
+        return cookie(JSONResponse(identity),token)
 
     @app.post('/api/auth/logout')
     def logout(request:Request):
@@ -291,17 +432,24 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
 
     @app.post('/api/auth/bidders/{bidder_id}/password')
     async def bidder_password(bidder_id:int,body:BidderPassword,request:Request):
+        async with bidder_change_lock:
+            return await apply_bidder_password(bidder_id,body,request)
+
+    async def apply_bidder_password(bidder_id:int,body:BidderPassword,request:Request):
         identity=request.state.identity
         try:
-            worker=await asyncio.to_thread(ensure_workspace,identity['workspace_id'])
+            worker=await ready_workspace(identity['workspace_id'])
             async with worker_http_client() as client:
                 result=await client.get(f'http://127.0.0.1:{worker.port}/_internal/bidders/{bidder_id}',
-                    headers={'x-offerpath-worker':worker.token})
+                    headers={'x-offerpath-worker':worker.token,'x-offerpath-workspace':identity['workspace_id'],'x-request-id':request.headers.get('x-request-id','')})
         except (httpx.HTTPError,RuntimeError,OSError):
             raise HTTPException(503,'Could not load workspace bidders. Try again when the workspace is available.')
         if result.status_code==404:raise HTTPException(404,'Bidder not found in this workspace.')
         if not result.is_success:raise HTTPException(503,'Could not load workspace bidders.')
         member=result.json()
+        if body.enabled:
+            try:await asyncio.to_thread(bidder_access.check_username,member['name'],identity['workspace_id'],bidder_id,original_db)
+            except RuntimeError as exc:raise HTTPException(503,str(exc))
         await asyncio.to_thread(bidder_access.configure,request.cookies.get(COOKIE),identity['workspace_id'],bidder_id,member['name'],password=body.password,enabled=body.enabled)
         return {'ok':True}
 
@@ -318,6 +466,15 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     install_backups(app,backup_manager,owner)
     app.state.backup_manager=backup_manager
 
+    from .system_monitoring import install as install_monitoring
+    install_monitoring(app, store, pool, owner, lambda: len(leases))
+
+    async def origin_health():
+        # Gateway liveness must not restart healthy services for a failed dependency.
+        # Worker readiness and dependency failures are monitored independently.
+        return True
+    app.state.origin_health = origin_health
+
     @app.get('/api/admin/users')
     def admins(request:Request):
         owner(request)
@@ -325,6 +482,30 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         status=pool.status()
         starts=getattr(pool,"start_times",lambda:{})()
         return {'admins':[{**u,'online':u['id'] in online,'worker_started_at':starts.get(u['workspace_id']),'health':status.get(u['workspace_id'],'starting or unavailable') if u['enabled'] else 'suspended'} for u in store.list_admins()], 'max_workspaces':store.max_workspaces}
+
+    @app.get('/api/job-links/')
+    @app.get('/api/job-links')
+    def universal_job_links(request:Request,q:str='',cursor:str='',day:str='',start_date:str='',end_date:str='',limit:int=Query(100,ge=100,le=500),exclude_my_links:bool=True,exclude_one_page:bool=False,only_one_page:bool=False):
+        identity=request.state.identity
+        if not identity or identity['role']!='admin' or not (identity.get('is_owner') or identity.get('job_links_access')):
+            raise HTTPException(403,'Job links access must be granted by the owner.')
+        if len(q)>200 or len(cursor)>1024:
+            raise HTTPException(422,'Search or cursor is too long.')
+        from ..job_links import search
+        with store.connect() as conn:
+            workspaces=conn.execute('SELECT id,root FROM workspaces ORDER BY id').fetchall()
+        sources=[(row['id'],Path(row['root'])/'data'/'mailcheck.db' if row['root'] else original_db) for row in workspaces]
+        try:
+            result=search(sources,q=q,cursor=cursor,day=day,start_date=start_date,end_date=end_date,limit=limit,
+                          exclude_source=identity['workspace_id'] if exclude_my_links else None,exclude_one_page=exclude_one_page,only_one_page=only_one_page)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from None
+        # A scan can outlive an owner revocation or a logout. Check the current
+        # session again without holding a control-database lock during the scan.
+        current=store.validate_dispatch(request.cookies.get(COOKIE),identity['workspace_id'],read_only=True)
+        if not (current.get('is_owner') or current.get('job_links_access')):
+            raise HTTPException(403,'Job links access must be granted by the owner.')
+        return result
 
     @app.post('/api/admin/users')
     async def create_admin(body:NewAdmin,request:Request):
@@ -338,14 +519,14 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         # delayed suspension can stop a workspace after a re-enable completed.
         # Run this whole blocking operation off the gateway's event loop.
         with admin_change_lock:
-            wid=store.update_admin(token,user_id,enabled=body.enabled,password=body.password,expected_workspace=workspace)
+            wid=store.update_admin(token,user_id,enabled=body.enabled,password=body.password,job_links_access=body.job_links_access,expected_workspace=workspace)
             if body.enabled is False:pool.stop(wid)
             elif body.enabled is True:pool.enable(wid)
 
     @app.post('/api/admin/users/{user_id}')
     async def update_admin(user_id:int,body:AdminUpdate,request:Request):
         identity=owner(request)
-        if body.enabled is None and body.password is None:raise HTTPException(400,'Choose a password reset or access change.')
+        if body.enabled is None and body.password is None and body.job_links_access is None:raise HTTPException(400,'Choose a password reset or access change.')
         await asyncio.to_thread(apply_admin_update,request.cookies.get(COOKIE),user_id,body,request.headers.get('x-offerpath-workspace'))
         return {'ok':True}
 
@@ -375,8 +556,7 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
     @app.api_route('/api/admin/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH'])
     def missing_admin(path:str,request:Request):owner(request);raise HTTPException(404,'Not found.')
 
-    @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
-    async def proxy(path:str,request:Request):
+    async def proxy_request(path:str,request:Request):
         if not path.startswith('api/'):
             return page()
         from urllib.parse import unquote
@@ -390,22 +570,77 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
         target='legacy' if global_settings else identity['workspace_id']
         body=await request.body()
         if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
-        try:worker=await asyncio.to_thread(ensure_workspace,target)
+        try:worker=await ready_workspace(target)
         except (RuntimeError,OSError,ValueError):raise HTTPException(503,'This workspace worker is unavailable. Contact the owner or retry later.')
         # Revalidate after potentially slow body reads and worker startup.
         # A reset, suspension, logout or workspace switch may have completed
         # since the initial middleware check.
-        await asyncio.to_thread(bidder_access.validate_dispatch if identity['role']=='bidder' else store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
-        headers={'x-offerpath-worker':worker.token}
+        async def validate_dispatch():
+            if identity['role']=='bidder':
+                await asyncio.to_thread(bidder_access.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+            else:
+                await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'],
+                                        read_only=request.method in ('GET','HEAD'))
+        await validate_dispatch()
+        if shared and request.method=='POST' and path.rstrip('/') in {'api/check','api/reclassify','api/interviews/sync'}:
+            if identity['role']!='admin':
+                raise HTTPException(403,'Admin access required.')
+            from ..shared.dispatch import submit_manual
+            kind='manual-reclassify' if path.rstrip('/')=='api/reclassify' else 'manual-check'
+            try:
+                if path.rstrip('/')=='api/interviews/sync':
+                    from .app import CheckBody
+                    options=CheckBody.model_validate_json(b'{}' if not body or body.strip()==b'null' else body).model_copy(update={'mode':'calendar'})
+                    body=options.model_dump_json().encode()
+                return await asyncio.to_thread(submit_manual,store,(original_config,original_db,original_auth),
+                    target,request.cookies.get(COOKIE),kind,body,amqp_url)
+            except BlockingIOError:
+                raise HTTPException(409,'A check is already queued or running.') from None
+            except ValueError:
+                raise HTTPException(422,'Invalid check options.') from None
+            except (PermissionError,RevokedSession):
+                raise
+            except Exception:
+                raise HTTPException(503,'The job queue is unavailable; check status before retrying.') from None
+        headers={'x-offerpath-worker':worker.token,'x-request-id':request.headers.get('x-request-id','')}
+        if shared:
+            headers['x-offerpath-workspace']=target
         if identity['role']=='bidder':
             headers['x-offerpath-viewer']='bidder'
             headers['x-offerpath-bidder']=str(identity['bidder_id'])
         for name in ('accept','content-type'):
             if name in request.headers:headers[name]=request.headers[name]
-        try:
-            async with worker_http_client() as client:
-                result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{path}',params=list(request.query_params.multi_items()),content=body,headers=headers)
-        except httpx.HTTPError:raise HTTPException(503,'Workspace connection interrupted. Reload before retrying an email send.')
+        safe_read=request.method in ('GET','HEAD')
+        if safe_read and path.rstrip('/') in {'api/bootstrap','api/triage','api/dashboard','api/queue-counts','api/applications/today'}:
+            # Workers share the host monotonic clock with the gateway.
+            headers['x-offerpath-read-deadline']=str(request.state.read_deadline-0.5)
+        dashboard_read = safe_read and path.rstrip("/") == "api/dashboard"
+        if dashboard_read:
+            worker_start = asyncio.get_running_loop().time()
+            if request.headers.get("prefer") == "offerpath-overview":
+                headers["prefer"] = "offerpath-overview"
+        async with worker_http_client() as client:
+            for attempt in range(2 if safe_read else 1):
+                if attempt:
+                    # A reused HTTP/1 socket can close between the pool's
+                    # liveness check and the next read. The failed connection
+                    # is discarded by HTTPX; retry once, within the same read
+                    # deadline, and revalidate a possibly revoked session.
+                    await asyncio.sleep(.05)
+                    await validate_dispatch()
+                try:
+                    # ASGI already decoded this path. Escape it before building
+                    # another URL so percent escapes and ?/# in account labels
+                    # cannot change the route authorized by the gateway.
+                    result=await client.request(request.method,f'http://127.0.0.1:{worker.port}/{quote(path, safe="/")}',params=list(request.query_params.multi_items()),content=body,headers=headers)
+                    break
+                except httpx.HTTPError as exc:
+                    if safe_read and attempt==0 and isinstance(exc,RETRYABLE_READ_TRANSPORT_ERRORS):continue
+                    ray=request.headers.get('cf-ray','')
+                    safe_ray=ray if len(ray)<=80 and all(c.isascii() and (c.isalnum() or c=='-') for c in ray) else ''
+                    logging.getLogger(__name__).warning('Workspace connection failed: workspace=%s method=%s error=%s ray=%s',target,request.method,type(exc).__name__,safe_ray or 'unavailable')
+                    advice='Try again shortly.' if safe_read else 'Check whether your action completed before retrying.'
+                    raise HTTPException(503,f'Workspace connection interrupted. {advice}',headers={'Retry-After':'1'}) from exc
         if identity['role']=='admin' and result.is_success and request.method=='POST':
             import re
             match=re.fullmatch(r'api/payments/bidders/([0-9]+)(/remove)?',path)
@@ -417,18 +652,75 @@ def create_gateway(*,allowed_hosts=None,secure_cookies=False,max_workspaces=4,st
                     import json
                     await asyncio.to_thread(bidder_access.rename,identity['workspace_id'],who,json.loads(body)['name'].strip())
         if path.rstrip('/') in ('api/settings','api/autocheck') and request.method=='POST' and result.is_success:
-            # Reload schedules without restarting workers or interrupting jobs.
-            async def notify(workspace):
-                if workspace['id']=='legacy':return
-                try:
-                    member=await asyncio.to_thread(pool.ensure,workspace)
-                    async with worker_http_client() as client:
-                        await client.post(f'http://127.0.0.1:{member.port}/_internal/settings-updated',headers={'x-offerpath-worker':member.token},timeout=5)
-                except (httpx.HTTPError,RuntimeError,OSError,ValueError):pass
-            workspaces=await asyncio.to_thread(store.enabled_workspaces)
-            await asyncio.gather(*(notify(workspace) for workspace in workspaces))
+            schedule_settings_notification()
         # No worker cookies, redirects or internal headers cross the trust boundary.
         response_headers={k:v for k,v in result.headers.items() if k.lower() in ('content-type','content-disposition','retry-after')}
-        return Response(result.content,status_code=result.status_code,headers=response_headers)
+        if dashboard_read:
+            now = asyncio.get_running_loop().time()
+            arrival = request.state.read_deadline - READ_REQUEST_TIMEOUT
+            prep_ms = (worker_start - arrival) * 1000
+            worker_ms = (now - worker_start) * 1000
+            response_headers["Server-Timing"] = f"gateway;dur={prep_ms:.1f}, worker;dur={worker_ms:.1f}"
+            if now - arrival >= 3:
+                logging.getLogger(__name__).warning("Slow Dashboard request: gateway=%.0fms worker=%.0fms", prep_ms, worker_ms)
+        response_type = Response
+        if safe_read and result.is_success and result.headers.get('content-type','').startswith('application/json'):
+            response_type = CompressedPageResponse
+        return response_type(result.content,status_code=result.status_code,headers=response_headers)
 
+    async def proxy_impl(path:str,request:Request):
+        if request.method not in ('GET','HEAD'):
+            return await proxy_request(path,request)
+        try:
+            # Complete before the browser's 30-second deadline. Slow reads
+            # must not occupy the gateway's active budget for 660 seconds.
+            deadline=getattr(request.state,'read_deadline',asyncio.get_running_loop().time()+READ_REQUEST_TIMEOUT)
+            async with asyncio.timeout_at(deadline):
+                return await proxy_request(path,request)
+        except TimeoutError:
+            raise HTTPException(504,'This page took too long to load. Try again shortly.',
+                                headers={'Retry-After':'1'})
+
+    from .feedback_routes import install as install_feedback
+    install_feedback(app,store=store,original_db=original_db)
+
+    if shared:
+        from ..shared.events import install as install_realtime
+        subscriber=install_realtime(app,store,identity_for,COOKIE,amqp_url=amqp_url)
+    else:
+        from .realtime_routes import install as install_realtime
+        install_realtime(app, store, identity_for, COOKIE)
+
+    @app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
+    async def proxy(path:str,request:Request):
+        import re
+        from urllib.parse import unquote
+        canonical=path
+        for _ in range(4):canonical=unquote(canonical)
+        canonical=canonical.rstrip('/')
+        match=re.fullmatch(r'api/payments/bidders(?:/([0-9]+)(/remove)?)?/?',canonical)
+        if request.method!='POST' or not match:
+            return await proxy_impl(path,request)
+        # Serialize the cross-workspace check with the worker's committed mutation.
+        # The async lock never blocks the event loop; unrelated reads still proceed.
+        async with bidder_change_lock:
+            body=await request.body()
+            if len(body)>4_000_000:raise HTTPException(413,'Request is too large.')
+            identity=request.state.identity
+            await asyncio.to_thread(store.validate_dispatch,request.cookies.get(COOKIE),identity['workspace_id'])
+            if not match[2]:
+                from ..payments import BidderBody
+                try:name=BidderBody.model_validate_json(body).name
+                except ValueError:raise HTTPException(422,'Enter a bidder username of 1–100 characters.')
+                try:await asyncio.to_thread(bidder_access.check_username,name,identity['workspace_id'],int(match[1]) if match[1] else None,original_db)
+                except RuntimeError as exc:raise HTTPException(503,str(exc))
+            return await proxy_impl(canonical,request)
+
+    from .security import install_http_boundary
+    if tunnel_mode and (not allowed_hosts or not secure_cookies):
+        raise ValueError('Tunnel mode requires public hostnames and secure cookies.')
+    install_http_boundary(app, secure_cookies=secure_cookies,
+        public_hosts={h.lower() for h in allowed_hosts or []} if tunnel_mode else None,
+        internal_hosts={'127.0.0.1','localhost','::1','testserver',internal_host})
+    app.add_middleware(RequestDiagnostics)
     return app

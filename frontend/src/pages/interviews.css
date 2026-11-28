@@ -69,9 +69,7 @@
 .outlook-calendar {
   --oc-bg: #08151e; --oc-toolbar: #0a1822; --oc-hover: #102b3b; --oc-line: #1b3949;
   --oc-half-line: #142e3c; --oc-text: #edf5fc; --oc-muted: #b5c6d5;
-  --oc-blue: #26a9ff; --oc-today: #0c2331; --oc-event: #063c5c;
-  --oc-event-edge: #078ec8; --oc-event-accent: #00bdf2;
-  --oc-event-text:#fff; --oc-event-detail:#c4d9eb; --oc-now:#ff5d50;
+  --oc-blue: #26a9ff; --oc-today: #0c2331; --oc-now:#ff5d50;
   position: relative; min-width: 0; border: 1px solid var(--oc-line); border-radius: 3px;
   background: var(--oc-bg); color: var(--oc-text); font-family: "Segoe UI", Arial, sans-serif;
   font-size: var(--text-small); isolation: isolate;
@@ -130,22 +128,6 @@
 .outlook-calendar .outlook-day-column.is-today { background: var(--oc-today); outline: none; }
 .outlook-hour-line { position: relative; height: var(--hour-height); border-top: 1px solid var(--oc-line); pointer-events: none; }
 .outlook-hour-line::after { content: ""; position: absolute; top: 50%; left: 0; right: 0; border-top: 1px dashed var(--oc-half-line); }
-.outlook-calendar .outlook-time-event { position: absolute; display: block; min-width: 0; margin: 0; padding: 3px 7px; border: 1px solid var(--oc-event-edge); border-left: 3px solid var(--oc-event-accent); border-radius: 3px; background:var(--oc-event); color:var(--oc-event-text); overflow: hidden; text-align: left; cursor: pointer; box-shadow: none; font: inherit; font-size: var(--text-small); line-height: 1.2; z-index: 2; }
-.outlook-time-event > strong, .outlook-time-event > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: inherit; line-height: 1.2; }
-.outlook-time-event > strong { color: inherit; font-weight: 600; }
-.outlook-calendar .outlook-time-event:hover { filter:none; background:color-mix(in srgb,var(--oc-event) 90%,var(--oc-event-accent)); z-index:3; }
-/* Each account owns a palette; status never replaces its fill color. */
-.outlook-calendar .interview-event.account-color-0 { --oc-event: #084665; --oc-event-edge: #087eab; --oc-event-accent: #00bceb; }
-.outlook-calendar .interview-event.account-color-1 { --oc-event: #06433e; --oc-event-edge: #087e70; --oc-event-accent: #00d3ad; }
-.outlook-calendar .interview-event.account-color-2 { --oc-event: #422b76; --oc-event-edge: #7955b6; --oc-event-accent: #ae7aee; }
-.outlook-calendar .interview-event.account-color-3 { --oc-event: #673d1a; --oc-event-edge: #a46c2a; --oc-event-accent: #ffc367; }
-.outlook-calendar .interview-event.account-color-4 { --oc-event: #662d50; --oc-event-edge: #ad5388; --oc-event-accent: #ff8bca; }
-.outlook-calendar .interview-event.account-color-5 { --oc-event: #283b79; --oc-event-edge: #5879cc; --oc-event-accent: #91b1ff; }
-.outlook-calendar .outlook-time-event.rescheduled, .outlook-calendar .outlook-time-event.needs-review, .outlook-calendar .outlook-time-event.duration-unknown { border-top-style: dashed; border-right-style: dashed; border-bottom-style: dashed; }
-.outlook-time-event.cancelled strong, .outlook-month-event.cancelled strong { text-decoration: line-through; }
-
-.outlook-time-event.is-short { padding-top: 1px; padding-bottom: 1px; }
-.outlook-time-event.is-short > span { display: none; }
 .outlook-now-line { position: absolute; left: 0; right: 0; z-index: 3; border-top:2px solid var(--oc-now); pointer-events: none; }
 .outlook-month-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); background: var(--oc-bg); }
 .outlook-month-weekday { padding: 9px 8px; color: var(--oc-muted); border-bottom: 1px solid var(--oc-line); border-right: 1px solid var(--oc-line); text-align: center; font-size: var(--text-small); }
@@ -155,9 +137,6 @@
 .outlook-calendar .outlook-month-day.is-today { background: var(--oc-today); outline: 1px solid var(--oc-blue); outline-offset: -1px; }
 .outlook-month-day .calendar-day-label { border: 0; padding: 2px 4px; background: none; color: var(--oc-text); font: inherit; cursor: pointer; }
 .outlook-month-day.is-today .calendar-day-label { color: var(--oc-blue); font-weight: 600; }
-.outlook-calendar .outlook-month-event { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; height: 24px; margin-top: 3px; padding: 2px 4px; background:var(--oc-event); color:var(--oc-event-text); border: 1px solid var(--oc-event-edge); border-left: 3px solid var(--oc-event-accent); border-radius: 3px; text-align: left; font: inherit; font-size: var(--text-small); cursor: pointer; overflow: hidden; }
-.outlook-month-event time { flex: none; }
-.outlook-month-event strong { min-width: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font: inherit; }
 .outlook-calendar .calendar-more { padding: 3px 0; background: none; border: 0; font: inherit; color: var(--oc-blue); cursor: pointer; }
 .calendar-expanded { position: fixed; inset: 0; z-index: 45; border-radius: 0; display: flex; flex-direction: column; }
 .calendar-expanded .outlook-calendars { flex: 1; min-height: 0; overflow-y: auto; }
@@ -184,14 +163,11 @@
   .outlook-day-headers, .outlook-time-grid { grid-template-columns: 42px repeat(var(--calendar-days),minmax(0,1fr)); }
   .outlook-day-heading { padding: 8px 3px 4px; }
   .outlook-day-heading > span:last-child { max-width: 100%; overflow: hidden; }
-  .outlook-calendar .outlook-time-event { padding-right: 2px; padding-left: 3px; border-left-width: 3px; }
   .outlook-hour-label > span { left: 3px; }
   .outlook-month-weekday { padding: 7px 1px; }
   .outlook-month-weekday > span { display: none; }
   .outlook-month-weekday abbr { display: inline; }
   .outlook-calendar .outlook-month-day { padding: 2px; min-height: 85px; }
-  .outlook-month-event time { display: none; }
-  .outlook-month-event { gap: 1px; }
   .outlook-menu { min-width: 205px; }
 
 }
@@ -206,13 +182,11 @@
   .outlook-date-bar > .btn,.outlook-period > svg,.outlook-zone { display: none; }
   .outlook-date-bar { padding: 5px; min-height: 32px; }
   .outlook-period { font-size: var(--text-body); }
-  .outlook-calendar .outlook-time-event { font-size: var(--text-small); }
   .outlook-account-calendar { break-inside: avoid; }
 }
 .outlook-command-bar .outlook-menu { left: auto; right: 0; }
 
 .outlook-calendar-notices { border-top: 1px solid var(--oc-line); border-bottom: 0; padding: 3px 12px; font-size: var(--text-small); }
-.outlook-time-event.is-medium > span:last-child { display: none; }
 
 
 /* Keep the calendar inside the workspace, with scrolling confined to its grid. */
@@ -302,12 +276,6 @@
   .outlook-date-bar > .btn:first-child { background: var(--oc-bg); }
   .outlook-day-heading > span:first-child { font-weight: 500; }
   .outlook-day-heading.is-today > span:last-child { color: var(--oc-muted); }
-  .outlook-calendar .outlook-time-event, .outlook-calendar .outlook-month-event {
-    box-shadow: inset 0 1px 0 #ffffff0a, 0 2px 5px #0002;
-  }
-  .outlook-time-event > span { color:var(--oc-event-detail); }
-  .outlook-calendar .outlook-time-event:hover,
-  .outlook-calendar .outlook-month-event:hover { filter:none; background:color-mix(in srgb,var(--oc-event) 90%,var(--oc-event-accent)); }
   .outlook-now-line::before {
     content: ""; position: absolute; left: -4px; top: -5px;
     width: 8px; height: 8px; border-radius: 50%; background:var(--oc-now);
@@ -331,13 +299,6 @@
     --oc-text:var(--foreground); --oc-muted:var(--muted-foreground); --oc-blue:var(--primary);
     --oc-today:color-mix(in srgb,var(--primary) 6%,var(--card)); --oc-now:#c9362a;
   }
-  :root[data-theme="light"] .outlook-calendar .interview-event { --oc-event-detail:var(--oc-event-text); }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-0 { --oc-event:#e0f2fe; --oc-event-edge:#75bcd5; --oc-event-accent:#047da7; --oc-event-text:#083d5b; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-1 { --oc-event:#dcf5ed; --oc-event-edge:#73c2b0; --oc-event-accent:#087b68; --oc-event-text:#084f46; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-2 { --oc-event:#f0e8ff; --oc-event-edge:#baa0e4; --oc-event-accent:#7950b8; --oc-event-text:#4b2e7e; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-3 { --oc-event:#fff1dc; --oc-event-edge:#e2bd7f; --oc-event-accent:#a36a13; --oc-event-text:#714512; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-4 { --oc-event:#fce6f0; --oc-event-edge:#dca0bd; --oc-event-accent:#a13f70; --oc-event-text:#772a51; }
-  :root[data-theme="light"] .outlook-calendar .interview-event.account-color-5 { --oc-event:#e8eeff; --oc-event-edge:#a1b5e2; --oc-event-accent:#4267a9; --oc-event-text:#294b81; }
   :root[data-theme="light"] .outlook-calendar .btn[aria-pressed="true"] { color:var(--primary); background:var(--accent); border-color:var(--primary); }
   :root[data-theme="light"] .outlook-calendar .btn[aria-pressed="true"] svg { color:var(--primary); }
 }
@@ -351,6 +312,15 @@
 .outlook-zone-selector { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--text-small); color:var(--muted-foreground); }
  .timezone-picker { position:relative; width:260px; max-width:100%; }
 .timezone-picker-input { position:relative; }
+.timezone-picker-input input[role="combobox"] {
+  transition: border-color var(--control-fade), background-color var(--control-fade);
+}
+@media (hover: hover) {
+  .timezone-picker-input input[role="combobox"]:enabled:hover {
+    border-color: var(--ring);
+    background-color: color-mix(in srgb, var(--primary) 8%, var(--oc-toolbar));
+  }
+}
 .timezone-picker-input input { width:100%; min-height:36px; padding:7px 30px 7px 10px; border:1px solid var(--oc-line); border-radius:8px; background:var(--oc-toolbar); color:var(--oc-text); font:inherit; }
 .timezone-picker-input input:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
 .timezone-picker-input > svg { position:absolute; right:10px; top:50%; transform:translateY(-50%); pointer-events:none; }
@@ -360,3 +330,55 @@
 .timezone-picker-popup button.is-active,.timezone-picker-popup button:hover { background:var(--oc-hover); }
 .timezone-picker-popup p { padding:10px; margin:0; }
 @media(max-width:640px) { .outlook-zone-selector { width:100%; margin-left:0; } .outlook-zone-selector .timezone-picker { flex:1; min-width:0; } }
+.interview-time-summary { display:grid; gap:5px; padding:14px 16px; border:1px solid var(--border); border-radius:10px; background:var(--secondary); }
+.interview-time-summary > span { color:var(--muted-foreground); font-size:var(--text-small); }
+.interview-time-summary strong { font-size:14px; font-weight:550; line-height:1.6; }
+.interview-essential-details { margin:20px 0 0; gap:20px 24px; }
+.interview-detail-line { display:block; }
+.interview-detail-line + .interview-detail-line { margin-top:5px; }
+.interview-essential-details .interview-location { grid-column:1 / -1; }
+.interview-essential-details .interview-meeting-link { margin:4px 0 0; }
+.interview-dialog-maintenance { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+
+.interview-essential-details .interview-explicit-link { display:inline; overflow-wrap:anywhere; word-break:break-word; }
+.interview-explicit-link svg { display:inline; margin-left:6px; vertical-align:middle; }
+.calendar-analysis-status { display:flex; align-items:center; gap:12px; min-width:0; max-width:100%; padding:6px 0; margin-bottom:8px; }
+.calendar-analysis-badges { display:flex; align-items:center; gap:6px; min-width:0; overflow-x:auto; white-space:nowrap; scrollbar-width:thin; }
+.calendar-analysis-label { flex:none; margin-right:4px; color:var(--muted-foreground); font-size:12px; font-weight:600; }
+.calendar-analysis-badge { display:inline-flex; align-items:center; flex:none; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:var(--muted); color:var(--muted-foreground); font-size:11px; font-weight:550; line-height:18px; font-variant-numeric:tabular-nums; }
+.calendar-analysis-badge.is-complete { color:var(--foreground); }
+.calendar-analysis-badge.is-active { color:var(--primary); border-color:color-mix(in srgb,var(--primary) 30%,var(--border)); background:color-mix(in srgb,var(--primary) 7%,var(--card)); }
+.calendar-analysis-badge.is-warning { color:var(--warning,#fbbf24); border-color:color-mix(in srgb,var(--warning,#fbbf24) 35%,var(--border)); background:color-mix(in srgb,var(--warning,#fbbf24) 7%,var(--card)); }
+.calendar-analysis-status > button { flex:none; margin-left:auto; height:28px; padding:0 9px; font-size:11px; white-space:nowrap; }
+@media(max-width:640px) { .calendar-analysis-status { gap:8px; } .calendar-analysis-label { display:none; } }
+
+
+.interview-job-matches { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+.interview-job-matches h3 { margin:0 0 8px; font-size:15px; }
+.interview-job-match-list { list-style:none; margin:8px 0; padding:0; display:grid; gap:5px; }
+.interview-job-match-list > li { padding:4px 8px; border:1px solid var(--border); border-radius:7px; min-width:0; }
+.interview-job-match-list a { overflow-wrap:anywhere; color:var(--primary); }
+.interview-job-match-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
+.interview-job-match-head > strong { min-width:0; overflow-wrap:anywhere; }
+.interview-job-match-head > time { flex:none; color:var(--muted-foreground); font-size:var(--text-small); font-variant-numeric:tabular-nums; }
+.interview-job-match-meta { display:flex; flex-wrap:wrap; gap:6px; }
+.interview-job-match-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.interview-job-match-row > a { display:flex; align-items:center; gap:6px; flex:1; min-width:0; padding:5px 0; font-size:var(--text-small); }
+.interview-job-match-row > a strong,.interview-job-match-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.interview-job-match-row > a svg { flex:none; }
+.interview-job-match-title { flex:1; font-size:var(--text-small); }
+.interview-job-match-toggle { display:grid; place-items:center; width:30px; height:30px; flex:none; padding:0; border:0; border-radius:5px; background:transparent; color:var(--muted-foreground); cursor:pointer; }
+.interview-job-match-toggle:hover { background:var(--accent); color:var(--foreground); }
+.interview-job-match-toggle:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
+.interview-job-match-toggle svg { transition:transform 140ms; }
+.interview-job-match-toggle[aria-expanded="true"] svg { transform:rotate(180deg); }
+.interview-job-match-expanded { padding:5px 0; display:grid; gap:5px; }
+.interview-job-match-expanded[hidden] { display:none; }
+.interview-job-match-meta { align-items:center; }
+.interview-job-match-meta time { color:var(--muted-foreground); font-size:var(--text-small); }
+.interview-job-match-url { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted-foreground); font-size:var(--text-small); }
+@media (prefers-reduced-motion:reduce) { .interview-job-match-toggle svg { transition:none; } }
+/* Check now sits at the end of the date row, which is now the calendar's top row. */
+.outlook-date-bar > .interview-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: 12px; }
+@media (max-width: 700px) { .outlook-date-bar > .interview-actions { margin: 6px 0 0 auto; } }
+.calendar-colors > .outlook-period { display:inline-flex; align-items:center; gap:6px; font-size:var(--text-body,13px); font-weight:600; }

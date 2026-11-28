@@ -8,7 +8,7 @@ import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/c
 import "@/pages/interviews.css"
 
 export function MessageDetails({ id, onCloseAutoFocus }: { id: number; onCloseAutoFocus?: (event: Event) => void }) {
-  const query = useQuery({ queryKey: ["reader", id], queryFn: () => request<{ message: Message; body_html: string; original_html?: string | null }>(`/api/messages/${id}`), staleTime: 60_000 })
+  const query = useQuery({ queryKey: ["reader", id], queryFn: ({ signal }) => request<{ message: Message; body_html: string; original_html?: string | null }>(`/api/messages/${id}`, { signal }), staleTime: 60_000 })
   const message = query.data?.message
   return <DialogContent className="interview-dialog process-message-dialog" onCloseAutoFocus={onCloseAutoFocus}>
     <DialogHeader><DialogTitle>{message?.subject || "Message details"}</DialogTitle><DialogDescription>Saved message details and full content.</DialogDescription></DialogHeader>

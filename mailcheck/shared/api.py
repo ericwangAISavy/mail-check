@@ -1,0 +1,119 @@
+"""Authenticated ASGI workspace dispatch for each fixed shared API process."""
+from __future__ import annotations
+
+import asyncio
+import os
+from pathlib import Path
+import secrets
+import sqlite3
+
+from starlette.responses import JSONResponse
+
+from ..web.admission import RequestAdmission
+from ..workspaces import WorkspaceContext, bind_workspace, bind_commit_guard
+
+
+class WorkspaceDispatcher:
+    def __init__(self, app, reader, worker_secret, legacy_paths):
+        if not worker_secret:
+            raise ValueError('Shared API requires a worker secret.')
+        self.app = app
+        self.reader = reader
+        self.worker_secret = worker_secret
+        self.legacy_paths = legacy_paths
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] == 'lifespan':
+            return await self.app(scope, receive, send)
+        if scope['type'] != 'http':
+            if scope['type'] == 'websocket':
+                await send({'type': 'websocket.close', 'code': 1008})
+            return
+        headers = scope.get('headers', [])
+        tokens = [v for k, v in headers if k.lower() == b'x-offerpath-worker']
+        valid = len(tokens) == 1 and secrets.compare_digest(tokens[0], self.worker_secret.encode())
+        if not valid:
+            return await JSONResponse({'detail': 'Forbidden'}, status_code=403)(scope, receive, send)
+        if scope.get('path') == '/_internal/ready':
+            return await JSONResponse({'ready': True})(scope, receive, send)
+        if scope.get('path') == '/_internal/availability':
+            from starlette.concurrency import run_in_threadpool
+            def check_storage():
+                with self.reader.connect() as conn:
+                    conn.execute('SELECT id FROM workspaces LIMIT 1').fetchone()
+            try:
+                await run_in_threadpool(check_storage)
+            except (sqlite3.Error, OSError) as exc:
+                from .health_evidence import failure
+                return await JSONResponse({'ready': False,'scope':'control_database_read', **failure(exc)}, status_code=503)(scope, receive, send)
+            return await JSONResponse({'ready': True,'status':'healthy','scope':'control_database_read',
+                                       'reason':'control_read_succeeded'})(scope, receive, send)
+        targets = [v for k, v in headers if k.lower() == b'x-offerpath-workspace']
+        try:
+            if len(targets) != 1:
+                raise ValueError('Workspace required.')
+            wid = targets[0].decode('ascii')
+            record = await asyncio.to_thread(self.reader.workspace, wid)
+            context = WorkspaceContext.from_record(record, self.legacy_paths, self.reader.root)
+        except sqlite3.Error:
+            return await JSONResponse({'detail': 'Workspace registry unavailable'}, status_code=503)(scope, receive, send)
+        except (UnicodeError, ValueError, OSError):
+            return await JSONResponse({'detail': 'Workspace unavailable'}, status_code=403)(scope, receive, send)
+        # Keep context through response streaming and ASGI background tasks.
+        # Starlette copies this context into its synchronous endpoint threads.
+        def check_active():
+            record = self.reader.workspace(wid)
+            active = WorkspaceContext.from_record(record, self.legacy_paths, self.reader.root)
+            if active != context:
+                raise ValueError('Workspace changed during the request.')
+
+        with bind_workspace(context), bind_commit_guard(check_active):
+            return await self.app(scope, receive, send)
+
+
+def create_dispatcher(reader, worker_secret, legacy_paths, app=None):
+    if app is None:
+        from ..web.app import create_app
+        # App construction registers routes once; request data always comes
+        # from the dispatcher binding, including the original workspace.
+        context = WorkspaceContext.from_record({'id': 'legacy', 'root': None}, legacy_paths, reader.root)
+        with bind_workspace(context):
+            app = create_app(worker_secret=worker_secret, shared=True)
+    from ..web.request_diagnostics import RequestDiagnostics
+    return RequestDiagnostics(WorkspaceDispatcher(app, reader, worker_secret, legacy_paths))
+
+
+def main():
+    import argparse
+    import uvicorn
+    from ..web.server import GracefulServer, ClosingSafeH11Protocol
+    from .. import process_diagnostics
+    process_diagnostics.configure_process('shared-api')
+    from .control import ControlReader
+    from .lifecycle import supervise
+    from ..workspace_workers import InstanceLock
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, required=True)
+    args = parser.parse_args()
+    root = Path(os.environ['OFFERPATH_CONTROL_ROOT'])
+    config_path = Path(os.environ['OFFERPATH_LEGACY_CONFIG_PATH'])
+    legacy = (config_path, Path(os.environ['OFFERPATH_LEGACY_DB_PATH']), config_path.parent/'web-auth.json')
+    slot = os.environ['OFFERPATH_WORKER_ID']
+    if not slot.startswith('shared-api-') or not slot.removeprefix('shared-api-').isdigit():
+        raise ValueError('Invalid shared API slot identity.')
+    with InstanceLock(root/'shared-runtime'/'processes'/f'{slot}.lock'):
+        reader = ControlReader(root, legacy)
+        app = create_dispatcher(reader, os.environ['OFFERPATH_WORKER_TOKEN'], legacy)
+        server = GracefulServer(uvicorn.Config(
+            RequestAdmission(app, max_requests=24), host='127.0.0.1',
+            port=args.port, access_log=False, limit_concurrency=128, timeout_graceful_shutdown=15,http=ClosingSafeH11Protocol,
+        ))
+        stop_watch = supervise(server)
+        try:
+            server.run()
+        finally:
+            stop_watch()
+
+
+if __name__ == '__main__':
+    main()

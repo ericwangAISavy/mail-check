@@ -1,0 +1,24 @@
+/* Existing authentication flow and artwork with the shared control language.
+   Local monitoring panels share the same shape. */
+@media screen {
+ /* Existing authentication flow and artwork, with the same restrained controls. */
+ .sign-in-page.offerpath-login { --font-sans:"Geist Variable","Geist",sans-serif; --display-font:var(--font-sans); }
+ .sign-in-page.offerpath-login::before { content:""; position:absolute; inset:0; z-index:-2; pointer-events:none; background:#0b0c1438; }
+ .sign-in-page.offerpath-login .login-layout { gap:20px; }
+ .sign-in-page.offerpath-login .sign-in-brand { gap:12px; }
+ .sign-in-page.offerpath-login :is(.sign-in-brand-icon,.sign-in-brand-icon img) { width:44px; height:44px; }
+ .sign-in-page.offerpath-login .sign-in-wordmark { font-size:36px; font-weight:600; letter-spacing:-.045em; }
+ .sign-in-page.offerpath-login .login-glass { border-radius:12px; border:1px solid #353b46; background:#101216f0; box-shadow:0 20px 60px #0000004d; backdrop-filter:blur(12px); }
+ .sign-in-page.offerpath-login .login-glass::before { background:none; box-shadow:none; }
+ .sign-in-page.offerpath-login .login-glass h1 { font-size:26px; font-weight:550; letter-spacing:-.035em; }
+ .sign-in-page.offerpath-login .setting-field { font-weight:500; color:#c3c8d3; }
+ .sign-in-page.offerpath-login .login-input-wrap { border-radius:6px; border:1px solid #606775; background:#08090b; box-shadow:none; }
+ .sign-in-page.offerpath-login .login-input-wrap:focus-within { outline:2px solid #5fd3ea; outline-offset:0; }
+ .sign-in-page.offerpath-login .login-input-wrap input { font-size:14px; font-weight:400; }
+ .sign-in-page.offerpath-login .login-submit { min-height:44px; border-radius:8px; background:#5fd3ea; color:#03232b; border:1px solid #5fd3ea; box-shadow:none; font-size:14px; font-weight:550; gap:10px; }
+ .sign-in-page.offerpath-login .login-submit:hover:not(:disabled) { filter:brightness(1.04); }
+ /* Same error voice as inside the app: tint, red edge, readable text. */
+ .sign-in-page.offerpath-login .inline-error { margin-top:-4px; padding:9px 12px; border:1px solid #ff8b9c59; border-radius:8px; background:#ff8b9c14; box-shadow:inset 3px 0 #ff8b9c; color:#ffd3da; font-size:13px; line-height:1.5; }
+ :is(.system-monitoring-page,.local-monitor-status,.local-monitor-logs) :is(.monitor-stat,.monitor-service,.monitor-chart,.monitor-table-scroll,.monitor-availability) { border-radius:10px; }
+}
+.settings-form-sections { display:contents; }

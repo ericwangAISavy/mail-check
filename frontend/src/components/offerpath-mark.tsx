@@ -1,4 +1,4 @@
-import mark from "@/assets/offerpath.svg"
+import mark from "@/assets/offerpath-small.png"
 
 /** Shared OfferPath identity; surrounding labels provide the accessible name. */
 export function OfferPathMark({size = 24}: {size?: number}) {

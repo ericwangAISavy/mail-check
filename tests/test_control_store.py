@@ -29,6 +29,54 @@ def test_owner_keeps_original_password_and_new_admin_is_isolated(store):
     assert not store.identity(changed)['must_change_password']
 
 
+def test_new_admin_database_is_ready_before_workspace_is_registered(store):
+    import sqlite3
+    from mailcheck import db
+    from mailcheck.web.system_monitoring import database_snapshot
+    wid=store.create_admin(store.owner_token,'ready','Ready workspace','temporary-pass-123')
+    database=Path(store.workspace(wid)['root'])/'data'/'mailcheck.db'
+    assert database.is_file()
+    evidence=database_snapshot(database)
+    assert evidence['status']=='healthy'
+    assert evidence['outbox']==0
+    assert evidence['accounts']==[]
+    with sqlite3.connect(database) as conn:
+        assert conn.execute('PRAGMA user_version').fetchone()[0]==db.SCHEMA_VERSION
+        assert conn.execute('SELECT count(*) FROM accounts').fetchone()[0]==0
+
+
+def test_failed_database_initialization_does_not_register_an_enabled_workspace(store,monkeypatch):
+    from mailcheck import db
+    def fail(*args,**kwargs):
+        raise OSError('Database initialization failed')
+    monkeypatch.setattr(db,'connect',fail)
+    with pytest.raises(OSError,match='initialization failed'):
+        store.create_admin(store.owner_token,'notready','Not ready','temporary-pass-123')
+    assert not any(u['username']=='notready' for u in store.list_admins())
+
+
+def test_explicit_repair_only_initializes_unused_workspace_and_never_replaces_it(store):
+    from mailcheck.workspaces import initialize_unused_workspace
+    wid=store.create_admin(store.owner_token,'unused','Unused','temporary-pass-123')
+    database=Path(store.workspace(wid)['root'])/'data'/'mailcheck.db'
+    database.unlink()  # Reconstruct a workspace created before eager initialization.
+    paths=(store.root/'owner.toml',store.root/'owner.db')
+    assert initialize_unused_workspace(store.root,wid,paths)==database
+    with pytest.raises(FileExistsError):
+        initialize_unused_workspace(store.root,wid,paths)
+
+
+def test_explicit_repair_refuses_a_workspace_that_has_been_accessed(store):
+    from mailcheck.workspaces import initialize_unused_workspace
+    wid=store.create_admin(store.owner_token,'used','Used','temporary-pass-123')
+    database=Path(store.workspace(wid)['root'])/'data'/'mailcheck.db'
+    database.unlink()
+    store.login('used','temporary-pass-123','local')
+    with pytest.raises(ValueError,match='prior access'):
+        initialize_unused_workspace(store.root,wid,(store.root/'owner.toml',store.root/'owner.db'))
+    assert not database.exists()
+
+
 def test_reset_disable_and_owner_switch_revoke_sessions(store):
     wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
     admin=next(u for u in store.list_admins() if u['username']=='alice')
@@ -106,11 +154,11 @@ def test_removal_revokes_bidder_credentials_and_sessions(store):
     temporary=store.login('alice','temporary-pass-123','admin')
     token=store.change_password(temporary,'alice-final-pass-123')
     access.configure(token,wid,1,'Bidder',password='bidder-password-123')
-    bidder=access.login('Bidder + alice','bidder-password-123','bidder')
+    bidder=access.login('Bidder','bidder-password-123','bidder')
     assert access.identity(bidder)['workspace_id']==wid
     store.remove_admin(store.owner_token,user['id'],'alice')
     assert access.identity(bidder) is None
-    assert access.login('Bidder + alice','bidder-password-123','bidder') is None
+    assert access.login('Bidder','bidder-password-123','bidder') is None
     assert access.directory()==[]
     with store.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM bidder_sessions').fetchone()[0]==0
@@ -130,3 +178,53 @@ def test_suspended_admin_workspace_can_be_removed(store):
     store.update_admin(store.owner_token,user['id'],enabled=False)
     assert store.remove_admin(store.owner_token,user['id'],'alice')==user['workspace_id']
     assert [u['username'] for u in store.list_admins()]==['owner']
+
+
+def test_read_dispatch_does_not_wait_for_control_writer(store):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        with store.connect() as writer:
+            writer.execute('BEGIN IMMEDIATE')
+            reads=[pool.submit(store.validate_dispatch,store.owner_token,'legacy',read_only=True) for _ in range(4)]
+            assert all(future.result(timeout=2)['is_owner'] for future in reads)
+
+
+def test_read_dispatch_checks_revocation_workspace_and_temporary_password(store):
+    from mailcheck.control_store import RevokedSession
+
+    token=store.login('owner','original-owner-pass','dispatch')
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(token,'wrong-workspace',read_only=True)
+    store.logout(token)
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(token,'legacy',read_only=True)
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    temporary=store.login('alice','temporary-pass-123','dispatch')
+    with pytest.raises(RevokedSession,match='temporary password'):
+        store.validate_dispatch(temporary,wid,read_only=True)
+    changed=store.change_password(temporary,'alice-final-pass-123')
+    assert store.validate_dispatch(changed,wid,read_only=True)['workspace_id']==wid
+    user=next(user for user in store.list_admins() if user['username']=='alice')
+    store.update_admin(store.owner_token,user['id'],password='alice-reset-pass-123')
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(changed,wid,read_only=True)
+    reset=store.login('alice','alice-reset-pass-123','reset')
+    changed=store.change_password(reset,'alice-after-reset-pass-123')
+    store.update_admin(store.owner_token,user['id'],enabled=False)
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(changed,wid,read_only=True)
+
+
+def test_read_dispatch_rejects_completed_owner_switch_and_password_change(store):
+    from mailcheck.control_store import RevokedSession
+
+    wid=store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    original=store.login('owner','original-owner-pass','switch')
+    switched=store.switch(original,wid)
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(original,'legacy',read_only=True)
+    assert store.validate_dispatch(switched,wid,read_only=True)['is_owner']
+    store.legacy_auth.change_password('admin','updated-owner-pass')
+    with pytest.raises(RevokedSession):
+        store.validate_dispatch(switched,wid,read_only=True)

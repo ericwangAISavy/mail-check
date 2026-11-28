@@ -34,6 +34,7 @@ class DashboardFilters(BaseModel):
     action: Literal["all", "yes", "no"] = "all"
     q: str = Field(default="", max_length=200)
     sort: Literal["newest", "oldest"] = "newest"
+    include_messages: bool = True
     page: int = Field(default=1, ge=1, le=1_000_000)
     page_size: int = Field(default=50, ge=1, le=100)
     focus_date: date | None = None
@@ -80,6 +81,10 @@ class DashboardFilters(BaseModel):
             raise ValueError("Choose a range of at most 90 calendar days")
         if self.focus_date and not self.start <= self.focus_date <= self.end:
             raise ValueError("Selected day must be inside the timeline range")
+        try:
+            _bounds(self.start, self.end, ZoneInfo(self.tz))
+        except OverflowError as exc:
+            raise ValueError("Choose dates whose calendar boundaries can be represented in UTC") from exc
         return self
 
 
@@ -103,11 +108,14 @@ def _bounds(start: date, end: date, zone: ZoneInfo) -> tuple[str, str]:
     )
 
 
-def _scope(filters: DashboardFilters, *, focus: bool = False) -> tuple[str, list]:
+def _scope(filters: DashboardFilters, *, focus: bool = False, all_history: bool = False) -> tuple[str, list]:
     zone = ZoneInfo(filters.tz)
     lower, upper = _bounds(filters.start, filters.end, zone)
     clauses = [f"{_INSTANT} >= julianday(?)", f"{_INSTANT} < julianday(?)"]
     params: list = [lower, upper]
+    if all_history:
+        clauses = [f"{_INSTANT} IS NOT NULL"]
+        params = []
     if filters.account:
         clauses.append("a.label = ?")
         params.append(filters.account)
@@ -143,18 +151,77 @@ def _scope(filters: DashboardFilters, *, focus: bool = False) -> tuple[str, list
     return " WHERE " + " AND ".join(clauses), params
 
 
-def dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int) -> dict:
+_QUALITY = ("application_ack", "interview_invite", "rejection")
+
+
+def _record_reply_history(conn: sqlite3.Connection) -> None:
+    """Make sure every stored interview/rejection/application email is recorded
+    permanently (normally done as mail is classified; this catches mail stored
+    before that existed). Skipped on read-only connections."""
+    if conn.execute("PRAGMA query_only").fetchone()[0]:
+        return
+    missing = conn.execute(
+        "SELECT 1 " + _FROM + f" WHERE c.category IN ({','.join('?' for _ in _QUALITY)}) AND NOT EXISTS ("
+        "SELECT 1 FROM application_receipts r WHERE r.account_id = m.account_id AND r.message_id = m.message_id "
+        "AND r.category = c.category) LIMIT 1", _QUALITY).fetchone()
+    if missing:
+        from .payments import sync_receipts
+        sync_receipts(conn)
+        conn.commit()
+
+
+def _profile_quality(conn: sqlite3.Connection, filters: DashboardFilters, local_day) -> tuple[dict, str | None, str | None]:
+    """Per account and day: application emails received and the interview /
+    rejection emails that came back, from the permanent receipt records.
+
+    Interview and rejection emails are only recorded from the moment this
+    existed (older stored mail was deleted), so the comparison starts at the
+    earliest day we hold reply data. Applications before that are left out
+    rather than being compared with replies that were never recorded."""
+    placeholders = ",".join("?" for _ in _QUALITY)
+    start = conn.execute(
+        "SELECT MIN(j) FROM (SELECT julianday(COALESCE(date_utc, fetched_at)) AS j FROM messages "
+        "UNION ALL SELECT julianday(received_at) FROM application_receipts WHERE category IN ('interview_invite','rejection'))"
+    ).fetchone()[0]
+    if start is None:
+        return {}, None, None
+    clauses = [f"r.category IN ({placeholders})", "julianday(r.received_at) >= ?"]
+    params: list = [*_QUALITY, start]
+    if filters.account:
+        clauses.append("a.label = ?")
+        params.append(filters.account)
+    if filters.bidder is not None:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM bidder_assignments ba WHERE ba.bidder_id = ? AND ba.account_id = r.account_id "
+            "AND ba.start_date <= analytics_bidder_day(r.received_at) "
+            "AND (ba.end_date IS NULL OR ba.end_date >= analytics_bidder_day(r.received_at)))")
+        params.append(filters.bidder)
+    rows = conn.execute(
+        "SELECT a.label AS account, analytics_local_day(r.received_at) AS day, r.category, COUNT(*) AS n "
+        "FROM application_receipts r JOIN accounts a ON a.id = r.account_id WHERE " + " AND ".join(clauses)
+        + " GROUP BY a.label, day, r.category", params).fetchall()
+    quality: dict = {}
+    for row in rows:
+        counts = quality.setdefault(row["account"], {}).setdefault(row["day"], dict(applications=0, interview=0, rejection=0))
+        key = {"application_ack": "applications", "interview_invite": "interview", "rejection": "rejection"}[row["category"]]
+        counts[key] += row["n"]
+    since = conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%f+00:00', ?)", (start,)).fetchone()[0]
+    return quality, local_day(since), datetime.fromisoformat(since).astimezone(ZoneInfo('America/Chicago')).date().isoformat()
+
+
+def dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int, graphs_only: bool = False) -> dict:
     """Return an overview and a page of metadata. Never read message bodies."""
+    _record_reply_history(conn)
     # A savepoint gives every SELECT one snapshot, including with an existing
     # caller transaction, without blocking writers in the WAL database.
     conn.execute("SAVEPOINT dashboard_snapshot")
     try:
-        return _dashboard_data(conn, filters, retention_days=retention_days)
+        return _dashboard_data(conn, filters, retention_days=retention_days,graphs_only=graphs_only)
     finally:
         conn.execute("RELEASE SAVEPOINT dashboard_snapshot")
 
 
-def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int) -> dict:
+def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, retention_days: int, graphs_only: bool = False) -> dict:
     zone = ZoneInfo(filters.tz)
 
     def local_day(value):
@@ -173,11 +240,11 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
     scope, params = _scope(filters)
     attention_placeholders = ",".join("?" for _ in _ATTENTION)
     rows = conn.execute(
-        f"SELECT analytics_local_day({_RECEIVED}) AS day, c.category, COUNT(*) AS n, "
+        f"SELECT a.label AS account, analytics_local_day({_RECEIVED}) AS day, c.category, COUNT(*) AS n, "
         "SUM(m.handled_at IS NOT NULL) AS completed, "
         f"SUM(m.handled_at IS NULL AND c.category IN ({attention_placeholders})) AS attention, "
         "SUM(c.retryable != 0) AS retryable "
-        + _FROM + scope + " GROUP BY day, c.category",
+        + _FROM + scope + " GROUP BY a.label, day, c.category",
         [*_ATTENTION, *params],
     ).fetchall()
     totals = {category.name: 0 for category in CATEGORIES}
@@ -193,6 +260,20 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         summary["completed"] += row["completed"] or 0
         summary["retryable"] += row["retryable"] or 0
     summary["unclassified"] = totals["unclassified"]
+
+    quality, quality_since, cohort_since = _profile_quality(conn, filters, local_day)
+    from .profile_outcomes import report as outcome_report
+    outcomes = outcome_report(conn, history_since=cohort_since, account=filters.account, bidder=filters.bidder)
+
+    if graphs_only:
+        daily = []
+        day = filters.start
+        while day <= filters.end:
+            counts = {category.name:per_day.get(day.isoformat(),{}).get(category.name,0) for category in CATEGORIES}
+            daily.append({'date':day.isoformat(),'counts':counts,'total':sum(counts.values()),'partial':False})
+            day += timedelta(days=1)
+        return {'ok':True,'filters':filters.model_dump(mode='json'),'summary':summary,'daily':daily,'profile_quality':quality,'profile_quality_since':quality_since,'profile_outcomes':outcomes,
+            'categories':[{'name':c.name,'label':c.label,'tier':c.tier,'count':totals[c.name]} for c in CATEGORIES]}
 
     first_run = conn.execute(
         "SELECT started_at FROM runs WHERE finished_at IS NOT NULL AND accounts_checked > 0 "
@@ -215,7 +296,9 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         day += timedelta(days=1)
 
     list_scope, list_params = _scope(filters, focus=True)
-    total = conn.execute("SELECT COUNT(*) " + _FROM + list_scope, list_params).fetchone()[0]
+    total = summary["total"]
+    if filters.focus_date or filters.focus_category:
+        total = conn.execute("SELECT COUNT(*) " + _FROM + list_scope, list_params).fetchone()[0]
     total_pages = (total + filters.page_size - 1) // filters.page_size
     page = min(filters.page, max(1, total_pages))
     direction = "DESC" if filters.sort == "newest" else "ASC"
@@ -225,7 +308,7 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         "c.company, c.role, c.category, c.summary, c.retryable, c.action_required "
         + _FROM + list_scope + f" ORDER BY {_INSTANT} {direction}, m.id {direction} LIMIT ? OFFSET ?",
         [*list_params, filters.page_size, (page - 1) * filters.page_size],
-    ).fetchall()
+    ).fetchall() if filters.include_messages else []
     items = []
     for row in message_rows:
         item = dict(row)
@@ -244,7 +327,7 @@ def _dashboard_data(conn: sqlite3.Connection, filters: DashboardFilters, *, rete
         "ok": True, "filters": normalized_filters, "summary": summary,
         "categories": [{"name": category.name, "label": category.label,
                         "tier": category.tier, "count": totals[category.name]} for category in CATEGORIES],
-        "daily": daily,
+        "daily": daily, "profile_quality": quality, "profile_quality_since": quality_since, "profile_outcomes": outcomes,
         "history": {"collection_started_at": started_at,
                     "collection_start_date": collection_date.isoformat() if collection_date else None,
                     "earliest_received_date": local_day(earliest["received"]) if earliest else None,

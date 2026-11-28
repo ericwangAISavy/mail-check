@@ -67,7 +67,36 @@ it("saves the selected check range and retains fallback days",async()=>{
  mount()
  const mode=await screen.findByLabelText("Mail check range",{exact:false})
  fireEvent.change(mode,{target:{value:"since_last"}})
- expect(screen.getByText(/Each account resumes/)).toBeTruthy()
+ expect(screen.getByText('Each check continues from the last one.')).toBeTruthy()
  fireEvent.click(screen.getAllByRole("button",{name:"Save changes"})[0])
  await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/settings",expect.objectContaining({check_mode:"since_last",lookback_days:2})))
+})
+
+it('saves separate owner and other-admin check intervals',async()=>{
+ const post=vi.spyOn(api,'post').mockResolvedValue({message:'Settings saved.'})
+ mount()
+ const owner=await screen.findByLabelText('Owner check interval · minutes',{exact:false})
+ const others=screen.getByLabelText('Other admins check interval · minutes',{exact:false})
+ fireEvent.change(owner,{target:{value:'2'}})
+ fireEvent.change(others,{target:{value:'5'}})
+ fireEvent.click(screen.getAllByRole('button',{name:'Save changes'})[0])
+ await waitFor(()=>expect(post).toHaveBeenCalledWith('/api/settings',expect.objectContaining({interval_minutes:2,other_interval_minutes:5})))
+ expect(screen.getByText('Every other admin workspace.')).toBeTruthy()
+})
+
+it('prevents saving an invalid check interval',async()=>{
+ mount()
+ const owner=await screen.findByLabelText('Owner check interval · minutes',{exact:false})
+ fireEvent.change(owner,{target:{value:'0'}})
+ expect((screen.getAllByRole('button',{name:'Save changes'})[0] as HTMLButtonElement).disabled).toBe(true)
+ expect(screen.getByRole('alert').textContent).toContain('whole number')
+})
+
+it('applies quick intervals independently',async()=>{
+ mount()
+ await screen.findByLabelText('Owner check interval · minutes',{exact:false})
+ fireEvent.click(screen.getByRole('button',{name:'1 min'}))
+ fireEvent.click(screen.getByRole('button',{name:'5 min'}))
+ expect((screen.getByLabelText('Owner check interval · minutes',{exact:false}) as HTMLInputElement).value).toBe('1')
+ expect((screen.getByLabelText('Other admins check interval · minutes',{exact:false}) as HTMLInputElement).value).toBe('5')
 })

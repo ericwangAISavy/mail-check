@@ -1,4 +1,4 @@
-"""Bidder accounting: durable receipt counts and immutable weekly payment records."""
+"""Bidder accounting: checked-application payments and durable received replies."""
 from __future__ import annotations
 
 import json
@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 ZONE = ZoneInfo("America/Chicago")
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS payment_deduction_rule (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ minimum_daily INTEGER NOT NULL CHECK(minimum_daily>=0),
+ amount_cents INTEGER NOT NULL CHECK(amount_cents>=0)
+);
+
 CREATE TABLE IF NOT EXISTS bidder_payment_edits (
  id INTEGER PRIMARY KEY AUTOINCREMENT,payment_id INTEGER NOT NULL REFERENCES bidder_payments(id),
  edited_at TEXT NOT NULL,before_json TEXT NOT NULL,after_json TEXT NOT NULL
@@ -37,7 +43,7 @@ CREATE TABLE IF NOT EXISTS bidder_assignments (
 CREATE INDEX IF NOT EXISTS idx_bidder_assignments_account ON bidder_assignments(account_id, start_date);
 CREATE TABLE IF NOT EXISTS application_receipts (
  account_id INTEGER NOT NULL, message_id TEXT NOT NULL, received_at TEXT NOT NULL,
- category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', PRIMARY KEY(account_id, message_id)
+ category TEXT NOT NULL, company TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', job_refs TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(account_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_week ON application_receipts(category, julianday(received_at));
 CREATE TABLE IF NOT EXISTS bidder_payments (
@@ -47,6 +53,86 @@ CREATE TABLE IF NOT EXISTS bidder_payments (
  UNIQUE(bidder_id, week_start)
 );
 """
+
+
+def management(conn):
+    """Settings-only read: no receipt scans, verification, or accounting writes."""
+    assigned = {}
+    for row in conn.execute("SELECT * FROM bidder_assignments ORDER BY start_date,id"):
+        assigned.setdefault(row['bidder_id'], []).append(dict(row))
+    members = []
+    for row in conn.execute("SELECT id,name,pay_per_bid,adjustment_percent,wallet_network,wallet_address FROM bidders WHERE removed_at IS NULL ORDER BY name COLLATE NOCASE,id"):
+        members.append(dict(row, assignments=assigned.get(row['id'], [])))
+    return {'today':today().isoformat(), 'bidders':members,
+            'accounts':[dict(row) for row in conn.execute("SELECT id,label FROM accounts ORDER BY id")]}
+
+
+class VisibilityBody(BaseModel):
+    payment_visible: bool
+    other_work_visible: bool
+    expected_revision: int = Field(ge=0)
+
+
+def visibility(conn, bidder_id):
+    row = conn.execute('SELECT payment_visible,other_work_visible FROM bidders WHERE id=? AND removed_at IS NULL',(bidder_id,)).fetchone()
+    if not row:
+        raise LookupError('Bidder not found')
+    return {key:bool(row[key]) for key in ('payment_visible','other_work_visible')}
+
+
+def save_visibility(conn, bidder_id, body):
+    bidder(conn,bidder_id)
+    changed = conn.execute('UPDATE bidders SET payment_visible=?,other_work_visible=?,visibility_revision=visibility_revision+1 WHERE id=? AND visibility_revision=?',(int(body.payment_visible),int(body.other_work_visible),bidder_id,body.expected_revision)).rowcount
+    if not changed:
+        raise ValueError('Visibility options changed elsewhere. Reload the saved options before saving.')
+
+
+def bidder_report(report, viewer_id, policy):
+    """Return checked counts and payment status permitted by the viewer policy."""
+    result = dict(report)
+    result['payment_visible'] = policy['payment_visible']
+    result['other_work_visible'] = policy['other_work_visible']
+    result.pop('unallocated_daily',None)
+    result.pop('deduction_rule',None)
+    result['accounts'] = []
+    result['unassigned'] = 0
+    rows = []
+    money_fields = ('pay_per_bid','adjustment_percent','gross_amount_cents','deduction_daily',
+        'deduction_total_cents','calculated_amount_cents','payable_amount_cents','amount_override_cents',
+        'override_application_count','wallet_network','wallet_address')
+    for original in result['bidders']:
+        own = original['id'] == viewer_id
+        if not own and not policy['other_work_visible']:
+            continue
+        row = dict(original)
+        row['daily'] = list(row['checked_daily'])
+        row.pop('received_reply_total',None)
+        row.pop('override_application_count',None)
+        row['payment_visible'] = policy['payment_visible'] and (own or policy['other_work_visible'])
+        row['account_breakdown'] = [dict(a,daily=list(a['checked_daily'])) for a in row['account_breakdown']] if own else []
+        for account in row['account_breakdown']:
+            account.pop('received_reply_total',None)
+        if row['payment_visible']:
+            row['payment'] = dict(row['payment']) if row['payment'] else None
+            if row['payment']:row['payment'].pop('application_count',None)
+        else:
+            for key in money_fields:row.pop(key,None)
+            row['payment'] = None
+        if not own:
+            # Sharing payment status grants amounts, not wallet details, rates,
+            # internal notes, or another bidder's payment editing metadata.
+            for key in money_fields:
+                if key not in ('gross_amount_cents','calculated_amount_cents','payable_amount_cents'):
+                    row.pop(key,None)
+            if row['payment']:
+                row['payment'] = {key:row['payment'][key] for key in ('amount_cents','paid_at') if key in row['payment']}
+            row['assignments'] = []
+            row.pop('below_minimum_daily',None)
+        rows.append(row)
+    result['bidders'] = rows
+    result['daily'] = [sum(row['checked_daily'][i] for row in rows) for i in range(7)]
+    result['checked_daily'] = list(result['daily'])
+    return result
 
 
 class BidderBody(BaseModel):
@@ -76,17 +162,55 @@ def calculate_amount(pay_per_bid,count,adjustment_percent):
     return int(amount.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)*100)
 
 
+class DeductionRuleSnapshot(BaseModel):
+    minimum_daily: int = Field(ge=0, le=100000)
+    amount_cents: int = Field(ge=0, le=100000000)
+
+
+class DeductionRuleBody(BaseModel):
+    minimum_daily: int = Field(ge=0, le=100000)
+    deduction_amount: Decimal = Field(ge=0, le=1000000, decimal_places=2)
+    expected_rule: DeductionRuleSnapshot | None = None
+
+
+def deduction_rule(conn):
+    row = conn.execute("SELECT minimum_daily,amount_cents FROM payment_deduction_rule WHERE id=1").fetchone()
+    return dict(row) if row else {"minimum_daily": 0, "amount_cents": 0}
+
+
+def ensure_deduction_rule_unchanged(conn, expected):
+    if expected is not None and expected.model_dump() != deduction_rule(conn):
+        raise ValueError("Daily deduction rule changed elsewhere. Refresh and review before saving.")
+
+
+def save_deduction_rule(conn, body):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
+    conn.execute("INSERT INTO payment_deduction_rule(id,minimum_daily,amount_cents) VALUES(1,?,?) "
+                 "ON CONFLICT(id) DO UPDATE SET minimum_daily=excluded.minimum_daily,amount_cents=excluded.amount_cents",
+                 (body.minimum_daily, int(body.deduction_amount * 100)))
+
+
+def ensure_calculated_amount_unchanged(body, row):
+    if ('expected_calculated_amount_cents' in body.model_fields_set
+            and body.expected_calculated_amount_cents != row['calculated_amount_cents']):
+        raise ValueError("Calculated amount changed. Close and reopen to review before saving.")
+
+
 class AmountBody(BaseModel):
     week: date = Field(ge=date(1971,1,1),le=date(2100,12,31))
     expected_count: int = Field(ge=0)
+    expected_calculated_amount_cents: int | None = Field(default=None, ge=0)
+    expected_rule: DeductionRuleSnapshot | None = None
     amount: Decimal | None = Field(default=None,ge=0,le=1000000,decimal_places=2)
 
 
 def save_amount(conn,bidder_id,body):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     bidder(conn,bidder_id)
     start=monday(body.week)
     if start+timedelta(days=6)>=today():raise ValueError('Edit the final payment amount after the week has ended')
-    row=next(b for b in report(conn,start)['bidders'] if b['id']==bidder_id)
+    row=next(b for b in report(conn,start,bidder_id=bidder_id)['bidders'] if b['id']==bidder_id)
+    ensure_calculated_amount_unchanged(body, row)
     if row['payment']:raise ValueError('This payment is already recorded; its paid amount remains saved')
     if row['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before saving the amount.')
     if body.amount is None:
@@ -133,7 +257,9 @@ class EndAssignmentBody(BaseModel):
 class PayBody(BaseModel):
     week: date = Field(ge=date(1971, 1, 1), le=date(2100, 12, 31))
     expected_count: int = Field(ge=0)
-    amount: Decimal = Field(gt=0, le=1000000, decimal_places=2)
+    expected_calculated_amount_cents: int | None = Field(default=None, ge=0)
+    expected_rule: DeductionRuleSnapshot | None = None
+    amount: Decimal = Field(ge=0, le=1000000, decimal_places=2)
     note: str = Field(default="", max_length=500)
 
 
@@ -142,10 +268,12 @@ class EditPayBody(PayBody):
 
 
 def edit_payment(conn,bidder_id,body):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     bidder(conn,bidder_id)
     start=monday(body.week)
     if start+timedelta(days=6)>=today():raise ValueError('Edit recorded payments after the week has ended')
-    current=next(b for b in report(conn,start)['bidders'] if b['id']==bidder_id)
+    current=next(b for b in report(conn,start,bidder_id=bidder_id)['bidders'] if b['id']==bidder_id)
+    ensure_calculated_amount_unchanged(body, current)
     if current['total']!=body.expected_count:raise ValueError('Counts changed. Refresh and review before editing payment.')
     previous=current['payment']
     if not previous:raise ValueError('No recorded payment exists for this bidder and week')
@@ -156,27 +284,72 @@ def edit_payment(conn,bidder_id,body):
     conn.execute('INSERT INTO bidder_payment_edits(payment_id,edited_at,before_json,after_json) VALUES(?,?,?,?)',(previous['id'],datetime.now(timezone.utc).isoformat(),json.dumps(previous),json.dumps(updated)))
 
 
-def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, since: date | None = None, until: date | None = None) -> None:
+# Kept permanently (metadata only) so statistics survive the message retention
+# window. Payments and matching only ever read 'application_ack' rows.
+RECEIPT_CATEGORIES = ('application_ack', 'interview_invite', 'rejection')
+
+
+def sync_receipts(conn: sqlite3.Connection, message_pk: int | None = None, *, since: date | None = None,
+                  until: date | None = None, stage_changes: bool = False) -> None:
     """Upsert receipt metadata, including company and role; never store email bodies."""
     from .db import LATEST_CLASSIFICATION
+    from .confirmation_counts import job_references
+    conn.create_function('receipt_job_references',3,job_references,deterministic=True)
     scope = ""
+    prefix = ""
     parameters = [message_pk] if message_pk is not None else []
     if since is not None and until is not None:
         lower = datetime.combine(since, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
         upper = datetime.combine(until + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-        scope = """ AND ((julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?)
-            AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?)) OR EXISTS (
-            SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
-            AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?))) """
-        parameters.extend((lower, upper, lower, upper))
-    conn.execute("""INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role)
-        SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at), c.category, COALESCE(c.company,''), COALESCE(c.role,'')
+        if message_pk is None:
+            # Bound candidates before joining classifications. Both source and
+            # previous receipt timestamps matter when correcting a moved date.
+            prefix = """WITH receipt_candidates AS MATERIALIZED (
+                SELECT m.id FROM messages m
+                WHERE julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?)
+                  AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?)
+                UNION SELECT m.id FROM application_receipts old
+                JOIN messages m ON m.account_id=old.account_id AND m.message_id=old.message_id
+                WHERE old.category IN (SELECT DISTINCT category FROM application_receipts)
+                  AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?)) """
+            scope = " AND m.id IN (SELECT id FROM receipt_candidates)"
+            parameters = [lower, upper, lower, upper]
+        else:
+            scope = """ AND ((julianday(COALESCE(m.date_utc,m.fetched_at))>=julianday(?) AND julianday(COALESCE(m.date_utc,m.fetched_at))<julianday(?))
+                OR EXISTS (SELECT 1 FROM application_receipts old WHERE old.account_id=m.account_id AND old.message_id=m.message_id
+                  AND julianday(old.received_at)>=julianday(?) AND julianday(old.received_at)<julianday(?)))"""
+            parameters.extend((lower, upper, lower, upper))
+    candidates = """SELECT m.account_id, m.message_id, COALESCE(m.date_utc, m.fetched_at) AS received_at,
+        c.category, COALESCE(c.company,'') AS company, COALESCE(c.role,'') AS role,
+        receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000)) AS job_refs
         FROM messages m """ + LATEST_CLASSIFICATION + """
-        WHERE (c.category = 'application_ack' OR EXISTS (
+        WHERE (c.category IN ('application_ack','interview_invite','rejection') OR EXISTS (
           SELECT 1 FROM application_receipts r WHERE r.account_id=m.account_id AND r.message_id=m.message_id))
-        """ + (" AND m.id=? " if message_pk is not None else "") + scope + """
+        """ + (" AND m.id=? " if message_pk is not None else "") + scope
+    insert = "INSERT INTO application_receipts(account_id, message_id, received_at, category, company, role, job_refs) "
+    upsert = """
         ON CONFLICT(account_id, message_id) DO UPDATE SET
-          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role""", parameters)
+          received_at=excluded.received_at, category=excluded.category, company=excluded.company, role=excluded.role,job_refs=excluded.job_refs
+        WHERE application_receipts.received_at IS NOT excluded.received_at
+           OR application_receipts.category IS NOT excluded.category
+           OR application_receipts.company IS NOT excluded.company
+           OR application_receipts.role IS NOT excluded.role
+           OR application_receipts.job_refs IS NOT excluded.job_refs"""
+    if not stage_changes:
+        # The optional date-scope CTE belongs before the INSERT.
+        conn.execute(prefix + insert + candidates + upsert, parameters)
+        return
+
+    if not conn.in_transaction:
+        raise ValueError('Staged receipt synchronization requires a transaction.')
+    # Read and parse against a deferred snapshot. SQLite refuses the upgrade
+    # if a concurrent commit makes that snapshot stale.
+    rows = conn.execute("""SELECT fresh.*, old.received_at,old.category,old.company,old.role,old.job_refs
+        FROM (""" + prefix + candidates + """) fresh LEFT JOIN application_receipts old
+        ON old.account_id=fresh.account_id AND old.message_id=fresh.message_id""", parameters)
+    changes = [row[:7] for row in rows if row[2:7] != row[7:]]
+    if changes:
+        conn.executemany(insert + 'VALUES(?,?,?,?,?,?,?)' + upsert, changes)
 
 
 def monday(value: date) -> date:
@@ -197,8 +370,32 @@ def received_today(conn: sqlite3.Connection) -> int:
         AND julianday(received_at)<julianday(?)""",(lower,upper)).fetchone()[0]
 
 
+def checked_today(conn: sqlite3.Connection, *, bidder_id: int | None = None) -> int:
+    """Use the same completed-application aggregation as daily payment totals."""
+    from .sourcing_verification import completed_account_counts
+    day = today().isoformat()
+    return sum(count for (who, _account, _day), count in completed_account_counts(conn, day, day).items()
+               if bidder_id is None or who == bidder_id)
+
+
+def accounting_day_case(column, start, end):
+    """SQL calendar buckets with explicit UTC boundaries, including DST weeks."""
+    parts, params = [], []
+    day = start
+    while day < end:
+        following = datetime.combine(day+timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
+        parts.append(f"WHEN julianday({column})<julianday(?) THEN ?")
+        params.extend((following, day.isoformat()))
+        day += timedelta(days=1)
+    if not parts:
+        return "?", [end.isoformat()]
+    return "CASE " + " ".join(parts) + " ELSE ? END", params+[end.isoformat()]
+
+
 def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = False, bidder_id: int | None = None, read_only: bool = False) -> dict:
-    start = monday(week or today())
+    current_day = today()
+    rule = deduction_rule(conn)
+    start = monday(week or current_day)
     end = start + timedelta(days=6)
     if not read_only:
         sync_receipts(conn, since=start, until=end)
@@ -206,14 +403,8 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     # Bound in UTC, then bucket in the accounting timezone, including DST days.
     lower = datetime.combine(start, datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
     upper = datetime.combine(end + timedelta(days=1), datetime.min.time(), ZONE).astimezone(timezone.utc).isoformat()
-    counts = {}
-    for row in conn.execute("""SELECT account_id, received_at FROM application_receipts
-        WHERE category='application_ack' AND julianday(received_at)>=julianday(?)
-        AND julianday(received_at)<julianday(?)""", (lower, upper)):
-        stamp = datetime.fromisoformat(row["received_at"])
-        day = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(ZONE).date().isoformat()
-        key = (row["account_id"], day)
-        counts[key] = counts.get(key, 0) + 1
+    from .confirmation_counts import counts as confirmation_counts
+    counts=confirmation_counts(conn,start,end)
     assignments = [dict(row) for row in conn.execute("SELECT * FROM bidder_assignments WHERE bidder_id IN (SELECT id FROM bidders WHERE removed_at IS NULL) ORDER BY start_date,id")]
     payments = {r["bidder_id"]: dict(r) for r in conn.execute("SELECT * FROM bidder_payments WHERE week_start=? AND (? IS NULL OR bidder_id=?)", (start.isoformat(),bidder_id,bidder_id))}
     from .sourcing_verification import completed_account_counts
@@ -263,8 +454,10 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
     bidders = []
     for row in conn.execute("SELECT * FROM bidders WHERE removed_at IS NULL AND (? IS NULL OR id=?) ORDER BY name", (bidder_id,bidder_id)):
         assigned = assigned_by_bidder.get(row["id"], [])
+        # Retain daily reply allocations for reference; only checked rows drive pay.
         daily = [allocations.get((row["id"], day), 0) for day in dates]
-        total = sum(daily)
+        checked_daily = [checked.get((row["id"], day), 0) for day in dates]
+        total = sum(checked_daily)
         account_ids = active_accounts.get(row["id"], set()) | checked_accounts.get(row["id"], set())
         labels = assignment_labels.get(row["id"], {})
         breakdown = []
@@ -274,21 +467,34 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
                 "account_label": account_labels.get(account_id, labels.get(account_id, "Removed account")),
                 "daily": account_daily,
                 "checked_daily": [account_checks.get((row["id"], account_id, day), 0) for day in dates],
-                "total": sum(account_daily)})
+                "total": sum(account_checks.get((row["id"], account_id, day), 0) for day in dates),
+                "received_reply_total": sum(account_daily)})
         override=overrides.get(row['id'])
-        calculated=calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
+        gross = calculate_amount(row['pay_per_bid'],total,row['adjustment_percent'])
+        below_minimum = [bool(rule['minimum_daily'] > 0
+            and date.fromisoformat(day) < current_day
+            and date.fromisoformat(day).weekday() < 5
+            and checked_daily[i] < rule['minimum_daily']
+            and any(a['start_date'] <= day and (not a['end_date'] or a['end_date'] >= day) for a in assigned))
+            for i, day in enumerate(dates)]
+        deduction_daily = [rule['amount_cents'] if missed else 0 for missed in below_minimum]
+        deduction_total = sum(deduction_daily)
+        calculated = max(0, gross - deduction_total) if gross is not None else None
         paid=payments.get(row['id'])
         payable=paid['amount_cents'] if paid else override['amount_cents'] if override else calculated
         bidders.append({"id": row["id"], "name": row["name"],
             **({"wallet_network":row["wallet_network"],"wallet_address":row["wallet_address"]} if admin else {}),
             "pay_per_bid":row['pay_per_bid'],"adjustment_percent":row['adjustment_percent'],
+            "gross_amount_cents":gross,"below_minimum_daily":below_minimum,
+            "deduction_daily":deduction_daily,"deduction_total_cents":deduction_total,
             "calculated_amount_cents":calculated,"payable_amount_cents":payable,
             "amount_override_cents":override['amount_cents'] if override else None,
             "override_application_count":override['application_count'] if override else None,
             "assignments": assigned, "daily": daily, "total": total,
             "account_breakdown": breakdown,
             "application_total": total,
-            "checked_daily": [checked.get((row["id"], day), 0) for day in dates],
+            "checked_daily": checked_daily,
+            "received_reply_total": sum(daily),
             "payment": payments.get(row["id"])})
     # Shared assignments expose the same receipts in multiple bidder rows.
     # Count each account/day once for the report overview and footer.
@@ -298,7 +504,7 @@ def report(conn: sqlite3.Connection, week: date | None = None, *, admin: bool = 
         if owners_by_day.get((account_id, day)):
             unique_daily[day_indices[day]] += count
     return {"week_start": start.isoformat(), "week_end": end.isoformat(), "today": today().isoformat(),
-        "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders,
+        "timezone": ZONE.key, "currency": "USD", "dates": dates, "bidders": bidders, "deduction_rule": rule,
         "daily": unique_daily if bidder_id is None else [sum(b["daily"][i] for b in bidders) for i in range(7)],
         "unallocated_daily": [unallocated[day] for day in dates] if admin and bidder_id is None else [0] * 7,
         "checked_daily": [sum(b["checked_daily"][i] for b in bidders) for i in range(7)],
@@ -383,17 +589,20 @@ def edit_assignment(conn, assignment_id: int, body: AssignmentBody):
 
 
 def remove_assignment(conn, assignment_id: int):
-    old = assignment_row(conn, assignment_id)
-    protect_assignment_payments(conn, old, None)
+    assignment_row(conn, assignment_id)
+    # Settlements retain their own saved count and amount. Removing an
+    # assignment changes live attribution, never the recorded payment.
     conn.execute("DELETE FROM bidder_assignments WHERE id=?", (assignment_id,))
 
 
 def record_payment(conn, bidder_id: int, body: PayBody):
+    ensure_deduction_rule_unchanged(conn, body.expected_rule)
     bidder(conn, bidder_id)
     start = monday(body.week)
     if start + timedelta(days=6) >= today():
         raise ValueError("Record payment after the week has ended")
-    row = next(b for b in report(conn, start)["bidders"] if b["id"] == bidder_id)
+    row = next(b for b in report(conn, start, bidder_id=bidder_id)["bidders"] if b["id"] == bidder_id)
+    ensure_calculated_amount_unchanged(body, row)
     if row["application_total"] != body.expected_count:
         raise ValueError("Counts changed. Refresh and review before recording payment.")
     if row["payment"]:

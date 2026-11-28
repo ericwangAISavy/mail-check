@@ -5,16 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#06151e" />
     <meta name="description" content="OfferPath — Every application, a step forward. Manage applications, email, interviews and your team." />
-    <link rel="icon" type="image/svg+xml" href="/src/assets/offerpath.svg" />
+    <link rel="icon" type="image/png" href="/src/assets/offerpath-small.png" />
+    <link rel="stylesheet" href="/assets/startup-screen-v1.css" />
     <title>OfferPath</title>
   </head>
   <body>
     <div id="root">
-      <main role="status" style="max-width:32rem;margin:18vh auto;padding:2rem;color:#202523;font:16px/1.6 system-ui,sans-serif">
-        <strong>Starting OfferPath…</strong>
-        <p>If the workspace doesn’t open, <a href="" style="color:#176e66;text-decoration:underline">reload this page</a>.</p>
+      <main data-offerpath-startup class="offerpath-startup" role="status" aria-live="polite" aria-label="Opening OfferPath">
+        <div class="startup-content">
+          <img class="startup-mark" src="/src/assets/offerpath-small.png" width="72" height="72" alt="" />
+          <strong class="startup-brand">Offer<span>Path</span></strong>
+          <p class="startup-caption">Every application, a step forward.</p>
+          <div class="startup-track" aria-hidden="true"><span></span></div>
+          <p class="startup-label">Preparing your workspace</p>
+        </div>
       </main>
     </div>
+    <script src="/assets/startup-recovery-v7.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

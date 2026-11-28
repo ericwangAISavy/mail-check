@@ -13,7 +13,7 @@ ics = fixtures.ics
 
 
 def event(identity="booking-1", **values):
-    return dict(id=identity,iCalUId="uid-"+identity,subject="Booked appointment",
+    return dict(id=identity,iCalUId="uid-"+identity,subject="Interview appointment",
         start={"dateTime":"2026-10-18T15:30:00.0000000","timeZone":"UTC"},
         end={"dateTime":"2026-10-18T16:30:00.0000000","timeZone":"UTC"},
         originalStartTimeZone="Central Standard Time",isCancelled=False,
@@ -41,6 +41,30 @@ class NativeCalendarTests(unittest.TestCase):
         with patch.object(pipeline,"build_source",return_value=source),patch.object(source,"fetch_unread",side_effect=AssertionError("Do not read mail")),patch.object(interviews.LLMClient,"from_config",side_effect=AssertionError("Do not classify or analyze mail")):
             return interviews.collect_calendar_events(self.conn,config.Config(),account_label=label)
 
+    def test_a_busy_database_is_retried_instead_of_failing_the_event(self):
+        import sqlite3
+        real=interviews._save_calendar_booking
+        calls=[]
+        def flaky(*args,**kwargs):
+            calls.append(1)
+            if len(calls)==1:
+                raise sqlite3.OperationalError("database is locked")
+            return real(*args,**kwargs)
+        with patch.object(interviews,"_save_calendar_booking",flaky),patch.object(interviews.time,"sleep") as sleep:
+            result=self.collect(self.source([event("busy-1")]))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(result['changes']),1)
+        self.assertEqual(len(calls),2)
+        sleep.assert_called_once()
+
+    def test_a_database_that_stays_locked_reports_the_event_as_unsaved(self):
+        import sqlite3
+        with patch.object(interviews,"_save_calendar_booking",side_effect=sqlite3.OperationalError("database is locked")),patch.object(interviews.time,"sleep"):
+            result=self.collect(self.source([event("busy-2")]))
+        self.assertEqual(len(result['errors']),1)
+        self.assertFalse(result['changes'])
+        self.assertTrue(result['busy'])  # callers defer the job instead of counting a failure
+
     def test_all_booking_kinds_use_calendar_events_only(self):
         kinds=[("teams","https://teams.microsoft.com/l/meetup-join/ABC","teamsForBusiness","Microsoft Teams"),
             ("google","https://meet.google.com/abc-defg-hij","unknown","Google Meet"),
@@ -49,7 +73,7 @@ class NativeCalendarTests(unittest.TestCase):
             ("phone",None,"unknown",None),("office",None,"unknown",None)]
         items=[]
         for name,link,provider,platform in kinds:
-            item=event(name);item.update(subject=name,onlineMeeting={"joinUrl":link} if link else None,
+            item=event(name);item.update(subject=name+" interview",onlineMeeting={"joinUrl":link} if link else None,
                 onlineMeetingProvider=provider,location={"displayName":"Phone" if name=="phone" else "Office"})
             items.append(item)
         result=self.collect(self.source(items))
@@ -105,6 +129,25 @@ class NativeCalendarTests(unittest.TestCase):
         self.collect(self.source([first,second]))
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
 
+    def test_unchanged_native_sync_preserves_rescheduled_status(self):
+        item = event()
+        self.collect(self.source([item]))
+        item['start']['dateTime'] = '2026-10-18T17:00:00'
+        item['end']['dateTime'] = '2026-10-18T18:00:00'
+        item['lastModifiedDateTime'] = '2026-10-16T12:00:00Z'
+        self.collect(self.source([item]))
+        repeated = self.collect(self.source([item]))
+        self.assertEqual(self.conn.execute('SELECT status FROM interview_events').fetchone()[0], 'Rescheduled')
+        self.assertEqual(repeated['changes'], [])
+
+        item['isCancelled'] = True
+        item['lastModifiedDateTime'] = '2026-10-17T12:00:00Z'
+        self.collect(self.source([item]))
+        item['isCancelled'] = False
+        item['lastModifiedDateTime'] = '2026-10-18T12:00:00Z'
+        self.collect(self.source([item]))
+        self.assertEqual(self.conn.execute('SELECT status FROM interview_events').fetchone()[0], 'Scheduled')
+
     def test_bad_event_does_not_prevent_later_valid_bookings(self):
         broken=event('bad');broken['start']={}
         result=self.collect(self.source([broken,event('valid')]))
@@ -137,12 +180,13 @@ class NativeCalendarTests(unittest.TestCase):
         rows=self.conn.execute('SELECT * FROM interview_events').fetchall()
         self.assertEqual(len(rows),1)
         self.assertEqual(rows[0]['extraction_rank'],3)
-        self.assertEqual(rows[0]['company'],'Booked appointment')
+        self.assertEqual(rows[0]['company'],'Interview appointment')
 
     def test_imap_account_is_rejected_before_mail_credentials_are_opened(self):
         with patch.object(pipeline,"build_source",side_effect=AssertionError("No mail source should be opened")):
             result=interviews.collect_calendar_events(self.conn,config.Config(),account_label="personal")
-        self.assertIn('IMAP cannot read calendar events',result['errors'][0])
+        self.assertIn('IMAP cannot read provider calendars directly',result['errors'][0])
+        self.assertIn('Email calendar invitations are analyzed separately',result['errors'][0])
 
 
 class CheckDispatchTests(unittest.TestCase):
@@ -170,6 +214,23 @@ class CheckDispatchTests(unittest.TestCase):
         calendar.assert_called_once()
         self.assertIsNone(calendar.call_args.kwargs["account_label"])
 
+    def test_model_deferral_does_not_mask_mailbox_failure(self):
+        from mailcheck.web import app as web
+        from mailcheck.models import RunResult
+        for errors in (["Ollama busy; retry next check"],
+                       ["[broken] Authentication failed", "Ollama busy; retry next check"]):
+            with self.subTest(errors=errors):
+                result = RunResult(started_at=datetime.now(timezone.utc), fetched=1,
+                    retryable=1, errors=errors)
+                with patch.object(web, "_start_job", side_effect=lambda work, **kwargs: work()), \
+                     patch.object(web.cfgmod, "load", return_value=config.Config()), \
+                     patch.object(web.db, "session"), \
+                     patch.object(web, "check_once", return_value=result):
+                    web._run_check(web.CheckBody())
+                self.assertFalse(web._job['ok'])
+                self.assertIn('1 deferred', web._job['message'])
+                self.assertEqual(web._job['detail'], '\n'.join(errors))
+
 class CalendarDuplicateTests(unittest.TestCase):
     setUp=NativeCalendarTests.setUp
     source=NativeCalendarTests.source
@@ -185,11 +246,11 @@ class CalendarDuplicateTests(unittest.TestCase):
 
     def test_existing_duplicates_display_once_without_losing_sources_or_manual_edits(self):
         first=event('original',organizer={'emailAddress':{'address':'recruiter@test'}})
-        second=event('copy',organizer=first['organizer']);second['subject']='Temporary different title'
+        second=event('copy',organizer=first['organizer']);second['subject']='Temporary interview title'
         self.collect(self.source([first]))
         self.collect(self.source([first,second]))
         rows=self.conn.execute('SELECT id FROM interview_events ORDER BY id').fetchall()
-        self.conn.execute("UPDATE interview_events SET company='Booked appointment'")
+        self.conn.execute("UPDATE interview_events SET company='Interview appointment'")
         interviews.correct_event(self.conn,rows[0][0],{'notes':'Keep my correction'})
         self.assertEqual(len(interviews.list_events(self.conn)),1)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],2)
@@ -219,7 +280,7 @@ class CalendarDuplicateTests(unittest.TestCase):
 
     def test_incomplete_review_copy_is_hidden_behind_confirmed_booking(self):
         one=event('confirmed',organizer={'emailAddress':{'address':'recruiter@test'}})
-        two=event('incomplete',organizer=one['organizer']);two['subject']='Temporary different title'
+        two=event('incomplete',organizer=one['organizer']);two['subject']='Temporary interview title'
         self.collect(self.source([one,two]))
         ids=[row[0] for row in self.conn.execute('SELECT id FROM interview_events ORDER BY id')]
         self.conn.execute("UPDATE interview_events SET company='Carta Phone Meeting'")
@@ -377,5 +438,302 @@ class CalendarPerformanceTests(unittest.TestCase):
         self.conn.execute('UPDATE interview_sources SET source_received_at=NULL WHERE id=(SELECT MIN(id) FROM interview_sources)')
         old=interviews.event_sources(self.conn,identity)
         bulk=interviews.event_sources_many(self.conn,[identity])[identity]
-        self.assertEqual(old,[{key:value for key,value in source.items() if key!='calendar_present'} for source in bulk])
+        self.assertEqual(old,[{key:value for key,value in source.items() if key not in ('calendar_present','analysis_pending')} for source in bulk])
         self.assertEqual(len(bulk),2)
+
+class InterviewCalendarFilteringTests(unittest.TestCase):
+    setUp=NativeCalendarTests.setUp
+    source=NativeCalendarTests.source
+    collect=NativeCalendarTests.collect
+    def test_holidays_personal_and_generic_online_meetings_are_not_imported(self):
+        items=[]
+        for index,title in enumerate(['Constitution Day','Christmas Day','Birthday','Dentist appointment','Team standup','Project meeting','Acme next round']):
+            item=event(str(index));item.update(subject=title,isAllDay=index<2,onlineMeeting={'joinUrl':'https://teams.microsoft.com/l/meetup-join/holiday'})
+            items.append(item)
+        for index,title in enumerate(['Acme Interview','Phone screen with Acme','Recruiter call','Technical assessment']):
+            item=event('interview-'+str(index));item['subject']=title;items.append(item)
+        result=self.collect(self.source(items))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(result['changes']),4)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],4)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0],0)
+
+    def test_categories_and_combined_recruiter_call_context_are_supported(self):
+        tagged=event('tagged');tagged.update(subject='Acme and candidate',categories=['Interview'])
+        recruiter=event('recruiter');recruiter.update(subject='Acme Phone Meeting',organizer={'emailAddress':{'address':'recruiter@acme.test'}})
+        unrelated=event('unrelated');unrelated.update(subject='Christmas holiday',categories=['Interview'],organizer=recruiter['organizer'])
+        result=self.collect(self.source([tagged,recruiter,unrelated]))
+        self.assertFalse(result['errors'])
+        self.assertEqual(len(result['changes']),2)
+
+    def test_all_day_interview_is_not_rejected_as_a_holiday(self):
+        item=event();item.update(subject='Acme onsite interview',isAllDay=True)
+        self.assertEqual(len(self.collect(self.source([item]))['changes']),1)
+
+    def test_known_interview_keeps_generic_title_updates_and_cancellations(self):
+        item=event();self.collect(self.source([item]))
+        identity=self.conn.execute('SELECT id FROM interview_events').fetchone()[0]
+        item.update(subject='Acme and candidate',lastModifiedDateTime='2026-10-16T12:00:00Z')
+        self.collect(self.source([item]))
+        self.assertEqual(len(interviews.list_events(self.conn)),1)
+        item.update(subject='Cancelled appointment',isCancelled=True,lastModifiedDateTime='2026-10-17T12:00:00Z')
+        self.collect(self.source([item]))
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual(row['id'],identity)
+        self.assertEqual(row['status'],'Cancelled')
+
+    def test_successful_sync_hides_old_unrelated_bookings_without_deleting_them(self):
+        from datetime import timedelta
+        item=event('legacy-holiday')
+        start=datetime.now(timezone.utc)+timedelta(days=1)
+        item['start']={'dateTime':start.isoformat(),'timeZone':'UTC'}
+        item['end']={'dateTime':(start+timedelta(hours=1)).isoformat(),'timeZone':'UTC'}
+        self.collect(self.source([item]))
+        self.conn.execute("UPDATE interview_events SET company='Constitution Day',stage='Other',role=NULL")
+        self.conn.execute("UPDATE interview_sources SET source_subject='Constitution Day',source_sender='calendar@example.test'")
+        self.conn.execute('UPDATE interview_calendar_state SET interview_related=0')
+        self.conn.commit()
+        item['subject']='Constitution Day'
+        result=self.collect(self.source([item]))
+        self.assertFalse(result['errors'])
+        self.assertEqual(interviews.list_events(self.conn),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],1)
+        self.assertEqual(self.conn.execute('SELECT present FROM interview_calendar_state').fetchone()[0],0)
+
+    def test_mail_calendar_compatibility_does_not_import_holidays(self):
+        holiday=ics(uid='holiday-ics').replace('Acme Technical Interview','Constitution Day')
+        pk,_=fixtures.InterviewTests.message(self,subject='Holiday calendar',calendar_data=[holiday])
+        self.assertEqual(interviews.process_message(self.conn,pk,{},calendar_only=True),[])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
+
+class CalendarAnalysisTests(unittest.TestCase):
+    """Real Graph conversion and SQLite persistence, with only model inference mocked."""
+    setUp = NativeCalendarTests.setUp
+    source = NativeCalendarTests.source
+    class Model:
+        def __init__(self, **values):
+            self.values=dict(is_interview_event=True,company='Airbus',role='HR AI Solutions Lead',
+                stage='Hiring Manager',interviewers=['Rebecca Moore <rebecca@airbus.com>'],confidence=.96,ambiguous=False)
+            self.values.update(values)
+            self.calls=[]
+        def complete(self, system, content, **kwargs):
+            import json
+            self.calls.append((system,json.loads(content)))
+            return json.dumps(self.values)
+
+    def analyze(self, items, model, cfg=None):
+        source=self.source(items)
+        with patch.object(pipeline,'build_source',return_value=source),patch.object(source,'fetch_unread',side_effect=AssertionError('No mail reads')):
+            return interviews.collect_calendar_events(self.conn,cfg or config.Config(),account_label='work',analysis_client=model)
+
+    def test_generic_title_is_classified_using_body_organizer_and_named_attendees(self):
+        import json
+        item=event();item.update(subject='Conversation with Rebecca',body={'contentType':'html','content':'<p>Airbus invites you to discuss the HR AI Solutions Lead position with your interviewer Rebecca Moore.</p>'},
+            organizer={'emailAddress':{'name':'Scheduling Team','address':'calendar@airbus.com'}},
+            attendees=[{'emailAddress':{'name':'Rebecca Moore','address':'rebecca@airbus.com'}},{'emailAddress':{'name':'Candidate','address':'work@example.test'}}],onlineMeeting={'joinUrl':'https://meet.google.com/abc-defg-hij'})
+        model=self.Model(interviewers=['Rebecca Moore <rebecca@airbus.com>','Candidate <work@example.test>'],start_time='2099-01-01T00:00:00Z',meeting_url='https://evil.test')
+        result=self.analyze([item],model)
+        self.assertFalse(result['errors']);self.assertEqual(result['analyzed'],1)
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual((row['company'],row['role'],row['stage']),('Airbus','HR AI Solutions Lead','Hiring Manager'))
+        self.assertEqual(json.loads(row['interviewers']),['Rebecca Moore <rebecca@airbus.com>'])
+        self.assertEqual(row['start_at'],'2026-10-18T15:30:00+00:00')
+        self.assertEqual(row['meeting_url'],'https://meet.google.com/abc-defg-hij')
+        self.assertIn('Airbus invites',model.calls[0][1]['description'])
+        self.assertNotIn('<p>',model.calls[0][1]['description'])
+        self.assertIn('Rebecca Moore rebecca@airbus.com',model.calls[0][1]['attendees'])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM messages').fetchone()[0],0)
+
+    def test_content_cache_skips_repeat_inference_but_reanalyzes_changed_descriptions(self):
+        item=event();item['body']={'contentType':'text','content':'First role description'}
+        model=self.Model()
+        self.analyze([item],model);self.analyze([item],model)
+        self.assertEqual(len(model.calls),1)
+        item['body']['content']='Different role description'
+        model.values['role']='Principal Engineer'
+        self.analyze([item],model)
+        self.assertEqual(len(model.calls),2)
+        self.assertEqual(self.conn.execute('SELECT role FROM interview_events').fetchone()[0],'Principal Engineer')
+
+    def test_long_content_and_changes_after_mail_limit_reach_calendar_analysis(self):
+        item=event('long-content')
+        prefix='Meeting information. '*700
+        item['body']={'contentType':'text','content':prefix+' Employer: Acme; Role: Engineer'}
+        model=self.Model()
+        self.analyze([item],model)
+        self.assertIn('Employer: Acme',model.calls[0][1]['description'])
+        self.assertLessEqual(len(model.calls[0][1]['description']),12000)
+        item['body']['content']=prefix+' Employer: Acme; Role: Designer'
+        self.analyze([item],model)
+        self.assertEqual(len(model.calls),2)
+        self.assertIn('Role: Designer',model.calls[1][1]['description'])
+
+    def test_inline_uncertain_analysis_is_retained_for_retry_without_a_permanent_cache(self):
+        model=self.Model(is_interview_event=False,confidence=.4,ambiguous=True)
+        self.analyze([event('uncertain-inline')],model)
+        task=self.conn.execute('SELECT state,booking FROM calendar_analysis_tasks').fetchone()
+        self.assertIsNotNone(task)
+        self.assertEqual(task['state'],'needs_review')
+        self.assertIsNotNone(task['booking'])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analyses').fetchone()[0],0)
+        row=self.conn.execute('SELECT review_reason FROM interview_events').fetchone()
+        self.assertIn('Uncertain',row['review_reason'])
+
+    def test_analysis_version_and_context_limit_invalidate_cached_results(self):
+        from mailcheck import calendar_analysis
+        item=event('cache-version');model=self.Model()
+        with patch.object(calendar_analysis,'VERSION','old'):
+            self.analyze([item],model)
+        self.analyze([item],model)
+        self.assertEqual(len(model.calls),2)
+        with patch.object(calendar_analysis,'DESCRIPTION_LIMIT',11000):
+            self.analyze([item],model)
+        self.assertEqual(len(model.calls),3)
+
+    def test_uncertain_title_change_keeps_a_known_interview_visible(self):
+        item=event('known-uncertain')
+        self.analyze([item],self.Model())
+        item['subject']='Doctor follow-up';item['body']={'contentType':'text','content':'Discuss the next steps.'}
+        self.analyze([item],self.Model(is_interview_event=False,confidence=.5,ambiguous=True))
+        rows=interviews.list_events(self.conn)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['company'],'Airbus')
+        self.assertTrue(rows[0]['needs_review'])
+
+    def test_non_interview_model_decision_excludes_events_and_is_cached(self):
+        item=event();item.update(subject='Annual holiday interview schedule reminder')
+        model=self.Model(is_interview_event=False,company=None,role=None,interviewers=[])
+        self.analyze([item],model);self.analyze([item],model)
+        self.assertEqual(len(model.calls),1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM interview_events').fetchone()[0],0)
+
+    def test_manual_company_role_and_interviewer_corrections_survive_reanalysis(self):
+        import json
+        item=event();model=self.Model()
+        self.analyze([item],model)
+        identity=self.conn.execute('SELECT id FROM interview_events').fetchone()[0]
+        interviews.correct_event(self.conn,identity,{'company':'Correct employer','role':'Correct role','interviewers':['Correct interviewer']})
+        self.conn.commit()
+        item['body']={'contentType':'text','content':'New event wording'}
+        model.values.update(company='Wrong employer',role='Wrong role',interviewers=['Wrong person'])
+        self.analyze([item],model)
+        row=self.conn.execute('SELECT * FROM interview_events').fetchone()
+        self.assertEqual((row['company'],row['role']),('Correct employer','Correct role'))
+        self.assertEqual(json.loads(row['interviewers']),['Correct interviewer'])
+
+    def test_failure_keeps_schedule_and_previously_extracted_details_then_retries(self):
+        from mailcheck.llm import LLMError
+        item=event();model=self.Model()
+        self.analyze([item],model)
+        item['body']={'contentType':'text','content':'Updated interview details'}
+        item['start']['dateTime']='2026-10-18T17:30:00';item['end']['dateTime']='2026-10-18T18:30:00'
+        item['lastModifiedDateTime']='2026-10-16T12:00:00Z'
+        with patch.object(model,'complete',side_effect=LLMError('Model unavailable')) as complete:
+            result=self.analyze([item,event('another')],model)
+            self.assertEqual(complete.call_count,1)
+            self.assertEqual(result['analysis_pending'],2)
+        row=self.conn.execute('SELECT * FROM interview_events WHERE calendar_uid=?',('uid-booking-1',)).fetchone()
+        self.assertEqual((row['company'],row['role']),('Airbus','HR AI Solutions Lead'))
+        self.assertEqual(row['start_at'],'2026-10-18T17:30:00+00:00')
+        result=self.analyze([item],model)
+        self.assertFalse(result['errors'])
+        self.assertEqual(result['analyzed'],1)
+
+    def test_malformed_output_does_not_cache_or_poison_other_events(self):
+        model=self.Model();good=model.complete
+        def complete(system,content,**kwargs):
+            import json
+            if json.loads(content)['title']=='Broken interview':return '{invalid JSON'
+            return good(system,content,**kwargs)
+        model.complete=complete
+        broken=event('broken');broken['subject']='Broken interview'
+        result=self.analyze([broken,event('good')],model)
+        self.assertEqual(result['analysis_pending'],1)
+        self.assertEqual(result['analyzed'],1)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analyses').fetchone()[0],1)
+
+    def test_meeting_link_in_description_is_retained_without_structured_online_meeting(self):
+        item=event();item['body']={'contentType':'html','content':'<p>Interview with Airbus. Join <a href="https://meet.google.com/abc-defg-hij">video call</a></p>'}
+        self.analyze([item],self.Model())
+        row=self.conn.execute('SELECT meeting_url,meeting_platform FROM interview_events').fetchone()
+        self.assertEqual(tuple(row),('https://meet.google.com/abc-defg-hij','Google Meet'))
+
+    def test_analysis_budget_defers_uncached_events_without_calling_the_model(self):
+        from mailcheck.calendar_analysis import CalendarAnalyzer
+        model=self.Model()
+        booking=next(self.source([event()]).fetch_calendar(datetime(2026,10,1).date()))
+        account=db.list_accounts(self.conn)[0]
+        with CalendarAnalyzer(self.conn,config.Config(),lambda message:None,client=model) as analyzer:
+            analyzer.deadline=0
+            self.assertIsNone(analyzer.analyze(account,booking))
+            self.assertEqual(analyzer.pending,1)
+        self.assertEqual(model.calls,[])
+
+    def test_existing_native_events_are_enriched_without_changing_identity(self):
+        item=event()
+        NativeCalendarTests.collect(self,self.source([item]))
+        before=self.conn.execute('SELECT id,company,start_at FROM interview_events').fetchone()
+        self.assertEqual(before['company'],'Interview appointment')
+        self.analyze([item],self.Model())
+        after=self.conn.execute('SELECT id,company,role,start_at FROM interview_events').fetchone()
+        self.assertEqual(after['id'],before['id'])
+        self.assertEqual(after['start_at'],before['start_at'])
+        self.assertEqual((after['company'],after['role']),('Airbus','HR AI Solutions Lead'))
+
+    def test_configured_client_is_prepared_once_closed_and_skipped_for_cached_events(self):
+        from unittest.mock import Mock
+        model=self.Model();model.prepare=Mock();model.close=Mock()
+        cfg=config.Config();cfg.llm.base_url='http://ollama.test'
+        source=self.source([event('one'),event('two')])
+        with patch.object(pipeline,'build_source',return_value=source),patch('mailcheck.calendar_analysis.LLMClient.from_config',return_value=model) as create:
+            first=interviews.collect_calendar_events(self.conn,cfg,account_label='work')
+            second=interviews.collect_calendar_events(self.conn,cfg,account_label='work')
+        self.assertFalse(first['errors']);self.assertFalse(second['errors'])
+        self.assertEqual(first['analyzed'],2);self.assertEqual(second['analyzed'],0)
+        create.assert_called_once();model.prepare.assert_called_once();model.close.assert_called_once()
+        self.assertEqual(len(model.calls),2)
+
+    def test_model_format_variants_are_normalized_without_inventing_details(self):
+        import json
+        model=self.Model(is_interview_event='true',confidence='96%',stage=None,ambiguous='false',
+            interviewers=[{'name':'Rebecca Moore','email':'rebecca@airbus.com'},None,{'email':'work@example.test'}])
+        result=self.analyze([event()],model)
+        self.assertEqual(result['analyzed'],1)
+        row=self.conn.execute('SELECT result FROM calendar_analyses').fetchone()
+        stored=json.loads(row['result'])
+        self.assertEqual(stored['confidence'],.96)
+        self.assertEqual(stored['stage'],'Other')
+        self.assertEqual(stored['interviewers'],['Rebecca Moore <rebecca@airbus.com>'])
+
+    def test_invalid_response_gets_one_json_repair_with_more_output_budget(self):
+        import json
+        model=self.Model()
+        with patch.object(model,'complete',side_effect=['not JSON',json.dumps({'analysis':model.values})]) as complete:
+            result=self.analyze([event()],model)
+        self.assertEqual(result['analyzed'],1)
+        self.assertEqual(complete.call_count,2)
+        self.assertTrue(complete.call_args.kwargs['json_mode'])
+        self.assertGreater(complete.call_args.kwargs['max_tokens'],complete.call_args_list[0].kwargs['max_tokens'])
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM calendar_analyses').fetchone()[0],1)
+
+    def test_truncated_reply_is_retried_even_if_its_json_can_be_parsed(self):
+        import json
+        from mailcheck.llm.client import Completion
+        model=self.Model()
+        truncated=Completion(json.dumps({**model.values,'company':'Truncated answer'}),finish_reason='length')
+        with patch.object(model,'complete',side_effect=[truncated,json.dumps(model.values)]) as complete:
+            result=self.analyze([event()],model)
+        self.assertEqual(result['analyzed'],1)
+        self.assertEqual(complete.call_count,2)
+        self.assertEqual(self.conn.execute('SELECT company FROM interview_events').fetchone()[0],'Airbus')
+
+
+def test_a_slow_write_lock_names_its_holder(caplog):
+    import logging, sqlite3
+    from mailcheck import native_sourcing
+    clock = iter([0.0, 42.0])
+    conn = sqlite3.connect(":memory:")
+    with caplog.at_level(logging.WARNING), patch.object(native_sourcing.time, "monotonic", lambda: next(clock)):
+        with native_sourcing.atomic(conn):
+            pass
+    assert "held for 42 seconds by test_calendar_collection.py:test_a_slow_write_lock_names_its_holder" in caplog.text

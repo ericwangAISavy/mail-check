@@ -14,8 +14,14 @@ class IncomingFilterTests(unittest.TestCase):
         return [r for r in snap['rows'][1:] if any(str(c['value']).strip() for c in r)]
 
     def add(self,rows,op='add',tab=None):
+        from tests.test_payments import mark_checked
         tab=tab or self.tab()
-        return self.native.append(self.conn,tab,op,self.native.snapshot(self.conn,tab)['revision'],rows)
+        result=self.native.append(self.conn,tab,op,self.native.snapshot(self.conn,tab)['revision'],rows)
+        # Pasted rows never carry a check; mark historical checked jobs directly.
+        for row in rows:
+            if len(row)>3 and row[3]=='true':
+                mark_checked(self.conn,tab['id'],row[2])
+        return result
 
     def test_duplicate_account_history_and_incoming_batch_are_compacted(self):
         self.add([['Acme','Engineer','https://jobs.test/1?utm_source=old']], 'old')
@@ -43,6 +49,30 @@ class IncomingFilterTests(unittest.TestCase):
         self.assertEqual(result['filtered']['duplicates'],0)
         self.assertEqual(len(self.jobs(tab)),2)
 
+    def test_pasted_brassring_site_variants_keep_first_job_and_distinct_ids(self):
+        url='https://sjobs.brassring.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=26224&siteid=5247&PageType=JobDetails&jobid=1442605&jr_id=first'
+        rows=[['Kendra Scott','Lead AI/ML Engineer',url],
+              ['Kendra Scott','Lead AI/ML Engineer',url.replace('5247','5251')],
+              ['Kendra Scott','Lead AI/ML Engineer',url.replace('1442605','1442606')]]
+        result=self.add(rows,'brassring-paste')
+        self.assertEqual(result['filtered']['duplicates'],1)
+        self.assertEqual([r[2]['value'] for r in self.jobs()],[rows[0][2],rows[2][2]])
+
+    def test_known_ats_http_and_https_variants_share_duplicate_identity(self):
+        for url in ('https://job-boards.greenhouse.io/acme/jobs/123456',
+                    'https://sjobs.brassring.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=26224&jobid=1442605'):
+            self.assertEqual(filters.link_key(url),filters.link_key(url.replace('https:','http:')))
+
+    def test_brassring_duplicate_in_history_is_removed_from_new_grid_paste(self):
+        url='https://sjobs.brassring.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=26224&siteid=5247&jobid=1442605'
+        self.add([['Kendra Scott','Lead AI/ML Engineer',url]],'brassring-history')
+        base=self.snapshot();row=base['row_ids'][-1]
+        changes=[{'row_id':row,'column_id':base['columns'][i]['id'],'expected_version':0,'value':v}
+                 for i,v in enumerate(['Kendra Scott','Lead AI/ML Engineer',url.replace('5247','5251')])]
+        result=self.native.save(self.conn,self.tab(),'brassring-grid',changes,compact_rows=True)
+        self.assertEqual(result['filtered']['duplicates'],1)
+        self.assertEqual(len(self.jobs()),1)
+
     def test_blocklist_only_affects_new_rows_and_retry_is_idempotent(self):
         self.add([['Blocked Co','Engineer','https://jobs.test/old']],'old')
         filters.set_companies(self.conn,['Blocked Co','BLOCKED CO'])
@@ -51,7 +81,7 @@ class IncomingFilterTests(unittest.TestCase):
         rows=[['blocked-co.','Engineer','https://jobs.test/new'],['Allowed','Engineer','https://jobs.test/ok']]
         result=self.native.append(self.conn,self.tab(),'filtered',revision,rows)
         replay=self.native.append(self.conn,self.tab(),'filtered',revision,rows)
-        self.assertEqual(result['filtered'],{'duplicates':0,'blocked_companies':1})
+        self.assertEqual(result['filtered'],{'duplicates':0,'blocked_companies':1,'blocked_roles':0})
         self.assertEqual(replay['filtered'],result['filtered'])
         self.assertEqual([r[0]['value'] for r in self.jobs()],['Blocked Co','Allowed'])
 
@@ -89,9 +119,10 @@ class IncomingFilterTests(unittest.TestCase):
         filters.set_companies(self.conn,['Acme'])
         self.conn.commit()
         base=self.snapshot()
-        result=self.native.save(self.conn,self.tab(),'format',[{'row_id':base['row_ids'][1],'column_id':base['columns'][0]['id'],'expected_version':base['rows'][1][0]['version'],'style':{'bold':True}}])
+        with self.assertRaisesRegex(ValueError, 'Checked rows cannot be edited'):
+            self.native.save(self.conn,self.tab(),'format',[{'row_id':base['row_ids'][1],'column_id':base['columns'][0]['id'],'expected_version':base['rows'][1][0]['version'],'style':{'bold':True}}])
         self.assertEqual(len(self.jobs()),1)
-        self.assertEqual(result['rows'][1][3]['value'],'true')
+        self.assertEqual(self.snapshot()['rows'][1][3]['value'],'true')
 
     def test_checking_an_incoming_duplicate_does_not_bypass_filter(self):
         self.add([['Acme','Engineer','https://jobs.test/old']])
@@ -112,3 +143,92 @@ class IncomingFilterTests(unittest.TestCase):
                          ['Other Company','Engineer','https://jobs.test/d']])
         self.assertEqual(result['filtered']['blocked_companies'],3)
         self.assertEqual([r[0]['value'] for r in self.jobs()],['Acme Consulting','Other Company'])
+
+    def test_account_role_keywords_are_isolated_and_preserve_existing_rows(self):
+        self.add([['Old','MLOps Engineer','https://jobs.test/old']],'old-role')
+        filters.set_roles(self.conn,self.account_id,['MLOps','full stack','Machine learning','MLOPS'])
+        self.conn.commit()
+        result=self.add([['A','Senior mlops Engineer','https://jobs.test/a'],
+                         ['B','Full-stack Developer','https://jobs.test/b'],
+                         ['C','Machine Learning Engineer','https://jobs.test/c'],
+                         ['D','Backend Developer','https://jobs.test/d']],'roles')
+        self.assertEqual(result['filtered']['blocked_roles'],3)
+        self.assertEqual([r[0]['value'] for r in self.jobs()],['Old','D'])
+        other=db.add_account(self.conn,label='role-other',email='other@example.test')
+        tab=self.native.owned(self.conn,self.native.create_tab(self.conn,self.book,other,'Other'),self.principal)
+        result=self.add([['A','MLOps Engineer','https://jobs.test/a']],'other-role',tab=tab)
+        self.assertEqual(result['filtered']['blocked_roles'],0)
+        self.assertEqual(len(self.jobs(tab)),1)
+
+    def test_role_completed_after_job_link_is_filtered_but_checked_history_is_kept(self):
+        self.add([['A','','https://jobs.test/a']],'incomplete-role')
+        filters.set_roles(self.conn,self.account_id,['MLOps']);self.conn.commit()
+        base=self.snapshot()
+        row=base['row_ids'][1]
+        result=self.native.save(self.conn,self.tab(),'role-edit',[{'row_id':row,'column_id':base['columns'][1]['id'],'expected_version':0,'value':'MLOps'}])
+        self.assertEqual(result['filtered']['blocked_roles'],1)
+        self.add([['Historical','Engineer','https://jobs.test/checked','true']],'checked-role')
+        base=self.snapshot();cell=base['rows'][1][1]
+        with self.assertRaisesRegex(ValueError, 'Checked rows cannot be edited'):
+            self.native.save(self.conn,self.tab(),'checked-role-edit',[{'row_id':base['row_ids'][1],'column_id':base['columns'][1]['id'],'expected_version':cell['version'],'value':'MLOps'}])
+        self.assertEqual(len(self.jobs()),1)
+
+    def test_role_filter_api_is_account_scoped_and_admin_only(self):
+        response=self.client.post(f'/api/sourcing/role-filters/{self.account_id}',json={'keywords':['MLOps','Full stack']})
+        self.assertEqual(response.status_code,200,response.text)
+        data=self.client.get('/api/sourcing/role-filters').json()
+        self.assertEqual(data['accounts'][0]['keywords'],['Full stack','MLOps'])
+        self.assertEqual(self.client.post('/api/sourcing/role-filters/9999',json={'keywords':['MLOps']}).status_code,404)
+        from tests.web_client import sign_in_bidder
+        sign_in_bidder(self.client,1)
+        self.assertEqual(self.client.get('/api/sourcing/role-filters').status_code,403)
+        self.assertEqual(self.client.post(f'/api/sourcing/role-filters/{self.account_id}',json={'keywords':[]}).status_code,403)
+
+    def test_role_settings_persist_and_keep_programming_language_symbols(self):
+        filters.set_roles(self.conn,self.account_id,['C++','full stack','FULL-STACK'])
+        self.conn.commit()
+        with db.session(self.path) as reopened:
+            self.assertEqual(len(filters.roles(reopened,self.account_id)),2)
+        result=self.add([['A','C# Engineer','https://jobs.test/csharp'],['B','Senior C++ Developer','https://jobs.test/cpp'],['C','Fullstack Engineer','https://jobs.test/full']],'symbols')
+        self.assertEqual(result['filtered']['blocked_roles'],2)
+        self.assertEqual([r[0]['value'] for r in self.jobs()],['A'])
+
+    def test_csv_roles_apply_and_clearing_one_account_leaves_company_filters(self):
+        filters.set_companies(self.conn,['Blocked Co'])
+        filters.set_roles(self.conn,self.account_id,['MLOps'])
+        self.conn.commit()
+        result=sourcing_csv.import_rows(self.conn,self.tab(),'role-csv',self.snapshot()['revision'],text='Company,Role,Job link\nAllowed,MLOps Engineer,https://jobs.test/no\nAllowed,Backend Engineer,https://jobs.test/yes')
+        self.assertEqual(result['filtered']['blocked_roles'],1)
+        filters.set_roles(self.conn,self.account_id,[])
+        self.assertEqual(filters.roles(self.conn,self.account_id),[])
+        self.assertEqual(filters.companies(self.conn),['Blocked Co'])
+
+    def test_role_schema_upgrade_keeps_existing_company_filters(self):
+        filters.set_companies(self.conn,['Keep Co'])
+        self.conn.execute("DROP TABLE sourcing_blocked_roles")
+        self.conn.execute("PRAGMA user_version=37")
+        self.conn.commit()
+        with db.session(self.path) as upgraded:
+            self.assertEqual(filters.companies(upgraded),['Keep Co'])
+            self.assertEqual(filters.roles(upgraded,self.account_id),[])
+
+
+    def test_distinct_repeated_query_order_keeps_both_job_rows(self):
+        result=self.add([['Acme','Engineer','https://jobs.test/app?step=a&step=b'],
+                         ['Acme','Engineer','https://jobs.test/app?step=b&step=a']])
+        self.assertEqual(result['filtered']['duplicates'],0)
+        self.assertEqual(len(self.jobs()),2)
+
+
+def test_job_cell_newline_cleanup_preserves_url_paths_and_custom_notes():
+    from mailcheck.sourcing_filters import normalize_job_cell
+    assert normalize_job_cell('Sem-Sol\r\n','company')=='Sem-Sol'
+    assert normalize_job_cell('Software\nEngineer','role')=='Software Engineer'
+    assert normalize_job_cell('https://jobs.test/news\n/123','link')=='https://jobs.test/news/123'
+    assert normalize_job_cell('https://jobs.test/news','link')=='https://jobs.test/news'
+    assert normalize_job_cell('one\ntwo',None)=='one\ntwo'
+
+
+def test_link_keys_preserve_repeated_parameter_value_order():
+    assert filters.link_key('https://jobs.test/app?step=a&step=b') != filters.link_key('https://jobs.test/app?step=b&step=a')
+    assert filters.link_key('https://jobs.test/app?z=1&step=a&step=b') == filters.link_key('https://jobs.test/app?step=a&step=b&z=1')

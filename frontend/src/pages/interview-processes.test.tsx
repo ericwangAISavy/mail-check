@@ -1,3 +1,4 @@
+import { PageStateProvider } from "@/lib/page-state"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
@@ -5,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import InterviewProcessesPage from "./interview-processes"
 
-vi.mock("@/lib/api", () => ({ request: vi.fn() }))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(), request: vi.fn() }))
 const clients: QueryClient[] = []
 const milestone = (id: string, day: number, reason: string | null = null) => ({ id, kind: id.startsWith("message") ? "message" : "event", occurred_at: `2026-10-${day}T15:30:00Z`, title: id.startsWith("message") ? "Choose a time" : "Technical interview", summary: "Recruiter asks for your availability.", status: "Scheduled", sender: "hr@appian.com", account_labels: ["Work"], href: id.startsWith("message") ? null : "/interviews?event=1", assignment_reason: reason, organization_domains: reason ? ["appian.com", "rava.com"] : ["appian.com"] })
 const report = () => ({ processes: [
@@ -21,10 +22,11 @@ beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(new Date("2026-10-16T12:00:00Z").getTime())
 })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks(); vi.restoreAllMocks() })
-function mount() {
+function mount(persist = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   clients.push(client)
-  return render(<QueryClientProvider client={client}><MemoryRouter><InterviewProcessesPage /></MemoryRouter></QueryClientProvider>)
+  const page = <QueryClientProvider client={client}><MemoryRouter><InterviewProcessesPage /></MemoryRouter></QueryClientProvider>
+  return render(persist ? <PageStateProvider scope="processes-remount-test">{page}</PageStateProvider> : page)
 }
 it("shows compact milestones and reveals summaries on hover and keyboard focus", async () => {
   mount()
@@ -94,9 +96,9 @@ it("defaults to All and opens the shared interview dialog directly on click", as
   trigger.focus()
   fireEvent.click(trigger, { detail: 0 })
   const dialog = await screen.findByRole("dialog", { name: "Meeting with Appian" })
-  expect(dialog.textContent).toContain("Calendar event details and local corrections.")
+  expect(dialog.textContent).toContain("Interview time, account, and meeting details.")
   expect(screen.getByRole("button", { name: "Edit details" })).toBeTruthy()
-  expect(screen.getByText("Event details from calendar")).toBeTruthy()
+  expect(screen.queryByText("Event details from calendar")).toBeNull()
   expect(screen.queryByRole("dialog", { name: "Milestone preview" })).toBeNull()
   fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
   expect(screen.getByRole("option", { name: "Other" })).toBeTruthy()
@@ -318,4 +320,41 @@ it("refreshes process data and the cached calendar together", async () => {
   expect(await screen.findByRole("heading", { name: "updated-company.com" })).toBeTruthy()
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["interviews"], refetchType: "all" }, { throwOnError: true })
   expect(client.getQueryState(["interviews", "list", ""])?.isInvalidated).toBe(true)
+})
+
+it("restores timeline filters after leaving while clearing an unfinished company draft", async () => {
+  sessionStorage.clear()
+  try {
+    const first = mount(true)
+    await screen.findByRole("heading", { name: "appian.com" })
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "appian" } })
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }))
+    fireEvent.change(screen.getByLabelText("Timeline date"), { target: { value: "2026-10-20" } })
+    fireEvent.change(screen.getByLabelText("Company or organization name"), { target: { value: "Unfinished company" } })
+    first.unmount()
+    mount(true)
+    await screen.findByRole("heading", { name: "appian.com" })
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("appian")
+    expect(screen.getByRole("button", { name: "Weekly" }).getAttribute("aria-pressed")).toBe("true")
+    expect((screen.getByLabelText("Timeline date") as HTMLInputElement).value).toBe("2026-10-20")
+    expect((screen.getByLabelText("Company or organization name") as HTMLInputElement).value).toBe("")
+  } finally {
+    sessionStorage.clear()
+  }
+})
+
+it("ignores invalid stored timeline dates and periods", async () => {
+  sessionStorage.clear()
+  try {
+    const key = (name: string) => 'offerpath.page-state.v1:' + JSON.stringify(["processes-remount-test", "interview-processes", name])
+    sessionStorage.setItem(key("anchor"), JSON.stringify("2026-02-31"))
+    sessionStorage.setItem(key("period"), JSON.stringify("unknown-period"))
+    mount(true)
+    await screen.findByRole("heading", { name: "appian.com" })
+    expect(screen.getByRole("button", { name: /^All$/ }).getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: "Daily" }))
+    expect((screen.getByLabelText("Timeline date") as HTMLInputElement).value).toBe("2026-10-16")
+  } finally {
+    sessionStorage.clear()
+  }
 })

@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 from mailcheck.config import Config
 from mailcheck.web import app as web
+from tests.test_daily_deductions import workspace  # noqa: F401 - isolated database fixture
 
 
 def test_scheduler_requests_mail_and_calendar_in_one_job():
@@ -21,7 +22,7 @@ def test_combined_job_collects_calendar_and_still_checks_mail(calendar_failure):
     mail=SimpleNamespace(interview_changes=[{'id':2}],fetched=1,classified=1,from_cache=0,prefiltered=0,pruned=0,retryable=0,errors=[])
     collector=Mock(side_effect=RuntimeError('calendar offline')) if calendar_failure else Mock(return_value={'changes':[{'id':1}],'errors':[],'accounts':1})
     def start(work,**kwargs):work()
-    with patch.object(web.cfgmod,'load',return_value=cfg), patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())), patch.object(web,'check_once',return_value=mail) as check, patch.object(web.interviews,'collect_calendar_events',collector), patch.object(web,'_start_job',side_effect=start), patch.dict(web._job):
+    with patch.object(web.cfgmod,'load',return_value=cfg), patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())), patch.object(web.db,'list_accounts',return_value=[SimpleNamespace(id=1,label='work',provider='outlook')]), patch.object(web,'check_once',return_value=mail) as check, patch.object(web.interviews,'collect_calendar_events',collector), patch.object(web,'_start_job',side_effect=start), patch.dict(web._job):
         web._run_check(web.CheckBody(),include_calendar=True)
         collector.assert_called_once()
         check.assert_called_once()
@@ -31,7 +32,53 @@ def test_combined_job_collects_calendar_and_still_checks_mail(calendar_failure):
 
 def test_calendar_updates_survive_a_later_mail_failure():
     calendar={'changes':[{'id':7}],'errors':[],'accounts':1}
-    with patch.object(web.cfgmod,'load',return_value=Config()), patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())), patch.object(web,'check_once',side_effect=RuntimeError('model unavailable')), patch.object(web.interviews,'collect_calendar_events',return_value=calendar), patch.object(web,'_start_job',side_effect=lambda work,**kwargs:work()), patch.dict(web._job):
+    with patch.object(web.cfgmod,'load',return_value=Config()), patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())), patch.object(web.db,'list_accounts',return_value=[SimpleNamespace(id=1,label='work',provider='outlook')]), patch.object(web,'check_once',side_effect=RuntimeError('model unavailable')), patch.object(web.interviews,'collect_calendar_events',return_value=calendar), patch.object(web,'_start_job',side_effect=lambda work,**kwargs:work()), patch.dict(web._job):
         with pytest.raises(RuntimeError,match='model unavailable'):
             web._run_check(web.CheckBody(),include_calendar=True)
         assert web._job['interview_changes']==[{'id':7}]
+
+def test_calendar_queue_resumes_even_with_automatic_mail_checks_disabled():
+    cfg=Config();cfg.llm.base_url='http://model.test';cfg.watch.auto_check=False
+    with patch.object(web.cfgmod,'load',return_value=cfg),patch.object(web.time,'sleep',side_effect=[None,StopIteration]),patch.dict(web._job,running=False),patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())), patch.object(web.db,'list_accounts',return_value=[SimpleNamespace(id=1,label='work',provider='outlook')]),patch('mailcheck.calendar_queue.due',return_value=True),patch.object(web,'_job_lock') as lock,patch.object(web,'_run_calendar_analysis') as resume,patch.object(web,'_run_check') as mail:
+        lock.acquire.return_value=True
+        with pytest.raises(StopIteration):web._scheduler()
+        resume.assert_called_once();mail.assert_not_called()
+
+
+def test_background_calendar_analysis_skips_unrelated_sourcing_verification():
+    result={'changes':[],'done':3,'total':356,'pending':353,'last_error':'Model response timed out'}
+    with patch.object(web.cfgmod,'load',return_value=Config()),patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())), patch.object(web.db,'list_accounts',return_value=[SimpleNamespace(id=1,label='work',provider='outlook')]),patch.object(web.interviews,'resume_calendar_analysis',return_value=result),patch.object(web,'_start_job',side_effect=lambda work,**kwargs:work()) as start,patch.dict(web._job):
+        web._run_calendar_analysis()
+        assert start.call_args.kwargs['verify_sourcing'] is False
+        assert start.call_args.kwargs['background'] is True
+        assert web._job['ok'] is True
+        assert '353 remaining' in web._job['message']
+
+
+def test_check_now_syncs_calendar_events_with_mail(workspace):
+    from tests.web_client import TestClient
+    cfg=Config()
+    with patch.object(web.cfgmod,'load',return_value=cfg), patch.object(web,'_state',return_value={'has_accounts':True,'llm_ready':True}), \
+         patch.object(web,'_run_check') as run, patch.object(web,'_job_lock') as lock:
+        lock.acquire.return_value=True
+        with TestClient(web.create_app()) as client:
+            response=client.post('/api/check',json={'mode':'mail'})
+        assert response.status_code==200, response.text
+        assert run.call_args.kwargs.get('include_calendar') is True
+        assert not run.call_args.kwargs.get('scheduled')
+
+
+def test_mail_checks_never_report_imap_accounts_as_calendar_failures():
+    cfg=Config()
+    mail=SimpleNamespace(interview_changes=[],fetched=0,classified=0,from_cache=0,prefiltered=0,pruned=0,retryable=0,errors=[])
+    collector=Mock(return_value={'changes':[],'errors':[],'accounts':0})
+    def start(work,**kwargs):work()
+    accounts=[SimpleNamespace(id=1,label='gmail',provider='imap'),SimpleNamespace(id=2,label='work',provider='outlook')]
+    with patch.object(web.cfgmod,'load',return_value=cfg), patch.object(web.db,'session',side_effect=lambda:nullcontext(Mock())),          patch.object(web.db,'list_accounts',return_value=accounts), patch.object(web,'check_once',return_value=mail),          patch.object(web.interviews,'collect_calendar_events',collector), patch.object(web,'_start_job',side_effect=start), patch.dict(web._job):
+        web._run_check(web.CheckBody(),include_calendar=True)
+        assert collector.call_args.kwargs['account_ids']=={2}
+        assert web._job['ok'] is True
+        collector.reset_mock()
+        web._run_check(web.CheckBody(account='gmail'),include_calendar=True)
+        collector.assert_not_called()  # an IMAP-only check has no calendar to collect
+        assert web._job['ok'] is True

@@ -1,0 +1,48 @@
+/* Settings > Appearance. Each preview carries data-palette and data-theme, so it is drawn
+   from that theme's own tokens; the cards around it use the current theme. */
+@media screen {
+ :root body .app-frame .appearance-card { gap:20px; }
+ :root body .app-frame .appearance-card fieldset { display:grid; gap:0; min-width:0; margin:0; padding:0; border:0; }
+ :root body .app-frame .appearance-card legend { margin:0 0 8px; padding:0; font-size:12px; font-weight:550; color:var(--text-soft); }
+
+ :root body .app-frame .appearance-segments { display:inline-flex; gap:2px; width:max-content; max-width:100%; padding:2px; border:1px solid var(--border); border-radius:8px; background:var(--background); }
+ :root body .app-frame .appearance-segment { position:relative; display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 12px; border-radius:6px; color:var(--muted-foreground); font-size:12.5px; font-weight:550; cursor:pointer; transition:background-color var(--ui-motion),color var(--ui-motion); }
+ :root body .app-frame .appearance-segment:hover { color:var(--foreground); }
+ :root body .app-frame .appearance-segment:has(input:checked) { color:var(--foreground); background:var(--surface-raised); box-shadow:0 0 0 1px var(--border),var(--shadow-resting-sm); }
+ :root body .app-frame .appearance-segment:has(input:focus-visible) { outline:2px solid var(--ring); outline-offset:1px; }
+ :root body .app-frame :is(.appearance-segment,.theme-option) > input { position:absolute; inset:0; z-index:1; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; }
+
+ :root body .app-frame .theme-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:12px; }
+ :root body .app-frame .theme-option { position:relative; display:grid; gap:3px; padding:7px 7px 10px; border:1px solid var(--border); border-radius:10px; background:var(--card); cursor:pointer; transition:border-color var(--ui-motion),box-shadow var(--ui-motion); }
+ :root body .app-frame .theme-option:hover { border-color:var(--input); }
+ :root body .app-frame .theme-option:has(input:checked) { border-color:var(--primary); box-shadow:0 0 0 1px var(--primary); }
+ :root body .app-frame .theme-option:has(input:focus-visible) { outline:2px solid var(--ring); outline-offset:2px; }
+ :root body .app-frame .theme-label { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:6px; padding-inline:3px; }
+ :root body .app-frame .theme-name { font-size:13px; font-weight:600; color:var(--foreground); }
+ :root body .app-frame .theme-label svg { flex:none; color:var(--primary); }
+ :root body .app-frame .theme-note { padding-inline:3px; font-size:11.5px; line-height:1.4; color:var(--muted-foreground); }
+
+ /* The miniature screen: navigation, header with primary action, a chart panel, list rows. */
+ :root body .app-frame .theme-preview { display:flex; height:92px; overflow:hidden; border:1px solid var(--border); border-radius:7px; background:var(--background); }
+ :root body .app-frame .theme-preview i { display:block; border-radius:2px; }
+ :root body .app-frame .theme-preview .tp-nav { display:flex; flex-direction:column; gap:5px; width:28%; padding:7px 6px; }
+ :root body .app-frame .theme-preview .tp-nav i { height:4px; background:color-mix(in srgb,var(--muted-foreground) 40%,transparent); }
+ :root body .app-frame .theme-preview .tp-nav .tp-brand { width:62%; height:5px; margin-bottom:3px; background:var(--primary); }
+ :root body .app-frame .theme-preview .tp-nav .is-on { height:7px; margin-inline:-2px; background:color-mix(in srgb,var(--primary) 30%,var(--background)); }
+ :root body .app-frame .theme-preview .tp-main { display:flex; flex:1; flex-direction:column; gap:5px; min-width:0; margin:5px 5px 5px 0; padding:6px; border:1px solid var(--border); border-radius:5px; background:var(--card); }
+ :root body .app-frame .theme-preview .tp-head { display:flex; align-items:center; justify-content:space-between; }
+ :root body .app-frame .theme-preview .tp-title { width:42%; height:5px; background:var(--foreground); }
+ :root body .app-frame .theme-preview .tp-action { width:24%; height:8px; border-radius:3px; background:var(--primary); }
+ :root body .app-frame .theme-preview .tp-panel { flex:1; padding:4px 5px; border:1px solid var(--border); border-radius:4px; background:var(--surface); }
+ :root body .app-frame .theme-preview .tp-bars { display:flex; align-items:flex-end; gap:3px; height:100%; }
+ :root body .app-frame .theme-preview .tp-bars i { flex:1; border-radius:1px; }
+ :root body .app-frame .theme-preview .tp-rows { display:grid; gap:3px; }
+ :root body .app-frame .theme-preview .tp-rows i { height:4px; background:color-mix(in srgb,var(--muted-foreground) 32%,transparent); }
+ :root body .app-frame .theme-preview .tp-rows .is-on { background:color-mix(in srgb,var(--primary) 45%,transparent); }
+
+ :root body .app-frame .appearance-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; }
+ :root body .app-frame .appearance-footer .form-hint { margin:0; }
+}
+@media screen and (max-width:700px) { :root body .app-frame .theme-grid { grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); } }
+@media screen and (prefers-reduced-motion:reduce) { :root body .app-frame :is(.appearance-segment,.theme-option) { transition:none; } }
+@media screen and (forced-colors:active) { :root body .app-frame .theme-option:has(input:checked) { outline:3px solid Highlight; } }

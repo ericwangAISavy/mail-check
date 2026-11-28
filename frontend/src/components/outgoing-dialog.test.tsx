@@ -3,7 +3,7 @@ import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
 import {api,request} from "@/lib/api"
 import {ToastProvider} from "@/components/common"
 import OutgoingDialog from "./outgoing-dialog"
-vi.mock("@/lib/api",()=>({api:{post:vi.fn()},request:vi.fn()}))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(),api:{post:vi.fn()},request:vi.fn()}))
 afterEach(()=>{cleanup();vi.resetAllMocks()})
 it("shows SMTP suggestions and tests settings only after the user saves",async()=>{
  vi.mocked(request).mockResolvedValue({host:"smtp.gmail.com",port:465,security:"ssl",username:"me@gmail.com"})

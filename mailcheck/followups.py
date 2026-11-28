@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from . import db, interview_processes, interviews
+from .calendar_events import interview_evidence
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS agent_followup_state (
@@ -145,7 +146,7 @@ def list_followups(conn, account_id=None, now=None):
             if e['status'] == 'Cancelled' or not start or end > now:
                 continue
             text = ' '.join(str(e.get(k) or '') for k in ('stage', 'notes', 'company'))
-            if e.get('stage') != 'Other' or interviews.INTERVIEW_CONTEXT.search(text) or evidence_mail:
+            if e.get('stage') != 'Other' or interview_evidence(text) or evidence_mail:
                 eligible.append(e)
         if not eligible and not evidence_mail:
             continue

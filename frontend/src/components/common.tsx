@@ -1,22 +1,28 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from "react"
-import { Check, CircleAlert, LoaderCircle, RotateCcw, Search, X } from "lucide-react"
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react"
+import { Check, CircleAlert, Inbox, LoaderCircle, RotateCcw, Search, X } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { api, request } from "@/lib/api"
+import { api, request, getWorkspaceIdentityRevision, subscribeWorkspaceIdentity } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import type { Message } from "@/lib/types"
 
-type Toast = { id: number; text: string; kind: "success" | "error" | "info"; action?: { label: string; run: () => void } }
+type Toast = { id: number; revision: number; text: string; kind: "success" | "error" | "info"; action?: { label: string; run: () => void } }
 const ToastContext = createContext<(text: string, kind?: Toast["kind"], action?: Toast["action"]) => void>(() => undefined)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([])
+  const revision = useSyncExternalStore(subscribeWorkspaceIdentity, getWorkspaceIdentityRevision)
+  useEffect(() => { setItems((current) => current.filter((item) => item.revision === revision)) }, [revision])
   const toast = useCallback((text: string, kind: Toast["kind"] = "info", action?: Toast["action"]) => {
+    const revision = getWorkspaceIdentityRevision()
     const id = Date.now() + Math.random()
-    setItems((current) => [...current, { id, text, kind, action }])
+    const guardedAction = action && { ...action, run: () => {
+      if (revision === getWorkspaceIdentityRevision()) action.run()
+    } }
+    setItems((current) => [...current, { id, revision, text, kind, action: guardedAction }])
   }, [])
   const dismiss = useCallback((id: number) => setItems((current) => current.filter((item) => item.id !== id)), [])
-  return <ToastContext.Provider value={toast}>{children}<div className="toast-stack" aria-live="polite">{items.map((item) => <ToastView key={item.id} item={item} onDismiss={dismiss} />)}</div></ToastContext.Provider>
+  return <ToastContext.Provider value={toast}>{children}<div className="toast-stack" aria-live="polite">{items.filter((item) => item.revision === revision).map((item) => <ToastView key={item.id} item={item} onDismiss={dismiss} />)}</div></ToastContext.Provider>
 }
 
 /** One toast. The timer pauses while it is hovered or focused so it cannot vanish
@@ -35,7 +41,15 @@ function ToastView({ item, onDismiss }: { item: Toast; onDismiss: (id: number) =
     <button type="button" className="toast-dismiss" aria-label="Dismiss notification" onClick={() => onDismiss(item.id)}><X size={14} /></button>
   </div>
 }
-export function useToast() { return useContext(ToastContext) }
+export function useToast() {
+  const toast = useContext(ToastContext)
+  const revision = useSyncExternalStore(subscribeWorkspaceIdentity, getWorkspaceIdentityRevision)
+  // Capture the caller's identity so delayed mutation callbacks cannot publish
+  // notifications (or actions) into a later session, even in the same workspace.
+  return useCallback((...args: Parameters<typeof toast>) => {
+    if (revision === getWorkspaceIdentityRevision()) toast(...args)
+  }, [toast, revision])
+}
 
 /** The platform's shortcut modifier, so hints match the keys that work. */
 export const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl"
@@ -45,19 +59,19 @@ export function PageHeading({ title, description, action }: { title: string; des
 }
 
 export function Loading({ label = "Loading your workspace…" }: { label?: string }) {
-  return <div className="loading-state"><LoaderCircle className="spin" size={19} /><span>{label}</span></div>
+  return <div className="loading-state" role="status" aria-label={label}><LoaderCircle className="spin" size={19} aria-hidden="true" /><span>{label}</span></div>
 }
 
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
-  return <div className="empty-state"><span className="empty-mark"><Check size={19} /></span><h2>{title}</h2><p>{description}</p>{action}</div>
+  return <div className="empty-state"><span className="empty-mark"><Inbox size={19} aria-hidden="true" /></span><h2>{title}</h2><p>{description}</p>{action}</div>
 }
 
-export function CategoryBadge({ message }: { message: Pick<Message, "category" | "category_label" | "tier" | "deadline_display"> }) {
+export function CategoryBadge({ message }: { message: Pick<Message, "category" | "category_label" | "tier" | "deadline_display" | "application_matched"> }) {
   const urgent = message.tier === "act" || Boolean(message.deadline_display && /due today|overdue/i.test(message.deadline_display))
-  return <Badge variant={urgent ? "urgent" : message.tier === "reply" ? "default" : "muted"}>{message.category_label}</Badge>
+  return <><Badge variant={urgent ? "urgent" : message.tier === "reply" ? "default" : "muted"}>{message.category_label}</Badge>{message.category === "application_ack" && message.application_matched && <Badge variant="outline" className="border-emerald-500/25 bg-emerald-500/10 px-1.5 text-emerald-700 dark:text-emerald-300" title="Matched to a checked job link"><Check size={12} aria-hidden="true"/><span className="sr-only">Matched</span></Badge>}</>
 }
 
-export function useDoneMutation(onSuccess?: (message: Message) => void) {
+export function useDoneMutation(onSuccess?: (message: Message) => void, scopedUndo=false) {
   const client = useQueryClient()
   const toast = useToast()
   return useMutation({
@@ -72,7 +86,7 @@ export function useDoneMutation(onSuccess?: (message: Message) => void) {
       const toastText = variables.done ? "Moved to Completed." : "Restored to your queue."
       toast(toastText, "success", variables.done ? { label: "Undo", run: async () => {
         try {
-          await api.post("/api/messages/undo-last")
+          await api.post(scopedUndo ? `/api/messages/${message.pk}/handled?done=false` : "/api/messages/undo-last")
           client.invalidateQueries({ queryKey: ["triage"] })
           client.invalidateQueries({ queryKey: ["dashboard"] })
           client.invalidateQueries({ queryKey: ["bootstrap"] })

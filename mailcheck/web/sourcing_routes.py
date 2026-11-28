@@ -3,9 +3,10 @@
 from typing import Annotated, Literal
 import sqlite3
 import uuid
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from datetime import date
+from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 from .. import db, native_sourcing as sheets, sourcing_csv, payments
 
 Text = Annotated[str, Field(max_length=50_000)]
@@ -16,6 +17,10 @@ class BlockedCompanies(BaseModel):
     companies: list[Annotated[str, Field(min_length=1,max_length=200)]] = Field(max_length=1000)
 
 
+class RoleKeywords(BaseModel):
+    keywords: list[Annotated[str, Field(min_length=1,max_length=200)]] = Field(max_length=1000)
+
+
 class Book(BaseModel):
     bidder_id: int
     title: str = Field(default="Applications", min_length=1, max_length=100)
@@ -24,6 +29,12 @@ class Book(BaseModel):
 class Tab(BaseModel):
     account_id: int
     title: str = Field(default="", max_length=100)
+
+
+class OpenedLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row_id: Key
+    job_created_at: FiniteFloat
 
 
 class Style(BaseModel):
@@ -55,6 +66,7 @@ class Operation(BaseModel):
 
 class Save(Operation):
     compact_rows: bool = False
+    assign_date: str | None = Field(default=None, max_length=10)
     changes: list[Change] = Field(min_length=1, max_length=10_000)
 
 
@@ -98,7 +110,25 @@ class Archive(BaseModel):
     archived: bool
 
 
-def install(app, frontend_page, secure_cookies):
+class HistoryScope(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    bidder_id: int = Field(gt=0)
+    start: date | None = None
+    end: date | None = None
+
+    @model_validator(mode='after')
+    def ordered_dates(self):
+        if self.start and self.end and self.start > self.end:
+            raise ValueError('The start date must be on or before the end date.')
+        return self
+
+
+class ClearHistory(HistoryScope):
+    preview_token: str = Field(pattern=r'^[a-f0-9]{64}$')
+    operation: uuid.UUID
+
+
+def install(app, frontend_page, secure_cookies, *, gateway_managed=False):
     router = APIRouter()
     from ..sourcing_progress import ProgressStore
     from contextlib import nullcontext
@@ -110,8 +140,60 @@ def install(app, frontend_page, secure_cookies):
         return {"role": req.state.role, "bidder_id": req.state.bidder_id}
 
     def admin(req):
-        if req.state.role != "admin":
+        if req.state.role != "admin" or getattr(req.state, 'viewer_read_only', False):
             raise HTTPException(403, "Admin access required.")
+
+    def job_links_admin(req):
+        admin(req)
+        if gateway_managed:
+            raise HTTPException(403,'Job links is available only through the permission-checked gateway endpoint.')
+
+    @router.get('/api/job-links')
+    def universal_job_links(req: Request, q: str = '', cursor: str = '', day: str = '', start_date: str = '', end_date: str = '', limit: int = Query(100,ge=100,le=500), exclude_my_links: bool = True, exclude_one_page: bool = False, only_one_page: bool = False):
+        job_links_admin(req)
+        if len(q)>200 or len(cursor)>1024:
+            raise HTTPException(422,'Search or cursor is too long.')
+        from ..job_links import search
+        from .. import config
+        try:
+            return search([('local',config.db_path())],q=q,cursor=cursor,day=day,start_date=start_date,end_date=end_date,limit=limit,
+                          exclude_source='local' if exclude_my_links else None,exclude_one_page=exclude_one_page,only_one_page=only_one_page)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from None
+
+    @router.get('/job-links')
+    def job_links_page(req: Request):
+        job_links_admin(req)
+        return frontend_page()
+
+    def history_call(req, action):
+        admin(req)
+        with db.session() as conn:
+            try:
+                return action(conn)
+            except LookupError as exc:
+                raise HTTPException(404, str(exc))
+            except FileExistsError as exc:
+                raise HTTPException(409, str(exc))
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+
+    @router.get('/api/accounts/{account_id}/link-history')
+    def link_history(account_id: int, req: Request):
+        from .. import link_history as history
+        return history_call(req, lambda conn: history.bidders(conn, account_id))
+
+    @router.post('/api/accounts/{account_id}/link-history/preview')
+    def preview_history(account_id: int, body: HistoryScope, req: Request):
+        from .. import link_history as history
+        return history_call(req, lambda conn: history.preview(conn, account_id, body.model_dump(mode='json')))
+
+    @router.post('/api/accounts/{account_id}/link-history/clear')
+    def clear_history(account_id: int, body: ClearHistory, req: Request):
+        from .. import link_history as history
+        scope = body.model_dump(mode='json', exclude={'preview_token', 'operation'})
+        return history_call(req, lambda conn: history.clear(conn, account_id, scope,
+            body.preview_token, str(body.operation)))
 
     def owned(conn, tab_id, req):
         try:
@@ -127,6 +209,8 @@ def install(app, frontend_page, secure_cookies):
                     return function(conn, tab)
             except FileExistsError as exc:
                 raise HTTPException(409, str(exc))
+            except sheets.SnapshotTooLarge as exc:
+                raise HTTPException(413, str(exc))
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
 
@@ -148,6 +232,22 @@ def install(app, frontend_page, secure_cookies):
             except ValueError as exc:raise HTTPException(400,str(exc))
             return {"companies":companies(conn)}
 
+    @router.get("/api/sourcing/role-filters")
+    def role_filters(req: Request):
+        admin(req)
+        from ..sourcing_filters import role_settings
+        with db.session() as conn:return role_settings(conn)
+
+    @router.post("/api/sourcing/role-filters/{account_id}")
+    def save_role_filters(account_id: int, body: RoleKeywords, req: Request):
+        admin(req)
+        from ..sourcing_filters import set_roles, roles
+        with db.session() as conn:
+            try:set_roles(conn,account_id,body.keywords)
+            except LookupError as exc:raise HTTPException(404,str(exc))
+            except ValueError as exc:raise HTTPException(400,str(exc))
+            return {"account_id":account_id,"keywords":roles(conn,account_id)}
+
     @router.get("/api/sourcing")
     def index(req: Request):
         with db.session() as conn:
@@ -157,7 +257,13 @@ def install(app, frontend_page, secure_cookies):
             if viewer:conn.execute("PRAGMA query_only=ON")
             # Older bidders predate automatic workbook creation. Reconcile only
             # missing workbooks so the picker always represents active bidders.
-            if not viewer:
+            missing_books = not viewer and conn.execute(
+                "SELECT 1 FROM bidders p WHERE p.removed_at IS NULL "
+                "AND (? OR p.id=?) AND NOT EXISTS ("
+                "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id) LIMIT 1",
+                (is_admin, identity["bidder_id"]),
+            ).fetchone()
+            if missing_books:
                 conn.execute(
                     "INSERT OR IGNORE INTO native_books(bidder_id,title) "
                     "SELECT p.id,'Applications' FROM bidders p WHERE p.removed_at IS NULL "
@@ -165,10 +271,20 @@ def install(app, frontend_page, secure_cookies):
                     "SELECT 1 FROM native_books b WHERE b.bidder_id=p.id)",
                     (is_admin, identity["bidder_id"]),
                 )
+            # Assigning an account is enough: its profile sheet appears on its own.
+            sheet_day = payments.today().isoformat()
+            scope = None if is_admin else identity["bidder_id"]
+            if not viewer and sheets.missing_assigned_sheets(conn, sheet_day, scope):
+                if conn.in_transaction:
+                    conn.commit()
+                with sheets.atomic(conn):
+                    sheets.ensure_assigned_sheets(conn, sheet_day, scope)
             books = [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT b.*,p.name FROM native_books b JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND (? OR b.bidder_id=?) ORDER BY p.name",
+                    "SELECT b.*,p.name,p.removed_at FROM native_books b JOIN bidders p ON p.id=b.bidder_id "
+                    "WHERE (? OR (p.removed_at IS NULL AND b.bidder_id=?)) "
+                    "ORDER BY p.removed_at IS NOT NULL,p.name COLLATE NOCASE,b.id",
                     (is_admin, identity["bidder_id"]),
                 )
             ]
@@ -179,9 +295,9 @@ def install(app, frontend_page, secure_cookies):
                     "JOIN native_tabs t ON t.id=r.tab_id "
                     "JOIN native_columns col ON col.tab_id=t.id AND col.kind='link' "
                     "JOIN native_cells c ON c.row_id=r.id AND c.column_id=col.id "
-                    "WHERE t.book_id=? AND t.archived=0 AND r.work_date IS NOT NULL "
+                    "WHERE t.book_id=? AND (t.archived=0 OR ?) AND r.work_date IS NOT NULL "
                     "AND trim(c.value, char(9)||char(10)||char(13)||' ')!='' ORDER BY r.work_date",
-                    (book["id"],),
+                    (book["id"], bool(is_admin and book["removed_at"])),
                 )]
                 book["tabs"] = [
                     {**dict(r), "header_row": 1}
@@ -190,6 +306,14 @@ def install(app, frontend_page, secure_cookies):
                         (book["id"], is_admin),
                     )
                 ]
+            # One grouped query for every visible sheet: tab badges and the admin's
+            # per-bidder workload come from the same lifecycle as the editor.
+            queue = sheets.workload(conn, [tab["id"] for book in books for tab in book["tabs"]])
+            for book in books:
+                for tab in book["tabs"]:
+                    tab["queue"] = queue.get(tab["id"])
+                book["queue"] = {key: sum((tab["queue"] or {}).get(key, 0) for tab in book["tabs"] if not tab["archived"])
+                                 for key in ("todo", "new_today", "carryover", "expiring")}
             result = {"books": books}
             if is_admin:
                 result["bidders"] = [
@@ -275,10 +399,28 @@ def install(app, frontend_page, secure_cookies):
         return progress.get(tab_id, str(operation)) or {"stage":"preparing","processed":0,"total":None}
 
     @router.get("/api/sourcing/tabs/{tab_id}")
-    def snapshot(tab_id: int, req: Request):
+    def snapshot(tab_id: int, req: Request, compact: bool = False):
         with db.session() as conn:
             if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
-            return sheets.snapshot(conn, owned(conn, tab_id, req))
+            try:
+                with sheets.atomic(conn, deferred=True):
+                    tab = owned(conn, tab_id, req)
+                    data = sheets.snapshot(conn, tab, compact=compact)
+                    if principal(req)["role"] == "bidder":
+                        data["opened_row_ids"] = sheets.opened_rows(conn, tab)
+            except sheets.SnapshotTooLarge as exc:
+                raise HTTPException(413, str(exc))
+        # The snapshot already contains JSON-compatible values.
+        return JSONResponse(data)
+
+    @router.post("/api/sourcing/tabs/{tab_id}/opened")
+    def open_link(tab_id: int, body: OpenedLink, req: Request):
+        if principal(req)["role"] != "bidder":
+            raise HTTPException(403, "Bidder access required.")
+        with db.session() as conn, sheets.atomic(conn):
+            if not sheets.mark_link_opened(conn, owned(conn, tab_id, req), body.row_id, body.job_created_at):
+                raise HTTPException(404, "Job link not found.")
+        return {"ok": True}
 
     @router.post("/api/sourcing/tabs/{tab_id}/save")
     def save(tab_id: int, body: Save, req: Request):
@@ -292,6 +434,7 @@ def install(app, frontend_page, secure_cookies):
                 [c.model_dump(exclude_none=True) for c in body.changes],
                 work_date=body.work_date,
                 compact_rows=body.compact_rows,
+                assign_date=body.assign_date,
             ),
             operation=str(body.operation),
         )
@@ -360,6 +503,8 @@ def install(app, frontend_page, secure_cookies):
             tab = owned(conn, tab_id, req)
             try:
                 content = sourcing_csv.export_rows(conn, tab, work_date=work_date)
+            except sheets.SnapshotTooLarge as exc:
+                raise HTTPException(413, str(exc))
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
             suffix = "" if work_date == "all" else "-" + work_date
@@ -377,48 +522,31 @@ def install(app, frontend_page, secure_cookies):
             if getattr(req.state,'viewer_read_only',False):conn.execute("PRAGMA query_only=ON")
             identity=principal(req)
             tabs = conn.execute(
-                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id WHERE p.removed_at IS NULL AND t.archived=0 AND (? OR b.bidder_id=?) AND (? IS NULL OR t.account_id=?)",
-                (identity["role"] == "admin", identity["bidder_id"], account, account),
+                "SELECT t.*,b.bidder_id,p.name FROM native_tabs t JOIN native_books b ON b.id=t.book_id JOIN bidders p ON p.id=b.bidder_id "
+                "WHERE (t.archived=0 OR (? AND p.removed_at IS NOT NULL)) "
+                "AND (? OR (p.removed_at IS NULL AND b.bidder_id=?)) AND (? IS NULL OR t.account_id=?)",
+                (identity["role"] == "admin", identity["role"] == "admin", identity["bidder_id"], account, account),
             ).fetchall()
             results = []
+            words = q.casefold().split()
+            if not words:
+                return {"results": [], "cached": False, "incomplete": False}
             for tab in tabs:
-                data = sheets.snapshot(conn, dict(tab))
-                fields = {
-                    c["kind"]: i for i, c in enumerate(data["columns"]) if c["kind"]
-                }
-                for i, row in enumerate(data["rows"][1:], 1):
-                    values = [
-                        row[fields[k]]["value"] if k in fields else ""
-                        for k in ("company", "role", "link")
-                    ]
-                    haystack = " ".join(
-                        [
-                            *(str(c["value"]) for c in row),
-                            tab["name"],
-                            data["title"],
-                            tab["account_label"],
-                        ]
-                    ).casefold()
-                    if (
-                        q.strip()
-                        and any(str(c["value"]) for c in row)
-                        and all(word in haystack for word in q.casefold().split())
-                    ):
-                        results.append(
-                            {
-                                "tab_id": tab["id"],
-                                "bidder": tab["name"],
-                                "profile": data["title"],
-                                "account_id": tab["account_id"],
-                                "row": i,
-                                "row_id": data["row_ids"][i],
-                                "work_date": data["row_dates"][i],
-                                "company": values[0],
-                                "role": values[1],
-                                "link": values[2],
-                                "refreshed_at": tab["updated_at"],
-                            }
-                        )
+                title = conn.execute(
+                    "SELECT COALESCE(a.label,t.title) FROM native_tabs t "
+                    "LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", (tab['id'],)
+                ).fetchone()[0]
+                context = ' '.join([tab['name'], title, tab['account_label']])
+                try:
+                    for match in sheets.search_rows(conn, dict(tab), words, context):
+                        if len(results) < 500:
+                            results.append({
+                                **match, "tab_id": tab['id'], "bidder": tab['name'],
+                                "profile": title, "account_id": tab['account_id'],
+                                "refreshed_at": tab['updated_at'],
+                            })
+                except sheets.SnapshotTooLarge as exc:
+                    raise HTTPException(413, str(exc))
             return {"results": results[:500], "cached": False, "incomplete": False}
 
     app.include_router(router)

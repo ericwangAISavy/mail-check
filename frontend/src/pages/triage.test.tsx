@@ -30,15 +30,46 @@ function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }))
 }
 
-function renderPage() {
+function renderPage(bidderInbox=false, taxonomy=bootstrap.taxonomy) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bootstrap} /></ToastProvider></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><ToastProvider><TriagePage bootstrap={bidderInbox ? {...bootstrap,taxonomy,readiness:{...bootstrap.readiness,model:false,accounts:false}} : bootstrap} bidderInbox={bidderInbox} /></ToastProvider></QueryClientProvider>)
 }
 
 function renderWithReader(message: Message, readOnly = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(<QueryClientProvider client={queryClient}><ToastProvider><Reader message={message} mobile onBack={() => undefined} onDone={() => undefined} busy={false} canRetry readOnly={readOnly} /></ToastProvider></QueryClientProvider>)
 }
+
+it('navigates mail view tabs with arrows and exposes filter expansion', async () => {
+  renderPage()
+  const queue = await screen.findByRole('tab', {name: /^Queue/})
+  expect(queue.tabIndex).toBe(0)
+  expect(screen.getByRole('tab', {name:'All mail'}).tabIndex).toBe(-1)
+  fireEvent.keyDown(queue, {key:'ArrowRight'})
+  await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole('tab', {name:'All mail'})))
+  expect(screen.getByRole('tab', {name:'All mail'}).getAttribute('aria-selected')).toBe('true')
+  fireEvent.keyDown(document.activeElement!, {key:'End'})
+  expect(document.activeElement).toBe(screen.getByRole('tab', {name:'Completed'}))
+  fireEvent.keyDown(document.activeElement!, {key:'Home'})
+  expect(document.activeElement).toBe(queue)
+  const filters=screen.getByRole('button', {name:/Filters/})
+  expect(filters.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(filters)
+  expect(filters.getAttribute('aria-expanded')).toBe('true')
+  expect(document.getElementById(filters.getAttribute('aria-controls')!)?.contains(screen.getByLabelText('Search mail'))).toBe(true)
+})
+
+it("aborts an unfinished reader request when the reader closes", async () => {
+  let signal: AbortSignal | undefined
+  vi.stubGlobal("fetch", vi.fn((_input, init) => new Promise((_resolve, reject) => {
+    signal = init.signal
+    signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+  })))
+  const { unmount } = renderWithReader(messages[0])
+  await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+  unmount()
+  expect(signal?.aborted).toBe(true)
+})
 
 it("keeps the guest dashboard reader read-only", async () => {
   renderWithReader({ ...messages[0], category: "unclassified" }, true)
@@ -73,6 +104,15 @@ beforeEach(() => {
         counts: { interview_invite: visible.length, unclassified }, accounts: [{ label: "Personal", enabled: true }],
         days: 30, selected_account: null, selected_category: null })
     }
+    if (url === "/api/messages/clear-queue/batch-1/undo") {
+      done.clear()
+      return response({ message: "Restored 2 messages.", count: 2 })
+    }
+    if (url === "/api/messages/clear-queue" && !failDone) {
+      const complete = () => { messages.forEach(message => done.add(message.pk)); return response({ ok: true, count: 2, operation: "batch-1", message: "Moved 2 messages to Completed." }) }
+      if (slowDone) return new Promise(resolve => { finishDone = () => { resolve(complete()) } })
+      return complete()
+    }
     if (url.startsWith("/api/messages/") && init?.method === "POST") {
       if (failDone) return response({ error: "Server rejected the change" }, 500)
       const pk = Number(url.match(/messages\/(\d+)/)?.[1])
@@ -92,7 +132,7 @@ beforeEach(() => {
   }))
 })
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe("triage interactions", () => {
   it("keeps rendering after completing the final message in the queue", async () => {
@@ -290,4 +330,335 @@ it("opens the target message and reply composer from a follow-up link without ge
   expect(screen.getByRole("option",{name:/Summary 2/}).getAttribute("aria-selected")).toBe("true")
   expect(requests.some(r=>r.startsWith("GET /api/messages/2/reply"))).toBe(true)
   expect(requests.some(r=>r.includes("/generate")||r.startsWith("POST /api/messages/2/reply"))).toBe(false)
+})
+
+it("offers Today and Last 24 hours and sends the selected range", async () => {
+  renderPage()
+  await screen.findByText("Interview 1")
+  fireEvent.click(screen.getByRole("button", { name: /Filters/ }))
+  const range = screen.getByLabelText("Time range")
+  expect(screen.getByRole("option", { name: "Today" })).toBeTruthy()
+  expect(screen.getByRole("option", { name: "Last 24 hours" })).toBeTruthy()
+  fireEvent.change(range, { target: { value: "0" } })
+  await waitFor(() => expect(requests.some(url => url.includes("days=0"))).toBe(true))
+  fireEvent.change(range, { target: { value: "1" } })
+  await waitFor(() => expect(requests.some(url => url.includes("days=1"))).toBe(true))
+})
+
+it("submits text search with existing filters and clears it", async () => {
+  window.history.replaceState({}, "", "/?view=all&days=1&account=Personal")
+  renderPage()
+  await screen.findByText("Interview 1")
+  fireEvent.click(screen.getByRole("button", { name: /Filters/ }))
+  fireEvent.change(screen.getByLabelText("Search mail"), { target: { value: "  Acme  " } })
+  fireEvent.click(screen.getByRole("button", { name: "Search" }))
+  await waitFor(() => expect(requests.some(url => url.includes("q=Acme") && url.includes("days=1") && url.includes("account=Personal"))).toBe(true))
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }))
+  await waitFor(() => expect((screen.getByLabelText("Search mail") as HTMLInputElement).value).toBe(""))
+  expect(new URLSearchParams(window.location.search).has("q")).toBe(false)
+})
+
+it('reuses triage for the bidder Inbox with all categories, reading and scoped Done only',async()=>{
+ const base=vi.mocked(fetch).getMockImplementation()!
+ window.history.replaceState({},'', '/inbox?category=offer')
+ vi.mocked(fetch).mockImplementation(async(input,init)=>{
+  const url=String(input)
+  if(url.includes('/handled?done=false'))done.delete(Number(url.match(/messages\/(\d+)/)?.[1]))
+  const res=await base(input,init)
+  const data=await res.json()
+  if(url.startsWith('/api/triage')){
+   data.groups=data.groups.map((group:any)=>({...group,items:group.items.map((message:any)=>({...message,category:'info_request',category_label:'Info request'}))}))
+   data.counts={info_request:data.total}
+   data.check_schedule={automatic:true,running:false,next_at:"2026-11-06T20:30:00Z"}
+  }else if(url.startsWith('/api/messages/')&&init?.method!=='POST'){
+   data.message={...data.message,category:'info_request',category_label:'Info request',open_url:'https://outlook.live.com/mail/',open_label:'Open in Outlook'}
+   data.body_html='<p>Your verification code is 123456</p>'
+  }
+  return response(data,res.status)
+ })
+ renderPage(true,[{name:'interview_invite',label:'Interview invite',tier:'act'},{name:'info_request',label:'Info request',tier:'reply'},{name:'application_ack',label:'Application received',tier:'info'}])
+ expect(await screen.findByText('Your verification code is 123456')).toBeTruthy()
+ expect(document.querySelector('.tier-label')).toBeNull()  // one timeline, no category sections
+ expect(screen.getByRole('region',{name:'Inbox update schedule'})).toBeTruthy()
+ const triageRequests=requests.filter(url=>url.startsWith('GET /api/triage?'))
+ expect(triageRequests.length).toBeGreaterThan(0)
+ expect(triageRequests.every(url=>url.includes('category=offer')&&url.includes('live=1'))).toBe(true)
+ expect(screen.queryByRole('button',{name:'Reply'})).toBeNull()
+ expect(screen.queryByRole('link',{name:/Open in Outlook/})).toBeNull()
+ expect(screen.queryByRole('button',{name:/Try classification again/})).toBeNull()
+ expect(screen.queryByRole('button',{name:/Undo/})).toBeNull()
+ expect(screen.queryByRole('button',{name:'Continue setup'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:/Filters/}))
+ const category=screen.getByLabelText('Category') as HTMLSelectElement
+ expect(category.disabled).toBe(false)
+ expect([...category.options].map(option=>option.value)).toEqual(['','info_request'])
+ fireEvent.click(screen.getByRole('button',{name:'Done'}))
+ await screen.findByText('Moved to Completed.')
+ fireEvent.click(screen.getByRole('button',{name:'Undo'}))
+ await waitFor(()=>expect(requests.some(url=>url.startsWith('POST /api/messages/1/handled?done=false'))).toBe(true))
+ expect(requests.some(url=>url.includes('/api/messages/undo-last'))).toBe(false)
+})
+
+it('hides cached reader metadata when bidder access is rejected',async()=>{
+ vi.mocked(fetch).mockImplementation(()=>response({error:'No such message.'},404))
+ renderWithReader(messages[0],true)
+ expect((await screen.findByRole('alert')).textContent).toContain('This message is unavailable')
+ expect(screen.queryByText('Interview 1')).toBeNull()
+ expect(screen.queryByText('Acme')).toBeNull()
+})
+
+it('refreshes bidder inbox through the scoped GET without starting a manual mail check', async () => {
+  renderPage(true)
+  const refresh = await screen.findByRole('button', { name: 'Refresh Inbox' })
+  const before = requests.filter(request => request.startsWith('GET /api/triage?')).length
+  fireEvent.click(refresh)
+  await waitFor(() => expect(requests.filter(request => request.startsWith('GET /api/triage?')).length).toBe(before + 1))
+  expect(requests.filter(request => request.includes('/api/triage?')).every(request => request.includes('live=1'))).toBe(true)
+  expect(requests.some(request => request.includes('/api/check'))).toBe(false)
+})
+
+it('polls visible bidder inbox every twelve seconds and refreshes immediately on visibility or focus', async () => {
+  vi.useFakeTimers()
+  renderPage(true)
+  await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+  const count = () => requests.filter(request => request.startsWith('GET /api/triage?')).length
+  try {
+    const before = count()
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(count()).toBe(before)
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+    expect(count()).toBe(before + 1)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    fireEvent(document, new Event('visibilitychange'))
+    const hiddenCount = count()
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+    expect(count()).toBe(hiddenCount)
+    fireEvent(window, new Event('focus'))
+    expect(count()).toBe(hiddenCount)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    await act(async () => { fireEvent(document, new Event('visibilitychange')) })
+    expect(count()).toBe(hiddenCount + 1)
+    await act(async () => { fireEvent(window, new Event('focus')) })
+    expect(count()).toBe(hiddenCount + 2)
+  } finally {
+    vi.useRealTimers()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  }
+})
+
+it('does not offer a bidder refresh button on admin triage', async () => {
+  renderPage()
+  await screen.findByText('Body for 1')
+  expect(screen.queryByRole('button', { name: 'Refresh Inbox' })).toBeNull()
+})
+
+it.each([
+  [true, false, false, 'Waiting for the first update'],
+  [true, true, false, 'Checking for new mail…'],
+  [true, false, true, 'Server is busy — updates resume shortly'],
+  [false, false, false, 'Automatic mail checks are off'],
+])('describes live inbox state (enabled=%s, fetching=%s, processing=%s)', async (enabled, running, processing, label) => {
+  const base = vi.mocked(fetch).getMockImplementation()!
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const res = await base(input, init)
+    if (!String(input).startsWith('/api/triage')) return res
+    const data = await res.json()
+    data.check_schedule = { automatic: enabled, running: processing, next_at: null,
+      live: { enabled, interval_seconds: 30, running, last_checked_at: null, next_at: null } }
+    return response(data)
+  })
+  renderPage(true)
+  expect(await screen.findByText(label)).toBeTruthy()
+  expect(requests.some(request => request.startsWith('GET /api/triage?') && request.includes('live=1'))).toBe(true)
+})
+
+it('waits for visibility before requesting a hidden bidder inbox', async () => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+  try {
+    renderPage(true)
+    await act(async () => { await Promise.resolve() })
+    expect(requests).toEqual([])
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    fireEvent(document, new Event('visibilitychange'))
+    await screen.findByText('Body for 1')
+    expect(requests.some(request => request.includes('live=1'))).toBe(true)
+    fireEvent.click(screen.getByRole('tab', { name: 'All mail' }))
+    expect(new URLSearchParams(window.location.search).has('live')).toBe(false)
+  } finally {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  }
+})
+
+
+describe("clear entire queue", () => {
+  it("requires confirmation and explains the workspace scope", async () => {
+    window.history.replaceState({}, "", "/?q=old&days=7")
+    renderPage()
+    fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+    expect(requests.some(request => request.includes("clear-queue"))).toBe(false)
+    expect(screen.getByRole("dialog").textContent).toMatch(/Every message in the Queue will be marked done, including ones outside your filters/i)
+    expect(screen.getByRole("dialog").textContent).toMatch(/outside.*filters/i)
+    expect(screen.getByRole("dialog").textContent).toMatch(/Nothing is deleted/)
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+  it("hides the action outside Queue and for bidder inboxes", async () => {
+    renderPage()
+    await screen.findByRole("button", { name: "Mark all as done" })
+    fireEvent.click(screen.getByRole("tab", { name: "All mail" }))
+    expect(screen.queryByRole("button", { name: "Mark all as done" })).toBeNull()
+    cleanup()
+    renderPage(true)
+    await screen.findByRole("button", { name: "Refresh Inbox" })
+    expect(screen.queryByRole("button", { name: "Mark all as done" })).toBeNull()
+  })
+  it("reuses the operation after a lost response, then replaces it after success or cancel", async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!
+    let loseResponse = true
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const result = await base(input, init)
+      if (String(input) === "/api/messages/clear-queue" && loseResponse) {
+        loseResponse = false
+        throw new Error("Response lost")
+      }
+      return result
+    })
+    renderPage()
+    const open = async () => fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+    const confirm = () => fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+    const calls = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/messages/clear-queue")
+    const operation = (index: number) => JSON.parse(String(calls()[index][1]?.body)).operation
+    await open()
+    confirm()
+    await screen.findByRole("alert")
+    expect(calls()).toHaveLength(1)
+    const first = operation(0)
+    expect(first).toMatch(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i)
+    confirm()
+    await screen.findByText("Moved 2 messages to Completed.")
+    expect(calls()).toHaveLength(2)
+    expect(operation(1)).toBe(first)
+    failDone = true
+    await open()
+    confirm()
+    await screen.findByRole("alert")
+    expect(operation(2)).not.toBe(first)
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    await open()
+    confirm()
+    await screen.findByRole("alert")
+    expect(calls()).toHaveLength(4)
+    expect(operation(3)).not.toBe(operation(2))
+  })
+  it("keeps a failed confirmation open without automatic retries", async () => {
+    failDone = true
+    renderPage()
+    fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+    fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+    expect((await screen.findByRole("alert")).textContent).toContain("Server rejected the change")
+    expect(screen.getByRole("dialog")).toBeTruthy()
+    expect(requests.filter(request => request.includes("POST /api/messages/clear-queue"))).toHaveLength(1)
+  })
+})
+
+
+it("clears with an operation identifier and offers batch undo", async () => {
+  renderPage()
+  fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+  fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+  await screen.findByText("Moved 2 messages to Completed.")
+  const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input) === "/api/messages/clear-queue")!
+  expect(JSON.parse(String(call[1]?.body))).toEqual({ operation: expect.any(String) })
+  expect(screen.queryByRole("dialog")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+  await screen.findByText("Restored 2 messages.")
+  expect(requests).toContain("POST /api/messages/clear-queue/batch-1/undo ")
+})
+
+it("keeps clearing available with no visible messages", async () => {
+  done = new Set([1, 2])
+  renderPage()
+  await screen.findByText("Your queue is clear")
+  expect(screen.getByRole("button", { name: "Mark all as done" })).toBeTruthy()
+})
+
+it("guards pending clear against closing and other message actions", async () => {
+  slowDone = true
+  renderPage()
+  fireEvent.click(await screen.findByRole("button", { name: "Mark all as done" }))
+  fireEvent.click(screen.getByRole("button", { name: "Confirm mark all as done" }))
+  expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole("button", { name: "Close" }))
+  fireEvent.keyDown(document, { key: "Escape" })
+  fireEvent.keyDown(document, { key: "z", ctrlKey: true })
+  fireEvent.keyDown(document.querySelector(".triage-page")!, { key: "e" })
+  expect(screen.getByRole("dialog")).toBeTruthy()
+  expect(requests.filter(request => request.startsWith("POST"))).toHaveLength(1)
+  await act(async () => { finishDone?.(); await Promise.resolve() })
+  await screen.findByText("Moved 2 messages to Completed.")
+})
+
+it('does not count the fixed bidder category as a removable filter', async () => {
+ renderPage(true)
+ await screen.findByRole('button',{name:'Refresh Inbox'})
+ fireEvent.click(screen.getByRole('button',{name:'Filters'}))
+ expect(screen.queryByRole('button',{name:'Clear filters'})).toBeNull()
+ expect(screen.queryByLabelText('1 active')).toBeNull()
+})
+
+it('shows how fresh the bidder Inbox is from the server', async () => {
+ const base=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation(async(input,init)=>{
+  const res=await base(input,init)
+  if(!String(input).startsWith('/api/triage'))return res
+  const data=await res.json()
+  data.check_schedule={automatic:true,running:false,next_at:null,live:{enabled:true,running:false,interval_seconds:30,last_checked_at:null,next_at:new Date(Date.now()+30000).toISOString(),updated_at:new Date(Date.now()-20000).toISOString()}}
+  return response(data)
+ })
+ renderPage(true)
+ await waitFor(()=>expect(screen.getByRole('region',{name:'Inbox update schedule'}).querySelector('[role=status]')?.textContent).toMatch(/^Updated (2\d|1\d) seconds ago$/))
+})
+
+it('keeps the bidder inbox open after a temporary refresh failure', async () => {
+ renderPage(true)
+ await screen.findByText('Body for 1')
+ const base=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation((input,init)=>String(input).startsWith('/api/triage')?response({error:'Temporary outage'},502):base(input,init))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh Inbox'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('Inbox updates are temporarily unavailable')
+ expect(screen.getByText('Body for 1')).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Refresh Inbox'})).toBeTruthy()
+})
+
+it('hides cached bidder mail when a refresh revokes access', async () => {
+ renderPage(true)
+ await screen.findByText('Body for 1')
+ const base=vi.mocked(fetch).getMockImplementation()!
+ vi.mocked(fetch).mockImplementation((input,init)=>String(input).startsWith('/api/triage')?response({error:'Access revoked'},403):base(input,init))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh Inbox'}))
+ await screen.findByText(/Could not load triage/)
+ expect(screen.queryByText('Body for 1')).toBeNull()
+ expect(screen.queryByRole('option')).toBeNull()
+})
+
+it('keeps a loaded bidder message readable during a temporary reader outage', async () => {
+ vi.useFakeTimers()
+ renderWithReader(messages[0],true)
+ await act(async()=>{await vi.advanceTimersByTimeAsync(20)})
+ expect(screen.getByText('Body for 1')).toBeTruthy()
+ vi.mocked(fetch).mockImplementation(()=>response({error:'Temporary outage'},502))
+ await act(async()=>{await vi.advanceTimersByTimeAsync(10000)})
+ expect(screen.getByText('Body for 1')).toBeTruthy()
+ expect(screen.getByRole('alert').textContent).toContain('Showing the last loaded copy')
+ expect(screen.getByRole('button',{name:'Retry message'})).toBeTruthy()
+})
+
+it('lets a bidder return to the list when the selected message becomes unavailable',async()=>{
+ vi.mocked(fetch).mockImplementation(()=>response({error:'No such message.'},404))
+ const back=vi.fn(),client=new QueryClient({defaultOptions:{queries:{retry:false}}})
+ render(<QueryClientProvider client={client}><ToastProvider><Reader message={messages[0]} mobile readOnly onBack={back} onDone={()=>undefined} busy={false}/></ToastProvider></QueryClientProvider>)
+ await screen.findByRole('alert')
+ fireEvent.click(screen.getByRole('button',{name:'All messages'}))
+ expect(back).toHaveBeenCalledOnce()
+ expect(screen.queryByText('Interview 1')).toBeNull()
 })

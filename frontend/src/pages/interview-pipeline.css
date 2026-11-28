@@ -17,3 +17,24 @@
  .pipeline-table td:nth-child(3)::before{content:"Stage / status"}
  .pipeline-table td:last-child::before{content:"Next action"}
 }
+
+@media screen {
+ .page-wrap.pipeline-page .pipeline-toolbar { gap: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+ .page-wrap.pipeline-page .pipeline-filters { gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 9px; background: var(--muted); }
+ .page-wrap.pipeline-page .pipeline-filters .btn { min-height: 32px; padding: 5px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); box-shadow: none; font-size: 12px; }
+ .page-wrap.pipeline-page .pipeline-filters .btn[aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: 0 1px 3px #00000012; }
+ .page-wrap.pipeline-page .pipeline-search { gap: 12px; min-width: 0; }
+ .page-wrap.pipeline-page .pipeline-search label { min-width: 0; }
+ .page-wrap.pipeline-page .pipeline-table td .pipeline-status { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 8px; border-radius: 6px; background: var(--muted); font-size: 12px; line-height: 1.4; }
+ .page-wrap.pipeline-page .pipeline-empty { padding: 48px 20px; }
+ .page-wrap.pipeline-page .pipeline-empty strong { display: block; margin-bottom: 8px; color: var(--foreground); font-weight: 600; }
+}
+@media screen and (max-width: 700px) {
+ .page-wrap.pipeline-page .page-heading { flex-wrap: wrap; align-items: flex-start; }
+ .page-wrap.pipeline-page .heading-action { width: 100%; }
+ .page-wrap.pipeline-page .pipeline-toolbar { padding: 12px; }
+ .page-wrap.pipeline-page .pipeline-filters { width: 100%; }
+ .page-wrap.pipeline-page .pipeline-search { width: 100%; }
+ .page-wrap.pipeline-page .pipeline-search label { flex: 1 1 140px; }
+ .page-wrap.pipeline-page .pipeline-search input { min-width: 0; }
+}

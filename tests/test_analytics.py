@@ -17,6 +17,14 @@ from mailcheck.web.app import create_app
 
 
 class AnalyticsTests(unittest.TestCase):
+    def test_profile_cohorts_do_not_depend_on_dashboard_display_timezone(self):
+        self.add('quality-app',date='2026-11-01T20:00:00+00:00',category='application_ack')
+        chicago=dashboard_data(self.conn,DashboardFilters(tz='America/Chicago'),retention_days=90)['profile_outcomes']
+        auckland=dashboard_data(self.conn,DashboardFilters(tz='Pacific/Auckland'),retention_days=90)['profile_outcomes']
+        self.assertEqual(chicago['history_since'],'2026-11-01')
+        self.assertEqual(auckland['history_since'],chicago['history_since'])
+        self.assertEqual(auckland['accounts'],chicago['accounts'])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -47,6 +55,15 @@ class AnalyticsTests(unittest.TestCase):
         return dashboard_data(self.conn, DashboardFilters(
             start="2026-09-14", end="2026-09-16", tz="UTC", **kwargs), retention_days=90)
 
+    def test_closed_explorer_preserves_totals_and_skips_message_rows(self):
+        self.add("a")
+        statements = []
+        self.conn.set_trace_callback(statements.append)
+        result = self.data(include_messages=False)
+        self.assertEqual(result["messages"]["total"], 1)
+        self.assertEqual(result["messages"]["items"], [])
+        self.assertFalse(any("m.subject" in sql for sql in statements))
+
     def test_global_counts_latest_classification_and_zero_days(self):
         pk = self.add("a", category="interview_invite", action=True)
         self.add("b", done=True)
@@ -76,6 +93,59 @@ class AnalyticsTests(unittest.TestCase):
         db.set_handled(self.conn, pk, True)
         self.assertEqual(self.data()["summary"]["pending_attention"], 0)
         self.assertEqual(self.data(status="done")["summary"]["total"], 1)
+
+    def test_profile_quality_compares_replies_with_received_applications(self):
+        for name, category in (("ack-1", "application_ack"), ("ack-2", "application_ack"), ("interview", "interview_invite"),
+                               ("rejection", "rejection"), ("other", "unclassified")):
+            self.add(name, category=category)
+        self.add("work-ack", account=self.other, category="application_ack")
+        self.add("work-offer", account=self.other, category="offer")
+        result = self.data(categories=["rejection"], include_messages=False)
+        # Other mail (unclassified, offers) is not part of the comparison.
+        self.assertEqual(result["profile_quality"], {
+            "personal": {"2026-09-15": {"applications": 2, "interview": 1, "rejection": 1}},
+            "work": {"2026-09-15": {"applications": 1, "interview": 0, "rejection": 0}},
+        })
+        self.assertEqual(self.data(account="work")["profile_quality"].keys(), {"work"})
+        self.add("older", category="interview_invite", date="2025-01-01T12:00:00")
+        result = self.data(categories=["rejection"], status="done", q="no-match")
+        self.assertEqual(result["summary"]["total"], 0)
+        self.assertEqual(result["profile_quality"]["personal"]["2025-01-01"],
+                         {"applications": 0, "interview": 1, "rejection": 0})
+
+    def test_profile_quality_comes_from_permanent_records_not_recently_received_mail(self):
+        self.add("ack", category="application_ack")
+        self.add("interview", category="interview_invite")
+        self.add("rejection", category="rejection")
+        before = self.data()["profile_quality"]
+        # Message retention deletes the stored mail; the permanent records remain.
+        self.assertEqual(db.prune_messages(self.conn, before_iso="2099-01-01T00:00:00+00:00"), 3)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 0)
+        after = self.data()
+        self.assertEqual(after["profile_quality"], before)
+        self.assertEqual(after["profile_quality"]["personal"]["2026-09-15"],
+                         {"applications": 1, "interview": 1, "rejection": 1})
+        self.assertEqual(after["profile_quality_since"], "2026-09-15")
+
+    def test_profile_quality_starts_where_reply_records_start(self):
+        # An application long before any reply was recorded is not compared with replies that were never kept.
+        old = self.add("old-ack", category="application_ack", date="2026-08-01T12:00:00")
+        self.add("recent-ack", category="application_ack", date="2026-09-15T12:00:00")
+        self.add("reply", category="interview_invite", date="2026-09-15T13:00:00")
+        db.prune_messages(self.conn, before_iso="2026-09-01T00:00:00+00:00")   # deletes the old stored message only
+        self.assertIsNone(self.conn.execute("SELECT 1 FROM messages WHERE id=?", (old,)).fetchone())
+        result = self.data()
+        self.assertEqual(result["profile_quality"], {"personal": {"2026-09-15": {"applications": 1, "interview": 1, "rejection": 0}}})
+        self.assertEqual(result["profile_quality_since"], "2026-09-15")
+
+    def test_mail_stored_before_permanent_records_existed_is_caught_up(self):
+        self.add("ack", category="application_ack")
+        self.add("interview", category="interview_invite")
+        self.conn.execute("DELETE FROM application_receipts")      # as in a database from before this existed
+        self.conn.commit()
+        result = self.data()
+        self.assertEqual(result["profile_quality"]["personal"]["2026-09-15"],
+                         {"applications": 1, "interview": 1, "rejection": 0})
 
     def test_concurrent_done_uses_one_read_snapshot(self):
         pk = self.add("snapshot")
@@ -187,6 +257,21 @@ class AnalyticsTests(unittest.TestCase):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 DashboardFilters(**fields)
 
+    def test_calendar_bounds_reject_unrepresentable_utc_dates(self):
+        for fields in (
+            {'start': '9999-12-31', 'end': '9999-12-31', 'tz': 'UTC'},
+            {'start': '0001-01-01', 'end': '0001-01-01', 'tz': 'Etc/GMT-14'},
+        ):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                DashboardFilters(**fields)
+
+    def test_representable_extreme_calendar_dates_remain_supported(self):
+        for value in ('0001-01-01', '9999-12-30'):
+            filters = DashboardFilters(start=value, end=value, tz='UTC')
+            result = dashboard_data(self.conn, filters, retention_days=90)
+            self.assertEqual(result['daily'][0]['date'], value)
+            self.assertEqual(result['summary']['total'], 0)
+
     def test_read_only_routes_and_navigation(self):
         self.add("a")
         with patch.object(config, "db_path", return_value=self.path), \
@@ -202,6 +287,12 @@ class AnalyticsTests(unittest.TestCase):
             response = client.get("/api/dashboard?start=2026-09-14&end=2026-09-16&tz=UTC")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["summary"]["total"], 1)
+            self.assertEqual(len(response.json()["messages"]["items"]), 1)
+            overview = client.get("/api/dashboard?start=2026-09-14&end=2026-09-16&tz=UTC",
+                                  headers={"Prefer": "offerpath-overview"})
+            self.assertEqual(overview.status_code, 200)
+            self.assertEqual(overview.json()["messages"]["total"], 1)
+            self.assertEqual(overview.json()["messages"]["items"], [])
             self.assertEqual(client.get("/api/dashboard?days=91").status_code, 400)
             self.assertEqual(client.get("/api/dashboard?bidder=bad").status_code, 400)
             self.assertEqual(client.get("/api/dashboard/accounts").json()["bidders"], [])

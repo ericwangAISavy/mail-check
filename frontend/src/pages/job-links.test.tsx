@@ -1,0 +1,241 @@
+import {afterEach,beforeEach,expect,it,vi} from "vitest"
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
+import {MemoryRouter} from "react-router-dom"
+import {ToastProvider} from "@/components/common"
+import JobLinks from "./job-links"
+import {copyPaymentReport} from "@/lib/payment-report"
+
+vi.mock("@/lib/payment-report",()=>({copyPaymentReport:vi.fn().mockResolvedValue(undefined)}))
+const clients:QueryClient[]=[]
+const job={id:"opaque-job",company:"Acme",role:"Engineer",link:"https://jobs.test/1"}
+beforeEach(()=>{
+ vi.stubGlobal('ResizeObserver',class{observe(){}unobserve(){}disconnect(){}})
+ vi.spyOn(Element.prototype,'clientWidth','get').mockReturnValue(1200)
+ vi.spyOn(Element.prototype,'clientHeight','get').mockReturnValue(500)
+ Element.prototype.scrollTo=vi.fn()
+ Element.prototype.scrollIntoView=vi.fn()
+ const query=Element.prototype.querySelector
+ vi.spyOn(Element.prototype,'querySelector').mockImplementation(function(this:Element,selector:string){return query.call(this,selector.startsWith('&')?':scope'+selector.slice(1):selector)} as typeof Element.prototype.querySelector)
+})
+afterEach(()=>{cleanup();clients.forEach(client=>client.clear());clients.length=0;vi.restoreAllMocks();vi.clearAllMocks();vi.unstubAllGlobals()})
+function mount(entry='/job-links'){
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[entry]}><ToastProvider><JobLinks/></ToastProvider></MemoryRouter></QueryClientProvider>)
+}
+function serve(incomplete=false){
+ const fetch=vi.fn(async(_url:string)=>new Response(JSON.stringify({items:[job],next_cursor:null,incomplete}),{headers:{"content-type":"application/json"}}))
+ vi.stubGlobal("fetch",fetch)
+ return fetch
+}
+it('only-one-page mode disables exclusion and persists through search',async()=>{
+ const fetch=serve();mount('/job-links?exclude_one_page=true')
+ await screen.findByRole('gridcell',{name:'Acme'})
+ fireEvent.click(screen.getByRole('button',{name:'Only one-page links'}))
+ await waitFor(()=>{
+  const url=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost')
+  expect(url.searchParams.get('only_one_page')).toBe('true')
+  expect(url.searchParams.get('exclude_one_page')).toBe('false')
+ })
+ expect(screen.getByRole('button',{name:'Only one-page links'}).getAttribute('aria-pressed')).toBe('true')
+ expect((screen.getByRole('checkbox',{name:'Exclude one-page links'}) as HTMLInputElement).checked).toBe(false)
+ fireEvent.change(screen.getByLabelText('Search job links'),{target:{value:'engineer'}})
+ fireEvent.submit(screen.getByLabelText('Search job links').closest('form')!)
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain('q=engineer'))
+ expect(new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams.get('only_one_page')).toBe('true')
+ fireEvent.click(screen.getByRole('checkbox',{name:'Exclude one-page links'}))
+ await waitFor(()=>expect(new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams.get('only_one_page')).toBe('false'))
+})
+it('defaults to excluding owned links but keeps one-page links visible',async()=>{
+ const fetch=serve();mount()
+ await screen.findByRole('grid',{name:'Shared job links'})
+ expect((screen.getByRole('checkbox',{name:'Exclude my links'}) as HTMLInputElement).checked).toBe(true)
+ expect((screen.getByRole('checkbox',{name:'Exclude one-page links'}) as HTMLInputElement).checked).toBe(false)
+ const url=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost')
+ expect(url.searchParams.get('exclude_my_links')).toBe('true')
+ expect(url.searchParams.get('exclude_one_page')).toBe('false')
+ fireEvent.click(screen.getByRole('checkbox',{name:'Exclude one-page links'}))
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain('exclude_one_page=true'))
+ fireEvent.click(screen.getByRole('checkbox',{name:'Exclude my links'}))
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain('exclude_my_links=false'))
+})
+it('restores filter choices from the URL and preserves them through search',async()=>{
+ const fetch=serve();mount('/job-links?exclude_my_links=false&exclude_one_page=true&limit=200')
+ await screen.findByRole('grid',{name:'Shared job links'})
+ expect((screen.getByRole('checkbox',{name:'Exclude my links'}) as HTMLInputElement).checked).toBe(false)
+ expect((screen.getByRole('checkbox',{name:'Exclude one-page links'}) as HTMLInputElement).checked).toBe(true)
+ fireEvent.change(screen.getByLabelText('Search job links'),{target:{value:'engineer'}})
+ fireEvent.submit(screen.getByLabelText('Search job links').closest('form')!)
+ await waitFor(()=>{
+  const url=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost')
+  expect(url.searchParams.get('q')).toBe('engineer')
+  expect(url.searchParams.get('exclude_my_links')).toBe('false')
+  expect(url.searchParams.get('exclude_one_page')).toBe('true')
+  expect(url.searchParams.get('limit')).toBe('200')
+ })
+})
+it.each([['0','YES'],['F','T'],['n','y']])('interprets boolean URL values %s / %s the same way as the API',async(off,on)=>{
+ const fetch=serve();mount(`/job-links?exclude_my_links=${off}&exclude_one_page=${on}`)
+ await screen.findByRole('grid',{name:'Shared job links'})
+ expect((screen.getByRole('checkbox',{name:'Exclude my links'}) as HTMLInputElement).checked).toBe(false)
+ expect((screen.getByRole('checkbox',{name:'Exclude one-page links'}) as HTMLInputElement).checked).toBe(true)
+ const query=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams
+ expect(query.get('exclude_my_links')).toBe('false')
+ expect(query.get('exclude_one_page')).toBe('true')
+})
+it("searches company role and links and copies rows in sheet paste format",async()=>{
+ const fetch=serve()
+ mount()
+ await screen.findByRole('gridcell',{name:'Acme'})
+ expect(screen.queryByRole('button',{name:/^Search$/})).toBeNull()
+ expect(screen.queryByText("Account")).toBeNull()
+ fireEvent.mouseDown(screen.getByRole('gridcell',{name:'Acme'}),{button:0,buttons:1})
+ fireEvent.mouseUp(document)
+ fireEvent.click(screen.getByRole("button",{name:"Copy selected rows"}))
+ await waitFor(()=>expect(copyPaymentReport).toHaveBeenCalledWith("Acme\tEngineer\thttps://jobs.test/1"))
+ fireEvent.click(screen.getByRole("button",{name:"Copy links"}))
+ await waitFor(()=>expect(copyPaymentReport).toHaveBeenCalledWith(job.link))
+ fireEvent.change(screen.getByLabelText("Search job links"),{target:{value:"senior engineer"}})
+ fireEvent.submit(screen.getByLabelText("Search job links").closest("form")!)
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain("q=senior+engineer"))
+})
+it('drag-selects multiple compact rows and copies them like the sourcing sheet',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({items:[job,{...job,id:'second',company:'Beta',link:'https://jobs.test/2'}],next_cursor:null,incomplete:false}),{headers:{'content-type':'application/json'}})))
+ mount()
+ const first=await screen.findByRole('gridcell',{name:job.link})
+ const last=await screen.findByRole('gridcell',{name:'https://jobs.test/2'})
+ fireEvent.mouseDown(first,{button:0,buttons:1})
+ fireEvent.mouseMove(last,{buttons:1,clientY:35})
+ fireEvent.mouseUp(document)
+ const clipboardData={setData:vi.fn()}
+ fireEvent.copy(screen.getByRole('grid',{name:'Shared job links'}),{clipboardData})
+ expect(clipboardData.setData).toHaveBeenCalledWith('text/plain','Acme\tEngineer\thttps://jobs.test/1\nBeta\tEngineer\thttps://jobs.test/2')
+ fireEvent.click(screen.getByRole('button',{name:'Copy links'}))
+ await waitFor(()=>expect(copyPaymentReport).toHaveBeenCalledWith('https://jobs.test/1\nhttps://jobs.test/2'))
+ fireEvent.keyDown(screen.getByRole('grid'),{key:'Delete'})
+ expect(screen.getByRole('gridcell',{name:'Acme'})).toBeTruthy()
+ fireEvent.doubleClick(screen.getByRole('gridcell',{name:'Acme'}))
+ expect(screen.queryByRole('textbox',{name:'Edit cell'})).toBeNull()
+})
+it("warns when a workspace cannot be searched",async()=>{
+ serve(true)
+ mount()
+ expect(await screen.findByRole("alert")).toBeTruthy()
+ expect(await screen.findByRole('gridcell',{name:'Acme'})).toBeTruthy()
+})
+it('explains failed own-link exclusion and offers an explicit unfiltered retry',async()=>{
+ const fetch=vi.fn(async(_url:string)=>new Response(JSON.stringify({items:[],next_cursor:null,incomplete:true,incomplete_reason:'own_links_unavailable'}),{headers:{'content-type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch);mount()
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent',expect.stringContaining('Your saved links'))
+ expect(screen.queryByText('No matching job links.')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'Include my links'}))
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain('exclude_my_links=false'))
+})
+it('removes stale ownership retry advice when refresh is denied',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({items:[],next_cursor:null,incomplete:true,incomplete_reason:'own_links_unavailable'}),{headers:{'content-type':'application/json'}})))
+ mount();await screen.findByRole('button',{name:'Include my links'})
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({error:'Job links access revoked.'}),{status:403,headers:{'content-type':'application/json'}})))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh job links'}))
+ await screen.findByText('Job links access revoked.')
+ expect(screen.queryByRole('button',{name:'Include my links'})).toBeNull()
+})
+it('disables copying cached rows after access is denied and requests fresh permissions',async()=>{
+ serve()
+ mount()
+ await screen.findByRole('gridcell',{name:'Acme'})
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Copy links'}) as HTMLButtonElement).disabled).toBe(false))
+ const client=clients[0]
+ client.setQueryData(['auth'],{role:'admin',workspace_id:'alice',job_links_access:true})
+ client.setQueryData(['job-links','cached-filter'],{items:[job],next_cursor:null,incomplete:false})
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({error:'Job links access revoked.'}),{status:403,headers:{'content-type':'application/json'}})))
+ fireEvent.click(screen.getByRole('button',{name:'Refresh job links'}))
+ await screen.findByRole('alert')
+ expect((screen.getByRole('button',{name:'Copy links'}) as HTMLButtonElement).disabled).toBe(true)
+ expect((screen.getByRole('button',{name:'Copy selected rows'}) as HTMLButtonElement).disabled).toBe(true)
+ await waitFor(()=>expect(client.getQueryState(['auth'])?.isInvalidated).toBe(true))
+ expect(client.getQueryData(['job-links','cached-filter'])).toBeUndefined()
+})
+it('filters an inclusive date range and keeps it when searching',async()=>{
+ const fetch=serve()
+ mount()
+ await screen.findByRole('grid',{name:'Shared job links'})
+ fireEvent.change(screen.getByLabelText('From'),{target:{value:'2026-11-20'}})
+ fireEvent.change(screen.getByLabelText('To'),{target:{value:'2026-11-23'}})
+ await waitFor(()=>expect(String(fetch.mock.lastCall?.[0])).toContain('end_date=2026-11-23'))
+ fireEvent.change(screen.getByLabelText('Search job links'),{target:{value:'engineer'}})
+ fireEvent.submit(screen.getByLabelText('Search job links').closest('form')!)
+ await waitFor(()=>{
+  expect(String(fetch.mock.lastCall?.[0])).toContain('q=engineer')
+  expect(String(fetch.mock.lastCall?.[0])).toContain('start_date=2026-11-20')
+  expect(String(fetch.mock.lastCall?.[0])).toContain('end_date=2026-11-23')
+ })
+ fireEvent.click(screen.getByRole('button',{name:'All dates'}))
+ await waitFor(()=>{
+  expect(String(fetch.mock.lastCall?.[0])).toContain('q=engineer')
+  const params=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams
+  expect(params.get('start_date')).toBe('')
+  expect(params.get('end_date')).toBe('')
+ })
+})
+it('returns to the first results page when changing the date',async()=>{
+ const fetch=vi.fn(async(url:string)=>new Response(JSON.stringify({items:[job],next_cursor:new URL(url,'http://localhost').searchParams.get('cursor')?null:'next-page',incomplete:false}),{headers:{'content-type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch)
+ mount()
+ await screen.findByRole('grid',{name:'Shared job links'})
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Next'}) as HTMLButtonElement).disabled).toBe(false))
+ fireEvent.click(screen.getByRole('button',{name:'Next'}))
+ await screen.findByText('Page 2')
+ fireEvent.change(screen.getByLabelText('From'),{target:{value:'2026-11-23'}})
+ await waitFor(()=>{
+  const query=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams
+  expect(query.get('start_date')).toBe('2026-11-23')
+  expect(query.get('cursor')).toBe('')
+ })
+ expect(screen.getByText('Page 1')).toBeTruthy()
+})
+it('selects 100 through 500 items per page and resets pagination while retaining filters',async()=>{
+ const fetch=vi.fn(async(url:string)=>new Response(JSON.stringify({items:[job],next_cursor:new URL(url,'http://localhost').searchParams.get('cursor')?null:'next-page',incomplete:false}),{headers:{'content-type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch)
+ mount()
+ await screen.findByRole('grid',{name:'Shared job links'})
+ const size=screen.getByRole('combobox',{name:'Items per page'}) as HTMLSelectElement
+ expect(Array.from(size.options).map(option=>option.value)).toEqual(['100','200','300','400','500'])
+ expect(size.value).toBe('100')
+ fireEvent.change(screen.getByLabelText('From'),{target:{value:'2026-11-23'}})
+ fireEvent.change(screen.getByLabelText('Search job links'),{target:{value:'engineer'}})
+ fireEvent.submit(screen.getByLabelText('Search job links').closest('form')!)
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Next'}) as HTMLButtonElement).disabled).toBe(false))
+ fireEvent.click(screen.getByRole('button',{name:'Next'}))
+ await screen.findByText('Page 2')
+ fireEvent.change(size,{target:{value:'500'}})
+ await waitFor(()=>{
+  const query=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams
+  expect(query.get('limit')).toBe('500')
+  expect(query.get('cursor')).toBe('')
+  expect(query.get('start_date')).toBe('2026-11-23')
+  expect(query.get('q')).toBe('engineer')
+ })
+ expect(screen.getByText('Page 1')).toBeTruthy()
+})
+it('blocks reversed ranges and resumes after correcting them',async()=>{
+ const fetch=serve()
+ mount('/job-links?start_date=2026-11-23&end_date=2026-11-20')
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent','The end date must be on or after the start date.')
+ expect(fetch).not.toHaveBeenCalled()
+ fireEvent.change(screen.getByLabelText('To'),{target:{value:'2026-11-24'}})
+ await screen.findByRole('gridcell',{name:'Acme'})
+ expect(screen.queryByRole('alert')).toBeNull()
+})
+it('restores single-date bookmarks as a one-day range and Today sets both endpoints',async()=>{
+ const fetch=serve()
+ mount('/job-links?day=2026-11-20')
+ await screen.findByRole('gridcell',{name:'Acme'})
+ expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-11-20')
+ expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('2026-11-20')
+ fireEvent.click(screen.getByRole('button',{name:'Today'}))
+ await waitFor(()=>{
+  const params=new URL(String(fetch.mock.lastCall?.[0]),'http://localhost').searchParams
+  expect(params.get('start_date')).toBe(params.get('end_date'))
+  expect(params.get('start_date')).not.toBe('2026-11-20')
+ })
+})

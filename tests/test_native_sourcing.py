@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import sqlite3
 import unittest
 from tests import test_frontend_api as fixtures
 
@@ -25,6 +26,120 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.principal = {"role": "admin", "bidder_id": None}
 
+    def test_compact_sheet_read_preserves_cell_versions_and_metadata(self):
+        base = self.snapshot()
+        result = self.native.append(self.conn, self.tab(), 'compact-seed', base['revision'],
+            [['Café', 'Engineer', 'HTTPS://jobs.test/1']], work_date='2026-10-20')
+        row = result['row_ids'][1]
+        self.conn.execute("UPDATE native_cells SET style=?,version=7 WHERE row_id=? AND column_id=?",
+                          ('{"bold": true}', row, result['columns'][0]['id']))
+        from datetime import datetime, timezone
+        from mailcheck.sourcing_activity import confirm
+        confirm(self.conn, row, datetime(2026, 10, 20, tzinfo=timezone.utc), 'receipt')
+        self.conn.commit()
+
+        url = f'/api/sourcing/tabs/{self.tab_id}'
+        full = self.client.get(url)
+        compact = self.client.get(f'{url}?compact=true')
+        self.assertEqual(compact.status_code, 200, compact.text)
+        self.assertEqual(full.status_code, 200, full.text)
+        packed = compact.json()
+        dense = full.json()
+        self.assertIn([1, 0, 'Café', 7, {'bold': True}], packed.pop('cell_entries'))
+        self.assertEqual(packed.pop('confirmation_times'), [[1, '2026-10-20T00:00:00+00:00']])
+        self.assertEqual(dense['rows'][1][2]['link'], 'HTTPS://jobs.test/1')
+        del dense['rows']
+        self.assertEqual(packed, dense)
+
+    def test_partial_clear_preserves_structure_revision_for_undo(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'partial-seed',base['revision'],[['Acme','Engineer','https://jobs.test/acme']])
+        base=self.snapshot()
+        blank=len(base['rows'])-1
+        formatting=self.change('',row=blank,col=0,base=base)
+        formatting['style']={'bold':True}
+        self.native.save(self.conn,self.tab(),'input-format',[formatting])
+        base=self.snapshot()
+        row=next(i for i,values in enumerate(base['rows']) if values[0]['value']=='Acme')
+        self.native.save(self.conn,self.tab(),'partial-clear',[self.change('',row=row,col=1,base=base)])
+        result=self.snapshot()
+        self.assertEqual(result['row_ids'],base['row_ids'])
+        self.assertEqual(result['structure_revision'],base['structure_revision'])
+        self.assertEqual(result['rows'][blank],base['rows'][blank])
+        self.native.save(self.conn,self.tab(),'partial-undo',[self.change('Engineer',row=row,col=1,base=result)])
+        self.assertEqual(self.snapshot()['rows'][row][1]['value'],'Engineer')
+
+    def test_clearing_middle_job_rows_compacts_blanks_and_keeps_remaining_row_ids(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'compact-seed',base['revision'],[
+            ['First','Engineer','https://jobs.test/first'],
+            ['Middle','Engineer','https://jobs.test/middle'],
+            ['Last','Engineer','https://jobs.test/last']])
+        base=self.snapshot()
+        indexes={row[0]['value']:i for i,row in enumerate(base['rows']) if i and row[0]['value']}
+        keep={name:base['row_ids'][indexes[name]] for name in ('First','Last')}
+        changes=[self.change('',row=indexes['Middle'],col=column,base=base) for column in range(3)]
+        self.native.save(self.conn,self.tab(),'clear-middle',changes)
+        result=self.snapshot()
+        self.assertEqual([row[0]['value'] for row in result['rows'][1:]],['First','Last',''])
+        self.assertEqual(result['row_ids'][1:3],[keep['First'],keep['Last']])
+        self.assertEqual(result['row_dates'][-1],None)
+
+    def test_clearing_the_last_job_leaves_a_single_blank_input_row(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'single-job',base['revision'],[['Only','Engineer','https://jobs.test/only']])
+        base=self.snapshot()
+        index=next(i for i,row in enumerate(base['rows']) if row[0]['value']=='Only')
+        self.native.save(self.conn,self.tab(),'clear-last',[self.change('',row=index,col=column,base=base) for column in range(3)])
+        self.assertEqual(len(self.snapshot()['rows']),2)
+
+    def test_compaction_preserves_a_checked_row_even_without_other_cell_data(self):
+        base=self.snapshot()
+        row=base['row_ids'][1]
+        check=next(column['id'] for column in base['columns'] if column['kind']=='check')
+        self.conn.execute('INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)',(row,check,'true'))
+        self.native.compact_blank_rows(self.conn,self.tab_id)
+        self.assertIsNotNone(self.conn.execute('SELECT id FROM native_rows WHERE id=?',(row,)).fetchone())
+
+    def test_job_links_date_filter_is_validated_in_single_admin_mode(self):
+        response = self.client.get('/api/job-links?day=2026-02-30')
+        self.assertEqual(response.status_code,422,response.text)
+        response = self.client.get('/api/job-links?day=2026-11-23')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['items'],[])
+        self.assertEqual(self.client.get('/api/job-links?limit=501').status_code,422)
+        self.assertEqual(self.client.get('/api/job-links?limit=500').status_code,200)
+        self.assertEqual(self.client.get('/api/job-links?start_date=2026-11-20&end_date=2026-11-23').status_code,200)
+        for query in ('start_date=2026-02-30','end_date=invalid','start_date=2026-11-24&end_date=2026-11-23'):
+            self.assertEqual(self.client.get('/api/job-links?'+query).status_code,422)
+
+    def test_job_library_local_filters_are_applied_before_returning_rows(self):
+        base=self.snapshot()
+        self.native.append(self.conn,self.tab(),'filter-jobs',base['revision'],[
+            ['Greenhouse','Engineer','https://job-boards.greenhouse.io/acme/jobs/123456'],
+            ['Other','Engineer','https://jobs.test/acme']])
+        self.assertEqual(self.client.get('/api/job-links').json()['items'],[])
+        self.assertEqual(len(self.client.get('/api/job-links?exclude_my_links=false').json()['items']),2)
+        result=self.client.get('/api/job-links?exclude_my_links=false&exclude_one_page=true')
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual([row['company'] for row in result.json()['items']],['Other'])
+
+    def test_search_does_not_materialize_editor_snapshots(self):
+        from unittest.mock import patch
+        base = self.snapshot()
+        row = base['row_ids'][3]
+        self.conn.execute("INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,?)",
+                          (row, base['columns'][0]['id'], 'Straße Acme'))
+        self.conn.commit()
+        with patch.object(self.native, 'snapshot', side_effect=AssertionError('dense editor snapshot')):
+            response = self.client.get('/api/sourcing/search?q=STRASSE')
+        self.assertEqual(response.status_code, 200, response.text)
+        matches = response.json()['results']
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]['row'], 3)
+        self.assertEqual(matches[0]['row_id'], row)
+        self.assertEqual(matches[0]['company'], 'Straße Acme')
+
     def test_index_backfills_existing_bidders_without_replacing_workbooks(self):
         before = self.snapshot()
         result = self.client.get("/api/sourcing")
@@ -40,7 +155,26 @@ class NativeSheetTests(unittest.TestCase):
         self.conn.commit()
         self.assertIn("Renamed", [b["name"] for b in self.client.get("/api/sourcing").json()["books"]])
         self.client.post("/api/payments/bidders/2/remove", json={})
-        self.assertEqual([b["name"] for b in self.client.get("/api/sourcing").json()["books"]], ["Alex"])
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual([b["name"] for b in books], ["Alex", "Renamed"])
+        self.assertTrue(books[-1]["removed_at"])
+
+    def test_removed_bidder_preserves_admin_access_to_archived_jobs(self):
+        base = self.snapshot()
+        self.native.append(self.conn, self.tab(), "past-jobs", base["revision"],
+                           [["Past company", "Engineer", "https://jobs.test/past"]], work_date="2026-10-20")
+        response = self.client.post("/api/payments/bidders/1/remove", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        books = self.client.get("/api/sourcing").json()["books"]
+        self.assertEqual([b["name"] for b in books], ["Blair", "Alex"])
+        self.assertTrue(books[-1]["tabs"][0]["archived"])
+        self.assertEqual(books[-1]["job_dates"], ["2026-10-20"])
+        self.assertEqual(self.client.get(f"/api/sourcing/tabs/{self.tab_id}").status_code, 200)
+        matches = self.client.get("/api/sourcing/search?q=Past").json()["results"]
+        self.assertEqual(matches[0]["link"], "https://jobs.test/past")
+        self.native.save(self.conn, self.tab(), "edit-past", [self.change("Edited company")])
+        self.native.delete_tab(self.conn, self.tab(), str(self.tab()["revision"]))
+        self.assertEqual(self.client.get("/api/sourcing").json()["books"][-1]["tabs"], [])
 
     def test_job_dates_count_nonempty_links_across_active_account_tabs(self):
         base = self.snapshot()
@@ -79,6 +213,85 @@ class NativeSheetTests(unittest.TestCase):
         self.assertEqual([c["kind"] for c in base["columns"][:4]], ["company", "role", "link", "check"])
         self.assertEqual(base["columns"][3]["title"], "Check")
         self.assertLessEqual(base["columns"][3]["width"], 80)
+
+    def test_large_save_checks_later_batches_and_rolls_back_atomically(self):
+        base = self.snapshot()
+        company, check = base["columns"][0]["id"], base["columns"][3]["id"]
+        rows = [f"batch-row-{i}" for i in range(502)]
+        self.conn.executemany(
+            "INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?)",
+            [(row, self.tab_id, i + 10) for i, row in enumerate(rows)],
+        )
+        self.conn.execute(
+            "INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,'true')",
+            (rows[-1], check),
+        )
+        self.conn.commit()
+        # Permit 500 row parameters plus the tab, as on SQLite builds with
+        # conservative variable limits. The checked row lies in the next batch.
+        previous_limit = self.conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 501)
+        self.addCleanup(self.conn.setlimit, sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        changes = [{"row_id": row, "column_id": company,
+                    "expected_version": 0, "value": "Acme"} for row in rows]
+        with self.assertRaisesRegex(ValueError, "Checked rows cannot be edited"):
+            self.native.save(self.conn, self.tab(), "large-locked-save", changes)
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM native_cells WHERE column_id=?", (company,)
+        ).fetchone()[0], 0)
+        self.assertIsNone(self.conn.execute(
+            "SELECT 1 FROM native_operations WHERE id='large-locked-save'"
+        ).fetchone())
+        for change in changes:
+            change["value"] = ""
+        self.native.save(self.conn, self.tab(), "large-noop-save", changes)
+        self.assertEqual(self.conn.execute(
+            "SELECT value FROM native_cells WHERE row_id=? AND column_id=?",
+            (rows[-1], check),
+        ).fetchone()[0], "true")
+
+    def test_small_save_protection_cost_does_not_grow_with_checked_history(self):
+        base = self.snapshot()
+        check = base["columns"][3]["id"]
+        change = self.change("", base=base)
+
+        def protection_steps(operation):
+            steps = 0
+            counting = False
+
+            def trace(statement):
+                nonlocal counting
+                counting = statement.lstrip().startswith("SELECT v.row_id FROM native_cells v")
+
+            def progress():
+                nonlocal steps
+                if counting:
+                    steps += 1
+                return 0
+
+            self.conn.set_trace_callback(trace)
+            self.conn.set_progress_handler(progress, 1)
+            try:
+                self.native.save(self.conn, self.tab(), operation, [change])
+            finally:
+                self.conn.set_trace_callback(None)
+                self.conn.set_progress_handler(None, 0)
+            self.assertGreater(steps, 0)
+            return steps
+
+        before = protection_steps("small-before-history")
+        self.conn.executemany(
+            "INSERT INTO native_rows(id,tab_id,position) VALUES(?,?,?)",
+            [(f"history-{i}", self.tab_id, i + 10) for i in range(2000)],
+        )
+        self.conn.executemany(
+            "INSERT INTO native_cells(row_id,column_id,value) VALUES(?,?,'true')",
+            [(f"history-{i}", check) for i in range(2000)],
+        )
+        self.conn.commit()
+        change["expected_version"] = 1
+        after = protection_steps("small-after-history")
+        self.assertLess(after, before * 2 + 100,
+                        "A one-row protection lookup must not scan checked history")
 
     def test_blank_pasted_rows_are_not_stored_between_jobs(self):
         base = self.snapshot()
@@ -226,6 +439,23 @@ class NativeSheetTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.native.save(self.conn, self.tab(), "deleted-row", [change])
 
+    def test_deleting_a_days_rows_keeps_an_input_row_for_pasting(self):
+        from mailcheck.sourcing_structure import has_input_row
+        base = self.snapshot()
+        # Two days of jobs; the sheet's blank input row is then filled on day one.
+        day_one = self.native.append(self.conn, self.tab(), "a1", base["revision"],
+                                     [["Acme", "Engineer", "https://jobs.test/1"]], work_date="2026-11-18")
+        day_two = self.native.append(self.conn, self.tab(), "a2", day_one["revision"],
+                                     [["Beta", "Designer", "https://jobs.test/2"]], work_date="2026-11-19")
+        ids = [row_id for row_id, day in zip(day_two["row_ids"], day_two["row_dates"])
+               if row_id and day in ("2026-11-19", None)]
+        result = self.native.structure(self.conn, self.tab(), "delete-day", day_two["revision"],
+                                       {"action": "delete_rows", "ids": ids})
+        # Day one's job survives, and an undated blank row is there for the next paste.
+        self.assertTrue(has_input_row(self.conn, self.tab()["id"]))
+        self.assertIn(None, result["row_dates"][1:])
+        self.assertIn("2026-11-18", result["row_dates"][1:])
+
     def test_append_is_atomic_and_idempotent(self):
         base = self.snapshot()
         first = self.native.append(
@@ -244,6 +474,14 @@ class NativeSheetTests(unittest.TestCase):
         )
         self.assertEqual(first["row_ids"], second["row_ids"])
         self.assertEqual(second["rows"][1][0]["value"], "Acme")
+
+    def test_pasted_rows_never_bring_a_check_from_another_sheet(self):
+        base = self.snapshot()
+        result = self.native.append(self.conn, self.tab(), "paste-checked", base["revision"],
+                                    [["Acme", "Engineer", "https://jobs.test/1", "true"]])
+        check = next(i for i, column in enumerate(result["columns"]) if column["kind"] == "check")
+        row = next(r for r in result["rows"][1:] if r[0]["value"] == "Acme")
+        self.assertNotEqual(row[check]["value"], "true")
 
     def test_required_columns_cannot_be_deleted_but_custom_columns_can(self):
         base = self.snapshot()
@@ -461,6 +699,8 @@ class NativeSheetTests(unittest.TestCase):
         self.native.save(
             self.conn, self.tab(), "before-dates", [self.change("Existing job")]
         )
+        # An installation predating job dates cannot have the new date index.
+        self.conn.execute("DROP INDEX IF EXISTS idx_native_rows_date")
         self.conn.execute("ALTER TABLE native_rows DROP COLUMN work_date")
         self.conn.execute("PRAGMA user_version=15")
         self.conn.commit()
@@ -521,3 +761,71 @@ class NativeSheetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 structure(self.conn,self.tab(),'rename-'+column['id'],before['revision'],{'action':'rename_column','column_id':column['id'],'title':'Changed'})
         self.assertEqual(self.snapshot(),before)
+
+    def test_bidder_opened_links_are_private_and_independent_of_sheet_edits(self):
+        from fastapi.testclient import TestClient
+        from mailcheck.web.app import create_app
+
+        result = self.native.append(self.conn, self.tab(), 'open-seed', self.snapshot()['revision'],
+            [['Acme', 'Engineer', 'https://jobs.test/1'], ['Beta', 'Engineer', 'https://jobs.test/2']])
+        row_id = result['row_ids'][1]
+        payload = {'row_id': row_id, 'job_created_at': result['row_created'][1]}
+        other_book = self.native.create_book(self.conn, 2, 'Other')
+        other_tab = self.native.create_tab(self.conn, other_book, self.account_id, 'Other')
+        before = self.snapshot()
+        before_activity = self.conn.execute('SELECT COUNT(*) FROM sourcing_check_activity').fetchone()[0]
+        url = f'/api/sourcing/tabs/{self.tab_id}'
+        other_url = f'/api/sourcing/tabs/{other_tab}'
+        worker = {'x-offerpath-worker': 'worker-secret'}
+        alex = {**worker, 'x-offerpath-viewer': 'bidder', 'x-offerpath-bidder': '1'}
+        blair = {**alex, 'x-offerpath-bidder': '2'}
+
+        with TestClient(create_app(worker_secret='worker-secret')) as client:
+            self.assertEqual(client.get(url, headers=alex).json()['opened_row_ids'], [])
+            self.assertEqual(client.post(f'{url}/opened', headers=worker, json=payload).status_code, 403)
+            self.assertEqual(client.post(f'{url}/opened', headers=blair, json=payload).status_code, 404)
+            self.assertEqual(client.post(f'{other_url}/opened', headers=blair, json=payload).status_code, 404)
+            for _ in range(2):
+                response = client.post(f'{url}/opened', headers=alex, json=payload)
+                self.assertEqual(response.status_code, 200, response.text)
+            self.assertNotIn('opened_row_ids', client.get(url, headers=worker).json())
+            self.assertEqual(client.get(other_url, headers=blair).json()['opened_row_ids'], [])
+            self.assertEqual(client.get(url, headers=blair).status_code, 404)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM sourcing_check_activity').fetchone()[0], before_activity)
+
+        self.conn.execute("UPDATE native_rows SET position=99 WHERE id=?", (row_id,))
+        self.conn.commit()
+        with TestClient(create_app(worker_secret='worker-secret')) as client:
+            saved = client.get(f'{url}?compact=true', headers=alex).json()
+            self.assertEqual(saved['opened_row_ids'], [row_id])
+            self.assertNotEqual(saved['row_ids'].index(row_id), 1)
+        self.assertEqual([tuple(row) for row in self.conn.execute(
+            'SELECT bidder_id,account_id,row_id FROM sourcing_opened_links')], [(1, self.account_id, row_id)])
+
+        # A cleared row slot can later hold a different job with the same row ID.
+        self.conn.execute("UPDATE native_rows SET created_at=created_at+1 WHERE id=?", (row_id,))
+        self.conn.commit()
+        with TestClient(create_app(worker_secret='worker-secret')) as client:
+            self.assertEqual(client.get(url, headers=alex).json()['opened_row_ids'], [])
+            self.assertEqual(client.post(f'{url}/opened', headers=alex, json=payload).status_code, 404)
+            payload['job_created_at'] += 1
+            self.assertEqual(client.post(f'{url}/opened', headers=alex, json=payload).status_code, 200)
+            self.assertEqual(client.get(url, headers=alex).json()['opened_row_ids'], [row_id])
+
+    def test_appended_job_fields_are_single_line(self):
+        base=self.snapshot()
+        result=self.native.append(self.conn,self.tab(),'newline-append',base['revision'],[
+            ['Sem-Sol\n','Software\r\nEngineer','https://jobs.test/new\n/123'],
+            ['Acme','Engineer','https://jobs.test/news'],
+        ])
+        rows=[row for row in result['rows'][1:] if row[0]['value']]
+        self.assertEqual([[cell['value'] for cell in row[:3]] for row in rows],[
+            ['Sem-Sol','Software Engineer','https://jobs.test/new/123'],['Acme','Engineer','https://jobs.test/news']])
+
+    def test_saved_job_fields_are_single_line(self):
+        base=self.snapshot()
+        result=self.native.save(self.conn,self.tab(),'newline-save',[
+            self.change('Sem-Sol\n',0,1,base),self.change('Software\nEngineer',1,1,base),
+            self.change('https://jobs.test/new\r\n/123',2,1,base)])
+        self.assertEqual([cell['value'] for cell in result['rows'][1][:3]],['Sem-Sol','Software Engineer','https://jobs.test/new/123'])

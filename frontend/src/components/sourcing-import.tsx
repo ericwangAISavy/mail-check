@@ -137,8 +137,7 @@ export default function SourcingImport({
     <DialogContent className="sourcing-import">
       <DialogTitle>Import jobs from CSV</DialogTitle>
       <DialogDescription>
-        Preview the rows and destination columns before importing. Company, Role
-        and Job URL header aliases are recognized.
+        Preview the rows before importing.
       </DialogDescription>
       <label className="setting-field">
         CSV file
@@ -153,7 +152,7 @@ export default function SourcingImport({
           }}
         />
       </label>
-      {reading && <p role="status">Reading file…</p>}
+      {reading && <p role="status" className="inline-loading">Reading file…</p>}
       <SourcingProgress progress={progress||null}/>
       <textarea
         aria-label="CSV content"

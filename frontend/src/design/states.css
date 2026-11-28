@@ -1,0 +1,125 @@
+/* One state language across components. Each meaning owns its own visual channel
+   so that combined states stay readable:
+     hover      neutral wash
+     selected   cyan wash plus a cyan edge
+     focus      2px cyan ring
+     checked    green edge on the row number, green mark, faint green wash
+     read-only  no field fill, quiet border, full-strength text
+     disabled   muted fill and text
+     warning    amber        error / destructive  red
+   Presentation only: state conditions and behavior belong to the components. */
+@media screen {
+ :root {
+  --state-hover:color-mix(in srgb,var(--foreground) 5%,transparent);
+  --state-selected:color-mix(in srgb,var(--primary) 15%,var(--card));
+  --state-range:color-mix(in srgb,var(--primary) 22%,var(--card));
+  --state-done:#34c795;
+ }
+ :root[data-theme="light"] {
+  --state-selected:color-mix(in srgb,var(--primary) 13%,var(--card));
+  --state-range:color-mix(in srgb,var(--primary) 20%,var(--card));
+  --state-done:#08825a;
+ }
+
+ /* Spreadsheet and shared grids */
+ :root body .app-frame .sourcing-grid .rdg-row:not(.sheet-row-selected):hover > .rdg-cell { background-image:linear-gradient(var(--state-hover),var(--state-hover)); }
+ /* Done lives in the row number and the check cell (Clay, Notion tables): row content
+    keeps its normal color, so links still read as links. */
+ :root body .app-frame .sourcing-grid .sheet-checked-row > .rdg-cell { background-color:var(--card); }
+ :root body .app-frame .sourcing-grid .sheet-checked-row .native-cell-content a { color:inherit; font-weight:inherit; }
+ :root body .app-frame .sourcing-grid .sheet-checked-row > .rdg-cell:first-child { box-shadow:inset 3px 0 var(--state-done); }
+ :root body .app-frame .sourcing-grid .sheet-checked-row .sheet-row-number { color:var(--state-done); font-weight:650; }
+ /* Selection wins the fill; the green edge, number and check still say "done". */
+ :root body .app-frame .sourcing-grid .rdg-row.sheet-row-selected > .rdg-cell { background-color:var(--state-selected); border-bottom-color:color-mix(in srgb,var(--primary) 40%,var(--border)); }
+ :root body .app-frame .sourcing-grid .rdg-row.sheet-row-selected:not(.sheet-checked-row) > .rdg-cell:first-child { box-shadow:inset 3px 0 var(--primary); }
+ :root body .app-frame .sourcing-grid .rdg-row.sheet-row-selected:not(.sheet-checked-row) .sheet-row-number { color:var(--primary); font-weight:700; }
+ :root body .app-frame .sourcing-grid:not(.is-row-mode) .rdg-row > .rdg-cell.sheet-range-cell { background-color:var(--state-range); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 55%,transparent); }
+ :root body .app-frame .sourcing-grid:not(.is-row-mode) .rdg-cell[aria-selected="true"] { outline:2px solid var(--primary); outline-offset:-2px; }
+ /* Row mode highlights whole rows for the mouse; a keyboard user still needs to see which
+    cell or header has focus (W3C APG grid). Keyboard focus only, so clicks look unchanged. */
+ :root body .app-frame .sourcing-grid.is-row-mode .rdg-cell:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
+ :root body .app-frame .sourcing-grid .native-cell-input { border:0; border-radius:0; background:var(--surface-raised); box-shadow:inset 0 0 0 2px var(--primary),0 4px 14px #00000052; }
+ :root body .app-frame .sourcing-grid .native-cell-content a { text-underline-offset:3px; }
+ :root body .app-frame .sourcing-grid .native-cell-content a:hover { text-decoration:underline; }
+ /* A locked, completed check is read-only information, not a greyed-out control. */
+ :root body .app-frame input.sourcing-check:disabled:checked { appearance:none; width:16px; height:16px; border:1px solid color-mix(in srgb,var(--state-done) 45%,transparent); border-radius:5px; background:color-mix(in srgb,var(--state-done) 16%,transparent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2334c795' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E") center/12px no-repeat; opacity:1; cursor:default; }
+ :root[data-theme="light"] body .app-frame input.sourcing-check:disabled:checked { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23067049' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E"); }
+
+ /* Read-only is informative; disabled is unavailable. */
+ :root body :is(.app-frame,.dialog-content) :is(input,textarea)[readonly]:not([type="checkbox"],[type="radio"]) { color:var(--text-soft); border-color:var(--border); background-color:transparent; box-shadow:none; }
+ :root body :is(.app-frame,.dialog-content) :is(input,textarea)[readonly]:focus-visible { border-color:var(--ring); }
+ :root body :is(.app-frame,.dialog-content) :is(input:not([type="checkbox"],[type="radio"]),textarea,select:not([multiple])):disabled { color:var(--muted-foreground); border-color:var(--border); background-color:var(--muted); cursor:not-allowed; opacity:1; }
+ :root body :is(.app-frame,.dialog-content) :is(input:not([type="checkbox"],[type="radio"]),textarea):hover:not(:disabled,[readonly],:focus-visible,[aria-invalid="true"]) { border-color:color-mix(in srgb,var(--foreground) 22%,var(--input)); }
+ :root body .app-frame .switch:disabled { opacity:.5; cursor:not-allowed; }
+
+ /* Action hierarchy: recovery inside a message is secondary; removal reads as removal. */
+ :root body :is(.app-frame,.dialog-content) .inline-error { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:9px 12px; color:color-mix(in srgb,var(--destructive) 82%,var(--foreground)); box-shadow:inset 3px 0 var(--destructive); }
+ :root body :is(.app-frame,.dialog-content) .inline-error .btn.btn { color:var(--foreground); border-color:color-mix(in srgb,var(--destructive) 45%,var(--border)); background:var(--card); box-shadow:none; }
+ :root body :is(.app-frame,.dialog-content) .inline-error p { flex-basis:100%; margin:0; }
+ :root body .app-frame :is(.bidder-remove,.payment-assignment-actions > .btn[data-variant="ghost"]:has(.lucide-trash-2,.lucide-trash2)).btn { color:color-mix(in srgb,var(--destructive) 85%,var(--foreground)); }
+ :root body .app-frame :is(.bidder-remove,.payment-assignment-actions > .btn[data-variant="ghost"]:has(.lucide-trash-2,.lucide-trash2)).btn:hover:not(:disabled) { color:var(--destructive); border-color:color-mix(in srgb,var(--destructive) 40%,transparent); background:color-mix(in srgb,var(--destructive) 10%,transparent); }
+ :root body .app-frame .payment-rule-remove { padding:12px 14px; border:1px solid color-mix(in srgb,var(--destructive) 35%,var(--border)); border-radius:9px; background:color-mix(in srgb,var(--destructive) 6%,transparent); }
+
+ /* Triage rows: quieter category tags so company and role lead the scan. */
+ :root body .app-frame .triage-split .mail-row .ui-badge { min-height:17px; border-color:transparent; font-size:10.5px; font-weight:600; line-height:17px; padding-inline:6px; }
+ /* The tier heading already says "Act now"; a filled red pill on every row repeats it.
+    Rows keep the red hue as a dot and label, and the deadline carries the urgency. */
+ :root body .app-frame .triage-split .mail-row .ui-badge[data-variant="urgent"] { gap:5px; padding-inline:0 2px; background:transparent; }
+ :root body .app-frame .triage-split .mail-row .ui-badge[data-variant="urgent"]::before { content:""; flex:none; width:6px; height:6px; border-radius:50%; background:currentColor; }
+ :root body .app-frame .triage-split .mail-row-title { font-size:13.5px; }
+ :root body .app-frame .triage-split .mail-account { color:var(--muted-foreground); font-weight:500; }
+ :root body .app-frame .triage-split .mail-row-summary { color:var(--muted-foreground); }
+ :root body .app-frame .triage-split .mail-row.mail-selected .mail-row-summary { color:var(--text-soft); }
+
+ /* Status comprehension */
+ :root body .app-frame .analytics-page .account-status-list .ui-badge { padding:0; border:0; background:transparent; font-size:11px; font-weight:500; }
+ :root body .app-frame .analytics-page .account-status-list li { padding-block:7px; row-gap:0; }
+ :root body .app-frame .analytics-page .account-status-list li:has(.status-dot.is-paused) .ui-badge { color:var(--warning); }
+ /* "Paused" is a state, not provider metadata: same amber as on the dashboard. */
+ :root body .app-frame .accounts-page .account-name-line > span.ui-badge[data-variant="outline"]:not(:first-of-type,.live-badge) { color:var(--warning); border-color:color-mix(in srgb,var(--warning) 40%,transparent); background:color-mix(in srgb,var(--warning) 8%,transparent); }
+ :root body .app-frame .pipeline-page .pipeline-table :is(th,td) { vertical-align:middle; }
+ :root body .app-frame .pipeline-page .pipeline-table td { padding-block:8px; }
+ :root body .app-frame .pipeline-page .pipeline-table td strong, :root body .app-frame .pipeline-page .pipeline-open { font-size:13px; }
+ :root body .app-frame .pipeline-page .pipeline-table td > span { margin-top:2px; }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status { display:inline-flex; align-items:center; gap:6px; min-height:19px; margin-top:3px; padding:0 8px 0 7px; font-size:11px; font-weight:550; line-height:17px; }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--muted-foreground); }
+ /* Status color always sits beside the status word (Ashby): open and progressing are
+    cyan, waiting is amber, offers and acceptance are green, closed outcomes stay muted. */
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status[data-status="Active"]::before { background:var(--primary); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status[data-status="On hold"] { color:var(--warning); background:color-mix(in srgb,var(--warning) 9%,transparent); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status[data-status="On hold"]::before { background:var(--warning); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Offer received"],[data-status="Accepted"]) { color:var(--state-done); background:color-mix(in srgb,var(--state-done) 10%,transparent); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Offer received"],[data-status="Accepted"])::before { background:var(--state-done); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Rejected"],[data-status="Withdrawn"],[data-status="Offer declined"],[data-status="Role closed"]) { color:var(--muted-foreground); }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status:is([data-status="Rejected"],[data-status="Withdrawn"],[data-status="Offer declined"],[data-status="Role closed"])::before { box-sizing:border-box; border:1.5px solid var(--muted-foreground); background:transparent; }
+
+ /* Financial table: an editable amount looks editable only when it is. */
+ :root body .app-frame .payments-page .payment-confirmed-edit:enabled { padding:2px 6px; border:1px solid var(--ui-selected-edge); border-radius:6px; background:var(--ui-selected); cursor:pointer; }
+ :root body .app-frame .payments-page .payment-confirmed-edit:enabled:hover { border-color:var(--primary); }
+ :root body .app-frame .payments-page .payment-confirmed-edit:disabled { padding:2px 0; border:1px solid transparent; background:transparent; color:var(--foreground); cursor:default; opacity:1; }
+ :root body .app-frame .payments-page .payment-confirmed-edit:enabled { color:var(--primary); }
+
+ /* Analytical toolbars: related choices share one segmented track. */
+ :root body .app-frame .bidder-activity [role="group"]:has(> .btn[aria-pressed]):not(:has(> span),.activity-workday-controls) { display:inline-flex; flex-wrap:wrap; align-items:center; gap:2px; width:max-content; max-width:100%; padding:2px; border:1px solid var(--border); border-radius:9px; background:var(--background); }
+ :root body .app-frame .bidder-activity [role="group"]:not(.activity-workday-controls) > .btn[aria-pressed].btn { height:26px; min-height:26px; border:0; box-shadow:none; background:transparent; color:var(--muted-foreground); }
+ :root body .app-frame .bidder-activity [role="group"]:not(.activity-workday-controls) > .btn[aria-pressed="true"].btn { color:var(--foreground); background:var(--surface-raised); box-shadow:0 0 0 1px var(--border),0 1px 3px #00000033; }
+ :root body .app-frame .bidder-activity .activity-count-reconciliation { padding:8px 12px; border:1px solid var(--border); border-left:3px solid var(--primary); border-radius:8px; background:var(--card); font-size:12px; line-height:1.6; color:var(--text-soft); }
+ :root body .app-frame .bidder-activity .activity-count-reconciliation strong { color:var(--foreground); }
+ :root body .app-frame .activity-heatmap .heat-cell { border-color:transparent; }
+ :root body .app-frame .activity-heatmap .heat-cell:not([tabindex]) { box-shadow:inset 0 0 0 40px var(--state-hover); }
+ :root body .app-frame .activity-heatmap .heat-cell[tabindex]:is(:hover,:focus-visible) { outline:2px solid var(--foreground); outline-offset:1px; }
+ /* A hairline of surface separates stacked series without touching their values. */
+ :root body .app-frame .application-activity-chart .activity-stack-segment > path:first-child { stroke:var(--surface); stroke-width:1px; }
+ /* Bar totals as plain figures (Grafana, Linear Insights): the box and stem go, the value stays. */
+ :root body .app-frame .application-activity-chart .activity-total-label :is(rect,line) { display:none; }
+ :root body .app-frame .application-activity-chart .activity-total-label text { fill:var(--text-soft); font-weight:600; transform:translateY(8px); }
+ :root body .app-frame .activity-tooltip-item { font-size:12px; }
+
+}
+@media screen and (forced-colors:active) {
+ :root body .app-frame input.sourcing-check:disabled:checked { appearance:auto; }
+ /* The system text backplate would paint HighlightText on Canvas (black on black). */
+ :root body .app-frame .sourcing-grid .rdg-row.sheet-row-selected > .rdg-cell { forced-color-adjust:none; background:Highlight; color:HighlightText; }
+ :root body .app-frame .sourcing-grid .rdg-row.sheet-row-selected > .rdg-cell * { forced-color-adjust:none; background:transparent; color:HighlightText; }
+ :root body .app-frame .pipeline-page .pipeline-table td .pipeline-status::before { background:CanvasText; }
+}

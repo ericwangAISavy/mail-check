@@ -22,3 +22,14 @@ it("loads company names and preserves the edited list after a save failure",asyn
   expect(api.post).toHaveBeenLastCalledWith("/api/sourcing/filters",{companies:["Acme","New Company"]})
   client.clear()
 })
+it("opens the selected job tab's account in role filters",async()=>{
+ vi.mocked(request).mockImplementation(async(url:any)=>String(url).includes("role-filters")
+  ? {accounts:[{id:1,label:"One",email:"one@test.com",keywords:["MLOps"]},{id:2,label:"Two",email:"two@test.com",keywords:["Machine learning"]}]} as any
+  : {companies:[]} as any)
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
+ render(<QueryClientProvider client={client}><Dialog open><SourcingFilters accountId={2}/></Dialog></QueryClientProvider>)
+ fireEvent.click(screen.getByRole("button",{name:"Roles by account"}))
+ await screen.findByDisplayValue("Machine learning")
+ expect(screen.getByLabelText("Role filter email account")).toHaveProperty("value","2")
+ client.clear()
+})

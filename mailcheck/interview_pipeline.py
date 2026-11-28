@@ -273,8 +273,8 @@ def detail(conn,id,_cache=None):
     actions=actions_for(opp,events,messages,[t for t in tasks if t['kind']!='recommendation'],contacts,business_days=cache['thresholds'][opp['account_id']] if cache else _threshold(conn,opp['account_id']))
     controls={t['id']:t for t in tasks if t['kind']=='recommendation'}
     actions=[a for a in actions if a['id'] not in controls or controls[a['id']]['state']=='open' or controls[a['id']]['state']=='snoozed' and instant(controls[a['id']]['snoozed_until'])<=now]
-    upcoming=sorted([e for e in events if e['provider_state']=='Scheduled' and e['temporal'] in {'Upcoming','In progress'}],key=lambda e:e['start_at'])
-    opp.update(account_label=account['label'],account_email=account['email'],pinned=bool(opp['pinned']),archived=bool(opp['archived']),actions=actions,next_action=actions[0] if actions else None,next_interview=upcoming[0] if upcoming else None,last_contact_at=max([c['at'] for c in contacts]+[m['occurred_at'] for m in messages if m['occurred_at']],default=None))
+    upcoming=sorted([e for e in events if e['provider_state']=='Scheduled' and e['temporal'] in {'Upcoming','In progress'}],key=lambda e:instant(e['start_at']))
+    opp.update(account_label=account['label'],account_email=account['email'],pinned=bool(opp['pinned']),archived=bool(opp['archived']),actions=actions,next_action=actions[0] if actions else None,next_interview=upcoming[0] if upcoming else None,last_contact_at=max([c['at'] for c in contacts]+[m['occurred_at'] for m in messages if m['occurred_at']],key=instant,default=None))
     history=[] if cache else _rows(conn,'SELECT * FROM pipeline_history WHERE opportunity_id=? ORDER BY id DESC LIMIT 100',(id,))
     for row in history: row['data']=json.loads(row['data'])
     sent=[]
@@ -345,10 +345,14 @@ def review_action(conn,body):
     def run():
         key=body['key']; parts=key.split(':'); action=body['action']
         if action not in {'accept','dismiss','link'}: raise ValueError('Invalid review action')
+        if conn.execute('SELECT 1 FROM pipeline_review_decisions WHERE key=?',(key,)).fetchone():
+            raise FileExistsError('Evidence was reviewed elsewhere; reload before deciding')
         if action=='dismiss': result={}
         else:
             if len(parts)!=3 or parts[0] not in {'message','event'}: raise ValueError('Legacy choices require manual opportunity mapping')
             kind,aid,sid=parts[0],int(parts[1]),int(parts[2]); _account(conn,aid)
+            if conn.execute('SELECT 1 FROM pipeline_links l JOIN pipeline_opportunities p ON p.id=l.opportunity_id WHERE l.kind=? AND l.source_id=? AND p.account_id=?',(kind,sid,aid)).fetchone():
+                raise FileExistsError('Evidence was linked elsewhere; reload before deciding')
             if action=='accept': id=_insert(conn,dict(body,account_id=aid,company=body.get('company') or 'Unknown company'))
             else: id=body['target_id']; _revision(conn,id,body)
             opp=_opp(conn,id)

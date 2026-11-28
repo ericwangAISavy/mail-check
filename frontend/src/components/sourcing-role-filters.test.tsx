@@ -1,0 +1,40 @@
+import {afterEach,expect,it,vi} from "vitest"
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
+import {api,request} from "@/lib/api"
+import SourcingRoleFilters from "./sourcing-role-filters"
+vi.mock("@/lib/api",()=>({request:vi.fn(),api:{post:vi.fn()}}))
+afterEach(()=>{cleanup();vi.resetAllMocks()})
+it("keeps separate drafts and saves only the selected account",async()=>{
+ vi.mocked(request).mockResolvedValue({accounts:[{id:1,label:"One",email:"one@test.com",keywords:["MLOps"]},{id:2,label:"Two",email:"two@test.com",keywords:["Full stack"]}]})
+ vi.mocked(api.post).mockResolvedValue({account_id:2,keywords:["Machine learning"]})
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
+ render(<QueryClientProvider client={client}><SourcingRoleFilters initialAccountId={1}/></QueryClientProvider>)
+ const input=await screen.findByDisplayValue("MLOps")
+ fireEvent.change(input,{target:{value:"MLOps\nDevOps"}})
+ fireEvent.change(screen.getByLabelText("Role filter email account"),{target:{value:"2"}})
+ expect(input).toHaveProperty("value","Full stack")
+ fireEvent.change(input,{target:{value:"Machine learning"}})
+ fireEvent.click(screen.getByRole("button",{name:"Save role filters"}))
+ await screen.findByText("Role filters saved for two@test.com.")
+ expect(api.post).toHaveBeenCalledWith("/api/sourcing/role-filters/2",{keywords:["Machine learning"]})
+ fireEvent.change(screen.getByLabelText("Role filter email account"),{target:{value:"1"}})
+ expect(input).toHaveProperty("value","MLOps\nDevOps")
+ client.clear()
+})
+it("preserves keywords after a failed save and allows clearing the list",async()=>{
+ vi.mocked(request).mockResolvedValue({accounts:[{id:1,label:"One",email:"one@test.com",keywords:["MLOps"]}]})
+ vi.mocked(api.post).mockRejectedValueOnce(new Error("Could not save"))
+ const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})
+ render(<QueryClientProvider client={client}><SourcingRoleFilters/></QueryClientProvider>)
+ const input=await screen.findByDisplayValue("MLOps")
+ fireEvent.change(input,{target:{value:"Full stack"}})
+ fireEvent.click(screen.getByRole("button",{name:"Save role filters"}))
+ expect(await screen.findByRole("alert")).toHaveProperty("textContent","Could not save")
+ expect(input).toHaveProperty("value","Full stack")
+ vi.mocked(api.post).mockResolvedValue({account_id:1,keywords:[]})
+ fireEvent.change(input,{target:{value:""}})
+ fireEvent.click(screen.getByRole("button",{name:"Save role filters"}))
+ await waitFor(()=>expect(api.post).toHaveBeenLastCalledWith("/api/sourcing/role-filters/1",{keywords:[]}))
+ client.clear()
+})

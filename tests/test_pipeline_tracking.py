@@ -35,3 +35,13 @@ def test_explicit_deadline_survives_hold_and_upcoming():
     for status,events in [('On hold',[]),('Active',[{'id':1,'provider_state':'Scheduled','start_at':'2026-11-05T10:00:00Z','end_at':'2026-11-05T11:00:00Z','attendance':'Unconfirmed'}])]:
         actions=actions_for({'id':'x','status':status,'timezone':'UTC','response_due':'2026-10-29'},events,[],[],[],now=now)
         assert any(a['kind']=='followup' and not a['suggested'] for a in actions)
+
+
+def test_employer_update_uses_actual_time_across_offsets():
+    messages = [
+        {'id': 1, 'occurred_at': '2026-10-20T09:00:00+02:00', 'from_addr': 'recruiter@example.com', 'category': 'interview_invite'},
+        {'id': 2, 'occurred_at': '2026-10-20T08:00:00Z', 'from_addr': 'recruiter@example.com', 'category': 'interview_invite'},
+    ]
+    actions = actions_for({'id': 'x', 'status': 'Active', 'timezone': 'UTC'}, [], messages, [], [],
+                          now=datetime(2026, 10, 21, tzinfo=timezone.utc))
+    assert actions[0]['target_message_pk'] == 2

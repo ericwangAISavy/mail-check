@@ -1,18 +1,62 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ToastProvider } from "@/components/common"
+import { PageStateProvider } from "@/lib/page-state"
 import InterviewCalendar from "./interview-calendar"
 import type { InterviewEvent } from "@/lib/types"
 const accounts=[{id:1,label:'personal',email:'me@example.test'},{id:2,label:'work',email:'work@example.test'}]
 const event=(id:number,label:string):InterviewEvent=>({id,account_labels:[label],company:label==='work'?'Work Company':'Personal Company',role:'Engineer',stage:'Technical Interview',calendar_uid:null,status:'Scheduled',display_status:'Scheduled',start_at:new Date(2026,9,15,10).toISOString(),end_at:new Date(2026,9,15,11).toISOString(),timezone:'UTC',meeting_platform:null,meeting_url:null,location:null,organizer_name:null,organizer_email:null,participants:[],notes:null,confidence:1,needs_review:false,review_reason:null,manual_fields:[],created_at:'2026-10-15T00:00:00Z',updated_at:'2026-10-15T00:00:00Z'})
 const clipboard=Object.getOwnPropertyDescriptor(navigator,'clipboard')
-afterEach(()=>{cleanup();localStorage.clear();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks();vi.useRealTimers()})
-function mount(){render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&account=work']}><ToastProvider><InterviewCalendar events={[event(1,'personal'),event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={<label>Account filter<input aria-label="Account filter"/></label>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)}
+
+it('keeps the normal indicator inside the title of a short calendar event',()=>{
+ const value:InterviewEvent={...event(1,'personal'),feedback_tags:['normal'],end_at:new Date(2026,9,15,10,5).toISOString()}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ const icon=screen.getByRole('img',{name:'Normal feedback'})
+ expect(icon.closest('.outlook-time-event.is-short strong')).toBeTruthy()
+ expect(screen.queryByRole('img',{name:/Warning feedback/})).toBeNull()
+})
+
+it('shows a warning icon in week and month views and includes feedback in event accessible names',()=>{
+ const value:InterviewEvent={...event(1,'personal'),feedback_tags:['in-person','linkedin','fuck']}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ expect(screen.getByRole('button',{name:/Personal Company,.*in-person, linkedin/})).toBeTruthy()
+ expect(screen.getByRole('img',{name:'Warning feedback: in-person, linkedin, fuck'})).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('Calendar view'),{target:{value:'month'}})
+ expect(document.querySelector('.outlook-month-event .interview-feedback-indicator')).toBeTruthy()
+})
+
+it.each([
+ ['Needs review', {display_status:'Needs review',needs_review:true}],
+ ['Analysis pending', {analysis_pending:true}],
+ ['Rescheduled', {display_status:'Rescheduled'}],
+ ['End time unknown', {end_at:null}],
+] satisfies [string, Partial<InterviewEvent>][])('keeps %s in the event details without a feedback warning triangle', (label, change)=>{
+ const value={...event(1,'personal'),...change}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ const card=()=>screen.getByRole('button',{name:new RegExp(`Personal Company,.*${label}`)})
+ expect(card().querySelector('svg')).toBeNull()
+ fireEvent.change(screen.getByLabelText('Calendar view'),{target:{value:'month'}})
+ expect(card().querySelector('svg')).toBeNull()
+})
+
+it('identifies a cancelled event and its applicant account in both calendars',()=>{
+ const value={...event(1,'work'),status:'Cancelled',display_status:'Cancelled'}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&event=1']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ const name=/Work Company,.*Cancelled.*Account: work \(work@example\.test\)/
+ expect(screen.getByRole('button',{name}).getAttribute('aria-current')).toBe('true')
+ expect(screen.getByRole('img',{name:'Cancelled'})).toBeTruthy()
+ fireEvent.change(screen.getByLabelText('Calendar view'),{target:{value:'month'}})
+ expect(screen.getByRole('button',{name}).classList).toContain('is-selected')
+ expect(screen.getByRole('img',{name:'Cancelled'})).toBeTruthy()
+})
+afterEach(()=>{cleanup();localStorage.clear();sessionStorage.clear();if(clipboard)Object.defineProperty(navigator,'clipboard',clipboard);else Reflect.deleteProperty(navigator,'clipboard');vi.restoreAllMocks();vi.useRealTimers()})
+function mount(){render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&account=work']}><ToastProvider><InterviewCalendar commandBar events={[event(1,'personal'),event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={<label>Account filter<input aria-label="Account filter"/></label>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
 it('opens real filters and partitions split calendars by source account',()=>{
  mount();expect(screen.queryByLabelText('Account filter')).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'Filter'}));expect(screen.getByLabelText('Account filter')).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'Split view'}))
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}));fireEvent.click(screen.getByRole('button',{name:'Split view'}))
  const calendars=document.querySelectorAll('.outlook-account-calendar')
  expect(calendars.length).toBe(2)
  expect(calendars[0].querySelectorAll('.outlook-time-event').length).toBe(1)
@@ -21,9 +65,9 @@ it('opens real filters and partitions split calendars by source account',()=>{
 })
 it('uses the date picker and switches between work week, full week, month and day',()=>{
  mount();expect(document.querySelectorAll('.outlook-day-heading').length).toBe(5)
- fireEvent.click(screen.getByRole('button',{name:'Week'}));expect(document.querySelectorAll('.outlook-day-heading').length).toBe(7)
- fireEvent.click(screen.getByRole('button',{name:'Month'}));expect(document.querySelectorAll('.outlook-month-day').length).toBe(42)
- fireEvent.click(screen.getByRole('button',{name:'Day'}));expect(document.querySelectorAll('.outlook-day-heading').length).toBe(1)
+ fireEvent.change(screen.getByLabelText('Calendar view'),{target:{value:'week'}});expect(document.querySelectorAll('.outlook-day-heading').length).toBe(7)
+ fireEvent.change(screen.getByLabelText('Calendar view'),{target:{value:'month'}});expect(document.querySelectorAll('.outlook-month-day').length).toBe(42)
+ fireEvent.change(screen.getByLabelText('Calendar view'),{target:{value:'day'}});expect(document.querySelectorAll('.outlook-day-heading').length).toBe(1)
  fireEvent.click(screen.getByRole('button',{name:/^Thursday, October 15, 2026/}))
  fireEvent.change(screen.getByLabelText('Go to date'),{target:{value:'2026-10-20'}})
  expect(screen.getByRole('button',{name:/^Tuesday, October 20, 2026/})).toBeTruthy()
@@ -31,14 +75,14 @@ it('uses the date picker and switches between work week, full week, month and da
 it('copies a canonical calendar link with view/date/filters and prints on demand',async()=>{
  const writeText=vi.fn().mockResolvedValue(undefined);Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
  const print=vi.spyOn(window,'print').mockImplementation(()=>undefined)
- mount();fireEvent.click(screen.getByRole('button',{name:'Share'}));fireEvent.click(screen.getByRole('button',{name:'Copy calendar link'}))
+ mount();fireEvent.click(screen.getByRole('button',{name:'More calendar options'}));;fireEvent.click(screen.getByRole('button',{name:'Copy calendar link'}))
  await waitFor(()=>expect(writeText).toHaveBeenCalledTimes(1))
  const url=new URL(writeText.mock.calls[0][0]);expect(url.searchParams.get('calendar_view')).toBe('workweek');expect(url.searchParams.get('calendar_date')).toBe('2026-10-15');expect(url.searchParams.get('account')).toBe('work')
- fireEvent.click(screen.getByRole('button',{name:'Print'}));expect(print).toHaveBeenCalledTimes(1)
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}));fireEvent.click(screen.getByRole('button',{name:'Print'}));expect(print).toHaveBeenCalledTimes(1)
 })
 it('keeps a combined meeting color stable when source account order changes',()=>{
  const value={...event(3,'work'),account_labels:['work','personal']}
- const draw=(labels:string[])=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[{...value,account_labels:labels}]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ const draw=(labels:string[])=>render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[{...value,account_labels:labels}]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
  draw(value.account_labels)
  const first=screen.getByRole('button',{name:/Work Company, Technical Interview/}).className.match(/account-color-\d/)![0]
  cleanup();draw(['personal','work'])
@@ -46,13 +90,13 @@ it('keeps a combined meeting color stable when source account order changes',()=
 })
 it('shows intro and tech totals next to the current period and updates on navigation',async()=>{
  const intro={...event(1,'personal'),end_at:new Date(2026,9,15,10,30).toISOString()}
- render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[intro,event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
- expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toBe('Total 2 / Intro 1 / Tech 1')
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[intro,event(2,'work')]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toBe('2 interviews')
  fireEvent.click(screen.getByRole('button',{name:'Next calendar period'}))
- await waitFor(()=>expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toBe('Total 0 / Intro 0 / Tech 0'))
+ await waitFor(()=>expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toBe('0 interviews'))
 })
 it('keeps an account color unchanged when the account list is reordered',()=>{
- const draw=(list:typeof accounts)=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[event(1,'work')]} accounts={list} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ const draw=(list:typeof accounts)=>render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[event(1,'work')]} accounts={list} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
  draw(accounts)
  const before=screen.getByRole('button',{name:/Work Company, Technical Interview/}).className.match(/account-color-\d/)![0]
  cleanup();draw([...accounts].reverse())
@@ -61,7 +105,7 @@ it('keeps an account color unchanged when the account list is reordered',()=>{
 
 it('saves the chosen timezone and updates event placement without changing instants',()=>{
  const value={...event(1,'personal'),start_at:'2026-10-15T10:00:00Z',end_at:'2026-10-15T11:00:00Z'}
- const draw=()=>render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ const draw=()=>render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
  draw()
  fireEvent.change(screen.getByLabelText('Calendar timezone'),{target:{value:'Tokyo'}})
  fireEvent.click(screen.getByRole('option',{name:'Asia/Tokyo'}))
@@ -69,29 +113,29 @@ it('saves the chosen timezone and updates event placement without changing insta
  expect(localStorage.getItem('mailcheck.calendar.timezone')).toBe('Asia/Tokyo')
  expect(value.start_at).toBe('2026-10-15T10:00:00Z')
  cleanup();draw()
- expect((screen.getByLabelText('Calendar timezone') as HTMLSelectElement).value).toBe('Asia/Tokyo')
+ expect((screen.getByLabelText('Calendar timezone') as HTMLInputElement).title).toBe('Asia/Tokyo')
  expect(document.querySelector('[data-event-id="1"]')?.getAttribute('data-start-minute')).toBe('1140')
 })
 it('uses the selected timezone for month grouping and shared links',async()=>{
  const writeText=vi.fn().mockResolvedValue(undefined);Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
  const value={...event(1,'personal'),start_at:'2026-11-02T00:30:00Z',end_at:'2026-11-02T01:30:00Z'}
- render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-11-01&calendar_view=month&calendar_tz=America/Chicago']}><ToastProvider><InterviewCalendar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-11-01&calendar_view=month&calendar_tz=America/Chicago']}><ToastProvider><InterviewCalendar commandBar events={[value]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
  const item=screen.getByRole('button',{name:/Personal Company, Technical Interview/})
  expect(item.closest('section')?.getAttribute('aria-label')).toContain('November 1')
- fireEvent.click(screen.getByRole('button',{name:'Share'}));fireEvent.click(screen.getByRole('button',{name:'Copy calendar link'}))
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}));;fireEvent.click(screen.getByRole('button',{name:'Copy calendar link'}))
  await waitFor(()=>expect(writeText).toHaveBeenCalledTimes(1))
  expect(new URL(writeText.mock.calls[0][0]).searchParams.get('calendar_tz')).toBe('America/Chicago')
 })
 it('ignores malformed event dates when checking hidden weekend interviews',()=>{
  const broken={...event(1,'personal'),start_at:'not-a-date'}
- render(<MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&calendar_tz=Asia/Tokyo']}><ToastProvider><InterviewCalendar events={[broken]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15&calendar_tz=Asia/Tokyo']}><ToastProvider><InterviewCalendar commandBar events={[broken]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
  expect(document.querySelectorAll('.outlook-time-event')).toHaveLength(0)
- expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toContain('Total 0')
+ expect(screen.getByRole('status',{name:'Interview counts'}).textContent).toContain('0 interviews')
 })
 
 it('uses the chosen timezone for Today near a UTC date boundary',()=>{
  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-02T00:30:00Z'))
- render(<MemoryRouter initialEntries={['/interviews?calendar_view=day&calendar_date=2026-11-03&calendar_tz=America/Chicago']}><ToastProvider><InterviewCalendar events={[]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter>)
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_view=day&calendar_date=2026-11-03&calendar_tz=America/Chicago']}><ToastProvider><InterviewCalendar commandBar events={[]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
  fireEvent.click(screen.getByRole('button',{name:'Today'}))
  expect(screen.getByRole('button',{name:/^Sunday, November 1, 2026/})).toBeTruthy()
  expect(document.querySelector('.outlook-day-heading')?.className).toContain('is-today')
@@ -101,6 +145,40 @@ it('keeps the timezone usable and warns when the browser blocks saving',()=>{
  mount()
  fireEvent.change(screen.getByRole('combobox',{name:'Calendar timezone'}),{target:{value:'Tokyo'}})
  fireEvent.click(screen.getByRole('option',{name:'Asia/Tokyo'}))
- expect((screen.getByRole('combobox',{name:'Calendar timezone'}) as HTMLInputElement).value).toBe('Asia/Tokyo')
- expect(screen.getByText('Timezone changed for this visit. Your browser blocked saving it for future visits.')).toBeTruthy()
+ expect((screen.getByRole('combobox',{name:'Calendar timezone'}) as HTMLInputElement).title).toBe('Asia/Tokyo')
+ expect(screen.getByText('Timezone changed for this visit only.')).toBeTruthy()
+})
+
+it('restores calendar filter and split controls after remount',()=>{
+ const draw=()=>render(<QueryClientProvider client={new QueryClient()}><PageStateProvider scope="calendar-test"><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar commandBar events={[]} accounts={accounts} account="" filterCount={0} filters={<input aria-label="Saved calendar filter"/>} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></PageStateProvider></QueryClientProvider>)
+ draw()
+ fireEvent.click(screen.getByRole('button',{name:'Filter'}))
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}));fireEvent.click(screen.getByRole('button',{name:'Split view'}))
+ cleanup();draw()
+ expect(screen.getByLabelText('Saved calendar filter')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}));expect(screen.getByRole('button',{name:'Split view'}).getAttribute('aria-pressed')).toBe('true')
+ expect(document.querySelectorAll('.outlook-account-calendar')).toHaveLength(2)
+})
+
+it('keeps view, share and print in the toolbar and More menu, with actions in the date row',()=>{
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[]} accounts={[]} account="" filterCount={0} filters={null} actions={<button>Check now</button>} onSelect={()=>{}}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ expect(screen.getByLabelText('Calendar view')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:/Share/})).toBeNull()
+ expect(document.querySelector('.outlook-command-bar')).toBeNull()
+ expect(screen.getByRole('button',{name:'Check now'}).closest('.outlook-date-bar')).not.toBeNull()
+})
+
+it('fades only events that are over, including unanalyzed ones',()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,9,15,10,30))
+ const past={...event(3,'personal'),company:'Past Co',start_at:new Date(2026,9,15,8).toISOString(),end_at:new Date(2026,9,15,9).toISOString()}
+ const current={...event(4,'personal'),company:'Current Co'}                       // 10:00-11:00, in progress
+ const pending={...event(5,'work'),analysis_pending:true,company:'Pending Co',display_status:'Needs review',start_at:new Date(2026,9,15,13).toISOString(),end_at:new Date(2026,9,15,14).toISOString()}
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/interviews?calendar_date=2026-10-15']}><ToastProvider><InterviewCalendar events={[past,current,pending]} accounts={accounts} account="" filterCount={0} filters={null} onSelect={()=>undefined}/></ToastProvider></MemoryRouter></QueryClientProvider>)
+ const card=(name:string)=>screen.getByRole('button',{name:new RegExp(`^${name}`)})
+ expect(card('Past Co').classList.contains('is-past')).toBe(true)
+ expect(card('Current Co').classList.contains('is-past')).toBe(false)
+ expect(card('Pending Co').classList.contains('is-past')).toBe(false)
+ expect(card('Pending Co').classList.contains('needs-review')).toBe(true)
+ expect(card('Pending Co').classList.contains('analysis-deferred')).toBe(true)
+ expect(card('Current Co').classList.contains('analysis-deferred')).toBe(false)
 })

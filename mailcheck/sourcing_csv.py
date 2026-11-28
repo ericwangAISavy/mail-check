@@ -151,28 +151,67 @@ def import_rows(
         return result(conn,tab,operation)
 
 
+MAX_EXPORT_BYTES = 32 * 1024 * 1024
+
+
 def export_rows(conn, tab, *, work_date="all"):
     scope = sheets.date_scope(work_date)
-    result = sheets.snapshot(conn, tab)
-    rows = [
-        row
-        for i, row in enumerate(result["rows"])
-        if i == 0 or scope == "all" or result["row_dates"][i] == scope
-    ]
-    while len(rows) > 1 and not any(cell["value"] for cell in rows[-1]):
-        rows.pop()
-    output = io.StringIO(newline="")
+    own_transaction = not conn.in_transaction
+    if own_transaction:
+        conn.execute("BEGIN")
+    try:
+        return _export_rows(conn, tab, scope)
+    finally:
+        if own_transaction:
+            conn.rollback()
+
+
+def _export_rows(conn, tab, scope):
+    columns = [dict(c) for c in conn.execute(
+        "SELECT id,title,kind FROM native_columns WHERE tab_id=? ORDER BY position,id", (tab['id'],))]
+    fixed = {'company':'Company','role':'Role','link':'Job link','check':'Check'}
+    titles = [fixed.get(c['kind'], c['title']) for c in columns]
+    indexes = {c['id']: i for i, c in enumerate(columns)}
+    params = (tab['id'], scope == 'all', scope)
+    where = "r.tab_id=? AND (? OR r.work_date IS ?)"
+    count = conn.execute("SELECT COUNT(*) FROM native_rows r WHERE " + where, params).fetchone()[0]
+    stats = conn.execute("""SELECT COALESCE(SUM(length(CAST(c.value AS BLOB))),0), COUNT(*)
+        FROM native_rows r JOIN native_cells c ON c.row_id=r.id
+        JOIN native_columns col ON col.id=c.column_id AND col.tab_id=r.tab_id
+        WHERE """ + where + " AND c.value!=''", params).fetchone()
+    # Twice the UTF-8 text covers quote escaping; allow quotes, formula guards,
+    # delimiters and CRLF as well, before allocating the output buffer.
+    estimated = (2 * (stats[0] + sum(len(t.encode('utf-8')) for t in titles))
+                 + 3 * (stats[1] + len(titles)) + (count + 1) * (len(columns) + 2))
+    if estimated > MAX_EXPORT_BYTES:
+        raise sheets.SnapshotTooLarge("This CSV export is too large to prepare safely. Export one work date at a time or split the sheet.")
+    last = conn.execute("""SELECT r.position,r.id FROM native_rows r WHERE """ + where + """
+        AND EXISTS(SELECT 1 FROM native_cells c JOIN native_columns col ON col.id=c.column_id
+          WHERE c.row_id=r.id AND col.tab_id=r.tab_id AND c.value!='')
+        ORDER BY r.position DESC,r.id DESC LIMIT 1""", params).fetchone()
+    output = io.StringIO(newline='')
     writer = csv.writer(output)
-    for row in rows:
-        # Keep spreadsheet applications from executing user-entered text on open.
-        writer.writerow(
-            [
-                (
-                    ("'" + str(cell["value"]))
-                    if str(cell["value"]).lstrip().startswith(("=", "+", "-", "@"))
-                    else cell["value"]
-                )
-                for cell in row
-            ]
-        )
+
+    def write(values):
+        writer.writerow([("'" + value) if value.lstrip().startswith(('=', '+', '-', '@')) else value for value in values])
+
+    write(titles)
+    if last is None:
+        return output.getvalue()
+    cursor = conn.execute("""SELECT r.id,c.column_id,c.value FROM native_rows r
+        LEFT JOIN native_cells c ON c.row_id=r.id
+        AND c.column_id IN (SELECT id FROM native_columns WHERE tab_id=r.tab_id)
+        WHERE """ + where + " AND (r.position,r.id)<=(?,?) ORDER BY r.position,r.id", (*params, last[0], last[1]))
+    current = None
+    values = None
+    for row in cursor:
+        if row['id'] != current:
+            if values is not None:
+                write(values)
+            current = row['id']
+            values = [''] * len(columns)
+        if row['column_id'] in indexes:
+            values[indexes[row['column_id']]] = row['value']
+    if values is not None:
+        write(values)
     return output.getvalue()

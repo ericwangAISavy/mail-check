@@ -203,3 +203,13 @@ class IncrementalCheckTests(unittest.TestCase):
         self.assertEqual(set(values),{account.id for account in accounts})
         self.assertTrue(all(value==stamp for value in values.values()))
         self.assertEqual(len([sql for sql in queries if sql.lstrip().upper().startswith("SELECT")]),1)
+
+    def test_inbox_only_checkpoint_is_reset_when_junk_coverage_is_enabled(self):
+        import hashlib,json
+        account=db.get_account(self.conn,"personal")
+        legacy_key=hashlib.sha256(json.dumps([account.provider,account.email.casefold(),account.imap_host,account.imap_port,account.use_ssl,account.folder]).encode()).hexdigest()
+        stamp=datetime.now(timezone.utc)-timedelta(minutes=1)
+        self.conn.execute("INSERT INTO mail_checkpoints(account_id,mailbox,checked_at) VALUES(?,?,?)",(account.id,legacy_key,stamp.isoformat()))
+        self.conn.commit()
+        now=datetime.now(timezone.utc)
+        self.assertEqual(checkpoints.window(self.conn,account,self.cfg().check,None,now),(now-timedelta(days=2)).date())

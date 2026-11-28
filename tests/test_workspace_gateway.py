@@ -91,12 +91,48 @@ def test_host_origin_old_cookies_and_internal_tokens_are_not_trusted(system):
         assert client.post('/api/auth/login',json={'password':'owner-password-123'},headers={'origin':'https://evil.test'}).status_code==403
 
 
-def test_worker_rejects_direct_requests_and_legacy_login(tmp_path):
+def test_worker_rejects_direct_requests_and_legacy_login(tmp_path,monkeypatch):
     from mailcheck.web.app import create_app
+    # This auth-boundary test must never initialize the user's real data paths.
+    monkeypatch.setattr('mailcheck.config.db_path',lambda:tmp_path/'mailcheck.db')
+    monkeypatch.setattr('mailcheck.config.config_path',lambda:tmp_path/'config.toml')
+    monkeypatch.setattr('mailcheck.config.control_dir',lambda:tmp_path/'control')
     with TestClient(create_app(worker_secret='private-worker-token')) as client:
         assert client.get('/api/bootstrap').status_code==403
         assert client.post('/api/auth/login',json={'role':'admin','password':'admin'},headers={'x-offerpath-worker':'private-worker-token'}).status_code==403
         assert client.get('/_internal/ready',headers={'x-offerpath-worker':'private-worker-token'}).status_code==200
+
+
+def test_auth_storage_failures_keep_request_correlation(system,monkeypatch,caplog):
+    import sqlite3
+    app,store,_=system
+    def unavailable(token):
+        raise sqlite3.OperationalError('private database error text')
+    monkeypatch.setattr(store,'identity',unavailable)
+    with TestClient(app) as client:
+        response=client.get('/api/auth/session')
+    assert response.status_code==503
+    request_id=response.headers['x-request-id']
+    assert f'request_id={request_id}' in caplog.text
+    assert 'http_status=503' in caplog.text
+    assert 'sqlite_error' in caplog.text
+    assert 'private database error text' not in caplog.text
+
+
+def test_gateway_timeout_response_keeps_request_correlation(system,monkeypatch,caplog):
+    import asyncio
+    app,_,_=system
+    @app.get('/api/diagnostic-slow-test')
+    async def slow():
+        await asyncio.sleep(.1)
+        return {'ok':True}
+    monkeypatch.setattr('mailcheck.web.gateway.READ_REQUEST_TIMEOUT',.02)
+    with TestClient(app) as client:
+        login(client)
+        response=client.get('/api/diagnostic-slow-test')
+    assert response.status_code==504
+    assert f"request_id={response.headers['x-request-id']}" in caplog.text
+    assert 'timeout' in caplog.text
 
 
 def test_model_requests_queue_until_the_active_lease_is_released(system):
@@ -207,15 +243,27 @@ def test_signing_into_another_admin_revokes_the_previous_browser_session(system)
         assert store.identity(browser.cookies.get('offerpath_session'))['username']=='alice'
 
 
-@pytest.mark.parametrize('path',['/settings','/api/settings','/api/settings/model','/api/settings/test','/api/rules','/api/autocheck'])
+@pytest.mark.parametrize('path',['/api/settings','/api/settings/model','/api/settings/test','/api/rules','/api/autocheck'])
 def test_added_admin_cannot_access_settings_or_setting_mutations(system,path):
     app,store,pool=system
     store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
     temporary=store.login('alice','temporary-pass-123','setup');store.change_password(temporary,'alice-final-pass-123')
     with TestClient(app) as client:
         login(client,'alice','alice-final-pass-123')
-        result=client.get(path) if path in ('/settings','/api/settings','/api/settings/model') else client.post(path,json={})
+        result=client.get(path) if path in ('/api/settings','/api/settings/model') else client.post(path,json={})
         assert result.status_code==403,result.text
+        assert not pool.visited
+
+
+def test_added_admin_opens_personal_settings_page_but_not_workspace_settings(system):
+    app,store,pool=system
+    store.create_admin(store.owner_token,'alice','Alice','temporary-pass-123')
+    temporary=store.login('alice','temporary-pass-123','setup');store.change_password(temporary,'alice-final-pass-123')
+    with TestClient(app) as client:
+        login(client,'alice','alice-final-pass-123')
+        assert client.get('/settings').status_code!=403
+        assert client.get('/api/settings').status_code==403
+        assert client.get('/system-monitoring').status_code==403
         assert not pool.visited
 
 

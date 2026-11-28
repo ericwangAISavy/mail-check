@@ -1,0 +1,67 @@
+/* Application shell: brand, navigation and global actions share one canvas; the
+   workspace is a single inset sheet. Markup, order and behavior are unchanged. */
+@media screen {
+ :root body .app-frame { font-family:var(--font-sans); background:var(--background); }
+ :root body .app-content { background:var(--card); }
+ :root body .app-frame .page-content { background:var(--card); }
+
+ /* Global header */
+ :root body .app-header { background:var(--background); border:0; border-image:none; box-shadow:none; backdrop-filter:none; }
+ :root body .app-frame .app-header .brand-lockup { gap:9px; }
+ :root body .app-frame .app-header .brand-mark { width:24px; height:24px; filter:none; box-shadow:none; }
+ :root body .app-frame .app-header .brand-word { font-size:15.5px; font-weight:650; font-style:normal; letter-spacing:-.025em; }
+ :root body .app-frame .app-header .brand-word span { font-weight:650; color:var(--primary); text-shadow:none; }
+ :root body .app-frame .app-header .crumb { gap:7px; font-size:13px; }
+ :root body .app-frame .app-header .crumb > span:first-child { color:var(--muted-foreground); }
+ :root body .app-frame .app-header .crumb > svg { color:var(--muted-foreground); opacity:.7; }
+ :root body .app-frame .app-header .crumb strong { font-weight:550; color:var(--foreground); }
+ :root body .app-header .header-application-count { gap:5px; padding:1px 8px 1px 7px; border:1px solid var(--border); border-radius:999px; background:transparent; box-shadow:none; color:var(--foreground); font-size:12px; line-height:19px; }
+ :root body .app-header .header-application-count::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--primary); }
+ :root body .app-header .header-application-count > span { color:var(--muted-foreground); font-size:11.5px; }
+ :root body .app-header .signed-in-role { display:inline-flex; align-items:center; height:22px; padding:0 8px; border:1px solid var(--border); border-radius:6px; color:var(--text-soft); font-size:11.5px; font-weight:500; white-space:nowrap; }
+ :root body .app-frame > .app-header .top-right > .btn[data-variant="ghost"] { height:28px; min-height:28px; color:var(--text-soft); font-size:12.5px; font-weight:500; }
+ :root body .app-frame > .app-header .top-right > .btn[data-variant="ghost"]:hover:not(:disabled) { color:var(--foreground); background:var(--nav-hover); }
+ :root body .app-header .btn[aria-label^="Color theme"] { width:28px; height:28px; min-height:28px; padding:0; border:1px solid transparent; border-radius:7px; background:transparent; }
+ :root body .app-header .btn[aria-label^="Color theme"] svg { width:15px; height:15px; }
+ :root body .app-header .connection-status { gap:7px; font-size:12px; color:var(--muted-foreground); }
+ :root body .app-header .connection-status.is-running { color:var(--primary); }
+ :root body .app-header .status-dot { width:6px; height:6px; background:var(--primary); box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 16%,transparent); }
+ :root body .app-frame > .app-header .top-actions > .btn { height:28px; min-height:28px; padding:0 12px; border-radius:7px; font-size:12.5px; }
+ :root body .app-frame > .app-header .top-actions > .btn svg { width:14px; height:14px; }
+ .route-progress { height:1.5px; }
+ .route-progress::before { box-shadow:none; }
+
+ /* Workspace context, setup notice and persistent footer */
+ :root body .app-frame .workspace-banner { min-height:30px; padding:5px var(--ui-gutter); gap:4px 14px; border-bottom:1px solid var(--ui-hairline); background:transparent; color:var(--muted-foreground); font-size:11.5px; }
+ :root body .app-frame .workspace-banner strong { color:var(--text-soft); font-weight:550; }
+ :root body .app-frame .workspace-banner a { color:var(--muted-foreground); text-decoration:none; }
+ :root body .app-frame .workspace-banner a:hover { color:var(--primary); text-decoration:underline; text-underline-offset:3px; }
+ :root body .app-frame .setup-ribbon { min-height:36px; border-bottom:1px solid color-mix(in srgb,var(--warning) 35%,var(--border)); background:color-mix(in srgb,var(--warning) 7%,var(--card)); font-size:12px; }
+ :root body .app-frame .app-footer { align-items:center; min-height:28px; padding:4px var(--ui-gutter); border-top:1px solid var(--ui-hairline); font-size:11px; color:var(--muted-foreground); }
+ :root body .app-frame .footer-dot { background:var(--primary); box-shadow:none; width:5px; height:5px; }
+}
+@media screen and (min-width:701px) {
+ :root body .app-frame { --sidebar-width:216px; --content-inset:var(--ui-gutter); }
+ :root body .app-frame.sidebar-collapsed { --sidebar-width:56px; }
+ :root body .app-frame > .app-header { grid-template-columns:var(--sidebar-width) minmax(0,1fr) auto; height:48px; min-height:48px; }
+ :root body .app-frame > .app-header .brand-header { gap:8px; padding:0 8px 0 18px; }
+ :root body .app-frame > .app-header .top-left { padding:0 12px 0 8px; gap:12px; }
+ :root body .app-frame > .app-header .top-right { padding-right:14px; gap:8px; }
+ :root body .app-frame > .app-header .top-actions { gap:12px; margin-left:4px; }
+ :root body .app-frame > .app-content { margin:0 8px 8px 0; border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow-resting-md); }
+}
+@media screen and (min-width:701px) and (max-width:900px) {
+ :root body .app-frame { --ui-gutter:16px; }
+}
+@media screen and (min-width:701px) {
+ :root body .app-frame.sidebar-collapsed > .app-header .brand-header { padding:0; }
+}
+@media screen and (min-width:1024px) and (max-width:1250px) { :root body .app-frame:not(.sidebar-collapsed) { --ui-gutter:18px; } }
+@media screen and (max-width:700px) {
+ :root body .app-frame { --ui-gutter:14px; }
+ :root body .app-frame > .app-content { margin:0 4px 4px; border:1px solid var(--border); border-radius:10px; }
+}
+@media screen and (prefers-reduced-transparency:reduce) { :root body .app-header { background:var(--card); } }
+@media screen and (forced-colors:active) {
+ :root body .app-header .header-application-count::before { display:none; }
+}

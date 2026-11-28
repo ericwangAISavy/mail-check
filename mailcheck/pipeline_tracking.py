@@ -46,7 +46,7 @@ def actions_for(opp, events, messages, tasks, contacts, *, now=None, business_da
     anchor = max(anchors, default=None)
     newer = [m for m in human if not anchor or instant(m.get('occurred_at')) and instant(m['occurred_at']) > anchor[0]]
     if newer:
-        m = max(newer,key=lambda m: m.get('occurred_at') or '')
+        m = max(newer,key=lambda m: instant(m.get('occurred_at')) or datetime.min.replace(tzinfo=timezone.utc))
         add(f"review:message:{m['id']}",'Review employer update','review','unknown',reason='Linked human inbound requires review',target_message_pk=m['id'])
     terminal = opp['status'] in {'Accepted','Rejected','Withdrawn','Offer declined','Role closed'}
     deadline = opp.get('response_due')

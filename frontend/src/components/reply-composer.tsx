@@ -5,7 +5,6 @@ import {api, ApiError, request, getWorkspaceIdentity} from "@/lib/api"
 import {operationId} from "@/lib/operation-id"
 import {Button} from "@/components/ui/button"
 import {useToast} from "@/components/common"
-import ReplyAssistant from "./reply-assistant"
 import OutgoingDialog from "./outgoing-dialog"
 import OutlookDialog from "./outlook-dialog"
 import type {SentReply} from "@/lib/types"
@@ -35,7 +34,7 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
   const client=useQueryClient()
   const toast=useToast()
   const open=mode!==null
-  const context=useQuery({queryKey:["reply-context",pk,mode],queryFn:()=>request<Context>(`/api/messages/${pk}/reply?mode=${mode}`),enabled:open,retry:false,staleTime:60_000})
+  const context=useQuery({queryKey:["reply-context",pk,mode],queryFn:({ signal }) =>request<Context>(`/api/messages/${pk}/reply?mode=${mode}`, { signal }),enabled:open,retry:false,staleTime:60_000})
   const refresh=useCallback(()=>{void client.invalidateQueries({queryKey:["reply-context",pk]})},[client,pk])
   useEffect(()=>{if(open){area.current?.focus();area.current?.scrollIntoView?.({block:"nearest",behavior:"smooth"})}},[open,context.data])
   useEffect(()=>{try {if(draft.body){localStorage.setItem(key,JSON.stringify(draft));setDraftSaved(true)}else{localStorage.removeItem(key);setDraftSaved(false)}} catch {setDraftSaved(false)}},[draft,key])
@@ -48,12 +47,12 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
     const operation = !retry && draft.markDone !== undefined && draft.markDone !== markDone ? operationId() : draft.operation
     setDraft(d=>({...d,operation,markDone,mode:sendMode}))
     try {
-      const result=await api.post<{warning?:string;done?:boolean}>(`/api/messages/${pk}/reply`,{operation,body:draft.body,mode:sendMode,mark_done:markDone})
+      const result=await api.post<{warning?:string;done?:boolean}>(`/api/messages/${pk}/reply`,{operation,body:draft.body,mode:sendMode,mark_done:markDone,expected_account_label:accountLabel,...(messageId?{expected_message_id:messageId}:{})})
       setUncertain(false);setDraft({body:"",mode,operation:operationId()});try{localStorage.removeItem(key)}catch{/* optional browser storage */}
       toast(result.warning || (result.done?"Reply sent. Message marked done.":"Reply sent."),result.warning?"error":"success")
       await Promise.all([client.invalidateQueries({queryKey:["interviews","processes"]}),client.invalidateQueries({queryKey:["reader",pk]}),client.invalidateQueries({queryKey:["triage"]}),client.invalidateQueries({queryKey:["bootstrap"]})])
       onModeChange(null)
-    }catch(caught){const text=caught instanceof Error?caught.message:"Could not send your reply.";setError(text);if(!(caught instanceof ApiError)||caught.status>=500||text.includes("not confirmed")){setUncertain(true);setDraft(d=>({...d,uncertain:true}))}}
+    }catch(caught){const text=caught instanceof Error?caught.message:"Could not send your reply.";setError(text);if(!(caught instanceof ApiError)||caught.status===0||caught.status>=500||text.includes("not confirmed")){setUncertain(true);setDraft(d=>({...d,uncertain:true}))}}
     finally{lock.current=false;setSending(false)}
   }
   const checkDelivery=async()=>{
@@ -81,7 +80,6 @@ export default function ReplyComposer({pk,accountLabel,messageId,provider="outlo
       {context.isPending?<p role="status" className="reply-loading"><LoaderCircle size={15} className="spin"/>Loading reply details…</p>:context.error?<div className="reply-error" role="alert"><p>{context.error.message}</p><Button variant="outline" size="sm" onClick={()=>void context.refetch()}>Try again</Button><Button variant="outline" size="sm" onClick={()=>setReconnect(true)}>{provider==="outlook"?"Reconnect Outlook":"Configure outgoing mail"}</Button></div>:context.data&&<>
         <div className="reply-envelope"><label>From<input readOnly value={context.data.from} /></label><label>To<input readOnly value={context.data.to.join("; ")} /></label>{context.data.cc.length>0&&<label>Cc<input readOnly value={context.data.cc.join("; ")} /></label>}<label>Subject<input readOnly value={context.data.subject}/></label></div>
         <textarea ref={area} aria-label="Your reply" placeholder="Write your reply…" maxLength={30000} disabled={Boolean(sending||deliveryUncertain)} value={draft.body} onChange={e=>setDraft(d=>({...d,body:e.target.value,operation:operationId()}))}/>
-        <ReplyAssistant key={pk} pk={pk} body={draft.body} disabled={Boolean(sending||deliveryUncertain)} onInsert={body=>setDraft(d=>({...d,body,operation:operationId()}))}/>
         {error&&<p role="alert" className="reply-error">{error}</p>}{deliveryUncertain&&<div className="reply-delivery-check"><p>Delivery is not confirmed. Keep this draft unchanged until its status is known.</p><Button variant="outline" size="sm" disabled={sending||checking} onClick={()=>void checkDelivery()}>Check send status</Button><Button variant="outline" size="sm" disabled={sending||checking} onClick={()=>void send(draft.markDone??false,true)}>Retry original send safely</Button></div>}
         <footer><div><Button disabled={Boolean(sending||deliveryUncertain||!draft.body.trim()||!context.data.to.length)} onClick={()=>void send(false)}>{sending?<LoaderCircle className="spin" size={15}/>:<Send size={15}/>}Send</Button><Button variant="outline" disabled={Boolean(sending||deliveryUncertain||!draft.body.trim()||!context.data.to.length)} onClick={()=>void send(true)}>Send &amp; Done</Button></div><span>{sending?"Sending…":draft.body?(draftSaved?"Draft saved on this browser":"Draft kept in this view"):""}</span><Button variant="ghost" size="sm" disabled={sending} aria-label="Discard reply draft" onClick={()=>draft.body?setDiscard(true):clear()}><Trash2 size={16}/></Button></footer>
       </>}

@@ -12,7 +12,7 @@ import time
 
 from .maintenance import shared_writer, connect_database
 from .web.auth import AuthStore, _password, _record
-from .workspaces import provision
+from .workspaces import provision, initialize_database
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,root TEXT,enabled INTEGER NOT NULL DEFAULT 1);
@@ -21,6 +21,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_owner ON users(owner) WHERE owner=1;
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),workspace_id TEXT NOT NULL REFERENCES workspaces(id),version TEXT NOT NULL,owner_version TEXT,expires REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,at REAL NOT NULL,actor INTEGER,action TEXT NOT NULL,target TEXT NOT NULL);
 '''
+from .interview_feedback import SCHEMA as FEEDBACK_SCHEMA
+SCHEMA+=FEEDBACK_SCHEMA
 
 
 class RevokedSession(PermissionError):
@@ -39,9 +41,13 @@ class ControlStore:
         self._attempts={}
         self._presence={}  # Ephemeral browser activity; never business data.
         with self.connect() as conn:
+            # Session readers must remain available while admin writes commit.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
             if 'removed_at' not in {r[1] for r in conn.execute('PRAGMA table_info(users)')}:
                 conn.execute('ALTER TABLE users ADD COLUMN removed_at REAL')
+            if 'job_links_access' not in {r[1] for r in conn.execute('PRAGMA table_info(users)')}:
+                conn.execute('ALTER TABLE users ADD COLUMN job_links_access INTEGER NOT NULL DEFAULT 0')
             conn.execute("INSERT OR IGNORE INTO workspaces VALUES('legacy','Original workspace',NULL,1)")
             conn.execute("INSERT OR IGNORE INTO users(id,username,workspace_id,owner,version,must_change) VALUES(1,'owner','legacy',1,?,0)",(secrets.token_hex(16),))
         self.path.chmod(0o600)
@@ -49,10 +55,12 @@ class ControlStore:
 
     @contextmanager
     def connect(self):
-        conn=connect_database(self.path,timeout=30)
-        conn.row_factory=sqlite3.Row
-        conn.execute('PRAGMA foreign_keys=ON')
+        # Bound contention below the gateway's authentication deadline so stalled
+        # SQLite operations cannot accumulate across the request thread pool.
+        conn=connect_database(self.path,timeout=1)
         try:
+            conn.row_factory=sqlite3.Row
+            conn.execute('PRAGMA foreign_keys=ON')
             with conn:yield conn
         finally:conn.close()
 
@@ -72,6 +80,7 @@ class ControlStore:
         if not user['owner'] and user['workspace_id']!=workspace['id']:return None
         if user['owner'] and row['owner_version']!=self._owner_version():return None
         return {'role':'admin','user_id':user['id'],'username':user['username'],'is_owner':bool(user['owner']),
+                'job_links_access':bool(user['owner'] or user['job_links_access']),
                 'workspace_id':workspace['id'],'workspace_name':workspace['name'],'must_change_password':bool(user['must_change'])}
 
     def identity(self,token):
@@ -92,9 +101,11 @@ class ControlStore:
         if owner and not identity['is_owner']:raise PermissionError('Owner access required.')
         return identity
 
-    def validate_dispatch(self,token,workspace):
+    def validate_dispatch(self,token,workspace,*,read_only=False):
         with self.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+            # Read dispatch needs a consistent snapshot, but no writer slot.
+            # Mutating dispatch retains serialization with session revocation.
+            conn.execute('BEGIN' if read_only else 'BEGIN IMMEDIATE')
             identity=self.require_session(conn,token,workspace=workspace)
             if identity['must_change_password']:raise RevokedSession('Change your temporary password before continuing.')
             return identity
@@ -127,7 +138,11 @@ class ControlStore:
             if not known or not correct or not workspace or not workspace['enabled']:return None
             token=self._session(conn,user)
             self.audit(conn,user['id'],'login',user['workspace_id'])
-        with self._lock:self._attempts.pop(address,None)
+        # A successful low-privilege login must not replenish the shared
+        # address budget for guesses against other accounts.
+        with self._lock:
+            attempts = self._attempts.get(address, [])
+            if now in attempts:attempts.remove(now)
         return token
 
     def logout(self,token):
@@ -155,7 +170,7 @@ class ControlStore:
 
     def list_admins(self):
         with self.connect() as conn:
-            return [dict(r) for r in conn.execute('SELECT u.id,u.username,u.owner,u.enabled,u.must_change,w.id AS workspace_id,w.name AS workspace_name FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.removed_at IS NULL ORDER BY u.owner DESC,u.username')]
+            return [dict(r) for r in conn.execute('SELECT u.id,u.username,u.owner,u.enabled,u.must_change,CASE WHEN u.owner=1 THEN 1 ELSE u.job_links_access END AS job_links_access,w.id AS workspace_id,w.name AS workspace_name FROM users u JOIN workspaces w ON w.id=u.workspace_id WHERE u.removed_at IS NULL ORDER BY u.owner DESC,u.username')]
 
     def workspace(self,wid):
         with self.connect() as conn:
@@ -179,6 +194,7 @@ class ControlStore:
             if conn.execute('SELECT 1 FROM users WHERE username=?',(username,)).fetchone():raise ValueError('That username is already in use.')
             wid=secrets.token_hex(16)
             path=provision(self.root/'workspaces',wid)
+            initialize_database(path)
             conn.execute('INSERT INTO workspaces VALUES(?,?,?,1)',(wid,name.strip(),str(path)))
             cur=conn.execute('INSERT INTO users(username,workspace_id,salt,hash,version) VALUES(?,?,?,?,?)',(username,wid,record['salt'],record['hash'],record['version']))
             self.audit(conn,actor,'create-admin',cur.lastrowid)
@@ -188,8 +204,9 @@ class ControlStore:
     def validate_password(password):
         if not 12<=len(password)<=256:raise ValueError('Use a password of 12–256 characters.')
 
-    def update_admin(self,token,user_id,*,enabled=None,password=None,expected_workspace=None):
+    def update_admin(self,token,user_id,*,enabled=None,password=None,job_links_access=None,expected_workspace=None):
         if password is not None:self.validate_password(password)
+        if job_links_access is not None and type(job_links_access) is not bool:raise ValueError('Choose whether Job links access is enabled.')
         with self._lock,self.connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             actor=self.require_session(conn,token,owner=True,workspace=expected_workspace)['user_id']
@@ -202,7 +219,11 @@ class ControlStore:
             if password is not None:
                 record=_record(password)
                 conn.execute('UPDATE users SET salt=?,hash=?,version=?,must_change=1 WHERE id=?',(record['salt'],record['hash'],record['version'],user_id))
-            conn.execute('DELETE FROM sessions WHERE user_id=? OR workspace_id=?',(user_id,user['workspace_id']))
+            if job_links_access is not None:
+                conn.execute('UPDATE users SET job_links_access=? WHERE id=?',(int(job_links_access),user_id))
+                self.audit(conn,actor,'grant-job-links' if job_links_access else 'revoke-job-links',user_id)
+            if enabled is not None or password is not None:
+                conn.execute('DELETE FROM sessions WHERE user_id=? OR workspace_id=?',(user_id,user['workspace_id']))
             self.audit(conn,actor,'update-admin',user_id)
             return user['workspace_id']
 

@@ -34,6 +34,7 @@ class OAuthTests(unittest.TestCase):
         module=importlib.import_module('mailcheck.google_oauth')
         with patch.object(module.keyring,'get_password',side_effect=module.keyring.errors.KeyringError('private detail')):
             with self.assertRaisesRegex(module.GoogleError,'credential store'):module.read_secret('tokens')
+    @patch('mailcheck.secret_files.enabled',lambda:False)  # the chunked store macOS/Linux use
     def test_failed_chunk_replacement_preserves_the_working_secret(self):
         module=importlib.import_module('mailcheck.google_oauth');store={}
         def put(service,key,value):store[key]=value

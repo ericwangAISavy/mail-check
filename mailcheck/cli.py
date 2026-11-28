@@ -277,10 +277,14 @@ def account_remove(label: str) -> None:
             f"Remove '{label}' ({account.email}) and its cached mail?", default=False
         ):
             raise typer.Exit()
+        from . import outlook_auth
+        try:
+            secrets.delete_account_password(label)
+            outlook_auth.delete_cache(label)
+        except (secrets.SecretError, outlook_auth.OutlookAuthError) as exc:
+            console.print(Panel(str(exc), title="Credential cleanup failed", border_style="red"))
+            raise typer.Exit(1)
         db.remove_account(conn, label)
-    secrets.delete_account_password(label)
-    from . import outlook_auth
-    outlook_auth.delete_cache(label)  # a token must not outlive its account
     console.print(f"[green]Removed[/green] {label}")
 
 
@@ -401,6 +405,19 @@ def watch(
         console.print("\n[dim]Stopped.[/dim]")
 
 
+@app.command("web-password")
+@shared_writer
+def web_password() -> None:
+    """Initialize or reset the owner password locally; never accepts remote setup."""
+    from .web.auth import AuthStore
+    password = typer.prompt("New owner password", hide_input=True, confirmation_prompt=True)
+    if not 12 <= len(password) <= 256:
+        console.print("[red]Choose an owner password of 12–256 characters.[/red]")
+        raise typer.Exit(1)
+    AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json").change_password("admin", password)
+    console.print("Owner password saved. Existing owner sessions are revoked.")
+
+
 @app.command()
 @shared_writer
 def web(
@@ -409,10 +426,41 @@ def web(
     host: str = typer.Option("127.0.0.1", help="Bind address. Use 0.0.0.0 for network access."),
     allow_host: list[str] = typer.Option([], "--allow-host", help="Allowed public hostname or IP, without scheme or port. Repeat as needed."),
     secure_cookies: bool = typer.Option(False, "--secure-cookies", help="Require HTTPS for sign-in cookies (use behind an HTTPS reverse proxy)."),
+    tunnel: bool = typer.Option(False, "--tunnel", help="Cloudflare Tunnel profile: loopback only, explicit public domain, HTTPS cookies."),
     single_admin: bool = typer.Option(False, "--single-admin", help="Compatibility mode for rollback: use the original single-admin server."),
     max_workspaces: int = typer.Option(4, min=1, max=64, help="Maximum enabled workspaces, including the owner."),
 ) -> None:
     """Serve OfferPath with owner-managed, isolated admin workspaces."""
+    import ipaddress
+    import hmac
+    from .web.auth import AuthStore, AuthFileError, _password
+    if any(not value or any(c in value for c in "/:@* ") for value in allow_host):
+        console.print("[red]--allow-host must be a hostname without a scheme, port, path, or wildcard.[/red]")
+        raise typer.Exit(1)
+    if tunnel:
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = False
+        domain_only = bool(allow_host)
+        for value in allow_host:
+            try:
+                ipaddress.ip_address(value)
+                domain_only = False
+            except ValueError:
+                if value.lower() in ('localhost', 'testserver') or not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?', value):
+                    domain_only = False
+        if not loopback or not domain_only or single_admin:
+            console.print("[red]--tunnel requires a loopback --host, at least one --allow-host public domain, and multi-workspace mode.[/red]")
+            raise typer.Exit(1)
+        secure_cookies = True
+    try:
+        owner = AuthStore(lambda: cfgmod.config_path().parent / 'web-auth.json')._load()['users']['admin']
+        if hmac.compare_digest(_password('admin', owner['salt']), owner['hash']):
+            raise AuthFileError('The known default owner password is unsafe.')
+    except (AuthFileError, OSError):
+        console.print("[red]Owner authentication is missing, invalid, or uses the known default password. Run: mail-check web-password locally before starting.[/red]")
+        raise typer.Exit(1)
     if single_admin:
         _load_cfg()
     try:
@@ -423,25 +471,38 @@ def web(
 
     from .web.app import create_app
 
-    from .workspace_workers import gateway_address
+    from .workspace_workers import gateway_address, InstanceLock, InstanceAlreadyRunningError
+    if not single_admin:
+        gateway_lock = cfgmod.control_dir()/'gateway.lock'
+        try:
+            # Fast preflight before opening the browser or initializing stores.
+            # Lifespan acquires the authoritative lock again for the whole run.
+            with InstanceLock(gateway_lock):
+                pass
+        except InstanceAlreadyRunningError as exc:
+            console.print(str(exc), style="red", markup=False)
+            raise typer.Exit(1)
+        except OSError:
+            console.print(f"Cannot access the gateway lock at {gateway_lock}. Check this data directory's permissions and disk access.", style="red", markup=False)
+            raise typer.Exit(1)
     url = gateway_address(host,port)
-    console.print(f"Dashboard: [bold]{url}[/bold]  (Ctrl+C to stop)")
+    browser_url = f"https://{allow_host[0]}" if tunnel else url
+    console.print(f"[green]Dashboard:[/green] [bold green]{browser_url}[/bold green]  [dim](Ctrl+C to stop)[/dim]")
     if open_browser:
         import webbrowser
         import threading
 
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    if any(not value or any(c in value for c in "/:@* ") for value in allow_host):
-        console.print("[red]--allow-host must be a hostname or IPv4 address without a scheme, port, path, or wildcard.[/red]")
-        raise typer.Exit(1)
+        threading.Timer(1.0, lambda: webbrowser.open(browser_url)).start()
     from .web.server import run
+    from . import process_diagnostics
+    process_diagnostics.configure_process('server')
 
     if single_admin:
         application=create_app(allowed_hosts=allow_host, secure_cookies=secure_cookies)
     else:
         from .web.gateway import create_gateway
-        application=create_gateway(allowed_hosts=allow_host,secure_cookies=secure_cookies,max_workspaces=max_workspaces,gateway_url=url)
-    run(application,host=host,port=port,log_level="warning")
+        application=create_gateway(allowed_hosts=allow_host,secure_cookies=secure_cookies,max_workspaces=max_workspaces,gateway_url=url,tunnel_mode=tunnel)
+    run(application,host=host,port=port,log_level="warning",health_check=True)
 
 
 # ------------------------------------------------------------------------- config
@@ -463,18 +524,19 @@ def config_show() -> None:
 @config_app.command("set")
 def config_set(key: str, value: str) -> None:
     """Set a dotted key, e.g. `config set llm.batch_size 5`."""
-    cfg = _load_cfg()
-    try:
-        cfg = cfgmod.set_dotted(cfg, key, value)
-    except KeyError:
-        console.print(f"[red]Unknown key '{key}'.[/red] See: mail-check config show")
-        raise typer.Exit(1)
-    except Exception as exc:  # noqa: BLE001 - pydantic raises its own error type
-        detail = getattr(exc, "errors", None)
-        msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc).split("\n")[0]
-        console.print(f"[red]Invalid value for '{key}':[/red] {msg}")
-        raise typer.Exit(1)
-    cfgmod.save(cfg)
+    with cfgmod.update_lock():
+        cfg = _load_cfg()
+        try:
+            cfg = cfgmod.set_dotted(cfg, key, value)
+        except KeyError:
+            console.print(f"[red]Unknown key '{key}'.[/red] See: mail-check config show")
+            raise typer.Exit(1)
+        except Exception as exc:  # noqa: BLE001 - pydantic raises its own error type
+            detail = getattr(exc, "errors", None)
+            msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc).split("\n")[0]
+            console.print(f"[red]Invalid value for '{key}':[/red] {msg}")
+            raise typer.Exit(1)
+        cfgmod.save(cfg)
     console.print(f"[green]Set[/green] {key} = {value}")
 
 

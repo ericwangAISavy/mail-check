@@ -40,7 +40,9 @@ CATEGORIES: list[Category] = [
         "Interview invite",
         "An invitation to interview, a phone/video screen, or a request to pick "
         "interview times. Includes scheduling links and calendar invitations for "
-        "an interview.",
+        "an interview. Also includes interview confirmations, reminders, rescheduling, "
+        "cancellations and requests for interview availability. This category does "
+        "not imply action is required; reminders and confirmations may be informational.",
     ),
     Category(
         "assessment",
@@ -63,7 +65,8 @@ CATEGORIES: list[Category] = [
         "Info request",
         "The sender asks the candidate for something before proceeding: "
         "references, salary expectations, notice period, availability, right to "
-        "work, a CV, or other documents.",
+        "work, a CV, or other documents. Interview scheduling availability belongs "
+        "to interview_invite instead.",
     ),
     Category(
         "recruiter_outreach",
@@ -85,7 +88,8 @@ CATEGORIES: list[Category] = [
         TIER_INFO,
         "Application received",
         "An automated confirmation that an application was received. No action is "
-        "required and no decision has been made yet.",
+        "required and no decision has been made yet. Requires explicit evidence of "
+        "an already submitted application, not an invitation to apply or a saved draft.",
     ),
     Category(
         "job_alert",
@@ -135,8 +139,8 @@ def coerce_category(raw: str | None) -> str:
     """Map whatever the model said onto a known category.
 
     Free models drift — they return ``Interview Invite``, ``interview-invite``,
-    or a short phrase. Rather than discard an otherwise-good result we snap it
-    to the nearest label, falling back to ``unclassified`` so it surfaces for a
+    or a hyphenated label. Only formatting variants are accepted. Unknown labels
+    fall back to ``unclassified`` so the message surfaces for a
     manual look instead of being silently mislabelled.
     """
     if not raw:
@@ -144,10 +148,6 @@ def coerce_category(raw: str | None) -> str:
     key = raw.strip().lower().replace(" ", "_").replace("-", "_")
     if key in BY_NAME and key != UNCLASSIFIED:
         return key
-    # Substring match, longest name first so `interview_invite` wins over `other`.
-    for name in sorted(MODEL_CATEGORIES, key=len, reverse=True):
-        if name in key or key in name:
-            return name
     return UNCLASSIFIED
 
 

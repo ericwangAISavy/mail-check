@@ -1,0 +1,235 @@
+/* Operations: bidder finances, accounts, configuration and administration. */
+
+/* Bidder management */
+@media screen {
+ :root body .app-frame .payments-page { max-width:1560px; margin-inline:auto; }
+ :root body .app-frame .payments-page .payment-summary-bar { gap:0; margin-bottom:12px; padding:0; border:1px solid var(--border); border-radius:var(--ui-panel-radius); background:var(--surface); overflow:hidden; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview { flex:1 1 480px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div { position:relative; align-items:flex-start; gap:10px; padding:13px 18px 14px; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div + div { border-left:1px solid var(--ui-hairline); }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div:first-child::before { content:""; position:absolute; left:18px; top:0; width:28px; height:2px; background:var(--primary); }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview svg { display:block; width:14px; height:14px; margin-top:2px; color:var(--muted-foreground); }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div:first-child svg { color:var(--primary); }
+ /* Label on top, value and caption pinned to the bottom, so figures share one baseline
+    even when a label wraps. */
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div > div { display:grid; grid-template-rows:1fr auto auto; align-self:stretch; gap:3px; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div > div > span { align-self:start; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview span { font-size:12px; font-weight:500; }
+ :root body .app-frame .page-wrap.payments-page .payment-summary-bar .payment-overview strong { font-size:28px; font-weight:600; letter-spacing:-.035em; line-height:1.15; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview small { font-size:11.5px; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-controls { align-items:center; align-self:stretch; gap:8px; margin:0; padding:10px 14px; border:0; border-left:1px solid var(--ui-hairline); background:var(--card); }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-week { align-items:center; gap:2px; }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-controls input[type="date"] { width:142px; }
+
+ /* The deduction rule is a compact command strip with content-sized money fields. */
+ :root body .app-frame .payments-page .payment-deduction-rule { display:flex; flex-wrap:wrap; align-items:center; gap:8px 24px; margin:0 0 12px; padding:10px 18px; border:1px solid var(--border); border-radius:var(--ui-panel-radius); background:var(--surface); }
+ :root body .app-frame .payments-page .payment-deduction-rule h2 { font-size:13px; font-weight:620; }
+ :root body .app-frame .payments-page .payment-deduction-rule form { display:flex; flex:1 1 520px; flex-wrap:wrap; align-items:center; gap:8px 20px; margin:0; }
+ :root body .app-frame .payments-page .payment-deduction-rule label { display:flex; flex:0 1 auto; flex-wrap:wrap; align-items:center; gap:8px; max-inline-size:100%; color:var(--muted-foreground); font-weight:480; }
+ :root body .app-frame .payments-page .payment-deduction-rule input { width:104px; max-inline-size:148px; text-align:right; font-variant-numeric:tabular-nums; }
+
+ :root body .app-frame .payments-page .payment-entry { padding:16px 18px; border:1px solid var(--ui-selected-edge); background:var(--ui-selected); }
+ :root body .app-frame .payments-page .payment-entry input[name="amount"] { width:140px; text-align:right; font-variant-numeric:tabular-nums; }
+
+ :root body .app-frame .payments-page .payment-breakdown { border:1px solid var(--border); background:var(--surface); overflow:hidden; }
+ :root body .app-frame .payments-page .payment-section-heading { padding:12px 18px; }
+ :root body .app-frame .payments-page .payment-section-heading h2 { font-size:var(--text-heading); font-weight:620; }
+ :root body .app-frame .payments-page .payment-section-heading p { margin-top:2px; font-size:11.5px; }
+ :root body .app-frame .payments-page .payment-report-actions { font-size:12px; }
+ :root body .app-frame .payments-page .payment-table { background:var(--card); font-size:13px; }
+ :root body .app-frame .payments-page .payment-table :is(th,td) { padding:9px 10px; border-top:1px solid var(--ui-hairline); }
+ :root body .app-frame .payments-page .payment-table th:first-child { padding-left:18px; }
+ :root body .app-frame .payments-page .payment-table thead th { padding-block:7px; background:var(--surface); font-size:11px; font-weight:600; letter-spacing:.02em; }
+ :root body .app-frame .payments-page .payment-table th small { margin-top:1px; font-weight:430; letter-spacing:0; }
+ :root body .app-frame .payments-page .payment-table tbody tr:hover > * { background-image:linear-gradient(var(--ui-row-hover),var(--ui-row-hover)); }
+ :root body .app-frame .payments-page .payment-table .payment-today { background-color:color-mix(in srgb,var(--primary) 7%,var(--card)); }
+ :root body .app-frame .payments-page .payment-table thead .payment-today { color:var(--primary); box-shadow:inset 0 2px var(--primary); }
+ :root body .app-frame .payments-page .payment-table thead .payment-today small { color:var(--primary); }
+ :root body .app-frame .payments-page .payment-table .payment-total { background:var(--surface); font-weight:650; }
+ :root body .app-frame .payments-page .payment-table tfoot :is(th,td) { background:var(--surface); border-top:1px solid var(--input); }
+ :root body .app-frame .payments-page .payment-table tbody th strong { font-size:13px; font-weight:600; }
+ :root body .app-frame .payments-page .payment-account-toggle strong, :root body .app-frame .payments-page .payment-table tbody th > strong { color:var(--foreground); }
+ :root body .app-frame .payments-page .payment-unassigned { border:1px solid color-mix(in srgb,var(--warning) 35%,var(--border)); border-left-width:3px; border-radius:8px; }
+}
+@media screen and (min-width:1360px) { :root body .app-frame .payments-page .payment-summary-bar .payment-controls { flex:0 0 auto; flex-wrap:nowrap; justify-content:flex-end; } }
+@media screen and (max-width:1359px) { :root body .app-frame .payments-page .payment-summary-bar .payment-controls { flex:1 1 100%; border-left:0; border-top:1px solid var(--ui-hairline); justify-content:flex-end; } }
+@media screen and (max-width:1250px) and (min-width:701px) { :root body .app-frame .payments-page .payment-deduction-rule h2 { flex-basis:100%; } }
+/* Compact cell padding keeps the whole week, totals and payment in view on narrower screens. */
+@media screen and (max-width:1180px) { :root body .app-frame .payments-page .payment-table :is(th,td):not(:first-child) { padding-inline:6px; } }
+/* Narrower still: the two amounts stack in header order (before, then after). */
+@media screen and (max-width:900px) {
+ :root body .app-frame .payments-page .payment-amount-pair { display:inline-grid; justify-items:end; gap:1px; }
+ :root body .app-frame .payments-page .payment-amount-pair > span[aria-hidden="true"] { display:none; }
+ :root body .app-frame .payments-page .payment-table thead th:last-child { white-space:normal; }
+ :root body .app-frame .payments-page .payment-table thead th:last-child small { white-space:normal; }
+ :root body .app-frame .payments-page .payment-table th:first-child { min-width:136px; }
+ :root body .app-frame .payments-page .payment-table td:last-child { min-width:88px; }
+}
+@media screen and (max-width:700px) {
+ :root body .app-frame .payments-page .payment-summary-bar .payment-overview > div + div { border-left:0; border-top:1px solid var(--ui-hairline); }
+ :root body .app-frame .payments-page .payment-summary-bar .payment-controls { justify-content:flex-start; }
+}
+
+/* Section rail shared by Accounts and Settings */
+@media screen {
+ :root body .app-frame :is(.accounts-page,.settings-page) .settings-layout { grid-template-columns:168px minmax(0,1fr); gap:28px; }
+ :root body .app-frame .settings-nav { gap:1px; padding:0; border:0; background:transparent; box-shadow:none; }
+ :root body .app-frame .settings-nav a { position:relative; padding:6px 10px; border-radius:7px; color:var(--muted-foreground); font-size:12.5px; font-weight:500; line-height:18px; }
+ :root body .app-frame .settings-nav a:hover, :root body .app-frame .settings-nav a.active { color:var(--foreground); background:var(--muted); }
+ :root body .app-frame .section-symbol { width:26px; height:26px; border:1px solid var(--border); border-radius:7px; background:var(--surface); color:var(--primary); font-size:12px; font-weight:700; }
+ :root body .app-frame .section-symbol svg { width:14px; height:14px; }
+}
+@media screen and (min-width:701px) { :root body .app-frame .accounts-page .settings-nav { top:16px; } }
+@media screen and (max-width:900px) and (min-width:701px) { :root body .app-frame :is(.accounts-page,.settings-page) .settings-layout { grid-template-columns:128px minmax(0,1fr); gap:16px; } }
+@media screen and (max-width:700px) {
+ :root body .app-frame :is(.accounts-page,.settings-page) .settings-layout { display:block; }
+ :root body .app-frame .settings-nav { display:flex; top:0; margin:0 calc(var(--ui-gutter) * -1) 14px; padding:6px var(--ui-gutter); border-bottom:1px solid var(--border); background:var(--card); }
+}
+
+/* Accounts */
+@media screen {
+ :root body .app-frame .page-wrap.accounts-page { max-width:1400px; margin-inline:auto; }
+ :root body .app-frame .accounts-page .security-note { gap:8px; width:max-content; max-width:100%; margin:-6px 0 16px; padding:4px 11px 4px 9px; border:1px solid var(--ui-selected-edge); border-radius:999px; background:var(--ui-selected); font-size:12px; }
+ :root body .app-frame .accounts-page .security-note svg { width:14px; height:14px; }
+ :root body .app-frame .accounts-page .settings-sections { gap:28px; }
+ :root body .app-frame .accounts-page .account-section-heading { align-items:center; gap:10px; margin:0 0 10px; }
+ :root body .app-frame .accounts-page .account-section-heading .section-symbol { width:30px; height:30px; border-radius:8px; }
+ :root body .app-frame .accounts-page .account-section-heading .eyebrow { margin:0; font-size:9.5px; }
+ :root body .app-frame .accounts-page .account-section-heading h2 { font-size:var(--text-heading); font-weight:620; }
+ :root body .app-frame .accounts-page .account-section-detail { font-size:11.5px; }
+
+ :root body .app-frame .accounts-page .account-card { background:var(--surface); }
+ :root body .app-frame .page-wrap.accounts-page .account-row { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:8px 12px; min-height:0; padding:11px 14px; border-bottom:1px solid var(--ui-hairline); background:transparent; }
+ :root body .app-frame .page-wrap.accounts-page .account-row:last-child { border-bottom:0; }
+ :root body .app-frame .page-wrap.accounts-page .account-row:hover { background:var(--ui-row-hover); }
+ :root body .app-frame .accounts-page .account-icon { width:32px; height:32px; border-radius:50%; background:var(--card); }
+ :root body .app-frame .accounts-page .account-icon svg { width:15px; height:15px; }
+ :root body .app-frame .accounts-page .account-name-line { gap:6px; }
+ :root body .app-frame .accounts-page .account-name-line h3 { font-size:13.5px; font-weight:620; }
+ :root body .app-frame .accounts-page .account-info .account-meta { margin-top:1px; white-space:normal; overflow-wrap:anywhere; font-size:11.5px; line-height:1.5; }
+ :root body .app-frame .page-wrap.accounts-page .account-actions { grid-column:2; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:6px; width:100%; margin:0; padding:0; border:0; }
+ :root body .app-frame .accounts-page .account-actions .account-sync { gap:8px; margin-right:6px; font-size:12px; }
+ /* The view-only action stays a step below the outlined actions but still reads as a button. */
+ :root body .app-frame .accounts-page .account-actions .btn[data-variant="ghost"]:not(.account-remove) { border-color:var(--ui-hairline); color:var(--text-soft); }
+ :root body .app-frame .accounts-page .account-actions .btn[data-variant="ghost"]:not(.account-remove):hover:not(:disabled) { border-color:var(--border); color:var(--foreground); }
+ :root body .app-frame .accounts-page .account-actions .account-remove { color:var(--muted-foreground); }
+ :root body .app-frame .accounts-page .account-actions .account-remove:hover:not(:disabled) { color:var(--destructive); background:color-mix(in srgb,var(--destructive) 10%,transparent); }
+
+ :root body .app-frame .accounts-page .provider-grid { gap:10px; }
+ :root body .app-frame .accounts-page .provider-card { min-height:68px; padding:12px 14px; border:1px solid var(--border); background:var(--surface); box-shadow:none; transform:none; }
+ :root body .app-frame .accounts-page .provider-card:hover:not(:disabled) { border-color:var(--ui-selected-edge); background:var(--ui-selected); }
+ :root body .app-frame .accounts-page .provider-logo { width:34px; height:34px; border:1px solid var(--border); border-radius:8px; background:var(--card); }
+ :root body .app-frame .accounts-page .provider-card strong { font-size:13px; }
+ :root body .app-frame .accounts-page .provider-card small { font-size:11.5px; line-height:1.5; }
+ :root body .app-frame .accounts-page .privacy-card { align-items:center; margin-top:10px; padding:10px 14px; border-style:dashed; background:transparent; }
+ :root body .app-frame .accounts-page .privacy-card strong { font-size:12.5px; }
+ :root body .app-frame .accounts-page .privacy-card p { margin-top:1px; font-size:11.5px; line-height:1.6; }
+
+ :root body .app-frame .accounts-page .bidder-directory { border:1px solid var(--border); background:var(--surface); }
+ :root body .app-frame .accounts-page .bidder-list { background:color-mix(in srgb,var(--background) 50%,var(--surface)); }
+ :root body .app-frame .accounts-page .bidder-list-head { padding:12px 14px 8px; font-size:10px; font-weight:600; letter-spacing:.09em; }
+ :root body .app-frame .accounts-page .bidder-list-item { padding:6px 8px; border-radius:7px; }
+ :root body .app-frame .accounts-page .bidder-list-item[aria-current="true"] { border-color:var(--ui-selected-edge); background:var(--ui-selected); }
+ :root body .app-frame .accounts-page .bidder-list-text strong { font-size:13px; }
+ :root body .app-frame .accounts-page .bidder-avatar { width:28px; height:28px; }
+ :root body .app-frame .accounts-page .bidder-avatar.is-large { width:38px; height:38px; }
+ :root body .app-frame .accounts-page .bidder-detail { padding:16px 20px 20px; background:var(--card); }
+ :root body .app-frame .accounts-page .bidder-editor-head h3 { font-size:var(--text-heading); }
+ /* Each independent save stays beside its own fields; groups read label-first. */
+ :root body .app-frame .accounts-page .bidder-editor-group { padding:16px 0; border-color:var(--ui-hairline); }
+ :root body .app-frame .accounts-page .bidder-editor-group h4, :root body .app-frame .accounts-page .bidder-access h3 { margin:0; font-size:10px; font-weight:650; letter-spacing:.09em; text-transform:uppercase; color:var(--muted-foreground); }
+ :root body .app-frame .accounts-page .payment-inline-form { align-items:flex-end; gap:10px; margin-top:10px; }
+ :root body .app-frame .accounts-page .payment-inline-form > label { flex:0 1 240px; min-width:150px; }
+ :root body .app-frame .accounts-page .payment-inline-form label:has(input[type="number"]) { flex:0 1 150px; }
+ :root body .app-frame .accounts-page .payment-inline-form label:has(input[type="date"]) { flex:0 1 164px; }
+ :root body .app-frame .accounts-page .payment-inline-form input[type="number"] { font-variant-numeric:tabular-nums; }
+ :root body .app-frame .accounts-page .payment-wallet-form label:has(input[name="wallet_address"]) { flex:1 1 320px; max-inline-size:480px; }
+ :root body .app-frame .accounts-page .payment-wallet-form input[name="wallet_address"] { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:12px; }
+ :root body .app-frame .accounts-page .bidder-access { margin:0; padding:0; border:0; }
+ :root body .app-frame .accounts-page .bidder-visibility-panel { padding:14px 16px; background:var(--surface); }
+ :root body .app-frame .accounts-page .bidder-visibility-panel :is(th,td) { padding:9px 10px; border-color:var(--ui-hairline); font-size:12.5px; }
+}
+@media screen and (min-width:1360px) {
+ :root body .app-frame .page-wrap.accounts-page .account-row { grid-template-columns:auto minmax(220px,1fr) auto; }
+ :root body .app-frame .page-wrap.accounts-page .account-actions { grid-column:auto; width:auto; justify-content:flex-end; }
+}
+@media screen and (max-width:700px) {
+ :root body .app-frame .page-wrap.accounts-page .account-actions { display:grid; grid-column:1 / -1; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+ :root body .app-frame .page-wrap.accounts-page .account-actions .account-remove { grid-column:3; justify-self:end; }
+ :root body .app-frame .accounts-page .security-note { width:auto; border-radius:8px; }
+ /* A bare switch beside labelled buttons does not say what it controls. */
+ :root body .app-frame .accounts-page .account-sync { gap:8px; }
+ :root body .app-frame .accounts-page .account-sync .account-toggle-label { display:inline; font-size:12px; color:var(--text-soft); }
+}
+
+/* Settings: description beside its fields, one surface per independent group. */
+@media screen {
+ :root body .app-frame .page-wrap.settings-page { max-width:1240px; margin-inline:auto; }
+ :root body .app-frame .settings-page .settings-sections { gap:0; max-inline-size:none; }
+ :root body .app-frame .settings-page .settings-section { padding:20px 0 22px; border-bottom:1px solid var(--ui-hairline); }
+ :root body .app-frame .settings-page .settings-section:first-child { padding-top:2px; }
+ :root body .app-frame .settings-page .settings-section:last-child { border-bottom:0; }
+ :root body .app-frame .page-wrap.settings-page .settings-section-title { display:flex; flex-wrap:wrap; align-items:flex-start; align-content:flex-start; gap:8px 10px; margin:0 0 12px; }
+ :root body .app-frame .settings-page .settings-section-title h2 { font-size:14px; font-weight:620; line-height:26px; }
+ :root body .app-frame .settings-page .settings-section-title p { margin:0; font-size:12px; line-height:1.55; }
+ :root body .app-frame .page-wrap.settings-page .settings-card { gap:14px; padding:16px 18px; border:1px solid var(--border); border-radius:var(--ui-panel-radius); background:var(--surface); box-shadow:none; }
+ :root body .app-frame .settings-page .settings-card > .setting-field { max-inline-size:520px; }
+ :root body .app-frame .settings-page .setting-field :is(input[type="number"],input[type="time"]) { max-inline-size:148px; font-variant-numeric:tabular-nums; }
+ :root body .app-frame .settings-page .settings-grid { gap:14px; }
+ :root body .app-frame .settings-page .settings-card > .btn { justify-self:start; }
+ :root body .app-frame .settings-page .switch-row { min-height:36px; }
+ :root body .app-frame .settings-page .switch-row strong { font-size:13px; }
+ :root body .app-frame .settings-page .switch-row small { font-size:11.5px; }
+ :root body .app-frame .settings-page .workspace-check-settings { margin:0; padding-bottom:14px; }
+ :root body .app-frame .settings-page .workspace-check-card { padding:14px; background:var(--card); border-radius:9px; }
+ :root body .app-frame .settings-page .workspace-check-title h3 { font-size:13px; }
+ :root body .app-frame .settings-page .acknowledge-row { border-radius:8px; background:var(--card); }
+ :root body .app-frame .settings-page .settings-bottom-action { margin:0; padding:8px 8px 8px 14px; flex-wrap:wrap; border:1px solid var(--border); border-radius:var(--ui-panel-radius); background:var(--surface); backdrop-filter:none; font-size:12px; }
+ :root body .app-frame .page-content:has(.settings-bottom-action) { scroll-padding-bottom:104px; }
+}
+@media screen and (min-width:1180px) {
+ :root body .app-frame .settings-page .settings-section { display:grid; grid-template-columns:230px minmax(0,1fr); align-items:start; gap:28px; }
+ :root body .app-frame .page-wrap.settings-page .settings-section-title { display:grid; grid-template-columns:26px minmax(0,1fr); margin:0; }
+ :root body .app-frame .page-wrap.settings-page .settings-section-title > .ui-badge { grid-column:2; justify-self:start; }
+}
+@media screen and (min-width:701px) and (min-height:400px) {
+ :root body .app-frame .page-content > .settings-page { display:flex; flex-direction:column; height:100%; padding-bottom:10px; }
+ :root body .app-frame .settings-page > .settings-layout { flex:1; min-height:160px; grid-template-rows:minmax(0,1fr); align-items:stretch; }
+ :root body .app-frame .settings-page .settings-nav { position:static; align-self:start; max-height:100%; overflow:auto; }
+ :root body .app-frame .settings-page .settings-sections { display:grid; min-height:0; grid-template-rows:minmax(0,1fr) auto; gap:8px; }
+ :root body .app-frame .settings-page .settings-form-sections { display:grid; align-content:start; gap:0; overflow-y:auto; overscroll-behavior-y:contain; padding:2px 10px 8px 2px; scroll-padding-block:8px; }
+ :root body .app-frame .settings-page .settings-section { scroll-margin-top:4px; }
+ :root body .app-frame .settings-page .settings-bottom-action { position:static; box-shadow:none; }
+}
+
+/* Admin management */
+@media screen {
+ :root body .app-frame .admin-management-page { display:flex; flex-direction:column; gap:14px; max-width:1400px; margin-inline:auto; }
+ :root body .app-frame .admin-management-page > .page-heading { margin-bottom:0; }
+ :root body .app-frame .admin-management-page .owner-taskbar { margin:-14px calc(var(--ui-gutter) * -1) 0; padding:0 var(--ui-gutter); border-bottom:1px solid var(--ui-hairline); }
+ :root body .app-frame .admin-management-page .owner-task-tabs button { min-height:40px; font-size:12.5px; font-weight:550; }
+ :root body .app-frame .admin-management-page .owner-task-tabs button[aria-selected="true"] { color:var(--foreground); }
+ :root body .app-frame .admin-management-page .owner-capacity { font-size:11.5px; font-variant-numeric:tabular-nums; }
+ :root body .app-frame .admin-management-page .owner-workspace-layout { align-items:stretch; gap:14px; }
+ :root body .app-frame .admin-management-page .owner-directory { border:1px solid var(--border); background:var(--surface); }
+ :root body .app-frame .admin-management-page .owner-workspace-list button { min-height:52px; border-radius:8px; }
+ :root body .app-frame .admin-management-page .owner-workspace-list button:hover { background:var(--ui-row-hover); }
+ :root body .app-frame .admin-management-page .owner-workspace-list button[aria-pressed="true"] { border-color:var(--ui-selected-edge); background:var(--ui-selected); }
+ :root body .app-frame .admin-management-page .owner-workspace-avatar { border:1px solid var(--border); border-radius:8px; background:var(--card); }
+ :root body .app-frame .admin-management-page .owner-workspace-detail { padding:20px 24px; border:1px solid var(--border); border-radius:var(--ui-panel-radius); background:var(--surface); }
+ :root body .app-frame .admin-management-page .owner-detail-heading { padding-bottom:14px; border-bottom:1px solid var(--ui-hairline); }
+ :root body .app-frame .admin-management-page .owner-detail-heading h2 { font-size:18px; font-weight:620; }
+ :root body .app-frame .admin-management-page .owner-workspace-meta { gap:0; margin-block:14px; border:1px solid var(--ui-hairline); border-radius:9px; background:var(--card); }
+ :root body .app-frame .admin-management-page .owner-workspace-meta > div { flex:1; padding:9px 14px; }
+ :root body .app-frame .admin-management-page .owner-workspace-meta > div + div { border-left:1px solid var(--ui-hairline); }
+ :root body .app-frame .admin-management-page .owner-detail-section { border-color:var(--ui-hairline); }
+ :root body .app-frame .admin-management-page .owner-detail-section h3 { font-size:10px; font-weight:650; letter-spacing:.09em; text-transform:uppercase; color:var(--muted-foreground); }
+ :root body .app-frame .admin-management-page .owner-remove-row { margin-top:8px; padding:10px 14px; border:1px solid color-mix(in srgb,var(--destructive) 28%,var(--border)); border-radius:9px; background:color-mix(in srgb,var(--destructive) 5%,transparent); }
+ :root body .app-frame .admin-management-page .owner-remove-row .btn.btn { color:var(--destructive); border-color:color-mix(in srgb,var(--destructive) 40%,var(--border)); }
+ :root body .app-frame .admin-management-page :is(.owner-create-panel,.owner-activity-panel,.backup-management) { padding:18px 20px; border:1px solid var(--border); background:var(--surface); }
+ :root body .app-frame .admin-management-page .owner-activity-list li { padding-block:9px; border-color:var(--ui-hairline); font-size:12.5px; }
+ :root body .app-frame .admin-management-page :is(.owner-panel-heading,.backup-heading) h2 { font-size:var(--text-heading); }
+ :root body .app-frame .admin-management-page .backup-overview > div { background:var(--card); border-radius:9px; }
+}
+/* Narrow directories show presence as a dot only; offline gets a different shape, not just a fainter color. */
+@media screen and (max-width:800px) { :root body .app-frame .owner-directory .admin-presence.is-offline > span { box-sizing:border-box; border:1.5px solid var(--muted-foreground); background:transparent; opacity:1; } }

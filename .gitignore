@@ -13,3 +13,11 @@ frontend/node_modules/
 .pip-cache/
 
 .superpowers/
+
+# Local deployment secrets
+deployment/microservices/.local/
+
+# Desktop (Electron) build output
+desktop/node_modules/
+desktop/dist/
+!desktop/build/

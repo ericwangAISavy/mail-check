@@ -27,6 +27,14 @@ class _BusyBatch(Exception):
     partial: dict[str, Classification]
 
 
+def _acceptable(item: ItemResult) -> bool:
+    if not item.response_complete or item.category == UNCLASSIFIED:
+        return False
+    # Explicit uncertainty avoids treating uncalibrated confidence as a
+    # probability. No keyword rule forces a positive category or receipt count.
+    return not item.needs_review
+
+
 def _to_classification(item: ItemResult) -> Classification:
     return Classification(category=item.category, confidence=item.confidence,
                           company=item.company, role=item.role, deadline=item.deadline,
@@ -99,9 +107,9 @@ def _complete(client: LLMClient, system: str, user: str, *, json_mode: bool | No
 
 def _classify_one(client: LLMClient, msg: NormalizedMessage, errors: list[str], *,
                   deadline: float, event: EventFn | None, batch_index: int,
-                  total_batches: int, completed: int) -> Classification:
+                  total_batches: int, completed: int, semantic_retry: bool = False) -> Classification:
     cut_short = False
-    for attempt, budget in enumerate(_SINGLE_TOKENS):
+    for attempt, budget in enumerate(_SINGLE_TOKENS[:1] if semantic_retry else _SINGLE_TOKENS):
         system = SYSTEM + (STRICT_SUFFIX if attempt else "")
         raw = None
         try:
@@ -111,8 +119,8 @@ def _classify_one(client: LLMClient, msg: NormalizedMessage, errors: list[str], 
                             batch_index=batch_index, total_batches=total_batches,
                             completed=completed)
             results = parse_results(raw)
-            item = results.get("1") or (next(iter(results.values())) if results else None)
-            if item:
+            item = results.get("1") or (next(iter(results.values())) if len(results) == 1 else None)
+            if item and _acceptable(item):
                 return _to_classification(item)
         except OllamaBusy:
             raise
@@ -124,7 +132,7 @@ def _classify_one(client: LLMClient, msg: NormalizedMessage, errors: list[str], 
             errors.append(f"{msg.subject[:40]!r}: {exc}")
         cut_short = cut_short or _truncated(raw)
     return _unclassified("response cut off by the token limit" if cut_short
-                         else "model output unparseable")
+                         else "model output incomplete, invalid, or uncertain; manual review needed")
 
 
 def _classify_batch(client: LLMClient, batch: list[tuple[str, NormalizedMessage]],
@@ -154,7 +162,7 @@ def _classify_batch(client: LLMClient, batch: list[tuple[str, NormalizedMessage]
 
     for local_id, _msg in batch:
         item = parsed.get(local_id)
-        if item is not None:
+        if item is not None and _acceptable(item):
             out[local_id] = _to_classification(item)
 
     missing = [(local_id, msg) for local_id, msg in batch if local_id not in out]
@@ -165,7 +173,7 @@ def _classify_batch(client: LLMClient, batch: list[tuple[str, NormalizedMessage]
             out[local_id] = _classify_one(
                 client, msg, errors, deadline=deadline, event=event,
                 batch_index=batch_index, total_batches=total_batches,
-                completed=completed + len(out))
+                completed=completed + len(out), semantic_retry=local_id in parsed)
         except OllamaBusy as exc:
             raise _BusyBatch(exc, out) from exc
     return out

@@ -184,7 +184,8 @@ class ProcessCollectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             processes.create_process(self.conn, "  ACME labs  ")
         later = calendar_fixtures.event("manual-new")
-        later["subject"] = "Acme next round"
+        # New bookings need explicit interview evidence; association stays company-based.
+        later["subject"] = "Acme next interview round"
         # A calendarView response is a complete snapshot, not an incremental feed.
         self.collect(self.source([booking, later]))
         self.assertEqual(next(p for p in processes.list_processes(self.conn) if p["organization"] == "Acme Labs")["event_count"], 2)

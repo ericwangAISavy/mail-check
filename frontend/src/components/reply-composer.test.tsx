@@ -2,14 +2,14 @@ import {afterEach, expect, it, vi} from "vitest"
 import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react"
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query"
 import {ToastProvider} from "@/components/common"
-import {api, request, getWorkspaceIdentity} from "@/lib/api"
+import {api, ApiError, request, getWorkspaceIdentity} from "@/lib/api"
 import ReplyComposer from "./reply-composer"
-vi.mock("@/lib/api",() => ({api:{post:vi.fn(),reader:vi.fn()},ApiError:class ApiError extends Error{},request:vi.fn(),getWorkspaceIdentity:vi.fn()}))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(),api:{post:vi.fn(),reader:vi.fn()},request:vi.fn(),getWorkspaceIdentity:vi.fn()}))
 vi.mock("./outlook-dialog",()=>({default:()=>null}))
 const clients: QueryClient[]=[]
 afterEach(()=>{cleanup();clients.forEach(c=>c.clear());clients.length=0;localStorage.clear();vi.resetAllMocks()})
 const context={from:"me@outlook.com",to:["recruiter@example.test"],cc:[],subject:"Re: Interview"}
-function mount(pk=1){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client);return render(<QueryClientProvider client={client}><ToastProvider><ReplyComposer pk={pk} accountLabel="Personal" mode="reply" onModeChange={()=>{}} replies={[]}/></ToastProvider></QueryClientProvider>)}
+function mount(pk=1,messageId?:string){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client);return render(<QueryClientProvider client={client}><ToastProvider><ReplyComposer pk={pk} messageId={messageId} accountLabel="Personal" mode="reply" onModeChange={()=>{}} replies={[]}/></ToastProvider></QueryClientProvider>)}
 it("previews the original inbox and recipient, sends only explicitly, and clears its draft",async()=>{
  vi.mocked(request).mockResolvedValue(context);vi.mocked(api.post).mockResolvedValue({ok:true,done:false})
  mount();await screen.findByDisplayValue("recruiter@example.test")
@@ -50,6 +50,31 @@ it("locks a lost send response and reconciles the original operation instead of 
  expect(api.post).toHaveBeenCalledTimes(1)
 })
 
+it("locks transport failures from the API and retries the unchanged send operation",async()=>{
+ vi.mocked(request).mockResolvedValue(context)
+ vi.mocked(api.post).mockRejectedValueOnce(new ApiError("Could not connect to OfferPath. Check whether the action completed before trying again.",0)).mockResolvedValueOnce({ok:true})
+ mount(1,"<original-message@example.test>");await screen.findByDisplayValue("recruiter@example.test")
+ fireEvent.change(screen.getByRole("textbox",{name:"Your reply"}),{target:{value:"Send exactly once"}})
+ fireEvent.click(screen.getByRole("button",{name:"Send & Done"}))
+ await screen.findByText(/Could not connect to OfferPath/)
+ expect(screen.getByRole("textbox",{name:"Your reply"})).toHaveProperty("disabled",true)
+ expect(screen.getByRole("button",{name:"Send"})).toHaveProperty("disabled",true)
+ const original=vi.mocked(api.post).mock.calls[0][1]
+ expect(original).toEqual(expect.objectContaining({expected_message_id:"<original-message@example.test>",expected_account_label:"Personal"}))
+ fireEvent.click(screen.getByRole("button",{name:"Retry original send safely"}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2))
+ expect(vi.mocked(api.post).mock.calls[1][1]).toEqual(original)
+})
+
+it("binds replies without a message ID to the displayed account identity",async()=>{
+ vi.mocked(request).mockResolvedValue(context);vi.mocked(api.post).mockResolvedValue({ok:true})
+ mount();await screen.findByDisplayValue("recruiter@example.test")
+ fireEvent.change(screen.getByLabelText("Your reply"),{target:{value:"Account guarded reply"}})
+ fireEvent.click(screen.getByRole("button",{name:"Send"}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/messages/1/reply",expect.objectContaining({expected_account_label:"Personal"})))
+ expect(vi.mocked(api.post).mock.calls[0][1]).not.toHaveProperty("expected_message_id")
+})
+
 
 it("safe retries preserve the original request and unlock after confirmed acceptance",async()=>{
  localStorage.setItem("mailcheck:reply:Personal:1",JSON.stringify({body:"Previous reply-all draft",mode:"reply_all",operation:"88f217ea-8a48-4f35-9f3d-cce368533630"}))
@@ -73,4 +98,13 @@ it("never restores a reply draft from another workspace with the same account an
  mount();await screen.findByDisplayValue("recruiter@example.test")
  expect(screen.getByLabelText("Your reply")).toHaveProperty("value","")
  expect(screen.queryByDisplayValue("Alice private draft")).toBeNull()
+})
+
+it("offers manual replies without assistant controls or assistant API requests",async()=>{
+ vi.mocked(request).mockResolvedValue(context)
+ mount();await screen.findByDisplayValue("recruiter@example.test")
+ expect(screen.queryByRole("region",{name:"Reply assistant"})).toBeNull()
+ expect(screen.queryByText("Draft with assistant")).toBeNull()
+ expect(vi.mocked(request).mock.calls.every(([url])=>!String(url).includes("/api/agent/"))).toBe(true)
+ expect(screen.getByRole("textbox",{name:"Your reply"})).toBeTruthy()
 })

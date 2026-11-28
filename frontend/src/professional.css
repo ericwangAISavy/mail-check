@@ -1,67 +1,69 @@
-/* Shared visual system. Page-specific geometry, interactions and print stay intact. */
+/* Shared tokens and baseline component rules. The design/ layers finish the system. */
 @media screen {
+/* OfferPath "Meridian" color system. Canvas < sheet < panel < raised, one cyan
+   brand voice, and neutrals that keep data and semantic colors readable. */
 :root {
-  --background: #080f19;
-  --foreground: #edf2fa;
-  --card: #0d1724;
-  --card-foreground: #edf2fa;
-  --surface: #101c2b;
-  --surface-raised: #162437;
-  --secondary: #172438;
-  --muted: #162335;
-  --muted-foreground: #a3b1c3;
-  --text-soft: #c4d0df;
-  --primary: #67d6f3;
-  --primary-foreground: #06202c;
-  --accent: #142b3b;
-  --accent-foreground: #c6eff9;
-  --border: #263549;
-  --input: #60738b;
-  --ring: #67d6f3;
+  --background: #08090b;
+  --foreground: #eef0f4;
+  --card: #101216;
+  --card-foreground: #eef0f4;
+  --surface: #15181d;
+  --surface-raised: #1f232b;
+  --secondary: #1b1f26;
+  --muted: #1b1f26;
+  --muted-foreground: #959cab;
+  --text-soft: #c3c8d3;
+  --primary: #5fd3ea;
+  --primary-foreground: #03232b;
+  --accent: #11262e;
+  --accent-foreground: #bfeef8;
+  --border: #242932;
+  --input: #606775;
+  --ring: #5fd3ea;
   --glow: transparent;
-  --radius: .75rem;
-  --text-small: 13px;
-  --text-body: 15px;
-  --text-heading: 18px;
-  --text-display: 28px;
-  --shadow-card: 0 2px 4px #00000012;
-  --shadow-dialog: 0 24px 80px #00000066;
-  --overlay: #020812a8;
-  --nav-hover: #142133;
-  --nav-selected: #172e3e;
-  --nav-selected-hover: #1c3749;
-  --nav-icon-selected: #204354;
+  --radius: .625rem;
+  --text-small: 12px;
+  --text-body: 13px;
+  --text-heading: 15px;
+  --text-display: 18px;
+  --shadow-card: 0 0 0 transparent;
+  --shadow-dialog: 0 0 0 1px #ffffff0a, 0 24px 70px #000000a6;
+  --overlay: #04050799;
+  --nav-hover: #14171c;
+  --nav-selected: #1a1e25;
+  --nav-selected-hover: #1f242c;
+  --nav-icon-selected: #11262e;
 }
 :root[data-theme="light"] {
-  --background: #f4f7fb;
-  --foreground: #16263d;
+  --background: #eef0f3;
+  --foreground: #171a21;
   --card: #ffffff;
-  --card-foreground: #16263d;
-  --surface: #f7f9fc;
+  --card-foreground: #171a21;
+  --surface: #f7f8fa;
   --surface-raised: #ffffff;
-  --secondary: #eaf0f6;
-  --muted: #edf2f8;
-  --muted-foreground: #52637a;
-  --text-soft: #3f536e;
-  --primary: #006c91;
+  --secondary: #eef0f4;
+  --muted: #eef0f4;
+  --muted-foreground: #5a6271;
+  --text-soft: #3c4350;
+  --primary: #0a7087;
   --primary-foreground: #ffffff;
-  --accent: #e7f1f8;
-  --accent-foreground: #15516b;
-  --border: #dce4ee;
-  --input: #8292a6;
-  --ring: #006c91;
+  --accent: #e5f4f8;
+  --accent-foreground: #0a5566;
+  --border: #e1e4ea;
+  --input: #818998;
+  --ring: #0a7087;
   --glow: transparent;
-  --shadow-card: 0 2px 5px #172b4610;
-  --shadow-dialog: 0 24px 80px #172b462b;
-  --overlay: #10203966;
-  --nav-hover: #edf2f8;
-  --nav-selected: #e1edf6;
-  --nav-selected-hover: #d7e7f2;
-  --nav-icon-selected: #c8dfed;
+  --shadow-card: 0 1px 2px #1318200a;
+  --shadow-dialog: 0 0 0 1px #1318200f, 0 24px 70px #13182033;
+  --overlay: #13182059;
+  --nav-hover: #e6e9ed;
+  --nav-selected: #ffffff;
+  --nav-selected-hover: #ffffff;
+  --nav-icon-selected: #e5f4f8;
 }
 /* Match native selects to inputs without changing their popup behavior. */
 :root body select:not([multiple]) { border-color: var(--input); border-radius: 9px; background-color: var(--surface); font-weight: 500; box-shadow: none; }
-:root body select:not([multiple]):hover:not(:disabled) { border-color: var(--ring); background-color: var(--surface); }
+:root body select:not([multiple]):hover:not(:disabled) { border-color: var(--ring); background-color: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
 :root body select:not([multiple]):focus { box-shadow: none; }
 .sidebar .brand-header { height: 68px; }
 body { letter-spacing: 0; }
@@ -95,6 +97,29 @@ body { letter-spacing: 0; }
 .cyber-panel,.dashboard-filters,.triage-split,.explorer,.provider-card {
   border: 1px solid var(--border); border-radius: 14px;
   background-color: var(--card); box-shadow: var(--shadow-card);
+}
+:root { --control-fade: 140ms cubic-bezier(.2, .7, .2, 1); }
+.triage-tools .list-count { display: inline-flex; align-items: center; gap: 5px; }
+.filter-panel > label, .triage-text-search label { transition: color var(--control-fade); }
+.filter-panel > label:focus-within, .triage-text-search label:focus-within { color: var(--primary); }
+.filter-panel .triage-text-search input[type="search"] { transition: border-color var(--control-fade); }
+@media (prefers-reduced-motion: no-preference) {
+  .btn:enabled:active { animation: control-press 75ms ease-out both; }
+}
+@keyframes control-press { from { translate: 0 0; } to { translate: 0 1px; } }
+.btn, .view-tabs button, .timeline-periods button, .sourcing-tab-list > [role="tab"] {
+  transition: background-color var(--control-fade), border-color var(--control-fade),
+    color var(--control-fade), box-shadow var(--control-fade);
+}
+@media (hover: hover) {
+  .timeline-periods button:enabled:hover:not([aria-pressed="true"]),
+  .sourcing-tab-list > [role="tab"]:enabled:hover:not([aria-selected="true"]) {
+    background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+    color: var(--foreground);
+  }
+  .sourcing-tab-list > [role="tab"]:enabled:hover:not([aria-selected="true"]) {
+    border-bottom-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  }
 }
 .btn { min-height: 36px; border-radius: 9px; font-size: 13px; font-weight: 600; letter-spacing: 0; box-shadow: none; }
 .btn.text-xs,.btn.text-sm { font-size: 13px; }
@@ -211,7 +236,6 @@ body { letter-spacing: 0; }
 .sign-in-card form > button { font-size: 14px; }
 .app-footer { font-size: 11px; color: var(--muted-foreground); border: 0; }
 .outlook-calendar { --oc-line: var(--border); --oc-bg: var(--card); --oc-toolbar: var(--surface); }
-.outlook-calendar .interview-event { border-radius: 5px; }
 @media (max-width: 1150px) and (min-width: 701px) {
   .topbar { padding-inline: 16px; gap: 8px; }
   .top-right { gap: 8px; }

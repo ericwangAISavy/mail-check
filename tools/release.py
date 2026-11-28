@@ -47,7 +47,7 @@ def changelog(releases):
 
 
 def git(root, *arguments):
-    result = subprocess.run(['git', *arguments], cwd=root, capture_output=True, text=True)
+    result = subprocess.run(['git', *arguments], cwd=root, capture_output=True, text=True, encoding='utf-8')
     if result.returncode:
         raise ValueError(result.stderr.strip() or 'Git release comparison failed.')
     return result.stdout

@@ -6,7 +6,7 @@ import {
   render,
   screen,
   waitFor,
-} from "@testing-library/react";
+  } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SourcingPage from "./sourcing";
@@ -21,6 +21,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     disabled,
     onEditingChange,
     onSelection,
+    onSelectionGestureChange,
     onAppendRows,
     view,
   }: {
@@ -32,6 +33,7 @@ vi.mock("@/components/sourcing-grid", () => ({
     disabled: boolean;
     onEditingChange?: (active: boolean) => void;
     onSelection?: (selection: {rows: number[]; columns: number[]}) => void;
+    onSelectionGestureChange?: (active: boolean) => void;
   }) => {
     gridViews.values.push(view);
     return (
@@ -57,6 +59,7 @@ vi.mock("@/components/sourcing-grid", () => ({
         </button>
         <button onClick={() => onEditingChange?.(true)}>Start typing</button>
         <button onClick={() => onSelection?.({rows: [1,2], columns: [0,1]})}>Select two job rows</button>
+        {onSelectionGestureChange && <div onMouseDown={() => onSelectionGestureChange(true)} onMouseUp={() => onSelectionGestureChange(false)}>Job row gesture</div>}
       </div>
     );
   },
@@ -95,6 +98,21 @@ const index = {
   ],
 };
 const clients: QueryClient[] = [];
+it("opens a compact sheet and keeps the saved cell version when editing", async () => {
+  const {rows, ...metadata} = snapshot;
+  const packed = {...metadata, row_dates: [null, "2026-10-20"], cell_entries: [[1, 0, "Café", 7, {bold: true}]], confirmation_times: []};
+  vi.mocked(fetch).mockImplementation(async (url) => new Response(JSON.stringify(url === "/api/sourcing" ? index : packed), {
+    headers: {"content-type": "application/json"},
+  }));
+  const post = vi.spyOn(api, "post").mockResolvedValue(snapshot);
+  mount();
+  await waitFor(() => expect(screen.getByLabelText("Saved company").textContent).toBe("Café"));
+  expect(fetch).toHaveBeenCalledWith("/api/sourcing/tabs/1?compact=true", expect.objectContaining({signal: expect.any(AbortSignal)}));
+  fireEvent.click(screen.getByRole("button", {name: "Edit company"}));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/sourcing/tabs/1/save", expect.objectContaining({changes: [
+    expect.objectContaining({row_id: "row-one", column_id: "company", expected_version: 7, value: "New company"}),
+  ]})), {timeout: 4000});
+});
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -111,7 +129,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-function mount() {
+// Most tests exercise the editor's tool row, which the app hides by default.
+function mount(fullToolbar = true) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -119,11 +138,54 @@ function mount() {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <SourcingPage />
+        <SourcingPage fullToolbar={fullToolbar} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+it('switches applicant accounts from the labelled header selector',async()=>{
+  const multi={...index,books:index.books.map(book=>({...book,tabs:[...book.tabs,{...book.tabs[0],id:2,title:'Second profile'}]}))}
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/sourcing'?multi:snapshot),{headers:{'content-type':'application/json'}})))
+  mount(false)
+  const account=await screen.findByLabelText('Applicant account') as HTMLSelectElement
+  await waitFor(()=>expect(account.value).toBe('1'))
+  expect(Array.from(account.options).map(option=>option.textContent)).toEqual(['Profile','Second profile'])
+  fireEvent.change(account,{target:{value:'2'}})
+  await waitFor(()=>expect((screen.getByLabelText('Applicant account') as HTMLSelectElement).value).toBe('2'))
+  for(const label of ['Bidder','Account'])expect(screen.getByText(label,{selector:'.sourcing-select-label'})).toBeTruthy()
+})
+it('searches through form submission without a separate Search button',async()=>{
+ const fetch=vi.fn(async(url:string)=>new Response(JSON.stringify(url.includes('/api/sourcing/search')?{results:[]}:url==='/api/sourcing'?index:snapshot),{headers:{'content-type':'application/json'}}))
+ vi.stubGlobal('fetch',fetch)
+ mount()
+ await screen.findByRole("group",{name:"Job status"});
+ const input=await screen.findByLabelText('Find application')
+ expect(screen.queryByRole('button',{name:/^Search$/})).toBeNull()
+ fireEvent.change(input,{target:{value:'Machine Learning'}})
+ fireEvent.submit(input.closest('form')!)
+ await waitFor(()=>expect(fetch.mock.calls.some(call=>String(call[0]).includes('/api/sourcing/search?q=Machine%20Learning'))).toBe(true))
+})
+it("keeps search and day controls behind Filter in the top toolbar until asked for", async () => {
+  mount(false);
+  await screen.findByRole("group",{name:"Job status"});
+  const toggle = await screen.findByRole("button", { name: /^Filter/ });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(document.getElementById("sourcing-tools")?.hidden).toBe(true);
+  fireEvent.click(toggle);
+  expect(document.getElementById("sourcing-tools")?.hidden).toBe(false);
+  const date = (await screen.findByLabelText("Job date")) as HTMLInputElement;
+  const toolbar = date.closest(".sourcing-filter-panel");
+  expect(toolbar).not.toBeNull();
+  for (const name of ["Previous day", "Next day", "Today"]) expect(toolbar!.querySelector(`[aria-label="${name}"], button`)).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Today" }).closest(".sourcing-filter-panel")).toBe(toolbar);
+  for (const name of ["Undo edit", "Redo edit", "Find and filter sheet", "Import CSV", "Export CSV", "Refresh sheet"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  for (const name of [/Delete rows/, /Check applications/, /^Rows$/, /Undated/, /Assign date/]) expect(screen.queryByRole("button", { name })).toBeNull();
+  expect(screen.queryByLabelText("Saved job days")).toBeNull();
+  expect(document.querySelector(".sourcing-command-bar")).toBeNull();
+  const before = date.value;
+  fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+  await waitFor(() => expect((screen.getByLabelText("Job date") as HTMLInputElement).value).not.toBe(before));
+});
 it("keeps failed-save drafts visible and prevents tab changes", async () => {
   vi.spyOn(api, "post").mockRejectedValue(
     new Error("Another person changed this cell."),
@@ -137,7 +199,7 @@ it("keeps failed-save drafts visible and prevents tab changes", async () => {
   );
   expect(screen.getByLabelText("Draft value").textContent).toBe("New company");
   expect(
-    screen.getByRole("tab", { name: "Profile" }).hasAttribute("disabled"),
+    (screen.getByLabelText("Applicant account") as HTMLSelectElement).disabled,
   ).toBe(true);
   expect(
     screen
@@ -379,7 +441,7 @@ it("protects active uncommitted typing from refresh and navigation", async () =>
       .hasAttribute("disabled"),
   ).toBe(true);
   expect(
-    screen.getByRole("tab", { name: "Profile" }).hasAttribute("disabled"),
+    (screen.getByLabelText("Applicant account") as HTMLSelectElement).disabled,
   ).toBe(true);
   const requests = vi.mocked(fetch).mock.calls.length;
   fireEvent(window, new Event("focus"));
@@ -514,7 +576,7 @@ it("confirms deleting the selected tab and removes it from the document", async 
   }) as Response);
   const post = vi.spyOn(api, "post").mockImplementation(async () => {deleted = true; return {ok: true} as any});
   mount();
-  fireEvent.click(await screen.findByRole("button", {name: "Delete current profile sheet"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Sheet actions"}));fireEvent.click(await screen.findByRole("menuitem", {name: "Delete current profile sheet"}));
   expect(await screen.findByRole("heading", {name: "Delete Profile tab?"})).toBeTruthy();
   const confirm = await screen.findByRole("button", {name: "Delete tab permanently"});
   await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
@@ -526,17 +588,28 @@ it("confirms deleting the selected tab and removes it from the document", async 
 it("keeps the tab when deletion is cancelled or rejected", async () => {
   const post = vi.spyOn(api, "post").mockRejectedValue(new Error("The sheet changed. Reload first."));
   mount();
-  fireEvent.click(await screen.findByRole("button", {name: "Delete current profile sheet"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Sheet actions"}));fireEvent.click(await screen.findByRole("menuitem", {name: "Delete current profile sheet"}));
   fireEvent.click(await screen.findByRole("button", {name: "Cancel"}));
   expect(post).not.toHaveBeenCalled();
-  expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", {name: "Delete current profile sheet"}));
+  expect((screen.getByLabelText("Applicant account") as HTMLSelectElement).value).toBe("1");
+  fireEvent.click(await screen.findByRole("button", {name: "Sheet actions"}));fireEvent.click(await screen.findByRole("menuitem", {name: "Delete current profile sheet"}));
   const confirm = await screen.findByRole("button", {name: "Delete tab permanently"});
   await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(confirm);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The sheet changed. Reload first.");
   fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
-  expect(screen.getByRole("tab", {name: "Profile"})).toBeTruthy();
+  expect((screen.getByLabelText("Applicant account") as HTMLSelectElement).value).toBe("1");
+});
+it("keeps destructive and workbook actions in the sheet menu, and Filter with the table", async () => {
+  mount();
+  await screen.findByLabelText("Applicant account");
+  expect(screen.queryByRole("button", {name: "Add profile sheet"})).toBeNull(); // sheets are created on assignment
+  expect(screen.queryByRole("button", {name: "Delete current profile sheet"})).toBeNull();
+  await waitFor(() => expect(screen.getByRole("button", {name: /^Filter/}).closest(".sourcing-queue")).not.toBeNull());
+  fireEvent.click(screen.getByRole("button", {name: "Sheet actions"}));
+  expect(screen.getByRole("menuitem", {name: "Delete current profile sheet"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("menuitem", {name: "Manage workbooks and sheets"}));
+  expect(await screen.findByRole("heading", {name: "Job sourcing settings"})).toBeTruthy();
 });
 
 it("deletes selected job rows using their stable identities from the toolbar", async () => {
@@ -551,16 +624,42 @@ it("deletes selected job rows using their stable identities from the toolbar", a
 it("refreshes a clean sheet when the global check finishes", async () => {
   mount();
   await screen.findByText("Saved");
-  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length;
   act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
-  await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBeGreaterThan(calls));
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length).toBeGreaterThan(calls));
 });
 it("preserves active edits when the global check finishes", async () => {
   mount();
   fireEvent.click(await screen.findByRole("button", {name: "Start typing"}));
-  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length;
+  const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length;
   act(() => window.dispatchEvent(new Event("mailcheck:check-completed")));
-  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1").length).toBe(calls);
+  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/sourcing/tabs/1?compact=true").length).toBe(calls);
+});
+
+it("holds a refresh response during a Job Sourcing drag and reloads after release", async () => {
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  const endpoint = "/api/sourcing/tabs/1?compact=true";
+  let sheetReads = 0;
+  let finishRefresh!: (response: Response) => void;
+  const changed = {...snapshot, revision: "two", rows: [[], [{...snapshot.rows[1][0], value:"Updated", display:"Updated"}]]};
+  const response = () => new Response(JSON.stringify(changed), {headers: {"content-type": "application/json"}});
+  vi.mocked(fetch).mockImplementation((url, init) => {
+    if (String(url) !== endpoint) return original(url, init);
+    sheetReads++;
+    if (sheetReads === 2) return new Promise(resolve => {finishRefresh = resolve});
+    if (sheetReads > 2) return Promise.resolve(response());
+    return original(url, init);
+  });
+  mount(false);
+  expect((await screen.findByLabelText("Saved company")).textContent).toBe("Acme");
+  fireEvent(window, new Event("mailcheck:check-completed"));
+  expect(finishRefresh).toBeTypeOf("function");
+  fireEvent.mouseDown(screen.getByText("Job row gesture"));
+  await act(async () => finishRefresh(response()));
+  expect(screen.getByLabelText("Saved company").textContent).toBe("Acme");
+  fireEvent.mouseUp(screen.getByText("Job row gesture"));
+  await waitFor(() => expect(screen.getByLabelText("Saved company").textContent).toBe("Updated"));
+  expect(sheetReads).toBe(3);
 });
 
 it("warns which bidders have no links on the selected date and hides it for Undated", async () => {
@@ -574,9 +673,11 @@ it("warns which bidders have no links on the selected date and hides it for Unda
   }) as Response);
   mount(); await screen.findByLabelText("Saved company");
   fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-20"}});
-  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")?.textContent).toBe("No job links · 2026-10-20: Blair"));
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links button")?.getAttribute("title")).toBe("No job links · 2026-10-20: Blair"));
+  fireEvent.click(screen.getByRole("button", {name: "1 missing submission"}));
+  expect(document.querySelector(".sourcing-missing-popover")?.textContent).toBe("No job links on 2026-10-20Blair");
   fireEvent.change(screen.getByLabelText("Job date"), {target: {value: "2026-10-21"}});
-  await waitFor(() => expect(document.querySelector(".sourcing-missing-links")?.textContent).toBe("No job links · 2026-10-21: Alex"));
+  await waitFor(() => expect(document.querySelector(".sourcing-missing-links button")?.getAttribute("title")).toBe("No job links · 2026-10-21: Alex"));
   fireEvent.click(screen.getByRole("button", {name: /^Undated/}));
   await waitFor(() => expect(document.querySelector(".sourcing-missing-links")).toBeNull());
 });
@@ -584,13 +685,13 @@ it("warns which bidders have no links on the selected date and hides it for Unda
 it('does not discard a slow initial sheet response when focus triggers another refresh', async () => {
   let finish!: (value: Response) => void;
   const original=vi.mocked(fetch).getMockImplementation()!;
-  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1?compact=true'
     ? new Promise<Response>(resolve=>{finish=resolve}) : original(url,init));
   mount();
   await screen.findByText('Loading your spreadsheet…');
   fireEvent(window,new Event('focus'));
   fireEvent(window,new Event('mailcheck:check-completed'));
-  expect(vi.mocked(fetch).mock.calls.filter(([url])=>String(url)==='/api/sourcing/tabs/1')).toHaveLength(1);
+  expect(vi.mocked(fetch).mock.calls.filter(([url])=>String(url)==='/api/sourcing/tabs/1?compact=true')).toHaveLength(1);
   await act(async()=>finish({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>snapshot} as Response));
   expect((await screen.findByLabelText('Saved company')).textContent).toBe('Acme');
 });
@@ -599,7 +700,7 @@ it('ends a stalled sheet load with a retryable timeout instead of an endless spi
   const timer=vi.spyOn(window,'setTimeout');
   const original=vi.mocked(fetch).getMockImplementation()!;
   let signal:AbortSignal|undefined;
-  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1?compact=true'
     ? new Promise<Response>((_resolve,reject)=>{
         signal=init?.signal as AbortSignal;
         signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')));
@@ -619,7 +720,7 @@ it('ends a stalled sheet load with a retryable timeout instead of an endless spi
 it('cancels the old sheet request when leaving the page',async()=>{
   const original=vi.mocked(fetch).getMockImplementation()!;
   let signal:AbortSignal|undefined;
-  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1'
+  vi.mocked(fetch).mockImplementation((url,init)=>String(url)==='/api/sourcing/tabs/1?compact=true'
     ? new Promise<Response>((_resolve,reject)=>{
         signal=init?.signal as AbortSignal;
         signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')));
@@ -654,3 +755,51 @@ it('never reports 100 percent when adding jobs fails',async()=>{
  expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).not.toBe('100')
  expect(screen.getByLabelText('Saved company').textContent).toBe('Acme')
 })
+
+it('shows the reason a link remains unchecked after checking applications',async()=>{
+ vi.spyOn(api,'post').mockResolvedValue({...snapshot,revision:'one',verification:{day:'2026-10-20',timezone:'America/Chicago',checked:0,account_email:'eric.wang.swe@outlook.com',unmatched_count:1,unmatched:[{row_id:'hp',sheet_row:12,work_date:'2026-10-20',company:'HP',reason:'A matching confirmation is already linked to a checked job.'}]}})
+ mount()
+ await screen.findByText('Saved')
+ fireEvent.change(screen.getByLabelText('Job date'),{target:{value:'2026-10-20'}})
+ fireEvent.click(screen.getByRole('button',{name:'Check applications'}))
+ const summary=await screen.findByText('1 link remains unchecked — view reasons')
+ fireEvent.click(summary)
+ expect(await screen.findByText('Row 12 · HP · 2026-10-20')).toBeTruthy()
+ expect(screen.getByText('Mailbox checked: eric.wang.swe@outlook.com')).toBeTruthy()
+ expect(screen.getByText(/A matching confirmation is already linked to a checked job/)).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Refresh sheet'}))
+ await screen.findByText('Saved')
+ expect(screen.getByText('1 link remains unchecked — view reasons')).toBeTruthy()
+})
+
+
+it("lets admins select deleted bidders and edit their retained archived tabs", async () => {
+  const deleted = { ...index.books[0], id: 2, name: "Past bidder", bidder_id: 2,
+    removed_at: "2026-11-23", job_dates: ["2026-10-20"],
+    tabs: [{ ...index.books[0].tabs[0], id: 2, title: "Past profile", archived: true }] }
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({
+    ok: true, headers: new Headers({"content-type": "application/json"}),
+    json: async () => url === "/api/sourcing" ? {books: [...index.books, deleted]} : snapshot,
+  })))
+  mount()
+  const option = await screen.findByRole("option", {name: "Past bidder (Deleted)"})
+  expect((option as HTMLOptionElement).disabled).toBe(false)
+  fireEvent.change(screen.getByLabelText("Bidder workbook"), {target: {value: "2"}})
+  expect(await screen.findByRole("option", {name: "Past profile"})).toBeTruthy()
+  await waitFor(() => expect((screen.getByLabelText("Job date") as HTMLInputElement).value).toBe("2026-10-20"))
+  expect((screen.getByRole("button", {name: "Edit company"}) as HTMLButtonElement).disabled).toBe(false)
+})
+
+it("searches the selected applicant account from the header and drops the settings gear", async () => {
+  const fetch=vi.fn(async(url:string)=>new Response(JSON.stringify(url.includes('/api/sourcing/search')?{results:[]}:url==='/api/sourcing'?index:snapshot),{headers:{'content-type':'application/json'}}))
+  vi.stubGlobal('fetch',fetch)
+  mount(false);
+  await screen.findByRole("group",{name:"Job status"});
+  const input = await screen.findByLabelText("Find application") as HTMLInputElement;
+  expect(input.closest(".sourcing-filter-panel")).not.toBeNull();
+  await waitFor(() => expect(input.placeholder).toBe("Search this account’s jobs…"));
+  expect(screen.queryByRole("button", {name: "Sourcing settings"})).toBeNull();
+  fireEvent.change(input, {target: {value: "Acme"}});
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() => expect(fetch.mock.calls.some(call => String(call[0]) === "/api/sourcing/search?q=Acme&account=1")).toBe(true));
+});

@@ -2,6 +2,7 @@ export type Category = { name: string; label: string; tier: string; count?: numb
 export type Message = {
   pk: number; message_id: string; subject: string; from_addr: string; from_name: string
   date_utc: string | null; snippet: string; provider_url: string | null; handled_at: string | null
+  application_matched?: boolean
   account_label: string; provider: string; category: string; category_label: string; tier: string
   confidence: number; company: string | null; role: string | null; deadline: string | null
   deadline_display: string; date_display: string; date_estimated: boolean; action_required: boolean
@@ -9,6 +10,7 @@ export type Message = {
 }
 export type TriageGroup = { tier: string; label: string; items: Message[] }
 export type TriageData = {
+  check_schedule?: { automatic: boolean; running: boolean; next_at: string | null; live?: { enabled: boolean; interval_seconds: number; running: boolean; last_checked_at: string | null; next_at: string | null; last_attempt_at?: string | null; last_check_ok?: boolean | null; disabled_reason?: string | null; updated_at?: string | null } } | null
   view: "queue" | "all" | "completed"; groups: TriageGroup[]; total: number
   summary: Record<string, number>; counts: Record<string, number>
   accounts: { label: string; enabled: boolean }[]; days: number
@@ -16,7 +18,13 @@ export type TriageData = {
   last_run?: string
 }
 export type Account = {
+  pending_read_updates?: number
+  read_updates_need_permission?: boolean
   last_checked_at?: string | null
+  last_synced_at?: string | null
+  /** Why automatic collection is failing; absent when it works. */
+  sync_error?: string | null
+  live?: boolean
   id: number; label: string; email: string; provider: string; imap_host: string
   imap_port: number; use_ssl: boolean; folder: string; enabled: boolean
 }
@@ -29,24 +37,29 @@ export type Bootstrap = {
 export type Settings = {
   llm: { base_url: string; batch_size: number; max_body_chars: number; timeout_seconds: number; classification_deadline_seconds: number; concurrency: number; num_ctx: number; think: boolean; keep_alive: string }
   check: { mode?: "lookback" | "since_last"; lookback_days: number; retain_days: number }
-  watch: { interval_minutes: number; auto_check: boolean }
+  watch: { interval_minutes: number; other_interval_minutes?: number; auto_check: boolean }
   outlook: { client_id: string }; privacy_ack: boolean
 }
 export type ApiResult<T> = T
 
 export type InterviewEvent = {
+  feedback_tags?: InterviewFeedbackTag[]
+  analysis_pending?: boolean
   id: number; account_labels?: string[]; calendar_uid: string | null; company: string | null; role: string | null
   stage: string; status: string; display_status: string; start_at: string | null; end_at: string | null
   timezone: string | null; meeting_platform: string | null; meeting_url: string | null; location: string | null
-  organizer_name: string | null; organizer_email: string | null; participants: string[]; notes: string | null
+  organizer_name: string | null; organizer_email: string | null; interviewers?: string[]; participants: string[]; notes: string | null
   confidence: number; needs_review: boolean; review_reason: string | null; manual_fields: string[]
   created_at: string; updated_at: string
 }
+export type InterviewFeedbackTag = 'in-person' | 'linkedin' | 'fuck' | 'normal'
 export type InterviewSource = {
   account_id?: number; id: number; message_pk: number | null; account_label: string; account_email: string
   source_subject: string; source_sender: string; source_received_at: string; account_enabled: boolean
 }
-export type InterviewData = { companies: string[]; events: InterviewEvent[]; accounts: {id: number;label: string;email: string}[]; stages: string[]; statuses: string[] }
+export type CalendarAnalysisProgress = { done:number;pending:number;needs_review?:number;total:number;retrying:number;running:number;retry_in:number;last_error:string }
+export type CalendarAccount = { id: number; label: string; email: string; calendar_color?: number | null; calendar_default_color?: number | null }
+export type InterviewData = { analysis?: CalendarAnalysisProgress; companies: string[]; events: InterviewEvent[]; accounts: CalendarAccount[]; stages: string[]; statuses: string[] }
 export type ProcessEvent = InterviewEvent & { organization_domains: string[]; assignment_reason: string | null }
 export type ProcessMilestone = {
   id: string; kind: "event" | "message"; occurred_at: string; title: string; summary: string
@@ -56,3 +69,11 @@ export type ProcessMilestone = {
 export type InterviewProcess = { follow_up?: {target_message_pk:number|null;status:"ready"|"sent"|"unavailable";sent_at:string|null}; id?: string; account_id?: number | null; account_emails?: string[]; organization: string | null; event_count: number; message_count: number; pinned: boolean; milestones: ProcessMilestone[]; next_interview: ProcessEvent | null; events: ProcessEvent[] }
 
 export type SentReply = {operation:string;body:string;mode:string;status:string;created_at:string;sent_at:string|null;recipients:string;error:string}
+
+export type InterviewJobMatch = {
+  row_id: string; tab_id: number; account_id: number; account_label: string
+  bidder_id: number; bidder_name: string; company: string; role: string; link: string
+  applied: boolean; application_date: string | null; work_date: string | null; archived: boolean
+  confidence: "strong" | "possible"; reasons: string[]
+}
+export type InterviewJobMatchesResponse = { matches: InterviewJobMatch[]; total: number; next_cursor: string | null }

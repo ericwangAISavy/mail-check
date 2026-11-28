@@ -205,7 +205,7 @@ h2 { font-family: var(--display-font); font-weight: 600; }.card-title-row h2, .e
 .top-right { flex: 1 1 480px; justify-content: flex-end; }
 .top-right > .btn, .top-right > .signed-in-role,
 .top-actions > .btn, .top-actions > .schedule-button,
-.connection-status > svg, .connection-status > strong, .status-elapsed { flex-shrink: 0; }
+.connection-status > svg, .connection-status > strong, .status-elapsed, .status-updated { flex-shrink: 0; }
 .top-actions { min-width: 0; flex: 0 1 auto; }
 .connection-status { flex: 0 1 auto; max-width: 320px; overflow: hidden; }
 .status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

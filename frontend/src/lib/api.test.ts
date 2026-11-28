@@ -23,7 +23,7 @@ describe("triageParams", () => {
 })
 
 
-afterEach(() => {vi.unstubAllGlobals();setWorkspaceIdentity()})
+afterEach(() => {vi.restoreAllMocks();vi.clearAllMocks();vi.unstubAllGlobals();setWorkspaceIdentity()})
 it("shows FastAPI validation fields and messages for invalid form values", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
     { loc: ["body", "amount"], msg: "Decimal input should have no more than 2 decimal places" },
@@ -138,4 +138,73 @@ it('keeps the read deadline active while parsing a stalled response body',async(
   await vi.advanceTimersByTimeAsync(30_000)
   await rejected
  } finally {vi.useRealTimers()}
+})
+
+it.each([200,401])("rejects a response from an earlier visit to the same workspace (%s)",async status=>{
+  let resolve!:(response:Response)=>void
+  vi.stubGlobal("fetch",vi.fn(()=>new Promise<Response>(done=>{resolve=done})))
+  const unauthorized=vi.fn()
+  window.addEventListener("mailcheck:unauthorized",unauthorized)
+  try {
+    setWorkspaceIdentity("alice")
+    const pending=request("/api/messages/1")
+    setWorkspaceIdentity()
+    setWorkspaceIdentity("alice")
+    resolve(new Response(JSON.stringify({body_html:"Old session message"}),{status,headers:{"Content-Type":"application/json"}}))
+    await expect(pending).rejects.toThrow("Workspace changed")
+    expect(unauthorized).not.toHaveBeenCalled()
+  } finally {window.removeEventListener("mailcheck:unauthorized",unauthorized)}
+})
+
+it("rejects a previous user's response after a same-workspace session handoff",async()=>{
+  let resolve!:(response:Response)=>void
+  vi.stubGlobal("fetch",vi.fn(()=>new Promise<Response>(done=>{resolve=done})))
+  setWorkspaceIdentity("team","admin:alice")
+  const pending=request("/api/messages/1")
+  setWorkspaceIdentity("team","admin:bob")
+  resolve(new Response(JSON.stringify({body_html:"Alice private message"}),{headers:{"Content-Type":"application/json"}}))
+  await expect(pending).rejects.toThrow("Workspace changed")
+})
+it('includes safe Cloudflare diagnostics for 530 without exposing the proxy document',async()=>{
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('<html><span class="cf-error-code">1033</span>private diagnostic IP</html>',{status:530,headers:{'Content-Type':'text/html','cf-ray':'abc123-ORD'}})))
+ const error=await request('/api/triage').catch(error=>error)
+ if(!(error instanceof ApiError))throw new Error('Expected an API error')
+ expect(error.status).toBe(530);expect(error.message).toContain('code 1033');expect(error.message).toContain('Reference: abc123-ORD');expect(error.message).not.toContain('private diagnostic')
+})
+
+it.each([401, 409])("does not publish session events from a canceled response that arrives late (%s)", async (status) => {
+  const controller = new AbortController()
+  let finish!: (response: Response) => void
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve })))
+  const expired = vi.fn()
+  window.addEventListener("mailcheck:unauthorized", expired)
+  window.addEventListener("offerpath:workspace-changed", expired)
+  try {
+    const pending = request("/api/messages/1", { signal: controller.signal })
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    controller.abort()
+    finish(new Response('{"workspace_changed":true}', { status, headers: { "content-type": "application/json" } }))
+    await rejected
+    expect(expired).not.toHaveBeenCalled()
+  } finally {
+    window.removeEventListener("mailcheck:unauthorized", expired)
+    window.removeEventListener("offerpath:workspace-changed", expired)
+  }
+})
+
+it("uses a worker-optional header for Dashboard previews and preserves workspace filters", async () => {
+  const {api} = await import("./api")
+  const fetcher = vi.fn(async (_url: string, _init: RequestInit) =>
+    new Response("{}", {headers: {"Content-Type": "application/json"}}))
+  vi.stubGlobal("fetch", fetcher)
+  setWorkspaceIdentity("selected-admin")
+  const params = new URLSearchParams("days=7&category=offer&category=rejection")
+  await api.dashboard(params, undefined, false)
+  await api.dashboard(params, undefined, true)
+  const [[previewUrl, preview], [fullUrl, full]] = fetcher.mock.calls
+  expect(previewUrl).toBe("/api/dashboard?days=7&category=offer&category=rejection")
+  expect(fullUrl).toBe(previewUrl)
+  expect(new Headers(preview.headers).get("prefer")).toBe("offerpath-overview")
+  expect(new Headers(preview.headers).get("x-offerpath-workspace")).toBe("selected-admin")
+  expect(new Headers(full.headers).has("prefer")).toBe(false)
 })

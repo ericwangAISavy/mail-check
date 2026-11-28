@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from ..maintenance import MaintenanceLock,lock_path,shared_writer
 import threading
 import sqlite3
@@ -13,17 +13,22 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
+from uuid import UUID
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from .static_files import CompressedStaticFiles, PortableStaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import config as cfgmod
-from .. import assistant, followups, db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
+from .. import followups, db, replies, outgoing, outlook_auth, secrets, interviews, interview_processes, payments, sourcing_verification
 from ..analytics import DashboardFilters, dashboard_data
 from ..pipeline import build_source, check_once, reclassify
+from .. import read_marking, realtime_coverage
+from ..live_inbox import LiveInbox
+from .. import queue_actions
 from ..sources import IMAPSource, SourceError
 from ..sources.presets import PRESETS, guess_from_email
 from ..taxonomy import (
@@ -92,19 +97,48 @@ _outlook_lock = threading.Lock()
 
 #: Wall-clock epoch seconds of the next automatic check, or None when auto is off.
 _sched: dict = {"next_due": None}
+_live_inbox = LiveInbox()
 _scheduler_started = threading.Event()
+
+# Legacy mode retains its original objects; shared requests/jobs resolve these
+# values through an explicit immutable context, never a changed environment.
+from ..shared.web_state import WorkspaceValue
+from ..workspaces import current_workspace, current_commit_guard, start_workspace_thread
+_interview_scan = WorkspaceValue(_interview_scan, lambda: dict(running=False,processed=0,total=0,found=0,errors=0))
+_job_lock = WorkspaceValue(_job_lock, threading.Lock, name='job-lock')
+_job = WorkspaceValue(_job, dict, name='job')
+_outlook = WorkspaceValue(_outlook, lambda: dict(pending=None,active_id=None,state='idle',message='',email=''))
+_outlook_lock = WorkspaceValue(_outlook_lock, threading.Lock)
+_sched = WorkspaceValue(_sched, lambda: {'next_due':None}, name='schedule')
+_live_inbox = WorkspaceValue(_live_inbox, LiveInbox, name='live-inbox')
+_scheduler_started = WorkspaceValue(_scheduler_started, threading.Event)
+
+
+def _check_interval_minutes(cfg) -> int:
+    """The configured interval, or the housekeeping interval while real-time
+    collection keeps every enabled account current."""
+    try:
+        with db.session() as conn:
+            return realtime_coverage.interval_minutes(conn, cfg)
+    except Exception:  # noqa: BLE001 - never stop scheduling over a status read
+        return cfg.watch.interval_minutes
 
 
 def _reschedule(cfg=None) -> None:
     """Push the next automatic check one full interval into the future."""
     cfg = cfg or cfgmod.load()
     if cfg.watch.auto_check:
-        _sched["next_due"] = time.time() + cfg.watch.interval_minutes * 60
+        _sched["next_due"] = time.time() + _check_interval_minutes(cfg) * 60
     else:
         _sched["next_due"] = None
 
 
 # ------------------------------------------------------------------ request bodies
+
+
+class QueueClearBody(BaseModel):
+    model_config = {"extra":"forbid"}
+    operation: UUID | None = None
 
 
 class LoginBody(BaseModel):
@@ -200,6 +234,7 @@ class SettingsBody(BaseModel):
     lookback_days: int | None = None
     retain_days: int | None = None
     interval_minutes: int | None = None
+    other_interval_minutes: int | None = None
     privacy_ack: bool | None = None
 
 
@@ -220,6 +255,7 @@ class MessageSummary(BaseModel):
     snippet: str = ""
     provider_url: str | None = None
     handled_at: str | None = None
+    application_matched: bool = False
     account_label: str
     provider: str = "imap"
     category: str
@@ -247,6 +283,7 @@ class TriageGroup(BaseModel):
 
 
 class TriageResponse(BaseModel):
+    check_schedule: dict[str, Any] | None = None
     view: str
     groups: list[TriageGroup]
     summary: dict[str, int]
@@ -258,8 +295,18 @@ class TriageResponse(BaseModel):
     total: int
 
 
+class CalendarColorBody(BaseModel):
+    color: int | None = None
+
+
 class PublicAccount(BaseModel):
+    pending_read_updates: int = 0
+    read_updates_need_permission: bool = False
     last_checked_at: str | None = None
+    last_synced_at: str | None = None
+    live: bool = False
+    # Why automatic collection is failing, in safe fixed wording; None when fine.
+    sync_error: str | None = None
     id: int
     label: str
     email: str
@@ -341,7 +388,7 @@ def _state(conn=None, accounts=None, summary=None) -> dict:
         "llm_ready": cfg.is_llm_ready(),
         "has_accounts": any(a.enabled for a in accounts),
         "account_count": len(accounts),
-        "urgent_count": summary["actionable"],
+        "urgent_count": summary.get("actionable", 0),
         "auto_check": cfg.watch.auto_check,
         # Seeds the countdown so it reads correctly before the first status poll.
         "next_in": max(0, int(due - time.time())) if due else None,
@@ -361,7 +408,7 @@ def _default_since() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=DEFAULT_DAYS)).isoformat()
 
 
-def _start_job(work, *, failed: str, on_finish=None) -> None:
+def _start_job(work, *, failed: str, on_finish=None, verify_sourcing=True, background=False) -> None:
     """Run ``work`` on a thread against the shared ``_job`` status block.
 
     The caller must already hold ``_job_lock``; this releases it. Both the
@@ -371,34 +418,66 @@ def _start_job(work, *, failed: str, on_finish=None) -> None:
     """
 
     def runner():
-        _job.update(running=True, message="Connecting…", detail="", ok=True, interview_changes=[],
+        _job.update(running=True, message="Connecting…", detail="", ok=True, background=background, interview_changes=[],
                     stage_started=time.time())
         try:
             work()
-            previous_message = _job["message"]
-            _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
-            with db.session() as conn:
-                sourcing = sourcing_verification.verify_all(conn)
-            _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
+            if verify_sourcing:
+                previous_message = _job["message"]
+                _job.update(message="Checking applications across sourcing sheets…", stage_started=time.time())
+                with db.session() as conn:
+                    sourcing = sourcing_verification.verify_all(conn)
+                _job["message"] = f"{previous_message} · {sourcing['checked']} sourcing links checked across {sourcing['tabs']} tabs"
         except Exception as exc:  # noqa: BLE001 - surface it in the UI, never 500
             _job.update(message=failed, detail=str(exc), ok=False)
+            if current_workspace() is not None:
+                raise
         finally:
-            _job.update(running=False, at=datetime.now().strftime("%H:%M"),
-                        stage_started=None, completion_id=_job["completion_id"] + 1)
-            if on_finish is not None:
-                on_finish()
+            from ..shared.manual import current_manual_job
+            if current_manual_job() is None:
+                _job.update(running=False, at=datetime.now().strftime("%H:%M"),
+                            stage_started=None, completion_id=_job["completion_id"] + 1)
+            else:
+                _job.update(stage_started=None)
+            try:
+                if on_finish is not None:
+                    on_finish()
+            except Exception:
+                _job.update(ok=False, detail="Could not update the automatic schedule. Review Settings and try again.")
+                logging.getLogger(__name__).warning("Background job completion callback failed; check lock released.")
+            finally:
+                _job_lock.release()
+
+    try:
+        if current_workspace() is not None:
+            # Shared jobs already execute in a bounded consumer executor.
+            runner()
+        else:
+            threading.Thread(target=runner, daemon=True).start()
+    except Exception:
+        from ..shared.manual import current_manual_job
+        _job.update(running=current_manual_job() is not None, ok=False, message=failed, stage_started=None)
+        if current_workspace() is None or _job_lock.locked():
             _job_lock.release()
+        raise
 
-    threading.Thread(target=runner, daemon=True).start()
 
-
-def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
+def _run_check(body: CheckBody, *, include_calendar: bool = False, scheduled: bool = False) -> None:
     if body.mode == "calendar":
         _run_calendar_check(body)
         return
 
     def work():
         cfg = cfgmod.load()
+        # Scheduled checks leave accounts that real-time collection is keeping
+        # current to it; Check now still checks every account.
+        account_ids = None
+        covered = set()
+        if scheduled:
+            with db.session() as conn:
+                covered = realtime_coverage.covered_accounts(conn)
+                if covered:
+                    account_ids = {a.id for a in db.list_accounts(conn, only_enabled=True)} - covered
 
         def event(values: dict) -> None:
             if values.get("type") == "llm_request_started":
@@ -409,21 +488,28 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
                     stage_started=time.time(),
                 )
             elif values.get("type") == "model_loading":
-                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
+                _job.update(message="Loading the model…",
                             stage_started=time.time())
             elif values.get("type") == "llm_request" and values.get("outcome") in {
                 "timeout", "busy", "deadline"
             }:
-                _job.update(message="Ollama busy; remaining mail will retry next check")
+                _job.update(message="Model busy; remaining mail will retry")
 
         calendar_changes = []
         calendar_errors = []
         if include_calendar:
             try:
                 with db.session() as conn:
+                    # Only Microsoft accounts have calendars; IMAP accounts are a
+                    # mail-only choice, not a calendar failure in a mail check.
+                    calendar_ids = {a.id for a in db.list_accounts(conn, only_enabled=True)
+                                    if a.provider == "outlook" and (not body.account or a.label == body.account)}
+                    if account_ids is not None:
+                        calendar_ids &= account_ids
                     calendar = interviews.collect_calendar_events(conn, cfg,
-                        account_label=body.account, since_days=body.since_days,
-                        status=lambda message: _job.update(message=message))
+                        since_days=body.since_days, defer_analysis=True, incremental=scheduled,
+                        account_ids=calendar_ids, status=lambda message: _job.update(message=message)
+                    ) if calendar_ids else {"changes": [], "errors": []}
                 calendar_changes = calendar['changes']
                 calendar_errors = calendar['errors']
             except Exception as exc:
@@ -436,6 +522,7 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
                 cfg,
                 account_label=body.account,
                 since_days=body.since_days,
+                account_ids=account_ids,
                 use_cache=not body.no_cache,
                 status=lambda m: _job.update(message=m),
                 progress=lambda done, total: _job.update(
@@ -454,11 +541,13 @@ def _run_check(body: CheckBody, *, include_calendar: bool = False) -> None:
         if result.pruned:
             bits.append(f"{result.pruned} aged out")
         if result.retryable:
-            bits.append(f"{result.retryable} deferred; Ollama busy — retry next check")
+            bits.append(f"{result.retryable} deferred")
+        if covered:
+            bits.append(f"{len(covered)} live")
         _job.update(
             message=" · ".join(bits),
             detail="\n".join((calendar_errors + result.errors)[:5]),
-            ok=(not result.errors or result.retryable > 0) and not calendar_errors,
+            ok=not result.errors and not calendar_errors,
         )
 
     # A manual check counts as a check: restart the clock from now.
@@ -470,11 +559,13 @@ def _run_calendar_check(body: CheckBody) -> None:
         cfg = cfgmod.load()
         with db.session() as conn:
             result = interviews.collect_calendar_events(conn, cfg, account_label=body.account,
-                since_days=body.since_days, status=lambda message: _job.update(message=message))
+                since_days=body.since_days,defer_analysis=True, status=lambda message: _job.update(message=message))
         _job.update(interview_changes=list({item["id"]:item for item in result["changes"]}.values()),
-            message=f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts",
+            message=(f"Calendar collection complete · {len(result['changes'])} event updates · {result['accounts']} accounts"
+                + (f" · {result['analyzed']} analyzed" if result.get('analyzed') else "")
+                + (f" · {result['analysis_pending']} queued for automatic analysis" if result.get('analysis_pending') else "")),
             detail="\n".join(result["errors"][:5]),ok=not result["errors"])
-    _start_job(work, failed="Calendar collection failed", on_finish=_reschedule)
+    _start_job(work, failed="Calendar collection failed", on_finish=_reschedule, verify_sourcing=False)
 
 
 def _run_reclassify(body: ReclassifyBody) -> None:
@@ -490,12 +581,12 @@ def _run_reclassify(body: ReclassifyBody) -> None:
                     stage_started=time.time(),
                 )
             elif values.get("type") == "model_loading":
-                _job.update(message="Loading the model into memory — this can take a couple of minutes…",
+                _job.update(message="Loading the model…",
                             stage_started=time.time())
             elif values.get("type") == "llm_request" and values.get("outcome") in {
                 "timeout", "busy", "deadline"
             }:
-                _job.update(message="Ollama busy; press Retry again to continue")
+                _job.update(message="Model busy; try again shortly")
 
         with db.session() as conn:
             result = reclassify(
@@ -519,7 +610,7 @@ def _run_reclassify(body: ReclassifyBody) -> None:
         if still:
             bits.append(f"{still} still unclassified")
         if result.retryable:
-            bits.append("Ollama busy — press Retry again to continue")
+            bits.append("model busy, try again shortly")
         _job.update(
             message=" · ".join(bits),
             detail="\n".join(result.errors[:5]),
@@ -529,58 +620,239 @@ def _run_reclassify(body: ReclassifyBody) -> None:
     _start_job(work, failed="Re-classification failed")
 
 
-def _scheduler() -> None:
-    """Fire an automatic check when one is due.
+def _run_calendar_analysis():
+    def work():
+        cfg = cfgmod.load()
+        with db.session() as conn:
+            # A small batch per run: classification shares this model worker.
+            result = interviews.resume_calendar_analysis(conn,cfg,status=lambda message:_job.update(message=message),limit=10)
+        review_note = f" · {result['needs_review']} need review" if result.get('needs_review') else ''
+        _job.update(interview_changes=result['changes'],message=f"Calendar analysis · {result['done']} of {result['total']} complete · {result['pending']} remaining{review_note}",
+            detail=result['last_error'],ok=True)
+    _start_job(work,failed="Calendar analysis paused; saved work will retry",verify_sourcing=False,background=True)
 
-    Runs in the web server process, so the countdown the page shows is backed by
-    something real. `mail-check watch` remains the option for running unattended
-    without a browser.
+
+def _resume_calendar_if_due(cfg):
+    if not cfg.is_llm_ready() or _job['running']:return False
+    from ..calendar_queue import due
+    with db.session() as conn:
+        ready = due(conn)
+    if ready and _job_lock.acquire(blocking=False):
+        _run_calendar_analysis()
+        return True
+    return False
+
+
+def _live_assigned_accounts(conn):
+    """Assigned accounts that need live polling: real-time collection already
+    keeps covered accounts current, so polling them again only adds load."""
+    return _live_viewer_accounts(conn) - realtime_coverage.covered_accounts(conn)
+
+
+def _inbox_updated_at(accounts, live_checked_at):
+    """When every assigned mailbox was last collected.
+
+    Each account counts its latest full check, real-time sync, or live poll (live
+    polls cover only accounts real-time is not keeping current); the Inbox is as
+    fresh as its least recently collected account.
     """
+    from ..mail_checkpoints import snapshot
+    now = datetime.now(timezone.utc)
+    try:
+        live = datetime.fromisoformat(live_checked_at) if live_checked_at else None
+    except ValueError:
+        live = None
+    with db.session() as conn:
+        checks = snapshot(conn, accounts)
+        syncs = realtime_coverage.last_syncs(conn)
+        covered = realtime_coverage.covered_accounts(conn)
+    oldest = None
+    for account in accounts:
+        candidates = [checks.get(account.id)]
+        if syncs.get(account.id):
+            candidates.append(datetime.fromtimestamp(syncs[account.id], timezone.utc))
+        if live and account.id not in covered:
+            candidates.append(live)
+        valid = [stamp for stamp in candidates if stamp is not None and stamp <= now]
+        if not valid:
+            return None  # an assigned mailbox has never been collected
+        latest = max(valid)
+        oldest = latest if oldest is None or latest < oldest else oldest
+    return oldest.isoformat() if oldest else None
+
+
+def _live_viewer_accounts(conn):
+    viewers = sorted(_live_inbox.active())
+    if not viewers:return set()
+    day = payments.today().isoformat()
+    marks = ','.join('?' for _ in viewers)
+    return {row[0] for row in conn.execute(
+        "SELECT DISTINCT a.account_id FROM bidder_assignments a "
+        "JOIN accounts m ON m.id=a.account_id AND m.enabled=1 "
+        "JOIN bidders b ON b.id=a.bidder_id AND b.removed_at IS NULL "
+        "WHERE a.bidder_id IN ("+marks+") AND a.start_date<=? "
+        "AND (a.end_date IS NULL OR a.end_date>=?)", [*viewers,day,day])}
+
+
+_payment_refresh_lock = threading.Lock()
+_payment_refresh_lock = WorkspaceValue(_payment_refresh_lock, threading.Lock)
+
+
+def _refresh_payment_week(conn, start):
+    """Opportunistic matching must not queue page loads behind a writer."""
+    if not _payment_refresh_lock.acquire(blocking=False):
+        return
+    timeout = None
+    try:
+        timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        conn.execute("PRAGMA busy_timeout=0")
+        sourcing_verification.verify_all(conn, refresh_since=start,
+            refresh_until=start + timedelta(days=6), sample=False, week_only=True)
+    except sqlite3.OperationalError as exc:
+        code = getattr(exc, "sqlite_errorcode", 0) or 0
+        if (code & 255) not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise
+        # Existing persisted counts are readable in WAL mode. Normal checks
+        # or the explicit refresh action will retry matching later.
+        logging.getLogger(__name__).debug("Payment refresh deferred during database contention.")
+    finally:
+        try:
+            if timeout is not None:
+                conn.execute(f"PRAGMA busy_timeout={timeout}")
+        finally:
+            _payment_refresh_lock.release()
+
+
+def _resume_live_inbox(cfg, *, admit=None):
+    if not cfg.watch.auto_check or not cfg.is_llm_ready() or not _live_inbox.due():return False
+    if not _job_lock.acquire(blocking=False):return False
+    try:
+        if admit is not None:
+            admit()
+        reserved = _live_inbox.reserve()
+    except BaseException:
+        _job_lock.release()
+        raise
+    if not reserved:
+        _job_lock.release()
+        return False
+    try:
+        with db.session() as conn:
+            pending = _live_assigned_accounts(conn)
+    except Exception:
+        _live_inbox.finish()
+        _job_lock.release()
+        raise
+    if not pending:
+        # Nothing to poll: real-time collection keeps every assigned account current.
+        _live_inbox.finish(True)
+        _job_lock.release()
+        return True
+    succeeded = [False]
+    def work():
+        current_cfg = cfgmod.load()
+        if not current_cfg.watch.auto_check or not current_cfg.is_llm_ready():return
+        with db.session() as conn:
+            accounts = _live_assigned_accounts(conn)
+            if not accounts:
+                # Nothing to poll is not a failed check: assignments may have
+                # ended, or real-time collection now covers every account.
+                succeeded[0] = True
+                _job.update(message="Bidder Inbox accounts are already current." if _live_viewer_accounts(conn)
+                            else "No active assigned Inbox accounts to refresh.")
+                return
+            result = check_once(conn, current_cfg, account_ids=accounts,
+                recent_since=datetime.now(timezone.utc)-timedelta(minutes=10),
+                status=lambda message: _job.update(message=message),
+                progress=lambda done,total: _job.update(message=f"Updating bidder Inbox… {done} of {total}"))
+        # Read updates retry on their own; only collection or classification
+        # problems make a live check fail (and back off for every bidder).
+        failures = list(result.errors)
+        for warning in result.read_errors:
+            if warning in failures:
+                failures.remove(warning)
+        succeeded[0] = not failures
+        _job.update(message=f"Bidder Inbox refreshed: {result.fetched} recent messages, {result.classified} classified.",
+                    detail="\n".join(result.errors[:5]),ok=succeeded[0])
+    try:
+        _start_job(work, failed="Live Inbox refresh failed", verify_sourcing=False,
+                   background=True, on_finish=lambda: _live_inbox.finish(succeeded[0]))
+    except Exception:
+        _live_inbox.finish()
+        raise
+    return True
+
+
+def _scheduler() -> None:
+    """Resume saved calendar work independently of the optional mail schedule."""
+    coverage_checked = 0.0
     while True:
         time.sleep(2)
         try:
             cfg = cfgmod.load()
             if not cfg.watch.auto_check:
-                _sched["next_due"] = None
-                continue
-            if _sched["next_due"] is None:
+                _sched['next_due'] = None
+            elif _sched['next_due'] is None:
                 _reschedule(cfg)
-                continue
-            if _job["running"] or time.time() < _sched["next_due"]:
-                continue
-
-            state = _state()
-            if not state["has_accounts"]:
-                _reschedule(cfg)  # not set up yet; try again next interval
-                continue
-            if _job_lock.acquire(blocking=False):
-                _reschedule(cfg)
-                _run_check(CheckBody(), include_calendar=True)
-        except Exception:  # noqa: BLE001 - the scheduler must outlive a bad cycle
-            _sched["next_due"] = None
+            else:
+                if time.time() - coverage_checked >= 30:
+                    # A housekeeping wait shortens as soon as real-time stops covering an account.
+                    coverage_checked = time.time()
+                    _sched['next_due'] = realtime_coverage.tightened(_sched['next_due'], _check_interval_minutes(cfg))
+                if not _job['running'] and time.time() >= _sched['next_due']:
+                    if _state()['has_accounts'] and _job_lock.acquire(blocking=False):
+                        _reschedule(cfg)
+                        _run_check(CheckBody(),include_calendar=True,scheduled=True)
+                        continue
+                    if not _state()['has_accounts']:_reschedule(cfg)
+            if _resume_live_inbox(cfg):continue
+            _resume_calendar_if_due(cfg)
+        except Exception:
+            _sched['next_due'] = None
 
 
 # ----------------------------------------------------------------------------- app
 
 
 @shared_writer
-def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None) -> FastAPI:
+def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool = False, worker_secret: str | None = None, shared: bool = False) -> FastAPI:
     if worker_secret is not None and not worker_secret:
         raise ValueError("A private workspace worker requires an authentication secret.")
+    from ..shared.auth_flows import SharedAuthFlows
+    auth_flows = SharedAuthFlows(outlook_auth.abort) if shared else None
+
     @asynccontextmanager
     async def lifespan(app):
-        with MaintenanceLock(lock_path()):yield
-    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None, lifespan=lifespan)
+        if shared:
+            try:
+                yield
+            finally:
+                await run_in_threadpool(auth_flows.stop)
+            return
+        from ..realtime.runtime import Runtime
+        import asyncio
+        with MaintenanceLock(lock_path()):
+            app.state.realtime = await asyncio.to_thread(Runtime.from_env, job_lock=_job_lock)
+            if app.state.realtime:
+                await asyncio.to_thread(app.state.realtime.start)
+            try:
+                yield
+            finally:
+                if app.state.realtime:
+                    await asyncio.to_thread(app.state.realtime.stop)
+    app = FastAPI(title="OfferPath", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     auth = AuthStore(lambda: cfgmod.config_path().parent / "web-auth.json")
     app.state.auth_store = auth
+    from ..realtime.routes import install as install_realtime
+    install_realtime(app)
     from .sourcing_routes import install as install_sourcing
     from .pipeline_routes import install as install_pipeline
     install_pipeline(app)
     # Register after the local frontend helper is defined below.
     trusted_hosts = _LOCAL_HOSTS | {host.lower() for host in (allowed_hosts or [])}
-    app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+    app.mount("/static", CompressedStaticFiles(PortableStaticFiles(directory=str(HERE / "static"))), name="static")
     if (FRONTEND_DIST / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+        app.mount("/assets", CompressedStaticFiles(PortableStaticFiles(directory=str(FRONTEND_DIST / "assets"))), name="assets")
 
     def frontend_page():
         index = FRONTEND_DIST / "index.html"
@@ -590,7 +862,9 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return FileResponse(index, headers={"Cache-Control": "no-cache, must-revalidate"})
         return None
 
-    install_sourcing(app, frontend_page, secure_cookies)
+    install_sourcing(app, frontend_page, secure_cookies, gateway_managed=bool(worker_secret))
+    from .feedback_routes import install as install_feedback
+    install_feedback(app,gateway_managed=bool(worker_secret))
 
     @app.exception_handler(tomllib.TOMLDecodeError)
     async def unreadable_config(request: Request, exc: tomllib.TOMLDecodeError):
@@ -616,9 +890,17 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             status_code=503,
         )
 
-    if not _scheduler_started.is_set():
+    if not shared and not _scheduler_started.is_set():
         _scheduler_started.set()
         threading.Thread(target=_scheduler, daemon=True).start()
+
+    def bidder_member(bidder_id, *, require_login=False):
+        with db.session() as conn:
+            return conn.execute(
+                "SELECT id FROM bidders WHERE id=? AND removed_at IS NULL"
+                + (" AND login_enabled=1" if require_login else ""),
+                (bidder_id,),
+            ).fetchone()
 
     @app.middleware("http")
     async def same_origin_only(request: Request, call_next):
@@ -641,22 +923,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     request.headers.get("sec-fetch-site") == "cross-site"):
                 return _err("Cross-origin requests are not allowed.", 403)
         path = request.url.path
+        viewer_id = None
         request.state.viewer_read_only = bool(worker_secret and request.headers.get('x-offerpath-viewer') == 'bidder')
         if request.state.viewer_read_only:
             from ..bidder_access import viewer_read_allowed
             if not viewer_read_allowed(path,request.method):
                 return _err('Bidder access is read-only.',403)
             viewer_id=request.headers.get('x-offerpath-bidder')
-            if viewer_id:
-                with db.session() as conn:
-                    member=conn.execute('SELECT id FROM bidders WHERE id=? AND removed_at IS NULL',(viewer_id,)).fetchone()
-                if not member:return _err('Bidder access is no longer available.',401)
+            if not viewer_id or not viewer_id.isdigit():return _err('Bidder identity is required.',401)
+            member = await run_in_threadpool(bidder_member, viewer_id)
+            if not member:return _err('Bidder access is no longer available.',401)
         public = path in ("/login", "/api/auth/login", "/api/auth/logout", "/api/auth/session") or path.startswith(("/assets/", "/static/"))
         try:
-            identity = {"role":"admin", "bidder_id":None} if worker_secret else auth.identity(request.cookies.get(COOKIE))
-            if identity and identity["role"] == "bidder":
-                with db.session() as conn:
-                    enabled = conn.execute("SELECT name FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (identity["bidder_id"],)).fetchone()
+            if worker_secret:
+                # The gateway authenticates credentials; the worker still enforces
+                # the actual bidder role and scope on every data endpoint.
+                identity = {"role":"bidder", "bidder_id":int(viewer_id)} if viewer_id else {"role":"admin", "bidder_id":None}
+            else:
+                identity = await run_in_threadpool(auth.identity, request.cookies.get(COOKIE))
+            if identity and identity["role"] == "bidder" and not worker_secret:
+                enabled = await run_in_threadpool(bidder_member, identity["bidder_id"], require_login=True)
                 if not enabled:
                     identity = None
             role = identity["role"] if identity else None
@@ -669,20 +955,40 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                     return RedirectResponse("/login", status_code=303)
                 if role == "bidder":
                     if path == "/" and request.method in ("GET", "HEAD"):
-                        return RedirectResponse("/sourcing", status_code=303)
-                    allowed = path in ("/sourcing", "/api/sourcing", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
+                        return RedirectResponse("/dashboard", status_code=303)
+                    allowed = path in ("/sourcing", "/api/sourcing", "/dashboard", "/api/dashboard", "/api/dashboard/accounts", "/api/dashboard/metrics", "/api/applications/today", "/payments", "/api/bootstrap", "/api/payments", "/api/payments/activity", "/api/auth/password/self")
+                    from ..bidder_access import viewer_read_allowed
+                    allowed |= viewer_read_allowed(path,request.method)
                     allowed |= path.startswith("/api/sourcing/") or path.startswith("/sourcing/")
                     if not allowed:
                         return _err("Admin access is required.", 403)
             response = await call_next(request)
         except AuthFileError:
             return _err("The local sign-in file is unavailable. Restore web-auth.json from a trusted backup.", 503)
-        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/"):
+        if path.startswith("/api/") or path in ("/login", "/dashboard", "/accounts", "/settings", "/interviews", "/interview-processes", "/payments", "/sourcing", "/job-links", "/inbox", "/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "DENY"
         return response
+
+    from ..shared.state import RuntimeStateUnavailable
+
+    @app.exception_handler(RuntimeStateUnavailable)
+    async def runtime_state_unavailable(request: Request, exc: RuntimeStateUnavailable):
+        logging.getLogger(__name__).warning('Shared job status is unreadable; request deferred.')
+        return JSONResponse({"error":"Shared job status is temporarily unavailable. Check access to runtime files from the server account."},
+                            status_code=503, headers={"Retry-After":"1", "Cache-Control":"no-store"})
+
+    @app.exception_handler(db.ReadDeadlineExpired)
+    async def database_read_timeout(request: Request, exc: db.ReadDeadlineExpired):
+        return JSONResponse({"error": "This page took too long to load. Try again shortly."},
+                            status_code=504, headers={"Retry-After": "1", "Cache-Control": "no-store"})
+
+    def page_read_deadline(request: Request) -> float | None:
+        # Only the authenticated gateway may supply an upstream deadline.
+        value = request.headers.get("x-offerpath-read-deadline") if worker_secret else None
+        return min(float(value), time.monotonic() + 20) if value else None
 
     @app.post("/_internal/settings-updated")
     def shared_settings_updated():
@@ -698,7 +1004,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return dict(row) if row else _err("Bidder not found.",404)
 
     @app.get("/_internal/ready")
-    def workspace_ready():
+    async def workspace_ready():
         return {"ok": True}
 
     @app.get("/login")
@@ -714,7 +1020,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         if body.role == "bidder":
             if body.bidder_id is None:
                 with db.session() as conn:
-                    matches=conn.execute("SELECT id FROM bidders WHERE (name=? OR name || ' + owner'=?) AND removed_at IS NULL AND login_enabled=1",(body.username.strip(),body.username.strip())).fetchall()
+                    matches=conn.execute("SELECT id FROM bidders WHERE name=? AND removed_at IS NULL AND login_enabled=1",(body.username.strip(),)).fetchall()
                     body.bidder_id=matches[0]['id'] if len(matches)==1 else None
             with db.session() as conn:
                 enabled = conn.execute("SELECT 1 FROM bidders WHERE id=? AND removed_at IS NULL AND login_enabled=1", (body.bidder_id,)).fetchone()
@@ -820,10 +1126,45 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             events = [event for event in interviews.list_events(conn, account=account, status=status, company=company) if event["extraction_rank"] >= 2 and event["start_at"]]
             sources = interviews.event_sources_many(conn, (event['id'] for event in events))
             for event in events:
-                event["account_labels"] = sorted({source["account_label"] for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]})
-            accounts = [{"id":a.id,"label":a.label,"email":a.email} for a in db.list_accounts(conn, only_enabled=True)]
+                active_sources = [source for source in sources[event['id']] if source["account_enabled"] and source["calendar_present"]]
+                event["account_labels"] = sorted({source["account_label"] for source in active_sources})
+                event["analysis_pending"] = any(source["analysis_pending"] for source in active_sources if not account or source["account_label"] == account)
+            from .. import calendar_colors
+            chosen = calendar_colors.colors(conn)
+            defaults = calendar_colors.default_colors(conn)
+            accounts = [
+                {"id": a.id, "label": a.label, "email": a.email, "calendar_color": chosen.get(a.id),
+                 "calendar_default_color": defaults.get(a.id)}
+                for a in db.list_accounts(conn, only_enabled=True)
+            ]
             companies = [r[0] for r in conn.execute("SELECT DISTINCT e.company FROM interview_events e WHERE NOT EXISTS (SELECT 1 FROM interview_event_removals r WHERE r.event_id=e.id) AND e.extraction_rank>=2 AND e.start_at IS NOT NULL AND e.company IS NOT NULL AND EXISTS (SELECT 1 FROM interview_sources s JOIN accounts a ON a.id=s.account_id WHERE s.event_id=e.id AND a.enabled=1) ORDER BY e.company")]
-        return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES}
+            from ..calendar_queue import progress
+            analysis = progress(conn)
+        return {"events":events,"accounts":accounts,"companies":companies,"stages":interviews.STAGES,"statuses":interviews.STATUSES,"analysis":analysis}
+
+    @app.post("/api/interviews/account-colors/{account_id}")
+    def set_calendar_color(account_id: int, body: CalendarColorBody):
+        """Pick one of the calendar's palette colors for an account (null = automatic)."""
+        from ..calendar_colors import set_color
+        try:
+            with db.session() as conn:
+                set_color(conn, account_id, body.color)
+        except LookupError as exc:
+            return _err(str(exc), 404)
+        except ValueError as exc:
+            return _err(str(exc), 422)
+        return {"ok": True, "account_id": account_id, "color": body.color}
+
+    @app.get('/api/interviews/analysis')
+    def calendar_analysis_progress():
+        from ..calendar_queue import progress
+        with db.session() as conn:return progress(conn)
+
+    @app.post('/api/interviews/analysis/retry')
+    def retry_calendar_analysis():
+        from ..calendar_queue import retry_now
+        with db.session() as conn:retry_now(conn)
+        return {'ok':True}
 
     @app.get("/api/interviews/scan")
     def interview_scan_status():
@@ -836,6 +1177,24 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.post("/api/interviews/sync")
     def interview_sync(body: CheckBody | None = None):
         return api_check((body or CheckBody()).model_copy(update={"mode": "calendar"}))
+
+    @app.get("/api/interviews/{event_id}/job-matches")
+    def interview_job_matches(request: Request, event_id: int,
+                              cursor: str | None = Query(default=None, max_length=2048),
+                              limit: int = Query(default=25, ge=1, le=100)):
+        if request.state.role == "bidder":
+            return _err("Admin access required", 403)
+        from ..interview_job_matches import match_jobs
+        with db.session() as conn:
+            conn.execute("PRAGMA query_only=ON")
+            conn.execute("BEGIN")
+            row = conn.execute("SELECT * FROM interview_events WHERE id=?", (event_id,)).fetchone()
+            if not row:
+                return _err("Interview not found", 404)
+            try:
+                return match_jobs(conn, dict(row), interviews.event_sources(conn, event_id), cursor=cursor, limit=limit)
+            except ValueError as exc:
+                return _err(str(exc), 400)
 
     @app.get("/api/interviews/{event_id}")
     def interview_detail(event_id: int):
@@ -874,7 +1233,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         with db.session() as conn:
             result = sourcing_verification.verify_all(conn, refresh_since=first, refresh_until=last,
                 week_only=True, rebuild=body.mode == "rebuild", sample=False)
-            report = payments.report(conn, first, admin=True)
+            report = payments.report(conn, first, admin=True, read_only=True)
         return {"ok":True,"mode":body.mode,"from":first.isoformat(),"through":last.isoformat(),
             "estimated":sum(report["daily"]),"completed":sum(report["checked_daily"]),**result}
 
@@ -882,18 +1241,31 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     def bidder_activity(request: Request, day: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 30)), week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)), bidder: int | None = Query(default=None, ge=1)):
         from ..sourcing_activity import report
         with db.session() as conn:
-            return report(conn, week, bidder_id=request.state.bidder_id or bidder, day=day)
+            viewer = request.state.bidder_id if request.state.role=='bidder' else None
+            share = payments.visibility(conn,viewer)['other_work_visible'] if viewer else False
+            result = report(conn,week,bidder_id=None if share else viewer or bidder,day=day)
+            if viewer and share:
+                for key in ('accounts','account_timeline','account_confirmation_timeline'):result.pop(key,None)
+                if result.get('workday'):
+                    result['workday'].pop('account_confirmations',None)
+                    result['workday'].pop('account_runs',None)
+                    result['workday'].pop('account_totals',None)
+            return result
 
     @app.get("/api/payments")
-    def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31))):
+    def payment_report(request: Request, week: date | None = Query(default=None, ge=date(1971, 1, 1), le=date(2100, 12, 31)),
+                       refresh: bool = True):
         with db.session() as conn:
-            start = payments.monday(week or payments.today())
-            read_only = getattr(request.state,"viewer_read_only",False)
-            if read_only:conn.execute("PRAGMA query_only=ON")
-            if not read_only:
-                sourcing_verification.verify_all(conn, refresh_since=start,
-                    refresh_until=start + timedelta(days=6), sample=False, week_only=True)
-            return payments.report(conn, week, admin=request.state.role == "admin", bidder_id=request.state.bidder_id,read_only=read_only)
+            is_bidder = request.state.role == "bidder"
+            if refresh and not is_bidder:
+                _refresh_payment_week(conn, payments.monday(week or payments.today()))
+            else:
+                conn.execute("PRAGMA query_only=ON")
+            viewer = request.state.bidder_id if is_bidder else None
+            policy = payments.visibility(conn,viewer) if viewer else None
+            scope = None if viewer and policy['other_work_visible'] else viewer
+            report = payments.report(conn,week,admin=viewer is None,bidder_id=scope,read_only=True)
+            return payments.bidder_report(report,viewer,policy) if viewer else report
 
     def payment_write(action):
         try:
@@ -905,6 +1277,24 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err(str(exc), 404)
         except (ValueError, sqlite3.IntegrityError) as exc:
             return _err("A bidder with that name or payment already exists." if isinstance(exc, sqlite3.IntegrityError) else str(exc), 400)
+
+    @app.get('/api/payments/management')
+    def bidder_management_settings():
+        with db.session() as conn:
+            return payments.management(conn)
+
+    @app.get('/api/payments/visibility')
+    def bidder_visibility_options():
+        with db.session() as conn:
+            return {'bidders':[dict(row) for row in conn.execute('SELECT id,name,payment_visible,other_work_visible,visibility_revision FROM bidders WHERE removed_at IS NULL ORDER BY name')]}
+
+    @app.post('/api/payments/bidders/{bidder_id}/visibility')
+    def update_bidder_visibility(bidder_id:int,body:payments.VisibilityBody):
+        return payment_write(lambda conn:payments.save_visibility(conn,bidder_id,body))
+
+    @app.post("/api/payments/deduction-rule")
+    def update_deduction_rule(body: payments.DeductionRuleBody):
+        return payment_write(lambda conn: payments.save_deduction_rule(conn, body))
 
     @app.post("/api/payments/bidders")
     def create_bidder(body: payments.BidderBody):
@@ -940,7 +1330,12 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/payments/bidders/{bidder_id}/assignments")
     def assign_bidder(bidder_id: int, body: payments.AssignmentBody):
-        return payment_write(lambda conn: payments.assign(conn, bidder_id, body))
+        def assign(conn):
+            payments.assign(conn, bidder_id, body)
+            # The assigned account's profile sheet is created with the assignment.
+            from ..native_sourcing import ensure_assigned_sheets
+            ensure_assigned_sheets(conn, payments.today().isoformat(), bidder_id)
+        return payment_write(assign)
 
     @app.post("/api/payments/assignments/{assignment_id}")
     def edit_bidder_assignment(assignment_id: int, body: payments.AssignmentBody):
@@ -967,8 +1362,10 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return payment_write(lambda conn: payments.edit_payment(conn,bidder_id,body))
 
     @app.get("/api/dashboard/accounts")
-    def dashboard_accounts():
+    def dashboard_accounts(request: Request):
         with db.session() as conn:
+            if request.state.role=="bidder":
+                return {"accounts":[{"label":row[0]} for row in conn.execute("SELECT DISTINCT a.label FROM accounts a JOIN bidder_assignments b ON b.account_id=a.id WHERE b.bidder_id=? ORDER BY a.label",(request.state.bidder_id,))],"bidders":[]}
             return {
                 "accounts": [{"label": a.label} for a in db.list_accounts(conn)],
                 "bidders": [dict(row) for row in conn.execute("SELECT id, name FROM bidders WHERE removed_at IS NULL ORDER BY name COLLATE NOCASE, id")],
@@ -992,6 +1389,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
     @app.get("/api/dashboard")
     def api_dashboard(request: Request):
         values = dict(request.query_params)
+        if request.headers.get("prefer") == "offerpath-overview":
+            values.setdefault("include_messages", False)
         values.pop("category", None)
         values["categories"] = request.query_params.getlist("category")
         try:
@@ -999,20 +1398,66 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         except ValidationError as exc:
             return _err(exc.errors()[0]["msg"])
         cfg = cfgmod.load()
-        with db.session() as conn:
-            return dashboard_data(conn, filters, retention_days=cfg.check.retain_days)
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            if request.state.role=='bidder':
+                filters=filters.model_copy(update={'bidder':request.state.bidder_id,'q':'','focus_date':None,'focus_category':None,'status':'all','action':'all'})
+            return dashboard_data(conn, filters, retention_days=cfg.check.retain_days,graphs_only=request.state.role=='bidder')
+
+    @app.get("/api/dashboard/metrics")
+    def api_dashboard_metrics(request: Request, weeks: int | None = None, start: str | None = None, end: str | None = None,
+                              account: str | None = None, bidder: int | None = None):
+        """Operational dashboard metrics (docs/METRICS.md); read-only."""
+        from .. import dashboard_metrics
+        try:
+            first = date.fromisoformat(start) if start else None
+            last = date.fromisoformat(end) if end else None
+        except ValueError:
+            return _err("Dates must use YYYY-MM-DD.")
+        admin = request.state.role == "admin"
+        if request.state.role == "bidder":
+            bidder = request.state.bidder_id
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            try:
+                return dashboard_metrics.report(conn, weeks=weeks, start=first, end=last, account=account or None,
+                                                bidder=bidder, admin=admin)
+            except ValueError as exc:
+                return _err(str(exc))
+
+    @app.get("/api/queue-counts")
+    def api_queue_counts(request: Request, seen: int | None = None):
+        if request.state.role != "admin":
+            return _err("Admin access required.", 403)
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            since = _default_since()
+            counts = dict(db.queue_counts(conn, since_iso=since))
+            # "latest" lets the browser remember what was seen; "new" counts actionable
+            # queue items stored after that point.
+            counts["latest"] = db.latest_message_pk(conn)
+            if seen is not None:
+                counts["new"] = db.queue_counts(conn, since_iso=since, after_pk=max(seen, 0))["actionable"]
+            return counts
+
+    @app.get("/api/applications/today")
+    def api_applications_today(request: Request):
+        # Header count must work even when Settings or Admin management is used
+        # to recover invalid configuration. This path never loads model settings.
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            if request.state.role=='bidder':
+                return {'applications_today':payments.checked_today(conn,bidder_id=request.state.bidder_id)}
+            return {"applications_today": payments.checked_today(conn)}
 
     @app.get("/api/bootstrap", response_model=BootstrapResponse)
-    def api_bootstrap(request: Request):
+    def api_bootstrap(request: Request, include_counts: bool = True):
         """Small, non-sensitive shell data shared by every React page."""
         if request.state.role == "bidder":
-            return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[],"presets":[],"last_run":"","account_count":0}
-        with db.session() as conn:
+            return {"readiness":{"model":False,"accounts":False,"privacy_ack":True,"outlook":False},"counts":{},"taxonomy":[{"name":c.name,"label":c.label,"tier":c.tier} for c in CATEGORIES],"presets":[],"last_run":"","account_count":0}
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
             accounts = db.list_accounts(conn)
-            summary = db.queue_counts(conn, since_iso=_default_since())
+            summary = db.queue_counts(conn, since_iso=_default_since()) if include_counts else {}
             state = _state(conn, accounts, summary)
             run = db.last_run(conn)
-            summary["applications_today"] = payments.received_today(conn)
+            if include_counts:
+                summary["applications_today"] = payments.checked_today(conn)
         return {
             "readiness": {
                 "model": state["llm_ready"],
@@ -1030,39 +1475,102 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             "account_count": state["account_count"],
         }
 
+    def bidder_message_allowed(conn, viewer, pk):
+        scope,values=db.bidder_info_scope(viewer)
+        return conn.execute("SELECT 1 FROM messages m JOIN accounts a ON a.id=m.account_id "
+            +db.LATEST_CLASSIFICATION+" WHERE m.id=?"+scope,[pk,*values]).fetchone() is not None
+
+    def bidder_inbox_summary(conn,viewer,*,since=None,account=None,search=None):
+        _, summary = db.triage_counts(conn, bidder_id=viewer, since_iso=since, account_label=account, search=search)
+        return summary
+
+    @app.get('/inbox')
+    def bidder_inbox_page():
+        return frontend_page() or PlainTextResponse('Build the React console first.',status_code=503)
+
+    @app.get("/api/inbox/alerts")
+    def bidder_inbox_alerts(request: Request, after: datetime | None = None, after_id: int = Query(0, ge=0, le=2**63-1)):
+        """A lightweight cursor over newly collected mail in the bidder's current inbox."""
+        if request.state.role != "bidder":
+            return _err("Bidder access required.", 403)
+        if after is None:
+            return {"cursor": {"after": datetime.now(timezone.utc).isoformat(), "after_id": 0}, "message": None}
+        if after.tzinfo is None:
+            return _err("The mail cursor needs a time zone.", 422)
+        stamp = after.astimezone(timezone.utc).isoformat()
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            newest = db.latest_bidder_mail_after(conn, request.state.bidder_id, stamp, after_id)
+        if newest:
+            return {"cursor": {"after": newest["fetched_at"], "after_id": newest["id"]}, "message": newest["id"]}
+        return {"cursor": {"after": stamp, "after_id": after_id}, "message": None}
+
     @app.get("/api/triage", response_model=TriageResponse)
-    def api_triage(view: str = "queue", category: str | None = None,
-                   account: str | None = None, days: int = 30):
+    def api_triage(request: Request, view: str = "queue", category: str | None = None,
+                   account: str | None = None, days: int = 30, q: str = Query(default="", max_length=200), live: bool = False):
         """Read the same bounded, body-free rows as the original console."""
         if view not in ("queue", "all", "completed"):
             return _err("Unknown mail view.")
-        if days not in (2, 3, 7, 14, 30, 90):
+        if days not in (0, 1, 2, 3, 7, 14, 30, 90):
             return _err("Choose a supported time range.")
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        now = datetime.now(timezone.utc)
+        # Match the Chicago accounting day used by Bidder management.
+        since = (datetime.combine(now.astimezone(payments.ZONE).date(), datetime.min.time(), payments.ZONE).astimezone(timezone.utc)
+                 if days == 0 else now - timedelta(days=days)).isoformat()
         handled = {"queue": False, "completed": True, "all": None}[view]
-        with db.session() as conn:
+        viewer=request.state.bidder_id if request.state.role=='bidder' else None
+        with db.session(read_deadline=page_read_deadline(request)) as conn:
+            if viewer:
+                conn.execute('PRAGMA query_only=ON')
+                conn.execute('BEGIN')
             rows = db.query_triaged(
                 conn,
                 categories=([category] if category else
+                            None if viewer else
                             ACTIONABLE_CATEGORIES if view == "queue" else None),
                 account_label=account,
                 since_iso=since,
                 handled=handled,
                 limit=500,
-            ) if view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
-            counts = db.category_counts(conn, since_iso=since, account_label=account,
-                                        handled=handled)
-            if view == "queue":
+                search=q,
+                bidder_id=viewer,
+            ) if viewer or view != "queue" or not category or category in ACTIONABLE_CATEGORIES else []
+            counts, summary = db.triage_counts(conn, since_iso=since, account_label=account,
+                                        handled=handled, search=q,bidder_id=viewer)
+            if view == "queue" and not viewer:
                 counts = {name: count for name, count in counts.items() if is_queue_category(name)}
-            summary = db.queue_counts(conn, since_iso=since, account_label=account)
-            accounts = db.list_accounts(conn)
+            if viewer:
+                day=payments.today().isoformat()
+                ids={r[0] for r in conn.execute("SELECT account_id FROM bidder_assignments WHERE bidder_id=? AND start_date<=? AND (end_date IS NULL OR end_date>=?)",(viewer,day,day))}
+                accounts=[a for a in db.list_accounts(conn) if a.id in ids and a.enabled]
+            else:
+                accounts = db.list_accounts(conn)
         grouped: dict[str, list] = {tier: [] for tier in TIER_ORDER}
+        timeline: list = []
         for row in rows:
             item = _decorate(row)
+            if viewer:item.update(open_url=None,provider_url=None)
             grouped[item["tier"]].append(item)
+            timeline.append(item)
+        cfg = cfgmod.load()
+        due = _sched["next_due"] if cfg.watch.auto_check else None
+        schedule = {"automatic": cfg.watch.auto_check, "running": bool(_job["running"]),
+                    "next_at": datetime.fromtimestamp(due, timezone.utc).isoformat() if due else None}
+        if viewer and live:
+            reason = ('Automatic mail checks are off.' if not cfg.watch.auto_check else
+                      'No active assigned mailboxes.' if not accounts else
+                      'The mail classification model is not configured.' if not cfg.is_llm_ready() else None)
+            enabled = reason is None
+            if enabled:_live_inbox.heartbeat(viewer)
+            schedule['live'] = _live_inbox.snapshot(enabled, reason)
+            schedule['live']['updated_at'] = _inbox_updated_at(accounts, schedule['live'].get('last_checked_at')) if accounts else None
         return {
+            "check_schedule": schedule,
             "view": view,
-            "groups": [{"tier": tier, "label": TIER_META[tier][0],
+            # Bidders read one timeline in received order, regardless of category.
+            "groups": ([{"tier": "all", "label": "All mail", "items": timeline}] if timeline else [])
+                      if viewer else
+                      [{"tier": tier, "label": TIER_META[tier][0],
                         "items": grouped[tier]} for tier in TIER_ORDER if grouped[tier]],
             "summary": summary,
             "counts": counts,
@@ -1074,51 +1582,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         }
 
     @app.get("/api/messages/{pk}", response_model=ReaderResponse)
-    def api_message(pk: int):
+    def api_message(pk: int, request: Request):
         with db.session() as conn:
+            viewer=request.state.bidder_id if request.state.role=='bidder' else None
+            if viewer:
+                conn.execute('PRAGMA query_only=ON')
+                conn.execute('BEGIN')
+            if viewer and not bidder_message_allowed(conn,viewer,pk):return _err('No such message.',404)
             row = db.get_triaged(conn, pk)
             if not row:
                 return _err("No such message.", 404)
             body_html = bodyhtml.render_body(row["body_text"])
-            sent_replies = replies.history(conn,pk)
-        return {"message": _decorate(row), "body_html": str(body_html), "replies":sent_replies,
+            sent_replies = [] if viewer else replies.history(conn,pk)
+        message=_decorate(row)
+        if viewer:message.update(open_url=None,provider_url=None)
+        return {"message": message, "body_html": str(body_html), "replies":sent_replies,
                 "original_html": bodyhtml.sanitize_original(row["original_html"]) if row["original_html"] else None}
 
     @app.get("/followups")
     def followups_page():
         return frontend_page() or PlainTextResponse("Build the React console first.", status_code=503)
-
-    @app.get("/api/agent/messages/{pk}")
-    def assistant_context(pk: int):
-        try:
-            with db.session() as conn: return assistant.context(conn,pk,cfgmod.load())
-        except LookupError as exc: return _err(str(exc),404)
-
-    @app.get("/api/agent/preferences/{account_id}")
-    def assistant_preferences(account_id: int):
-        try:
-            with db.session() as conn: return assistant.preferences(conn,account_id)
-        except LookupError as exc: return _err(str(exc),404)
-
-    @app.post("/api/agent/preferences/{account_id}")
-    def save_assistant_preferences(account_id: int, body: assistant.Preferences):
-        try:
-            with db.session() as conn: return assistant.save_preferences(conn,account_id,body)
-        except LookupError as exc: return _err(str(exc),404)
-        except ValueError as exc: return _err(str(exc),400)
-
-    @app.post("/api/agent/messages/{pk}/generate")
-    def generate_assistant_draft(pk: int, body: assistant.GenerateBody):
-        if not _job_lock.acquire(blocking=False):
-            return _err("A mail check or draft generation is running. Try again when it finishes.",409)
-        try:
-            with db.session() as conn: return assistant.generate(conn,pk,body,cfgmod.load())
-        except LookupError as exc: return _err(str(exc),404)
-        except ValueError as exc: return _err(str(exc),400)
-        except Exception:
-            logging.getLogger(__name__).exception("Reply draft generation failed")
-            return _err("Could not generate a draft. Check the model connection and try again.",502)
-        finally: _job_lock.release()
 
     @app.get("/api/agent/followups")
     def assistant_followups(account_id: int | None = None):
@@ -1142,12 +1625,45 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         try: return replies.send(pk,body)
         except replies.ReplyError as exc: return _err(str(exc),exc.status)
 
+    def _realtime_sync_state(conn):
+        """{account_id: (live, last real-time sync, failure reason)}; live needs the background service."""
+        from ..realtime.sync_status import failure_reason
+        from ..realtime import storage as realtime_storage
+        from ..realtime.settings import Settings as RealtimeSettings
+        try:
+            configured = RealtimeSettings.from_env().enabled
+        except ValueError:
+            configured = False
+        try:
+            rows = realtime_storage.status(conn)
+        except sqlite3.Error:
+            return {}
+        state = {}
+        for row in rows:
+            stamp = None
+            if row["last_sync"]:
+                try:
+                    stamp = datetime.fromtimestamp(float(row["last_sync"]), timezone.utc)
+                except (TypeError, ValueError, OverflowError, OSError):
+                    stamp = None
+            state[row["account_id"]] = (configured and bool(row["enabled"]), stamp, failure_reason(row["last_error"]))
+        return state
+
+    def _latest(*stamps):
+        """Latest valid instant; future values (clock skew, bad data) are ignored."""
+        now = datetime.now(timezone.utc)
+        valid = [stamp for stamp in stamps if stamp is not None and stamp <= now]
+        return max(valid).isoformat() if valid else None
+
     @app.get("/api/accounts", response_model=AccountsResponse)
     def api_accounts():
         from ..mail_checkpoints import snapshot as checkpoint_snapshot
         with db.session() as conn:
             accounts = db.list_accounts(conn)
             last_checks = checkpoint_snapshot(conn, accounts)
+            synced = _realtime_sync_state(conn)
+            pending_reads = {(row[0], row[1]): row[2] for row in conn.execute(
+                "SELECT account_id,mailbox,count(*) FROM outlook_read_tasks GROUP BY account_id,mailbox")}
         return {
             "accounts": [{
                 "id": a.id, "label": a.label, "email": a.email,
@@ -1155,6 +1671,14 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
                 "imap_port": a.imap_port, "use_ssl": a.use_ssl,
                 "folder": a.folder, "enabled": a.enabled,
                 "last_checked_at": last_checks[a.id].isoformat() if last_checks[a.id] else None,
+                # One "last synced" time: the latest full check or real-time collection.
+                "last_synced_at": _latest(last_checks[a.id], synced.get(a.id, (False, None, None))[1]),
+                "live": bool(a.enabled and synced.get(a.id, (False, None, None))[0]),
+                "sync_error": synced.get(a.id, (False, None, None))[2] if a.enabled and synced.get(a.id, (False, None, None))[0] else None,
+                "pending_read_updates": pending_reads.get((a.id, a.email.casefold()), 0) if a.provider == "outlook" else 0,
+                "read_updates_need_permission": bool(
+                    a.provider == "outlook" and pending_reads.get((a.id, a.email.casefold()))
+                    and read_marking.needs_permission(a.id, a.email)),
             } for a in accounts],
             "outlook_ready": bool(cfgmod.load().outlook.client_id),
         }
@@ -1304,19 +1828,22 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         return {"ok": True}
 
     @app.post("/api/messages/{pk}/handled")
-    def api_set_handled(pk: int, done: bool = True):
+    def api_set_handled(pk: int, request: Request, done: bool = True):
         """Local Done / Undo. Never touches the provider mailbox.
 
         Returns the recomputed headline counts so the page can update its
         badges in place. Reloading to refresh three numbers meant re-running
         every dashboard query and rebuilding the whole card list on each click.
         """
+        viewer=request.state.bidder_id if request.state.role=='bidder' else None
         with db.session() as conn:
+            if viewer:conn.execute('BEGIN IMMEDIATE')
             row = db.get_message(conn, pk)
             if not row:
                 return _err("No such message.", 404)
+            if viewer and not bidder_message_allowed(conn,viewer,pk):return _err('No such message.',404)
             db.set_handled(conn, pk, done)
-            summary = db.queue_counts(conn, since_iso=_default_since())
+            summary = bidder_inbox_summary(conn,viewer,since=_default_since()) if viewer else db.queue_counts(conn, since_iso=_default_since())
         return {
             "ok": True,
             "message": "Marked done." if done else "Restored to the queue.",
@@ -1325,28 +1852,38 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             "summary": summary,
         }
 
+    @app.post("/api/messages/clear-queue")
+    def api_clear_queue(request: Request, body: QueueClearBody | None = None):
+        if request.state.role != "admin":return _err("Admin access required.",403)
+        with db.session() as conn:
+            result = queue_actions.clear(conn,str(body.operation) if body and body.operation else None)
+            summary = db.queue_counts(conn, since_iso=_default_since())
+        count = result['count']
+        return {"ok":True, **result, "summary":summary,
+                "message":("This Queue action was already processed. No additional messages were changed." if result['replayed'] else
+                           f"Marked {count} queued messages as done." if count else "Your queue is already clear.")}
+
+    @app.post("/api/messages/clear-queue/{operation}/undo")
+    def api_restore_queue(operation: UUID, request: Request):
+        if request.state.role != "admin":return _err("Admin access required.",403)
+        with db.session() as conn:
+            count = queue_actions.restore(conn,str(operation))
+            summary = db.queue_counts(conn,since_iso=_default_since())
+        return {"ok":True,"count":count,"summary":summary,
+                "message":f"Restored {count} messages." if count else "Nothing left to restore from this action."}
+
     @app.post("/api/messages/undo-last")
     def api_undo_last():
-        """Restore the most recently completed message.
-
-        The console undoes from its own in-page history, which is exact and
-        needs no round trip. This is the fallback for when that history is
-        gone — a finished check reloads the page — so that Ctrl+Z keeps
-        working rather than silently doing nothing.
-        """
+        """Restore the most recent completion, including a bulk action as a batch."""
         with db.session() as conn:
-            row = db.last_handled(conn)
+            row = queue_actions.undo_last(conn)
             if not row:
-                return {"ok": True, "pk": None, "message": "Nothing to undo."}
-            db.set_handled(conn, row["pk"], False)
+                return {"ok": True, "pk": None, "count":0,"message": "Nothing to undo."}
             summary = db.queue_counts(conn, since_iso=_default_since())
         subject = (row["subject"] or "").strip()
-        return {
-            "ok": True,
-            "pk": row["pk"],
-            "message": f"Restored “{subject[:60]}”." if subject else "Restored to the queue.",
-            "summary": summary,
-        }
+        message = (f"Restored {row['count']} messages." if row['bulk'] else
+                   f"Restored “{subject[:60]}”." if subject else "Restored to the queue.")
+        return {"ok":True,"pk":row['pk'],"count":row['count'],"message":message,"summary":summary}
 
     @app.get("/api/messages/{pk}/reader", response_class=HTMLResponse)
     def api_message_reader(request: Request, pk: int):
@@ -1416,6 +1953,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         page = frontend_page()
         if page:
             return page
+        if request.state.role == "bidder":
+            return PlainTextResponse("Build the React console first.", status_code=503)
         state = _state()
         return TEMPLATES.TemplateResponse(
             request,
@@ -1440,7 +1979,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return _err("The model endpoint is not configured yet.")
         if not _job_lock.acquire(blocking=False):
             return _err("A check is already running.", 409)
-        _run_check(body)
+        # Check now syncs calendar events with mail, like scheduled checks.
+        _run_check(body, include_calendar=True)
         return {"ok": True}
 
     @app.post("/api/reclassify")
@@ -1472,12 +2012,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
         _run_reclassify(body)
         return {"ok": True, "count": len(waiting)}
 
+    def _mail_updated_at():
+        """Most recent mail collection in this workspace: a full check or real-time sync."""
+        from ..mail_checkpoints import snapshot
+        try:
+            with db.session() as conn:
+                accounts = db.list_accounts(conn, only_enabled=True)
+                checks = [stamp for stamp in snapshot(conn, accounts).values() if stamp]
+                syncs = [datetime.fromtimestamp(value, timezone.utc)
+                         for value in realtime_coverage.last_syncs(conn).values() if value]
+        except Exception:  # noqa: BLE001 - status must stay available
+            return None
+        return _latest(*checks, *syncs)
+
     @app.get("/api/status")
     def api_status():
         cfg = cfgmod.load()
         due = _sched["next_due"]
         return {
             **_job,
+            "updated_at": _mail_updated_at(),
             "completion_id": _job["completion_id"],
             "auto": cfg.watch.auto_check,
             "interval_minutes": cfg.watch.interval_minutes,
@@ -1492,16 +2046,17 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/autocheck")
     def api_autocheck(enabled: bool):
-        cfg = cfgmod.load()
-        cfg.watch.auto_check = enabled
-        cfgmod.save(cfg)
-        _reschedule(cfg)
-        if not enabled:
-            return {"ok": True, "message": "Automatic checks turned off."}
-        return {
-            "ok": True,
-            "message": f"Checking automatically every {cfg.watch.interval_minutes} min.",
-        }
+        with cfgmod.update_lock():
+            cfg = cfgmod.load()
+            cfg.watch.auto_check = enabled
+            cfgmod.save(cfg)
+            _reschedule(cfg)
+            if not enabled:
+                return {"ok": True, "message": "Automatic checks turned off."}
+            return {
+                "ok": True,
+                "message": f"Checking automatically every {cfg.watch.interval_minutes} min.",
+            }
 
     @app.get("/api/preset")
     def api_preset(email: str):
@@ -1637,14 +2192,26 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             db.remove_account(conn, label)
         return {"ok": True, "message": f"Removed {label}."}
 
-    # ------------------------------------------------------- outlook sign-in
+    def _drain_read_updates(label):
+        """Apply queued Outlook read updates right after a reconnect grants access.
 
-    def cleanup_outlook_cache(label: str) -> str:
+        Runs on the sign-in thread after the connection is reported, so a slow or
+        failing Graph call never changes the sign-in result. Collection also
+        drains this queue, and both sides are idempotent.
+        """
         try:
-            outlook_auth.delete_cache(label)
-            return ""
-        except outlook_auth.OutlookAuthError as exc:
-            return f" Credential cleanup failed: {exc}"
+            with db.session() as conn:
+                account = db.get_account(conn, label)
+                if not account or account.provider != "outlook":
+                    return
+                guard = current_commit_guard()
+                for warning in read_marking.drain(conn, account, build_source(account, cfgmod.load()),
+                                                  guard or (lambda: None)):
+                    logging.getLogger(__name__).warning(warning)
+        except Exception:  # noqa: BLE001 - the next mail check retries
+            logging.getLogger(__name__).warning("Outlook read updates will retry on the next check.", exc_info=True)
+
+    # ------------------------------------------------------- outlook sign-in
 
     @app.post("/api/outlook/start")
     def api_outlook_start(body: OutlookStartBody):
@@ -1675,6 +2242,7 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             pending = outlook_auth.begin_device_flow(label, cfg.outlook.client_id)
         except outlook_auth.OutlookAuthError as exc:
             return _err(str(exc))
+        pending.defer_cache_save = True
 
         with _outlook_lock:
             _outlook.update(
@@ -1683,45 +2251,55 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
         def wait():
             flow_id = pending.id
+            connected = False
             try:
                 email = outlook_auth.complete_device_flow(pending)
-            except outlook_auth.OutlookAuthError as exc:
-                cleanup_error = cleanup_outlook_cache(label)
-                if _outlook.get("active_id") == flow_id:
-                    _outlook.update(pending=None, state="failed", message=str(exc) + cleanup_error)
-                return
-            except Exception as exc:  # noqa: BLE001 - report, never crash the thread
-                cleanup_error = cleanup_outlook_cache(label)
-                if _outlook.get("active_id") == flow_id:
-                    _outlook.update(
-                        pending=None, state="failed",
-                        message=f"{type(exc).__name__}: {exc}" + cleanup_error,
-                    )
-                return
-
-            # Success — but if this flow was cancelled or superseded while we
-            # were blocked, the cancellation is authoritative: the token we
-            # just saved must not survive, and the account must not appear.
-            with _outlook_lock:
-                if _outlook.get("active_id") != flow_id:
-                    cleanup_outlook_cache(label)
-                    return
-                with db.session() as conn:
-                    current = db.get_account(conn, label)
-                    if body.reconnect and (not current or not email or email.casefold() != current.email.casefold()):
-                        outlook_auth.delete_cache(label)
-                        _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
+                # Publish only this flow's candidate cache after checking ownership.
+                # Stale flows must never delete or overwrite another flow's cache.
+                with (auth_flows.persistence(pending) if shared else nullcontext()), _outlook_lock:
+                    if _outlook.get("active_id") != flow_id:
                         return
-                    if not current:
-                        db.add_account(
-                            conn, label=label, email=email or label, provider="outlook"
-                        )
-                _outlook.update(
-                    pending=None, state="connected", email=email,
-                    message=f"Connected {email}.",
-                )
+                    with db.session() as conn:
+                        current = db.get_account(conn, label)
+                        if body.reconnect and (not current or not email or email.casefold() != current.email.casefold()):
+                            _outlook.update(pending=None,state="failed",message="Reconnect using the same Microsoft account. Existing calendar data is preserved.")
+                            return
+                        if pending.completed_cache is not None:
+                            if shared and (guard := current_commit_guard()) is not None:
+                                guard()
+                            outlook_auth.save_cache(label, pending.completed_cache)
+                        if not current:
+                            if shared and (guard := current_commit_guard()) is not None:
+                                guard()
+                            db.add_account(
+                                conn, label=label, email=email or label, provider="outlook"
+                            )
+                    _outlook.update(
+                        pending=None, state="connected", email=email,
+                        message=f"Connected {email}.",
+                    )
+                    connected = True
+            except Exception as exc:  # noqa: BLE001 - surface polling and persistence failures
+                with _outlook_lock:
+                    if _outlook.get("active_id") == flow_id:
+                        message = str(exc) if isinstance(exc, outlook_auth.OutlookAuthError) else f"{type(exc).__name__}: {exc}"
+                        _outlook.update(pending=None, state="failed", message=message)
+            if connected:
+                _drain_read_updates(label)
 
-        threading.Thread(target=wait, daemon=True).start()
+        if shared:
+            try:
+                auth_flows.start(pending, wait)
+            except RuntimeError as exc:
+                outlook_auth.abort(pending)
+                with _outlook_lock:
+                    if _outlook.get("active_id") == pending.id:
+                        _outlook.update(pending=None, active_id=None, state="failed", message=str(exc))
+                return _err(str(exc), 503)
+        elif current_workspace() is not None:
+            start_workspace_thread(wait, daemon=True)
+        else:
+            threading.Thread(target=wait, daemon=True).start()
         return {
             "ok": True,
             "user_code": pending.user_code,
@@ -1735,11 +2313,13 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             # Stop the background thread, not just the state the UI reads —
             # otherwise it keeps polling Microsoft for up to its own ~15 min
             # server-side expiry with nothing left to report the result to.
-            outlook_auth.abort(pending)
-            _outlook.update(
-                pending=None, active_id=None, state="failed",
-                message="The sign-in code expired. Start again.",
-            )
+            with _outlook_lock:
+                if _outlook.get("pending") is pending:
+                    outlook_auth.abort(pending)
+                    _outlook.update(
+                        pending=None, active_id=None, state="failed",
+                        message="The sign-in code expired. Start again.",
+                    )
             pending = None
         return {
             "state": _outlook["state"],
@@ -1758,48 +2338,47 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             pending = _outlook.get("pending")
             if pending is not None:
                 outlook_auth.abort(pending)              # unblocks the background thread
-                cleanup_error = cleanup_outlook_cache(pending.label)
-                if cleanup_error:
-                    _outlook.update(pending=None, active_id=None, state="failed", message=cleanup_error.strip(), email="")
-                    return _err(cleanup_error.strip())
             _outlook.update(pending=None, active_id=None, state="idle", message="", email="")
         return {"ok": True, "message": "Sign-in cancelled."}
 
     @app.post("/api/settings")
     def api_settings(body: SettingsBody):
-        cfg = cfgmod.load()
-        data = cfg.model_dump()
-        for field in (
-            "base_url", "batch_size", "max_body_chars", "concurrency",
-            "num_ctx", "think", "keep_alive", "timeout_seconds",
-            "classification_deadline_seconds",
-        ):
-            value = getattr(body, field)
-            if value is not None:
-                data["llm"][field] = value
-        if body.check_mode is not None:
-            data["check"]["mode"] = body.check_mode
-        if body.lookback_days is not None:
-            data["check"]["lookback_days"] = body.lookback_days
-        if body.retain_days is not None:
-            data["check"]["retain_days"] = body.retain_days
-        if body.interval_minutes is not None:
-            data["watch"]["interval_minutes"] = body.interval_minutes
-        if body.auto_check is not None:
-            data["watch"]["auto_check"] = body.auto_check
-        if body.outlook_client_id is not None:
-            data["outlook"]["client_id"] = body.outlook_client_id.strip()
-        if body.privacy_ack is not None:
-            data["privacy_ack"] = body.privacy_ack
-        try:
-            cfg = cfgmod.Config.model_validate(data)
-        except Exception as exc:  # noqa: BLE001 - pydantic's own message is the useful bit
-            detail = getattr(exc, "errors", None)
-            msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc)
-            return _err(msg)
-        cfgmod.save(cfg)
-        _reschedule(cfg)  # a changed interval takes effect immediately
-        return {"ok": True, "message": "Settings saved."}
+        with cfgmod.update_lock():
+            cfg = cfgmod.load()
+            data = cfg.model_dump()
+            for field in (
+                "base_url", "batch_size", "max_body_chars", "concurrency",
+                "num_ctx", "think", "keep_alive", "timeout_seconds",
+                "classification_deadline_seconds",
+            ):
+                value = getattr(body, field)
+                if value is not None:
+                    data["llm"][field] = value
+            if body.check_mode is not None:
+                data["check"]["mode"] = body.check_mode
+            if body.lookback_days is not None:
+                data["check"]["lookback_days"] = body.lookback_days
+            if body.retain_days is not None:
+                data["check"]["retain_days"] = body.retain_days
+            if body.interval_minutes is not None:
+                data["watch"]["interval_minutes"] = body.interval_minutes
+            if body.other_interval_minutes is not None:
+                data["watch"]["other_interval_minutes"] = body.other_interval_minutes
+            if body.auto_check is not None:
+                data["watch"]["auto_check"] = body.auto_check
+            if body.outlook_client_id is not None:
+                data["outlook"]["client_id"] = body.outlook_client_id.strip()
+            if body.privacy_ack is not None:
+                data["privacy_ack"] = body.privacy_ack
+            try:
+                cfg = cfgmod.Config.model_validate(data)
+            except Exception as exc:  # noqa: BLE001 - pydantic's own message is the useful bit
+                detail = getattr(exc, "errors", None)
+                msg = detail()[0]["msg"] if callable(detail) and detail() else str(exc)
+                return _err(msg)
+            cfgmod.save(cfg)
+            _reschedule(cfg)  # a changed interval takes effect immediately
+            return {"ok": True, "message": "Settings saved."}
 
     @app.post("/api/settings/test")
     def api_settings_test():
@@ -1840,23 +2419,25 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
 
     @app.post("/api/rules")
     def api_add_rule(body: RuleBody):
-        if body.category not in {c.name for c in CATEGORIES} or body.category == UNCLASSIFIED:
-            return _err("Choose one of the listed categories.")
-        if not (body.sender or body.sender_domain or body.subject_contains):
-            return _err("A rule needs at least one condition.")
-        cfg = cfgmod.load()
-        cfg.prefilter_rules.append(cfgmod.PrefilterRule(**body.model_dump()))
-        cfgmod.save(cfg)
-        return {"ok": True, "message": "Rule added."}
+        with cfgmod.update_lock():
+            if body.category not in {c.name for c in CATEGORIES} or body.category == UNCLASSIFIED:
+                return _err("Choose one of the listed categories.")
+            if not (body.sender or body.sender_domain or body.subject_contains):
+                return _err("A rule needs at least one condition.")
+            cfg = cfgmod.load()
+            cfg.prefilter_rules.append(cfgmod.PrefilterRule(**body.model_dump()))
+            cfgmod.save(cfg)
+            return {"ok": True, "message": "Rule added."}
 
     @app.post("/api/rules/{index}/delete")
     def api_delete_rule(index: int):
-        cfg = cfgmod.load()
-        if not 0 <= index < len(cfg.prefilter_rules):
-            return _err("No such rule.", 404)
-        cfg.prefilter_rules.pop(index)
-        cfgmod.save(cfg)
-        return {"ok": True, "message": "Rule removed."}
+        with cfgmod.update_lock():
+            cfg = cfgmod.load()
+            if not 0 <= index < len(cfg.prefilter_rules):
+                return _err("No such rule.", 404)
+            cfg.prefilter_rules.pop(index)
+            cfgmod.save(cfg)
+            return {"ok": True, "message": "Rule removed."}
 
     @app.get("/{path:path}", include_in_schema=False)
     def frontend_route(path: str):
@@ -1872,6 +2453,8 @@ def create_app(*, allowed_hosts: list[str] | None = None, secure_cookies: bool =
             return FileResponse(index, headers={"Cache-Control": "no-cache, must-revalidate"})
         return JSONResponse({"ok": False, "error": "Not found."}, status_code=404)
 
+    from .security import install_http_boundary
+    install_http_boundary(app, secure_cookies=secure_cookies, legacy_scripts=True)
     return app
 
 
@@ -1973,7 +2556,7 @@ def _open_link(row) -> tuple[str | None, str]:
         email = (row["account_email"] if "account_email" in keys else "") or ""
         account = f"?authuser={quote(email, safe='')}" if email else ""
         return (
-            f"https://mail.google.com/mail/{account}#search/rfc822msgid:"
+            f"https://mail.google.com/mail/{account}#search/in%3Aanywhere%20rfc822msgid:"
             f"{quote(row['message_id'])}",
             "Open in Gmail",
         )

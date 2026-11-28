@@ -3,10 +3,106 @@ import asyncio
 import logging
 import inspect
 import sys
+import signal
 
 import uvicorn
+import h11
+from uvicorn.protocols.http.h11_impl import H11Protocol
+
+from .admission import RequestAdmission
 
 log = logging.getLogger('uvicorn.error')
+
+
+class ClosingSafeH11Protocol(H11Protocol):
+    """Malformed traffic can arrive after h11 has already closed its response state."""
+    def send_400_response(self, msg):
+        try:
+            super().send_400_response(msg)
+        except h11.LocalProtocolError:
+            log.debug('Closing malformed HTTP connection whose response state is already closed.')
+        finally:
+            self.transport.close()
+
+
+class LocalOriginHealth:
+    """Direct loopback probe; forwarded/public traffic retains normal auth checks."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        peer = scope.get('client')
+        forwarded = any(key.lower() in (b'x-forwarded-for', b'forwarded') for key, _ in scope.get('headers', []))
+        if (scope['type'] == 'http' and scope.get('path') == '/_internal/origin-health'
+                and scope.get('method') in ('GET', 'HEAD') and peer
+                and peer[0] in ('127.0.0.1', '::1') and not forwarded):
+            from starlette.responses import Response
+            target = getattr(self.app, 'app', self.app)
+            probe = getattr(getattr(target, 'state', None), 'origin_health', None)
+            healthy = True
+            if probe:
+                try:
+                    healthy = await asyncio.wait_for(probe(), timeout=3)
+                except Exception:
+                    healthy = False
+            return await Response(status_code=204 if healthy else 503,
+                                  headers={'X-OfferPath-Health':'1' if healthy else '0', 'Cache-Control':'no-store'})(scope, receive, send)
+        if (scope['type'] == 'http' and scope.get('path') in ('/_internal/origin-monitoring', '/_internal/origin-metrics')
+                and scope.get('method') == 'GET' and peer and peer[0] in ('127.0.0.1', '::1') and not forwarded):
+            from starlette.responses import JSONResponse
+            target = getattr(self.app, 'app', self.app)
+            if scope.get('path') == '/_internal/origin-metrics':
+                from urllib.parse import parse_qs
+                collect = getattr(getattr(target, 'state', None), 'monitoring_metrics', None)
+                selected = parse_qs(scope.get('query_string', b'').decode('ascii', errors='replace')).get('range', ['1h'])[0]
+                if collect and selected in ('1h', '6h', '24h'):
+                    try:
+                        result = await asyncio.wait_for(asyncio.to_thread(collect, selected), timeout=4)
+                        return await JSONResponse(result)(scope, receive, send)
+                    except Exception:
+                        pass
+                return await JSONResponse({'error':'Metrics unavailable'}, status_code=503)(scope, receive, send)
+            monitor = getattr(getattr(target, 'state', None), 'system_monitor', None)
+            if monitor:
+                try:
+                    result = await asyncio.wait_for(asyncio.to_thread(monitor.snapshot), timeout=4)
+                    return await JSONResponse(result)(scope, receive, send)
+                except Exception:
+                    return await JSONResponse({'error':'Service snapshot unavailable'}, status_code=503)(scope, receive, send)
+        return await self.app(scope, receive, send)
+
+
+class GracefulServer(uvicorn.Server):
+    async def serve(self, sockets=None):
+        if sys.platform != 'win32':
+            return await super().serve(sockets=sockets)
+        loop = asyncio.get_running_loop()
+        previous = loop.get_exception_handler()
+        failures = []
+        loop.set_exception_handler(windows_exception_handler(self, failures))
+        try:
+            result = await super().serve(sockets=sockets)
+            if failures:
+                raise failures[0]
+            return result
+        finally:
+            loop.set_exception_handler(previous)
+
+    def handle_exit(self, sig, frame):
+        self._shutdown_reason = f'signal {signal.Signals(sig).name}'
+        log.warning('Origin shutdown requested by %s.', self._shutdown_reason)
+        super().handle_exit(sig, frame)
+
+    async def shutdown(self, sockets=None):
+        log.warning('Origin shutting down (%s).', getattr(self, '_shutdown_reason', 'application or server request; no process signal recorded'))
+        app = self.config.app
+        if isinstance(app, LocalOriginHealth):
+            app = app.app
+        if isinstance(app, RequestAdmission):
+            app.begin_shutdown()
+        # Lifespan shutdown runs after this HTTP drain in Uvicorn. Closing
+        # streams there would be too late: their responses never finish alone.
+        await super().shutdown(sockets=sockets)
 
 
 def windows_exception_handler(server, failures):
@@ -20,8 +116,9 @@ def windows_exception_handler(server, failures):
             loop.default_exception_handler(context)
             if not failures:
                 failures.append(error)
-                log.error('Windows HTTP listener failed; shutting down the server cleanly. Restart OfferPath after restoring network connectivity.')
+                log.error('Windows HTTP listener failed; shutting down cleanly so the foreground launcher can recover.')
             server.should_exit = True
+            server._shutdown_reason = 'Windows HTTP listener failure'
             return
         callback = getattr(context.get('handle'), '_callback', None)
         transport = getattr(callback, '__self__', None)
@@ -62,13 +159,31 @@ def windows_exception_handler(server, failures):
     return handle
 
 
-def run(app, **options):
+def run(app, *, health_check=False, **options):
+    # Ignore environment-wide wildcard proxy trust. Only a same-machine proxy
+    # may supply visitor addresses and the HTTPS scheme.
+    options.setdefault('proxy_headers', True)
+    options.setdefault('forwarded_allow_ips', '127.0.0.1,::1')
+    options.setdefault('server_header', False)
+    options.setdefault('http', ClosingSafeH11Protocol)
+    # Uvicorn counts idle keep-alive sockets, so allow finite transport
+    # headroom while the ASGI wrapper independently bounds active work.
+    options.setdefault('limit_concurrency', 256)
+    app = RequestAdmission(app)
+    if health_check:
+        app = LocalOriginHealth(app)
+    options.setdefault('timeout_keep_alive', 5)
+    options.setdefault('timeout_graceful_shutdown', 15)
     if sys.platform != 'win32':
-        return uvicorn.run(app, **options)
+        server = GracefulServer(uvicorn.Config(app, **options))
+        result = server.run()
+        if not server.started:
+            raise SystemExit(3)  # Preserve uvicorn.run's failed-startup status.
+        return result
     # The previous forced Selector loop can repeatedly call accept() on a
     # socket rejected by Winsock (10022), consuming CPU without serving HTTP.
     # Use native Windows IOCP, without changing the process-wide loop policy.
-    server = uvicorn.Server(uvicorn.Config(app, **options, loop='asyncio'))
+    server = GracefulServer(uvicorn.Config(app, **options, loop='asyncio'))
     failures = []
     with asyncio.Runner(loop_factory=asyncio.ProactorEventLoop) as runner:
         runner.get_loop().set_exception_handler(windows_exception_handler(server, failures))

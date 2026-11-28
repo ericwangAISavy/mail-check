@@ -41,6 +41,9 @@ def main() -> int:
     from mailcheck.secrets import SERVICE
 
     print("mail-check keyring integration test (real OS credential store)")
+    # Exercise the chunked keyring store that macOS/Linux use and that Windows
+    # migrates from; Windows token files are covered by test_outlook_token_files.
+    oa._file_store = lambda: False
 
     label = "mailcheck-selftest-delete-me"
     try:

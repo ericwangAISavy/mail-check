@@ -7,12 +7,13 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
-from . import db, normalize, prefilter, secrets, interviews, mail_checkpoints
+from . import read_marking, db, normalize, prefilter, secrets, interviews, mail_checkpoints
 from .config import Config
 from .diagnostics import PerformanceLog
 from .llm import LLMClient, PROMPT_VERSION, classify
 from .models import NormalizedMessage, RunResult, TriagedMessage
 from .sources import IMAPSource, OutlookGraphSource, SourceError
+from .sources.base import collection_scope
 from .taxonomy import UNCLASSIFIED
 
 StatusFn = Callable[[str], None]
@@ -79,21 +80,40 @@ def fetch_account(
     return out
 
 
+def _drain_read_updates(conn, account, cfg, result: RunResult) -> None:
+    """Apply queued Outlook read updates; their problems are reported, never fatal.
+
+    They are also kept in ``read_errors`` so callers can tell a collection
+    failure from a read update that will retry on its own.
+    """
+    errors = read_marking.drain(conn, account, build_source(account, cfg) if account.provider == "outlook" else None)
+    result.errors.extend(errors)
+    result.read_errors.extend(errors)
+
+
 def check_once(
     conn: sqlite3.Connection,
     cfg: Config,
     *,
     account_label: str | None = None,
     since_days: int | None = None,
+    account_ids: set[int] | None = None,
+    recent_since: datetime | None = None,
     use_cache: bool = True,
     status: StatusFn = _noop,
     progress: Callable[[int, int], None] | None = None,
     event: EventFn | None = None,
 ) -> RunResult:
+    if recent_since is not None:
+        if recent_since.tzinfo is None or recent_since.utcoffset() is None:
+            raise ValueError("recent_since must be timezone-aware")
+        recent_since = recent_since.astimezone(timezone.utc)
     result = RunResult(started_at=datetime.now(timezone.utc))
     run_id = db.start_run(conn)
 
     accounts = db.list_accounts(conn, only_enabled=True)
+    if account_ids is not None:
+        accounts = [a for a in accounts if a.id in account_ids]
     if account_label:
         accounts = [a for a in accounts if a.label == account_label]
         if not accounts:
@@ -101,9 +121,14 @@ def check_once(
 
     lookback = since_days if since_days is not None else cfg.check.lookback_days
     since = (result.started_at - timedelta(days=lookback)).date()
-    windows = {a.id: mail_checkpoints.window(conn, a, cfg.check, since_days, result.started_at) for a in accounts}
+    windows = {a.id: recent_since if recent_since is not None else
+               mail_checkpoints.window(conn, a, cfg.check, since_days, result.started_at)
+               for a in accounts}
     advances = {a.id for a in accounts}
-    if cfg.check.mode == "since_last" and since_days is not None:
+    if recent_since is not None:
+        # A bounded live poll must never move the normal collector cursor.
+        advances.clear()
+    elif cfg.check.mode == "since_last" and since_days is not None:
         for account in accounts:
             normal = mail_checkpoints.window(conn, account, cfg.check, None, result.started_at)
             if mail_checkpoints.window_start(windows[account.id]) > mail_checkpoints.window_start(normal):
@@ -120,18 +145,19 @@ def check_once(
     # comes back as a new row with no handled_at — silently undoing a Done the
     # user had already given it. Keeping the two windows from overlapping is
     # what makes that impossible rather than merely unlikely.
-    keep_days = max(cfg.check.retain_days, lookback)
-    # Fixed windows include the whole starting day; incremental catch-up may
-    # reach farther back than retention. Protect both from losing Done state.
-    fetch_start = min(
-        mail_checkpoints.window_start(value) for value in (list(windows.values()) or [since])
-    )
-    retention_start = datetime.now(timezone.utc) - timedelta(days=keep_days)
-    result.pruned = db.prune_messages(
-        conn,
-        before_iso=min(fetch_start, retention_start).isoformat(),
-        protect_fetched_since=fetch_start.isoformat() if cfg.check.mode == "since_last" else None,
-    )
+    if recent_since is None:
+        keep_days = max(cfg.check.retain_days, lookback)
+        # Fixed windows include the whole starting day; incremental catch-up may
+        # reach farther back than retention. Protect both from losing Done state.
+        fetch_start = min(
+            mail_checkpoints.window_start(value) for value in (list(windows.values()) or [since])
+        )
+        retention_start = datetime.now(timezone.utc) - timedelta(days=keep_days)
+        result.pruned = db.prune_messages(
+            conn,
+            before_iso=min(fetch_start, retention_start).isoformat(),
+            protect_fetched_since=fetch_start.isoformat() if cfg.check.mode == "since_last" else None,
+        )
 
     # ---- fetch (one bad mailbox must not abort the run) -------------------
     fetched: list[NormalizedMessage] = []
@@ -139,12 +165,13 @@ def check_once(
     successful = []
     for account in accounts:
         account_started = datetime.now(timezone.utc)
-        if cfg.check.mode == "since_last" and since_days is None:
+        if recent_since is None and cfg.check.mode == "since_last" and since_days is None:
             mail_checkpoints.begin(conn, account, windows[account.id])
             conn.commit()
         status(f"Fetching {account.label} ({account.email}) since {windows[account.id].isoformat()}...")
         try:
-            msgs = fetch_account(account, windows[account.id], cfg)
+            with collection_scope(lambda message: status(f"[{account.label}] {message}")):
+                msgs = fetch_account(account, windows[account.id], cfg)
         except (SourceError, secrets.SecretError) as exc:
             result.errors.append(f"[{account.label}] {exc}")
             continue
@@ -155,6 +182,8 @@ def check_once(
     result.fetch_seconds = time.monotonic() - fetch_started
 
     if not fetched:
+        for account, _ in successful:
+            _drain_read_updates(conn, account, cfg, result)
         for account, started in successful:
             if account.id in advances:
                 mail_checkpoints.record(conn, account, started)
@@ -166,11 +195,14 @@ def check_once(
     pending: list[NormalizedMessage] = []
     pending_pks: list[int] = []
 
+    accounts_by_id = {account.id: account for account in accounts}
     for msg in fetched:
         pk = db.upsert_message(conn, msg)
+        account = accounts_by_id[msg.account_id]
+        read_marking.enqueue(conn, account, msg.uid, is_read=msg.is_read)
 
         if use_cache:
-            cached = db.get_cached(conn, pk, PROMPT_VERSION)
+            cached = db.get_cached(conn, pk, None)
             if cached:
                 result.items.append(TriagedMessage(msg, cached, from_cache=True))
                 result.from_cache += 1
@@ -189,6 +221,9 @@ def check_once(
         pending_pks.append(pk)
 
     conn.commit()
+
+    for account, _ in successful:
+        _drain_read_updates(conn, account, cfg, result)
 
     # ---- classify --------------------------------------------------------
     if pending:

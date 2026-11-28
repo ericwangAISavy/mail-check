@@ -141,3 +141,131 @@
 .payment-table .payment-account-detail th > span { margin-top:0; }
 .payment-table .payment-account-detail .payment-today { background:var(--accent); }
 .payment-account-detail td:last-child { color:var(--muted-foreground); }
+
+.payment-bidder-editor-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.payment-bidder-editor-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 6px; border-radius: 3px; }
+
+
+.bidder-chart-tooltip { position: fixed; z-index: 80; display: flex; flex-direction: column; width: min(340px, calc(100vw - 24px)); max-height: min(360px, calc(100vh - 24px)); box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); box-shadow: 0 8px 24px #0006; font-size: 13px; pointer-events: auto; }
+.bidder-chart-tooltip-title { flex: none; padding: 12px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; line-height: 1.5; }
+.bidder-chart-tooltip-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 12px; }
+.bidder-chart-tooltip-item { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 5px 0; line-height: 1.5; }
+.bidder-chart-tooltip-item > span { min-width: 0; overflow-wrap: anywhere; }
+.bidder-chart-tooltip-item > strong { flex: none; font-variant-numeric: tabular-nums; }
+
+.payment-checked-count { color: var(--foreground); font-weight: 700; }
+.payment-reply-count { color: var(--muted-foreground); font-weight: 400; }
+.payment-count-pair { white-space: nowrap; }
+
+.payment-count-warning { margin:6px 0 0; color:var(--warning); font-size:12px; line-height:1.5; }
+
+.payment-deduction-rule { padding:20px; margin-bottom:16px; }
+.payment-deduction-rule p { color:var(--muted-foreground); font-size:13px; line-height:1.6; }
+.payment-deduction-rule form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; }
+.payment-deduction-rule label { flex:1 1 210px; min-width:0; }
+.payment-deduction-rule input { width:100%; }
+.payment-checked-count.payment-below-minimum { color:var(--destructive); }
+.payment-deduction-explanation { display:block; margin-top:6px; color:var(--muted-foreground); font-size:12px; line-height:1.5; white-space:normal; }
+
+/* Bidders: one panel, a list on the left and the selected bidder on the right. */
+.bidder-directory{display:grid;grid-template-columns:minmax(220px,260px) minmax(0,1fr);padding:0;overflow:hidden}
+.bidder-list{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border);background:color-mix(in srgb,var(--surface,var(--card)) 60%,transparent)}
+.bidder-list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground)}
+.bidder-list-head strong{font-weight:650}
+.bidder-list-head span{min-width:22px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 8%,transparent);text-align:center;font-variant-numeric:tabular-nums;letter-spacing:0}
+.bidder-list ul{list-style:none;margin:0;padding:0 8px 8px;display:flex;flex-direction:column;gap:2px;max-height:520px;overflow:auto}
+.bidder-list-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:1px solid transparent;border-radius:9px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.bidder-list-item:hover{background:color-mix(in srgb,var(--foreground) 5%,transparent)}
+.bidder-list-item[aria-current="true"]{background:color-mix(in srgb,var(--primary) 14%,transparent);border-color:color-mix(in srgb,var(--primary) 35%,transparent)}
+.bidder-list-item:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}
+.bidder-list-text{display:flex;flex-direction:column;min-width:0}
+.bidder-list-text strong{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bidder-list-text small{font-size:11.5px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bidder-avatar{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;background:color-mix(in srgb,var(--primary) 18%,transparent);color:var(--primary);font-size:11.5px;font-weight:700;letter-spacing:.02em}
+.bidder-avatar.is-large{width:40px;height:40px;font-size:14px}
+.bidder-list-item[aria-current="true"] .bidder-avatar{background:var(--primary);color:var(--primary-foreground,#fff)}
+.bidder-list-empty{padding:4px 16px}
+.bidder-add{display:grid;gap:8px;margin-top:auto;padding:12px;border-top:1px solid var(--border)}
+.payment-management .bidder-add input{width:100%;min-width:0;min-height:34px;padding:6px 10px;font-size:13px}
+.bidder-add .btn{width:100%;justify-content:center}
+.bidder-detail{min-width:0;padding:18px 22px 22px}
+.bidder-editor-head{display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.bidder-editor-head h3{margin:0;font-size:17px;font-weight:650}
+.bidder-editor-head>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bidder-editor-head .bidder-remove{margin-left:auto;color:var(--destructive)}
+.bidder-editor-group{padding:16px 0;border-bottom:1px solid var(--border)}
+.bidder-editor-group:last-child{border-bottom:0;padding-bottom:0}
+.bidder-editor-group>h4,.bidder-editor-group .payment-section-heading h3{margin:0;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground)}
+.bidder-editor-group .payment-inline-form{margin-top:10px}
+.bidder-editor-group>.payment-muted{margin:8px 0 0;font-size:12px}
+@media (max-width:860px){
+ .bidder-directory{grid-template-columns:1fr}
+ .bidder-list{border-right:0;border-bottom:1px solid var(--border)}
+ .bidder-list ul{flex-direction:row;overflow-x:auto;max-height:none;padding-bottom:10px}
+ .bidder-list li{flex:none}
+ .bidder-list-item{width:auto;min-width:150px}
+ .bidder-add{margin-top:0}
+ .bidder-detail{padding:16px}
+}
+/* Web access sits inside the bidder panel like the other groups. */
+.bidder-editor-group .bidder-access{margin:0;padding:0;border:0}
+.bidder-editor-group .bidder-access .payment-section-heading{padding:0;margin:0}
+.bidder-editor-group .bidder-access>.payment-muted{margin:8px 0 0;font-size:12px}
+
+/* Fields shrink with their column: without this an input keeps its natural
+   width and slides under the next field or pushes Save buttons out of view. */
+.bidder-detail .payment-inline-form :is(input,select){width:100%;min-width:0;box-sizing:border-box}
+.bidder-detail .payment-inline-form>label{min-width:140px}
+.bidder-detail .payment-inline-form>.btn{flex:none}
+
+@media screen {
+ .page-wrap.payments-page .payment-summary-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 18px; margin-bottom: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview { flex: 1 1 540px; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 0; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview:not(:has(> :nth-child(3))) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview > div { padding: 0; gap: 10px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview strong { font-size: 24px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview svg { width: 24px; height: 24px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-controls { flex: 1 1 100%; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0 0; margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
+ .page-wrap.payments-page .payment-section-heading { padding: 18px 20px; flex-wrap: wrap; }
+ .page-wrap.payments-page .payment-table :is(th, td) { padding-top: 13px; padding-bottom: 13px; }
+ .accounts-page .bidder-editor-head { flex-wrap: wrap; }
+ .accounts-page .bidder-detail .payment-inline-form { gap: 12px; }
+}
+@media screen and (max-width: 700px) {
+ .page-wrap.payments-page .payment-summary-bar { padding: 14px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview > :nth-child(3) { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--border); }
+ .page-wrap.payments-page .payment-summary-bar .payment-overview strong { font-size: 22px; }
+ .page-wrap.payments-page .payment-summary-bar .payment-controls { justify-content: flex-start; }
+ .page-wrap.payments-page .payment-bidder-filter { width: 100%; }
+ .page-wrap.payments-page .payment-bidder-filter select { width: 100%; max-width: none; }
+ .page-wrap.payments-page .payment-table th:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); }
+ .accounts-page .bidder-detail .payment-inline-form > label { flex-basis: 100%; min-width: 0; }
+}
+
+/* Enterprise reference: presentation only; keep totals, expansion and forms intact. */
+@media screen {
+ .page-wrap.payments-page .payment-summary-bar { border:0; border-bottom:1px solid var(--border); border-radius:0; padding:0 0 16px; gap:16px; background:transparent; }
+ .payments-page .payment-table { font-size:13px; }
+ .page-wrap.payments-page .payment-table th,.page-wrap.payments-page .payment-table td { padding-top:12px; padding-bottom:12px; }
+ .page-wrap.payments-page .payment-table thead th { padding-top:10px; padding-bottom:10px; font-weight:550; }
+ .page-wrap.payments-page .payment-section-heading { padding:16px; }
+ .payments-page .payment-section-heading h2 { font-size:16px; }
+ .payments-page .payment-admin-card,.payments-page .payment-entry { border-radius:8px; }
+ .payments-page .payment-overview strong { letter-spacing:-.025em; }
+ .payments-page .bidder-list-item { border-radius:6px; }
+ .payments-page .bidder-detail { padding:16px 20px; }
+ .payments-page .bidder-activity { padding:18px; border-radius:8px; }
+}
+
+@media screen {
+ .app-frame .payments-page .payment-admin-card { padding:0 0 20px; border-bottom:1px solid var(--border); margin-bottom:20px; }
+ .app-frame .payments-page .payment-admin-card h2 { font-size:14px; font-weight:550; }
+ .app-frame .payments-page .payment-section-heading { padding:14px 16px; }
+ .app-frame .payments-page .cyber-panel:has(> .payment-table-scroll) { border-radius:6px; background:transparent; box-shadow:none; }
+}
+
+@media screen {
+ .app-frame .payments-page .payment-deduction-rule { border:0; border-radius:0; padding:4px 0 20px; margin-bottom:20px; border-bottom:1px solid var(--border); background:transparent; box-shadow:none; }
+ .app-frame .payments-page .payment-deduction-rule h2 { font-size:14px; font-weight:550; margin-bottom:10px; }
+}

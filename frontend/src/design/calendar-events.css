@@ -1,0 +1,83 @@
+/* ── Interview calendar panel: title, navigation, summary, framed grid, footer. ── */
+:root body .app-frame .outlook-calendar.oc-panel { display:flex; flex-direction:column; gap:12px; padding:16px 16px 12px; border:1px solid var(--border); border-radius:12px; background:var(--card); }
+:root body .app-frame .outlook-calendar.oc-panel.calendar-expanded { border-radius:0; }
+:root body .app-frame .oc-panel .oc-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+:root body .app-frame .oc-panel .oc-header h2 { margin:0; color:var(--foreground); font-size:18px; font-weight:700; letter-spacing:-.01em; }
+:root body .app-frame .oc-panel .oc-header-aside { display:flex; align-items:center; gap:4px; }
+:root body .app-frame .oc-panel .oc-review-chip { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 8px; border:0; border-radius:6px; background:transparent; color:var(--warning); font-size:13px; font-weight:600; cursor:pointer; }
+:root body .app-frame .oc-panel .oc-review-chip:hover { background:color-mix(in srgb,var(--warning) 12%,transparent); }
+:root body .app-frame .oc-panel .oc-review-menu { right:0; left:auto; min-width:260px; padding:12px; display:grid; gap:8px; }
+:root body .app-frame .oc-panel .oc-review-menu p { margin:0; }
+:root body .app-frame .oc-panel .oc-review-error { color:var(--muted-foreground); font-size:12px; overflow-wrap:anywhere; }
+:root body .app-frame .oc-panel .oc-more-menu { right:0; left:auto; min-width:230px; }
+:root body .app-frame .oc-panel .oc-more-menu button[aria-pressed="true"] { color:var(--primary); }
+
+:root body .app-frame .oc-panel .outlook-date-bar.oc-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-height:0; padding:0; border:0; background:transparent; }
+:root body .app-frame .oc-panel .oc-toolbar .oc-today { height:36px; min-height:36px; margin-right:6px; padding-inline:12px; border-radius:8px; font-weight:650; }
+:root body .app-frame .oc-panel .oc-toolbar > .btn[data-size="icon"] { width:30px; height:30px; min-height:30px; }
+:root body .app-frame .oc-panel .oc-toolbar .outlook-period { display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 8px; border:0; border-radius:8px; background:transparent; color:var(--foreground); font-size:15px; font-weight:650; cursor:pointer; }
+:root body .app-frame .oc-panel .oc-toolbar .outlook-period:hover { background:var(--ui-row-hover, var(--muted)); }
+:root body .app-frame .oc-panel .oc-toolbar-end { display:flex; align-items:center; gap:8px; margin-left:auto; }
+:root body .app-frame .oc-panel :is(.oc-select,.oc-zone) { position:relative; display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 10px; border:1px solid var(--border); border-radius:8px; background:var(--ui-field, var(--background)); color:var(--foreground); font-size:13.5px; font-weight:600; }
+:root body .app-frame .oc-panel :is(.oc-select,.oc-zone):focus-within { border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 22%,transparent); }
+:root body .app-frame .oc-panel .oc-select select { height:100%; padding:0 16px 0 0; margin-right:-18px; border:0; outline:0; background:transparent; color:inherit; font:inherit; appearance:none; -webkit-appearance:none; cursor:pointer; }
+:root body .app-frame .oc-panel .oc-select select option { background:var(--popover, var(--card)); color:var(--foreground); }
+:root body .app-frame .oc-panel .oc-select > svg { pointer-events:none; color:var(--muted-foreground); }
+:root body .app-frame .oc-panel .oc-zone > svg { color:var(--muted-foreground); }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker { position:static; min-width:0; }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input { display:flex; align-items:center; gap:4px; height:auto; min-height:0; padding:0; border:0; background:transparent; box-shadow:none; }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input input { width:4.6em; height:30px; min-height:0; padding:0; border:0; outline:0; background:transparent; box-shadow:none; color:var(--foreground); font:inherit; cursor:pointer; }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-input input[aria-expanded="true"] { width:12em; cursor:text; }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker-popup { top:calc(100% + 6px); right:0; left:auto; min-width:280px; }
+:root body .app-frame .oc-panel .oc-check { width:36px; height:36px; min-height:36px; border-radius:8px; color:var(--primary); }
+:root body .app-frame .oc-panel .oc-check .is-spinning { animation:oc-spin 1s linear infinite; }
+@keyframes oc-spin { to { transform:rotate(360deg); } }
+
+:root body .app-frame .oc-panel .oc-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:32px; }
+:root body .app-frame .oc-panel .calendar-interview-counts { display:flex; flex-wrap:wrap; align-items:center; gap:6px; color:var(--text-soft, var(--muted-foreground)); font-size:13px; }
+:root body .app-frame .oc-panel .calendar-interview-counts > strong { margin-right:6px; color:var(--foreground); font-size:14px; font-weight:700; }
+:root body .app-frame .oc-panel .oc-kind { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 9px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--text-soft, var(--muted-foreground)); font-size:13px; font-weight:550; font-variant-numeric:tabular-nums; cursor:pointer; }
+:root body .app-frame .oc-panel span.oc-kind { cursor:default; }
+:root body .app-frame .oc-panel button.oc-kind:hover:not(:disabled) { background:var(--ui-row-hover, var(--muted)); color:var(--foreground); }
+:root body .app-frame .oc-panel .oc-kind[aria-pressed="true"] { border-color:color-mix(in srgb,var(--primary) 40%,transparent); background:color-mix(in srgb,var(--primary) 18%,transparent); color:var(--foreground); font-weight:650; }
+:root body .app-frame .oc-panel .oc-kind:disabled { opacity:.5; cursor:default; }
+:root body .app-frame .oc-panel .oc-kind-dot { width:7px; height:7px; border-radius:50%; background:var(--muted-foreground); }
+:root body .app-frame .oc-panel .oc-kind.is-intro .oc-kind-dot { background:#8b9cff; }
+:root body .app-frame .oc-panel .oc-kind.is-tech .oc-kind-dot { background:#3fd6b4; }
+:root body .app-frame .oc-panel .oc-summary-end { display:flex; align-items:center; gap:4px; }
+:root body .app-frame .oc-panel .oc-summary-end .calendar-colors .outlook-period { height:30px; padding:0 8px; border:0; background:transparent; color:var(--text-soft, var(--foreground)); font-size:13px; font-weight:600; }
+:root body .app-frame .oc-panel .oc-summary-end .calendar-colors .outlook-menu { right:0; left:auto; }
+:root body .app-frame .oc-panel .oc-filter { position:relative; width:30px; height:30px; min-height:30px; }
+:root body .app-frame .oc-panel .oc-filter .calendar-filter-count { position:absolute; top:-2px; right:-2px; min-width:15px; height:15px; padding:0 4px; border-radius:8px; background:var(--primary); color:var(--primary-foreground); font-size:10px; line-height:15px; }
+:root body .app-frame .oc-panel .outlook-filter-panel { margin:0; }
+
+/* The grid sits in its own frame. */
+:root body .app-frame .oc-panel .oc-frame { border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--oc-bg, var(--card)); }
+:root body .app-frame .oc-panel .outlook-day-headers { height:50px; background:var(--card); }
+:root body .app-frame .oc-panel .outlook-day-heading { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:4px; border-top:0; text-align:center; background:transparent; }
+:root body .app-frame .oc-panel .outlook-day-heading .oc-weekday { color:var(--muted-foreground); font-size:10.5px; font-weight:650; letter-spacing:.09em; text-transform:uppercase; line-height:1.2; }
+:root body .app-frame .oc-panel .outlook-day-heading .oc-date { color:var(--foreground); font-size:18px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; }
+:root body .app-frame .oc-panel .outlook-day-heading:hover { background:var(--ui-row-hover, var(--muted)); }
+:root body .app-frame .oc-panel .outlook-day-heading.is-today { background:transparent; }
+:root body .app-frame .oc-panel .outlook-day-heading.is-today :is(.oc-date,.oc-weekday) { color:var(--primary); }
+:root body .app-frame .oc-panel .outlook-time-axis { background:var(--card); }
+:root body .app-frame .oc-panel .outlook-hour-label { border-top:0; }
+:root body .app-frame .oc-panel .outlook-hour-label > span { top:-6px; left:auto; right:8px; color:var(--muted-foreground); font-size:10.5px; font-weight:550; }
+:root body .app-frame .oc-panel .outlook-hour-label:first-child > span { top:3px; }
+
+:root body .app-frame .oc-panel .oc-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--text-soft, var(--muted-foreground)); font-size:13px; }
+:root body .app-frame .oc-panel .oc-footer button { padding:4px 6px; margin-left:-6px; border:0; border-radius:6px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+:root body .app-frame .oc-panel .oc-footer button:hover { background:var(--ui-row-hover, var(--muted)); color:var(--foreground); }
+:root body .app-frame .oc-panel .oc-footer > span { display:inline-flex; align-items:center; gap:6px; }
+@media (max-width:760px) {
+  :root body .app-frame .outlook-calendar.oc-panel { padding:12px 10px; border-radius:10px; }
+  :root body .app-frame .oc-panel .oc-toolbar-end { flex-basis:100%; margin-left:0; }
+  :root body .app-frame .oc-panel .oc-summary { flex-wrap:wrap; }
+}
+@media print { :root body .app-frame .oc-panel :is(.oc-header-aside,.oc-toolbar-end,.oc-summary-end,.oc-footer button) { display:none; } }
+/* Today: tint the heading text only (no badge), keep the compact pickers compact. */
+:root body .app-frame .oc-panel .outlook-day-heading.is-today > span:is(.oc-weekday,.oc-date) { display:block; min-width:0; height:auto; margin:0; padding:0; border-radius:0; background:transparent; box-shadow:none; color:var(--primary); }
+:root body .app-frame .oc-panel .oc-zone .timezone-picker { width:auto; max-width:none; }
+:root body .app-frame .oc-panel .oc-toolbar .oc-today { min-width:0; width:auto; }
+
+:root body .app-frame .oc-panel .outlook-day-headers { background:color-mix(in srgb,var(--foreground) 3%,var(--card)); }

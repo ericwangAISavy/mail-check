@@ -26,6 +26,7 @@ class AuthTests(unittest.TestCase):
         active.start()
         self.addCleanup(active.stop)
         self.app = create_app(allowed_hosts=["mail.example.test"])
+        self.app.state.auth_store.change_password('admin', 'admin')
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
 
@@ -34,14 +35,14 @@ class AuthTests(unittest.TestCase):
 
     def test_anonymous_cannot_read_data_or_write(self):
         self.assertEqual(self.client.get("/api/auth/session").json(), {"role": None})
-        for path in ("/api/bootstrap", "/api/dashboard", "/api/accounts", "/api/settings", "/api/messages/1"):
+        for path in ("/api/applications/today", "/api/bootstrap", "/api/dashboard", "/api/accounts", "/api/settings", "/api/messages/1"):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 401)
         self.assertEqual(self.client.post("/api/check", json={}).status_code, 401)
         self.assertEqual(self.client.get("/settings", follow_redirects=False).headers["location"], "/login")
         self.assertEqual(self.client.get("/login").status_code, 200)
 
-    def test_default_login_and_private_hashed_file(self):
+    def test_explicit_bootstrap_login_and_private_hashed_file(self):
         self.assertEqual(self.login().status_code, 200)
         self.assertEqual(self.client.get("/api/auth/session").json(), {"role": "admin"})
         path = self.root / "web-auth.json"
@@ -63,11 +64,15 @@ class AuthTests(unittest.TestCase):
     def test_bidder_cannot_read_global_data_or_mutate_admin_resources(self):
         from tests.web_client import sign_in_bidder
         sign_in_bidder(self.client)
-        for path in ("/api/dashboard", "/api/accounts", "/api/settings", "/api/triage", "/api/messages/999"):
+        self.assertEqual(self.client.get("/api/dashboard").status_code,200)
+        for path in ("/api/accounts", "/api/settings"):
             self.assertEqual(self.client.get(path).status_code,403,path)
+        self.assertEqual(self.client.get('/api/triage').json()['total'],0)
+        self.assertEqual(self.client.get('/api/messages/999').status_code,404)
+        self.assertEqual(self.client.get('/inbox').status_code,200)
         for path in ("/api/check", "/api/settings", "/api/auth/password", "/api/payments/bidders"):
             self.assertEqual(self.client.post(path,json={}).status_code,403,path)
-        self.assertEqual(self.client.get("/",follow_redirects=False).headers["location"],"/sourcing")
+        self.assertEqual(self.client.get("/",follow_redirects=False).headers["location"],"/dashboard")
 
     def test_admin_reset_revokes_named_bidder_sessions(self):
         from tests.web_client import sign_in_bidder

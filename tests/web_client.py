@@ -10,6 +10,7 @@ class TestClient(BaseClient):
     def __init__(self, app, *args, **kwargs):
         tmp = tempfile.TemporaryDirectory()
         app.state.auth_store.path = lambda: Path(tmp.name) / "web-auth.json"
+        app.state.auth_store.change_password('admin', 'admin')
         super().__init__(app, *args, **kwargs)
         weakref.finalize(self, tmp.cleanup)
         response = self.post("/api/auth/login", json={"role": "admin", "password": "admin"})

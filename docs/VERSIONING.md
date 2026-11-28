@@ -5,6 +5,8 @@ signed-in admin. Version tracking starts at **2.1.0**; earlier version numbers a
 not reconstructed. The viewer reads the same `releases.json` used to generate
 [the changelog](CHANGELOG.md).
 
+Version updates are automatic for completed runtime changes: the coding agent selects the appropriate bump, writes release notes, runs the release tool and checks, and includes the generated files in the commit without asking for separate confirmation. An explicit user version takes precedence.
+
 For a future fix or performance correction:
 
 ```sh
@@ -30,3 +32,5 @@ instructs future coding agents to select the appropriate bump and write meaningf
 notes; the tool automates the updates, rather than guessing release descriptions.
 No application database, stored status, credential, or user setting is changed by
 version tracking.
+
+When restoring an older implementation, publish the restored behavior as a new patch release above the latest published version. Preserve prior release entries and Git history instead of moving the published branch backward or force-pushing, unless the user explicitly requests that. For example, restoring 2.13.5 behavior after 2.14.1 is published becomes 2.14.2.

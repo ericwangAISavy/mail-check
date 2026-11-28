@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { request } from "@/lib/api"
 import BidderActivity from "./bidder-activity"
 vi.mock("@/lib/api", () => ({request: vi.fn()}))
-const probe = vi.hoisted(() => ({tooltip: null as any, lines: [] as string[], dots: {} as Record<string, (props:any)=>any>}))
-vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, LineChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Line: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; return null}, XAxis: () => null, YAxis: () => null}))
+const probe = vi.hoisted(() => ({tooltip: null as any, content: null as any, lines: [] as string[], dots: {} as Record<string, (props:any)=>any>}))
+vi.mock("recharts", () => ({ResponsiveContainer: ({children}: any) => <div>{children}</div>, ComposedChart: ({children, data}: any) => <div data-testid="chart-points" data-points={JSON.stringify(data)}>{children}</div>, Area: ({type, dataKey, dot}: any) => {probe.lines.push(type); probe.dots[dataKey] = dot; return null}, Customized: () => null, ReferenceLine: ({x}: any) => <div data-testid="now-marker" data-time={x}/>, CartesianGrid: () => null, Tooltip: (props: any) => {probe.tooltip = props.labelFormatter; probe.content = props.content; return null}, XAxis: () => null, YAxis: () => null}))
 const clients: QueryClient[] = []
 afterEach(() => {cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers()})
 function payload() {
@@ -19,7 +19,7 @@ function payload() {
 function mount() {
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}}); clients.push(client)
   function Harness() {const [selected,setSelected] = useState(""); return <BidderActivity week="2026-10-12" selected={selected} onSelect={setSelected}/>}
-  render(<QueryClientProvider client={client}><Harness/></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><Harness/></QueryClientProvider>)
 }
 it("filters graph and heatmap by bidder without redundant cards or summary table", async () => {
   vi.mocked(request).mockResolvedValue(payload()); mount()
@@ -39,7 +39,7 @@ it("filters graph and heatmap by bidder without redundant cards or summary table
 it("does not invent historical activity when no checks are recorded", async () => {
   vi.mocked(request).mockResolvedValue({...payload(), bidders:[],timeline:[],check_count:0}); mount()
   expect(await screen.findByText("No confirmations in this day")).toBeTruthy()
-  expect(screen.getByText(/not exact working hours/)).toBeTruthy()
+  expect(screen.getByText(/^America\/Chicago/)).toBeTruthy()
 })
 it("offers a retry when activity cannot be loaded", async () => {
   vi.mocked(request).mockRejectedValue(new Error("Offline")); mount()
@@ -57,12 +57,14 @@ it("switches to account trends and filters an account without mixing bidder cont
   ]
   vi.mocked(request).mockResolvedValue({...base,accounts,account_timeline:base.timeline.map(p => ({...p,counts:{"10":p.counts["1"],"20":p.counts["2"]}}))})
   mount(); await screen.findByRole("button", {name:"Alex"})
-  fireEvent.click(screen.getByRole("button", {name:"By account"}))
-  expect(await screen.findByRole("button", {name:"shared@outlook.com"})).toBeTruthy()
-  fireEvent.click(screen.getByRole("button", {name:"shared@outlook.com"}))
-  expect(screen.queryByText("other@outlook.com", {selector:"th"})).toBeNull()
+  fireEvent.change(screen.getByLabelText("Activity grouping"),{target:{value:"accounts"}})
+  expect(await screen.findByRole("button", {name:"s****d@outlook.com"})).toBeTruthy()
+  expect(document.body.innerHTML).not.toContain("shared@outlook.com")
+  expect(document.body.innerHTML).not.toContain("other@outlook.com")
+  fireEvent.click(screen.getByRole("button", {name:"s****d@outlook.com"}))
+  expect(screen.queryByText("o****r@outlook.com", {selector:"th"})).toBeNull()
   expect(screen.getByLabelText("2026-10-12, 10am: 5 matched checked links")).toBeTruthy()
-  fireEvent.click(screen.getByRole("button", {name:"By bidder"}))
+  fireEvent.change(screen.getByLabelText("Activity grouping"),{target:{value:"bidders"}})
   expect(await screen.findByRole("button", {name:"Alex"})).toBeTruthy()
 })
 
@@ -75,10 +77,10 @@ it("separates quarter-hour confirmations, exact workday runs and weekly totals",
   vi.mocked(request).mockResolvedValue({...base,workday}); mount()
   await screen.findByRole("button", {name:"Alex"})
   expect(screen.getByTestId("chart-points").getAttribute("data-points")).toContain("15:15")
-  expect(screen.getByText(/^15-minute intervals/)).toBeTruthy()
+  expect(document.querySelector('.activity-mode-description')).toBeNull()
   fireEvent.click(screen.getByRole("button", {name:"Check runs"}))
   expect(screen.getByTestId("chart-points").getAttribute("data-points")).toContain("10:59:12")
-  expect(screen.getByText(/Every recorded run/)).toBeTruthy()
+  expect(document.querySelector('.activity-mode-description')).toBeNull()
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
   expect(screen.getByTestId("chart-points").getAttribute("data-points")).toContain('"1":5')
   expect(screen.queryByLabelText("Activity day")).toBeNull()
@@ -95,7 +97,7 @@ it("formats tooltip dates safely during mode changes and uses connected lines", 
   expect(() => probe.tooltip("2026-10-12", [])).not.toThrow()
   expect(probe.tooltip("stale label", [{payload:{at:"2026-10-12T15:00:00Z",stamp:Date.parse("2026-10-12T15:00:00Z")}}])).toContain("10:00:00 AM")
   for (const value of [undefined,null,"",NaN,"invalid"]) expect(() => probe.tooltip(value, [])).not.toThrow()
-  expect(probe.lines.every(type => type === "linear")).toBe(true)
+  expect(probe.lines.every(type => type === "monotone")).toBe(true)
   fireEvent.click(screen.getByRole("button", {name:"By day"}))
   expect(probe.tooltip("stale", [{payload:{at:"2026-10-12"}}])).toBe("Oct 12")
   expect(() => probe.tooltip(123, [])).not.toThrow()
@@ -140,7 +142,7 @@ it("plots running totals that stay flat in quiet intervals for bidders and accou
   fireEvent.click(screen.getByRole("button",{name:"Check runs"}))
   expect(plotted().map((p:any)=>p["1"])).toEqual([0,3,3,5])
   fireEvent.click(screen.getByRole("button",{name:"Confirmation time"}))
-  fireEvent.click(screen.getByRole("button",{name:"By account"}))
+  fireEvent.change(screen.getByLabelText("Activity grouping"),{target:{value:"accounts"}})
   expect(plotted().map((p:any)=>p["10"])).toEqual([0,3,3,5])
 })
 
@@ -152,17 +154,64 @@ it("offers original interval counts and cumulative totals and marks only value c
   vi.mocked(request).mockResolvedValue({...base,workday:{date:"2026-10-12",start:"2026-10-12T05:00:00Z",end:"2026-10-13T05:00:00Z",confirmations:points,runs:points,account_confirmations:[],account_runs:[]}})
   mount();await screen.findByRole("button",{name:"Alex"})
   const values=()=>JSON.parse(screen.getByTestId("chart-points").getAttribute("data-points")!).map((p:any)=>p["1"])
-  const dot=(index:number)=>probe.dots["1"]({index,cx:20,cy:20,stroke:"cyan"}).type
+  const dot=(index:number)=>probe.dots["1"]({index,cx:20,cy:20}).props.className
   expect(values()).toEqual([0,3,3,5])
-  expect(dot(0)).toBe("g")
-  expect(dot(1)).toBe("circle")
-  expect(dot(2)).toBe("g")
-  expect(dot(3)).toBe("circle")
-  fireEvent.click(screen.getByRole("button",{name:"Per interval"}))
+  // Only the latest value of each line is marked (with its number); no per-change dots.
+  expect(dot(0)).toBeUndefined()
+  expect(dot(1)).toBeUndefined()
+  expect(dot(2)).toBeUndefined()
+  expect(dot(3)).toBe("bm-endpoint")
+  fireEvent.change(screen.getByLabelText("Graph display"),{target:{value:"interval"}})
   expect(values()).toEqual([3,0,2])
-  expect(screen.getByRole("button",{name:"Per interval"}).getAttribute("aria-pressed")).toBe("true")
+  expect((screen.getByLabelText("Graph display") as HTMLSelectElement).value).toBe("interval")
   fireEvent.click(screen.getByRole("button",{name:"By day"}))
   expect(values()).toEqual([5])
-  fireEvent.click(screen.getByRole("button",{name:"Cumulative"}))
+  fireEvent.change(screen.getByLabelText("Graph display"),{target:{value:"cumulative"}})
   expect(values()).toEqual([0,5])
+})
+
+
+it("renders long tooltip lists outside the clipped chart container", async () => {
+  vi.mocked(request).mockResolvedValue(payload())
+  const {container} = mount()
+  await screen.findByRole("button", {name:"Alex"})
+  expect(typeof probe.content).toBe("function")
+  const entries = Array.from({length:30}, (_,i)=>({dataKey:String(i),name:`Bidder ${i}`,value:i,color:"cyan"}))
+  render(probe.content({active:true,label:"2026-10-12T15:00:00Z",coordinate:{x:200,y:200},payload:entries}))
+  const tooltip = screen.getByRole("tooltip")
+  expect(tooltip.parentElement).toBe(document.body)
+  expect(container.contains(tooltip)).toBe(false)
+  expect(tooltip.textContent).toContain("Bidder 29")
+  expect(tooltip.querySelector(".bidder-chart-tooltip-list")).toHaveProperty("tabIndex",0)
+})
+
+it('discards cached team graphs as soon as the visibility policy changes',async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});clients.push(client)
+ vi.mocked(request).mockResolvedValue(payload())
+ const view=(key:string)=><QueryClientProvider client={client}><BidderActivity readOnly visibilityKey={key} week="2026-10-12" selected="" onSelect={()=>{}}/></QueryClientProvider>
+ const mounted=render(view('shared'))
+ await screen.findByRole('button',{name:'Blair'})
+ vi.mocked(request).mockImplementation(()=>new Promise(()=>{}))
+ mounted.rerender(view('private'))
+ expect(screen.queryByRole('button',{name:'Blair'})).toBeNull()
+ expect(screen.queryByLabelText('2026-10-12, 10am: 7 matched checked links')).toBeNull()
+})
+
+it('reconciles untimed checks and includes them in the daily chart without inventing receipt times',async()=>{
+ const data:any=payload()
+ data.bidders[0].checked_daily=[8];data.bidders[0].without_time_daily=[3]
+ data.bidders[1].checked_daily=[2]
+ data.workday={date:'2026-10-12',start:'2026-10-12T05:00:00Z',end:'2026-10-13T05:00:00Z',confirmations:[{at:'2026-10-12T15:00:00Z',source:'confirmation',counts:{'1':5,'2':2}}],account_confirmations:[],runs:[],account_runs:[],totals:{'1':{checked:8,timed:5,without_time:3},'2':{checked:2,timed:2,without_time:0}}}
+ vi.mocked(request).mockResolvedValue(data);mount()
+ await screen.findByRole('button',{name:'Alex'})
+ expect(document.querySelector('.bm-kpi strong')!.textContent).toBe('10')
+ expect(screen.getByRole('status',{name:'Receipt time reconciliation'}).textContent).toContain('7 with receipt time · 3 without')
+ let points=JSON.parse(screen.getByTestId('chart-points').getAttribute('data-points')!)
+ expect(points.at(-1)['1']).toBe(5)
+ fireEvent.click(screen.getByRole('button',{name:'Alex'}))
+ expect(document.querySelector('.bm-kpi strong')!.textContent).toBe('8')
+ expect(screen.getByRole('status',{name:'Receipt time reconciliation'}).textContent).toContain('5 with receipt time · 3 without')
+ fireEvent.click(screen.getByRole('button',{name:'By day'}))
+ points=JSON.parse(screen.getByTestId('chart-points').getAttribute('data-points')!)
+ expect(points.at(-1)['1']).toBe(8)
 })

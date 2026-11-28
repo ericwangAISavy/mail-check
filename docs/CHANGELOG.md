@@ -2,6 +2,2111 @@
 
 Generated from releases.json. Use tools/release.py to add a release.
 
+## 3.44.0 — 2026-11-27
+
+Added job age and clearer Job Sourcing tables
+
+- Job Sourcing shows when each job became available, with oldest and newest sorting, exact timestamps and expiration cues.
+- The table header stays readable while scrolling, and row selection, clipboard, paste and deletion keep their existing behavior.
+
+## 3.43.0 — 2026-11-27
+
+Graph-first operational dashboard
+
+- The Dashboard now shows two weekly summaries (applications week to date and calendar interviews this week) with previous-week comparisons, four-week averages and trends.
+- One large analytics workspace with Profile quality, Bidder productivity and Workload tabs draws smooth weekly or daily trend lines with direct line names, tooltips, series isolation and an optional data view; tables and bar charts are removed.
+- Range choices of 4, 8, 12 weeks or custom dates; compact payments with cents and a needs-attention summary.
+- Interview conversion and rejection rate show N/A with the reason when too few outcome emails can be matched to applications, and applications that predate reply history are no longer counted as eligible.
+
+## 3.42.1 — 2026-11-27
+
+Dashboard interviews match the calendar
+
+- Dashboard interview counts (KPI, profile quality, weekly averages, trends and the weekly chart) now count interviews on the Interview calendar instead of invitation emails, so This week matches the calendar's count; cancelled interviews are excluded and shared interviews count once.
+
+## 3.42.0 — 2026-11-27
+
+Operational intelligence dashboard
+
+- The Dashboard is now one operational page: KPIs for applications, interview invitations, same-cohort application-to-interview conversion and offers, each compared with the previous period.
+- A needs-attention bar links to unconfirmed checks, expiring links, carried-over work, bidders below the daily minimum, account sync failures and unclassified mail.
+- Sortable profile quality table with interviews this week, weekly averages over completed weeks, same-cohort interview and rejection rates, offers and an 8-week trend.
+- Weekly profile outcome chart, daily or weekly workload chart with optional backlog, bidder productivity table with carryover, availability and completion rate, and a payment overview.
+- Metric definitions are documented in docs/METRICS.md and shown as tooltips; values that cannot be derived show N/A.
+
+## 3.41.4 — 2026-11-27
+
+Calendar feedback warnings
+
+- The interview calendar shows warning triangles only for company feedback tagged in-person, linkedin, or fuck. Scheduling and analysis statuses stay in the event details.
+
+## 3.41.3 — 2026-11-27
+
+Refined interview calendar colors
+
+- Interview events keep readable account colors in light and dark themes, with clear warning, cancellation, and selection indicators.
+- The account color picker updates the calendar immediately, remembers choices, and gives new accounts unused default colors when possible.
+
+## 3.41.2 — 2026-11-27
+
+Refined job sourcing table
+
+- The job table is part of the workspace instead of a framed card: 36px rows, quiet headers and separators, Company over Role, and a compact row-number column.
+- Job link and Check are compact side-by-side action columns: an icon-only external link and a square checkbox.
+- Selected rows use a soft tint with a thin accent edge, expiry clocks are smaller and softer, and a slim line under the table shows the job count and sort order.
+
+## 3.41.1 — 2026-11-27
+
+Refined workspace navigation
+
+- Navigation groups daily work by function, with Settings and Admin management near the bottom and version history in the footer.
+- The compact sidebar and mobile drawer have clearer active states, stable queue counts, and keyboard-accessible navigation labels.
+
+## 3.41.0 — 2026-11-27
+
+Bidder settings and new mail alerts
+
+- Bidders can choose a personal theme and color mode in Settings.
+- New email in assigned inboxes can trigger a desktop notification or chime while OfferPath is open.
+
+## 3.40.0 — 2026-11-27
+
+Remember opened job links
+
+- Job sourcing now shades rows when bidders open a job link and remembers them across visits and devices for each applicant account.
+
+## 3.39.1 — 2026-11-27
+
+Refined Bidder management
+
+- Bidder management is denser and calmer: a 47px header, a compact summary strip and policy row, 38px table rows with single-line dates, aligned numbers and clearly marked totals, accounts and unallocated rows.
+- The analytics controls sit in one compact block and the chart follows directly; the weekly heatmap uses short, wide cells and no longer stretches the section.
+- The chart drops the hatched future area, uses a thin Now line, small end markers and direct labels such as Nifemi 38 placed beside each line without overlapping; disabled report copying explains it unlocks when the week ends.
+
+## 3.39.0 — 2026-11-27
+
+New-since-last-visit Triage badge
+
+- The Triage badge keeps the queue size quiet and adds a small 'N new' when actionable emails arrived since you last opened Triage; opening Triage clears it. The collapsed sidebar shows a dot instead.
+
+## 3.38.18 — 2026-11-27
+
+Redesigned Bidder management
+
+- Bidder management has one header toolbar (week range, This week, bidder, refresh), a summary strip with Checked today, Checked this week and Payments recorded, and a deduction policy row whose editor opens in a popover.
+- The daily breakdown highlights today as one continuous column, shows upcoming days as a dash, and keeps checked counts strong with confirmed counts secondary.
+- Confirmation analytics combines its controls, a headline count with receipt-time reconciliation, an interactive legend and a compact weekly heatmap above one chart drawn with smooth curves, a soft fill, labelled latest values and a Now marker; lines never extend past the present.
+
+## 3.38.17 — 2026-11-27
+
+Styled dropdowns everywhere; Profile quality removed
+
+- Every dropdown in the app opens a styled list matching the app's menus: 13px rows, soft hover and a check on the current choice (browsers without support keep the standard list).
+- Lists from labelled selectors such as Bidder, Account and the calendar View line up with the whole button and match its width.
+- The Profile quality section is removed from the Dashboard.
+
+## 3.38.16 — 2026-11-27
+
+Styled Job Sourcing pickers
+
+- The Bidder and Account pickers on Job Sourcing open a list styled like the app's menus: soft surface, 13px rows, gentle hover, a check on the current choice, muted deleted bidders and no placeholder row. Browsers without support keep the standard list.
+
+## 3.38.15 — 2026-11-27
+
+Leaner calendar toolbar and card fixes
+
+- The calendar toolbar shows just the interview count (Intro and Technical totals are in its tooltip); the need-review chip is gone and Retry analysis moved into the More menu, so all controls fit on one line.
+- Very short interview cards show only their title, and a feedback warning sits as a small icon in the card's top-right corner.
+- The Company column header in Job Sourcing stays fixed while the sheet scrolls.
+
+## 3.38.14 — 2026-11-27
+
+Aligned job sheet rows
+
+- Job sheet rows centre every cell on one line, including the row number.
+- Jobs close to expiring show the amber clock used by the Expiring soon filter instead of a warning triangle, in a reserved slot so company names always line up.
+
+## 3.38.13 — 2026-11-27
+
+Consistent selects and menus
+
+- Dropdown option lists use 13px regular text, with the chosen option shown as a soft accent tint instead of a solid bold bar.
+- All popover menus (calendar More, Colors, date picker, timezone, sheet actions, missing submissions, review) share one raised surface and 32px rows with muted icons, soft hover, a check for the selected item and red destructive actions.
+- The calendar timezone picker keeps the same width when opened for searching, with lighter option rows and a muted chevron.
+
+## 3.38.12 — 2026-11-27
+
+Calmer period selector
+
+- The interview calendar's date range selector uses the same 13px medium text as the other toolbar controls, a quiet frame and a muted chevron.
+
+## 3.38.11 — 2026-11-27
+
+Compact calendar date header
+
+- The interview calendar's day headers are a single 38px line such as Mon Nov 30, Tue Dec 1, Wed 2: title-case weekday in a quieter colour, the month shown on the first day and when it changes, and today's date as a small accent chip.
+- The time gutter and day dividers run through the header, which has a faint tint and stays fixed while scrolling.
+
+## 3.38.10 — 2026-11-27
+
+Cleaner interview cards
+
+- Interview cards no longer show a calendar icon; text starts beside the colour strip with even padding, and neighbouring cards have a little more space between them. A feedback warning still shows its amber icon.
+
+## 3.38.9 — 2026-11-27
+
+Hatched strip always visible
+
+- Rescheduled, open-ended and still-being-analyzed interviews always show their hatched account-colour strip with square left corners, at rest and on hover, whatever other status they also have.
+
+## 3.38.8 — 2026-11-27
+
+Clear feedback warnings on interview cards
+
+- Only shared-feedback warnings mark an interview card: a single amber warning icon at the start of the card, kept even on narrow cards, with no red outline or glow.
+- Interviews whose analysis needs review show the normal calendar icon.
+- Interviews still being analyzed use the same clean hatched strip as rescheduled ones instead of a separate striped overlay.
+
+## 3.38.7 — 2026-11-27
+
+Calmer interview cards
+
+- Interview card text is smaller (12px titles, 11px times).
+- Rescheduled or open-ended interviews show a solid account-colour strip with a fine hatch and square left corners.
+- Hovering a card outlines it exactly in its account colour and brings it to the front; the Needs attention line is replaced by the amber warning icon alone.
+
+## 3.38.6 — 2026-11-27
+
+Refined interview event cards
+
+- Interview cards have a square left edge with a 4px account strip, rounded right corners, and a fill and 1px border tinted from the account colour.
+- Each card leads with a calendar icon, or an amber warning when it needs attention, followed by the title, a compact time like 9:30 – 10:00 AM, and the meeting platform with a video icon.
+- Content adapts to the card: short events show the title, 30-45 minute events add the time, longer ones add the platform or Needs attention, and narrow overlapping cards drop the icon to keep the title readable.
+- Hover, focus and the opened interview show a ring without shifting layout; rescheduled and open-ended events keep a striped strip, and cancelled titles are struck through.
+
+## 3.38.5 — 2026-11-27
+
+Straight event edges
+
+- Interview event cards have a square left edge so the account colour strip runs straight.
+
+## 3.38.4 — 2026-11-27
+
+Calendar typography
+
+- Interview calendar text follows the app's type scale: lighter event titles, even-width times and dates, a calmer date selector, and hour labels like 1 PM.
+
+## 3.38.3 — 2026-11-27
+
+Interview calendar as the workspace
+
+- The calendar fills the window with no surrounding frame: quiet hour lines, a tinted today column with a Today pill, and 9:00 AM style time labels.
+- Interview cards are rounded, tinted with their account colour and marked by a rounded colour strip; company, time and platform read at a glance, and 30-minute interviews show two lines.
+- Needs review shows as an amber line instead of a dashed box; finished and cancelled interviews recede, rescheduled or open-ended ones keep a striped strip, and the open interview is outlined.
+- The review alert sits beside the interview counts, toolbar controls share one size, and a slim key explains the markers and the timezone.
+
+## 3.38.2 — 2026-11-27
+
+Compact Job Sourcing and calendar workspaces
+
+- Job Sourcing has a one-line scope bar (Bidder / Account) with account settings, the missing-submissions alert and a sheet menu (manage workbooks, delete sheet) on the right.
+- Status tabs, the To do breakdown, Filter and order share one table bar; search and dates open under it, and the duplicate status footer is gone, so the table starts much higher.
+- The interview calendar uses one toolbar (navigation, interview summary, view, timezone, colors, filter, refresh, more) with no extra card, title or footer, and its grid fills the window.
+
+## 3.38.1 — 2026-11-27
+
+Sheets for every assigned account
+
+- Every account assigned to an active bidder now has its Job Sourcing sheet, including assignments that start later; missing sheets are created for all workspaces when the server starts.
+
+## 3.38.0 — 2026-11-27
+
+Automatic profile sheets and tidy filters
+
+- Assigning an account to a bidder creates that account's profile sheet automatically; the Add profile sheet button and dialog are gone.
+- Search and date controls on Job Sourcing are hidden until you click Filter at the right of the top row; applying a search or date opens them, and a dot on Filter shows filters are applied.
+- The missing-submissions warning sits beside Filter so it stays visible.
+
+## 3.37.11 — 2026-11-27
+
+Consistent tables and calendar cards
+
+- Tables share one look: sentence-case headers, medium-weight rows, hairline dividers without column lines and a soft hover.
+- Job sheets sit in a rounded frame with a small # column, Open links, round green checks and the status line as their footer, without a stray horizontal scrollbar.
+- Outside To do, the order toggle joins the status tab row, giving the sheet more room.
+- Calendar event cards have no outline, a 3px accent edge, 3px corners and compact text; 'Needs attention' events use a dashed outline.
+
+## 3.37.10 — 2026-11-26
+
+Redesigned interview calendar
+
+- The interview calendar has a titled header with a need-review chip and a More menu (split view, share, print, expand).
+- Navigation uses a compact period label, a View dropdown, a short timezone picker and a refresh button.
+- A summary row shows the interview total with Intro and Technical filter chips beside Colors and Filter.
+- The grid sits in a rounded frame with centred day headings, compact event cards, dashed 'Needs attention' cards and a footer with Business hours and the timezone.
+
+## 3.37.9 — 2026-11-26
+
+Cleaner interview calendar events
+
+- Interview event bars are flat account-coloured cards with a solid left edge, bold company and centred detail; events needing attention show a striped edge.
+- Calendar day headings show a large date over a small spaced weekday.
+
+## 3.37.8 — 2026-11-26
+
+Job Sourcing header layout
+
+- The header has labelled Bidder, Applicant account and Account settings fields; the applicant account is chosen from a selector showing its To do count, with add and delete sheet buttons beside it.
+- Search covers the selected applicant account and sits on its own row with the date controls and missing-submissions warning.
+- Under the status tabs, All pending, New today, Carryover and Expiring soon filters return beside a Priority/Newest order toggle.
+
+## 3.37.7 — 2026-11-26
+
+Job Sourcing page refinements
+
+- Missing job links show as a compact 'N missing submissions' warning that opens the list of bidders.
+- The expiring-soon icon sits before the company name.
+- A status line under the sheet shows how many jobs the view holds and how they are ordered.
+
+## 3.37.6 — 2026-11-26
+
+Simpler Job Sourcing work view
+
+- Add profile sheet is a single, direct form with the bidder's current sheets listed below it.
+- Status tabs use a clean underline style with quieter counts; the New today, Carryover and Expiring soon strip is removed.
+- Application search sits at the right end of the status row; the sourcing settings gear is removed (Manage all workbooks is in the Add profile sheet dialog).
+- Jobs close to expiring show a small red warning icon instead of a text label.
+
+## 3.37.5 — 2026-11-26
+
+Add profile sheet for the current bidder
+
+- The + next to a bidder's profile sheets now opens Add profile sheet for that bidder only, instead of the full Job sourcing settings list.
+
+## 3.37.4 — 2026-11-26
+
+Clear work-queue tab selection
+
+- The selected work-queue tab (To do, Completed, Expired, All) is now clearly highlighted.
+
+## 3.37.3 — 2026-11-26
+
+Cleaner sourcing toolbar
+
+- The workbook title next to the bidder selector is removed.
+
+## 3.37.2 — 2026-11-26
+
+Simpler bidder selector
+
+- The bidder selector shows only the bidder's name; job counts stay in the work queue.
+
+## 3.37.1 — 2026-11-26
+
+Clearer Job Sourcing page
+
+- Jobs saved before the server upgrade now age from their sourcing day, so Expired and Carryover counts are correct instead of 0.
+- Picking a date shows that day's full history; Back to work queue returns to To do.
+- Job links show their site with the full address on hover, role and company columns get more room, and the missing-links warning is a compact chip.
+- Empty views explain what to do next.
+
+## 3.37.0 — 2026-11-26
+
+Job sourcing work queue
+
+- Job sourcing opens on To do: every unfinished job from any day stays there until it is checked or seven days pass, with Completed, Expired and All for history
+- New today, Carryover and Expiring soon counts sit above the table, jobs in their last 48 hours show a quiet Expiring soon marker and lead the list, and each profile tab shows its To do count
+- Admins see each bidder's outstanding and expiring work in the bidder picker; the date picker is now an optional history filter
+
+## 3.36.0 — 2026-11-26
+
+Personal settings for every admin
+
+- Every admin can now open Settings to change their own sign-in password, choose their appearance and turn on urgent mail alerts
+- Model, checking, Outlook, local rules and privacy settings stay with the owner, and the server still refuses those changes from other admins
+
+## 3.35.0 — 2026-11-26
+
+Signature themes
+
+- Settings > Appearance offers nine curated themes, each with light and dark versions: Classic Cyan, Iris, Midnight, Forest, Champagne, Bordeaux, Monograph, Cobalt and Terracotta
+- Each administrator's theme and mode are personal and restore at sign-in; changing yours never changes anyone else's or any workspace setting
+- Themes apply instantly without reloading data, and status, chart and calendar colors keep their meaning in every theme
+
+## 3.34.10 — 2026-11-26
+
+Faster Job Sourcing sheet loading
+
+- Open large Job Sourcing sheets faster with compact data for the editor and read-only viewer.
+- Reduce sheet loading work while preserving formatting, check timestamps, and edit versions.
+
+## 3.34.9 — 2026-11-26
+
+Faster Bidder management loading
+
+- Open Bidder management from saved weekly totals and load the activity chart separately.
+- Use Refresh this week to match new confirmations immediately. Normal checks continue to update matches.
+
+## 3.34.8 — 2026-11-26
+
+Shared worker recovery and faster sourcing verification
+
+- Reduce SQLite write contention during sourcing verification and recheck matches when a concurrent edit changes the data.
+- Reuse the reconciliation connection and keep a slow RabbitMQ confirmation from blocking unrelated jobs in the same workspace.
+- Keep manual checks retryable when RabbitMQ is unavailable before submission and let shared job processes drain on Windows console shutdown.
+- Show retained dead letters separately from recorded job outcomes in System monitoring.
+
+## 3.34.7 — 2026-11-26
+
+Pipeline status colors and accessibility fixes
+
+- Interview pipeline statuses show a color beside the status word: cyan for active, amber for on hold, green for offers and acceptances, and a muted ring for closed outcomes
+- Inline loading messages show a small spinner
+- Screen readers get correct roles for the calendar's current-time line, the job sourcing sheet tabs, and the bidder activity chart and heatmap
+
+## 3.34.6 — 2026-11-26
+
+Loading, sign-in and high-contrast polish
+
+- Loading states wait briefly before appearing, then show a placeholder outline with the spinner
+- Sign-in errors match the error style used across the app
+- Pressed buttons move one pixel instead of two, and selected spreadsheet rows stay readable in high-contrast mode
+
+## 3.34.5 — 2026-11-26
+
+Research-led list, grid and calendar refinements
+
+- Triage shows a one-line preview so more messages fit, and sidebar counts are plain figures
+- Checked spreadsheet rows keep normal link colors, with done shown in the row number and check mark, and keyboard focus is visible on spreadsheet cells
+- Today's date in the calendar is a filled mark, hour labels align to the grid, and chart totals read as plain figures
+- Dropdowns use the same neutral hover as text fields
+
+## 3.34.4 — 2026-11-26
+
+Readable narrow screens
+
+- Bidder management fits the whole week at 800 pixels by stacking before and after amounts, and shows a fade when the table scrolls sideways
+- On phones the calendar keeps days readable and scrolls sideways under a pinned hour column, and section menus fade at the edge that has more items
+- Link history in mailbox rows reads as a button
+
+## 3.34.3 — 2026-11-26
+
+Tidy narrow layouts
+
+- Bidder management keeps the whole week and payment column in view at 1024 pixels
+- On narrow screens, offline workspaces show a hollow dot, and mailbox sync switches keep their label on phones
+
+## 3.34.2 — 2026-11-26
+
+Sharpen state and data emphasis
+
+- Triage rows show urgency as a red dot and label instead of a filled pill on every row
+- Bidder summary figures share one baseline, and amounts that cannot be edited yet no longer look like links
+- Paused mailboxes stand out from provider labels, calendar event details follow each account color, and disclosures and the sign-in card use quieter, consistent styling
+
+## 3.34.1 — 2026-11-26
+
+Clarify interaction states across workspaces
+
+- Spreadsheets and Job links now show checked, selected and hovered rows distinctly, and completed checks read as read-only.
+- Read-only and disabled fields, editable payment amounts, recovery buttons and removal actions are easier to tell apart.
+- Refine calendar events, mail list tags, pipeline statuses, account status and bidder activity controls without changing features or workflows.
+
+## 3.34.0 — 2026-11-26
+
+Redesign the workspace interface
+
+- A new visual identity across every page: navigation and brand share one canvas, work sits in a focused sheet, and each page has a compact title bar.
+- Triage, Dashboard, Bidder management, Accounts and Settings are recomposed for faster scanning, denser records and clearer forms, with no change to features or workflows.
+- Calendar, pipeline, job spreadsheets, dialogs and light theme share the new components, with improved light-theme contrast.
+
+## 3.33.7 — 2026-11-26
+
+Fix workspace layout at high zoom
+
+- Keep the triage toolbar and message count within the workspace at high zoom.
+- Keep the Settings save bar clear of form fields at shorter viewport heights.
+
+## 3.33.6 — 2026-11-26
+
+Refine workspace density and form layout
+
+- Fit more triage messages in view and sharpen reading-pane hierarchy and keyboard focus.
+- Size bidder and settings fields to their content and keep account connection details readable.
+- Unify workspace selection and scrollbar styling across themes.
+
+## 3.33.5 — 2026-11-26
+
+Polish the enterprise visual system
+
+- Refine the application shell with neutral graphite surfaces, restrained branding, compact navigation and clearer visual hierarchy.
+- Unify existing controls, panels, calendar chrome and reporting presentation while preserving semantic colors, business values and workflows.
+- Improve Bidder management table density and numerical presentation without changing controls or application behavior.
+
+## 3.33.4 — 2026-11-26
+
+Refine the workspace interface across all pages
+
+- Unify surfaces, typography, controls and focus states across workspace pages, dialogs and monitoring, with light-mode and reduced-motion support.
+- Use space more effectively on Dashboard, Accounts, Settings and bidder workflows while retaining calendar profile colors and prominent feedback warnings.
+- Improve mobile navigation focus handling, keyboard navigation for mail and profile tabs, and the read-only Job links table.
+
+## 3.33.3 — 2026-11-26
+
+Streamline owner workspace and backup management
+
+- Organize Admin management into Workspaces, Backups and Activity tasks with a searchable directory and controls for one selected admin.
+- Show backup history only in an on-demand browser, sorted newest first with eight archives per page and an automatic/manual filter.
+- Keep creation and backup drafts while switching tasks, preserve forms during failed status refreshes, and defer background requests until their task is opened.
+
+## 3.33.2 — 2026-11-25
+
+Fix reviewed analytics and sheet regressions
+
+- Keep profile outcome history in Chicago calendar days regardless of dashboard display timezone and order receipt matching by exact timestamps.
+- Exclude replies that match multiple application cohorts, tolerate damaged receipt metadata, and keep hidden small samples out of chart tooltips.
+- Preserve sheet undo history and input-row formatting when clearing fields without changing row structure.
+- Add regression coverage for legacy negative invitation caches and retained calendar review messages.
+
+## 3.33.1 — 2026-11-25
+
+Simplify job sourcing sheet interactions
+
+- Use compact row selection in the default admin sourcing sheet without cell editing, formula bar, double-click editor, formatting shortcuts or resize handles.
+- Keep copy, completion checks and sheet management; append pasted job rows without overwriting the selected cell, and hide unused blank input rows.
+
+## 3.33.0 — 2026-11-25
+
+Filter for one-page application links
+
+- Add an Only one-page links toggle to the shared job library for Greenhouse and Ashby links, compatible with search, dates, own-link exclusion and pagination.
+- Keep one-page inclusion and exclusion mutually exclusive and preserve the selected mode in the page URL.
+
+## 3.32.3 — 2026-11-25
+
+Compact profile quality layout
+
+- Reduce profile quality chart height, spacing and control size, with compact account rows and scrollable sticky table headings.
+- Keep exact outcome counts visible and offer confidence ranges and counting details on demand through Options, with methodology in expandable help.
+- Correct garbled punctuation in profile quality labels and tooltips.
+
+## 3.32.2 — 2026-11-25
+
+Compact calendar analysis status
+
+- Replace the large calendar analysis description panel with a single-line badge strip for completion, remaining events, review warnings and retry status.
+
+## 3.32.1 — 2026-11-25
+
+Measure profile quality from application outcomes
+
+- Replace raw email ratios with deduplicated application cohorts and matched interview and rejection outcomes within equal response windows.
+- Show weighted 28-day trends, recent applications, sample sizes, confidence ranges and unlinked outcome coverage without clipping rates or inventing activity.
+- Preserve profile colors across filters and backfill retained outcome job references during upgrade.
+
+## 3.32.0 — 2026-11-25
+
+Analyze email invitations and compact cleared job rows
+
+- Analyze email calendar invitations for IMAP and other accounts across all workspaces, including a bounded automatic backfill of existing imports.
+- Preserve original invitation schedules and manual corrections while extracting company, role and interviewer details, with retryable review decisions.
+- Automatically close blank gaps after clearing or deleting job rows and retain one trailing input row for pasting.
+
+## 3.31.8 — 2026-11-25
+
+Calendar sync reads only what changed
+
+- Automatic calendar sync now requests only changes to the primary calendar, with a full read of all calendars every 30 minutes; Check now still reads everything
+- Unchanged events are no longer queued or saved again, which greatly reduces database writes
+- Calendar polling slows to every 15 minutes while Microsoft change notifications are active
+- Background calendar analysis handles larger batches more often
+
+## 3.31.7 — 2026-11-25
+
+Guard calendar source recovery and review updates
+
+- Prevent current calendar tasks from restoring employer or role details deliberately removed from updated descriptions.
+- Recover fuller descriptions only for legacy truncated tasks and avoid repeated writes for unchanged review markers.
+
+## 3.31.6 — 2026-11-25
+
+Preserve uncertain calendar analysis and full context
+
+- Retain uncertain calendar decisions in Needs review so Retry analysis performs fresh inference without hiding known interviews.
+- Use a calendar-specific 12,000-character model context and keep fuller queued descriptions independently of email limits.
+- Refresh outdated analysis on calendar sync using versioned caches and recover fuller saved descriptions for older pending tasks.
+
+## 3.31.5 — 2026-11-25
+
+Count distinct daily application confirmations
+
+- Count repeated acknowledgments for the same profile and application once per Chicago calendar day in bidder management.
+- Keep different days, roles and explicit job references separate, preserve receipt history, and label the second count as confirmed applications.
+
+## 3.31.4 — 2026-11-25
+
+Fix public-site timeout probe evidence
+
+- Use compressed public asset checks and one transport retry while retaining byte verification and bounded response sizes.
+- Identify the failing shell or JavaScript stage instead of carrying an unrelated successful HTTP status into timeout evidence.
+
+## 3.31.3 — 2026-11-25
+
+Highlight high-risk interview feedback
+
+- Highlight calendar events with warning feedback using a prominent danger outline, glow and larger warning icon while preserving profile colors and stripe patterns in both themes.
+
+## 3.31.2 — 2026-11-25
+
+Compact interview feedback and related links
+
+- Place shared company feedback above related jobs and show warning or normal icons inside calendar event titles.
+- Collapse related job links into compact clickable rows with independently expandable details.
+
+## 3.31.1 — 2026-11-25
+
+Correct worker and subscription health evidence
+
+- Count busy collection and model workers correctly and report subscription maintenance separately from collection readiness.
+- Preserve safe Microsoft error codes, account and workspace evidence, and subscription retry delays between maintenance passes.
+- Identify uninitialized workspace databases explicitly in monitoring.
+
+## 3.31.0 — 2026-11-25
+
+Shared interview feedback
+
+- Choose multiple compact interview feedback badges directly in event details and see company feedback shared across admin workspaces.
+- Keep each admin's feedback independently editable and load shared calendar badges without blocking the calendar.
+
+## 3.30.4 — 2026-11-24
+
+Finish job search timeout and retry recovery fixes
+
+- Keep URL filtering in other workspace libraries from consuming the short database-read allowance while retaining the total search deadline.
+- Detect total deadline overruns even in small searches that do not trigger SQLite progress checks.
+- Remove stale incomplete-search retry advice after a failed or permission-denied refresh.
+
+## 3.30.3 — 2026-11-24
+
+Fix empty job searches during ownership checks
+
+- Separate the short ownership database-read budget from bounded URL normalization so large saved-link histories do not make Exclude my links fail.
+- Explain ownership-check failures and offer an explicit Include my links retry without changing the default filter.
+- Stop describing incomplete empty searches as having no matching links.
+
+## 3.30.2 — 2026-11-24
+
+Initialize workspace databases before enabling admins
+
+- Initialize and validate new workspace databases before registering them as enabled so pending first logins do not generate missing-database health warnings.
+- Show workspace names and check reasons in independent monitoring alerts while retaining genuine missing-database warnings.
+- Provide a guarded local repair for never-accessed workspaces, refusing existing databases and SQLite recovery files.
+
+## 3.30.1 — 2026-11-24
+
+Harden shared job library searches
+
+- Handle inaccessible workspace paths as incomplete results instead of failing the whole Job links search.
+- Include valid pasted job URLs padded with tabs or line breaks and keep their filter behavior consistent.
+- Interpret supported boolean filter values consistently between bookmarked URLs and the API.
+
+## 3.30.0 — 2026-11-24
+
+Add shared job library filters
+
+- Exclude links already saved in the current workspace by default, including normalized copies uploaded by other admins.
+- Add an optional Greenhouse and Ashby one-page link exclusion, off by default, with both filters applied before pagination.
+
+## 3.29.0 — 2026-11-24
+
+Mark matched confirmations and verify Workable titles
+
+- Show a small Matched check mark on application-received emails backed by checked job-link proof, separately from the email Done state.
+- Resolve differing imported and confirmation titles using verified public Workable posting titles without company-specific matching rules.
+
+## 3.28.1 — 2026-11-24
+
+Check all company links for generic confirmations
+
+- When an application confirmation contains no role or job reference, check all eligible links for the matching company and mailbox across the existing date window.
+- Preserve explicit job references, existing checks and confirmation proof while allowing company-only confirmations to cover additional matching rows.
+
+## 3.28.0 — 2026-11-24
+
+Deduplicate pasted jobs and share matching confirmations
+
+- Remove incoming copies of the same ATS job, including BrassRing links with different site and tracking parameters.
+- Check all eligible rows matching a confirmation mailbox, company and role, even when their job IDs differ, while preserving saved proof.
+
+## 3.27.2 — 2026-11-24
+
+Harden schema upgrades and posting lookup recovery
+
+- Prevent older application processes from downgrading newer databases and recheck schema compatibility before migrations.
+- Apply mailbox filters before limiting evidence candidates so busy accounts cannot starve another profile's matching.
+- Limit concurrent public posting requests across checks and retry local capacity shortages without marking postings unavailable.
+
+## 3.27.1 — 2026-11-23
+
+Allow shared workspaces to upgrade intermediate schemas
+
+- Fix bootstrap, payments and other shared-workspace requests failing after an update from database schema 51 to 52.
+- Allow supported intermediate schema versions through the existing serialized migration path while continuing to reject unsupported older and future databases.
+
+## 3.27.0 — 2026-11-23
+
+Add evidence-based application matching fallbacks
+
+- Preserve existing matching rules and add alternative matches using explicit application IDs, employer aliases, email details and verified posting titles.
+- Keep existing checks and proof unchanged; leave ambiguous confirmations for review and record the evidence for every new fallback match.
+- Cache bounded public posting lookups outside database write locks and keep passive report refreshes free of network requests.
+
+## 3.26.0 — 2026-11-23
+
+Search job links across a date range
+
+- Filter shared Job links with inclusive From and To dates, including open-ended ranges, All dates and Today.
+- Keep date filters while searching and changing page size; retain support for existing single-date bookmarks.
+
+## 3.25.2 — 2026-11-23
+
+Separate active queues from retained failures
+
+- Separate ready and retrying job backlog from retained dead-lettered failures in monitoring cards and charts.
+- Display the monitoring UI version and offer a reload when a newer installed build is available.
+
+## 3.25.1 — 2026-11-23
+
+Accurate monitoring coverage and access revocation
+
+- Show historical monitoring gaps as a neutral history note and reserve a warning for missing current job reporting; initialize telemetry for idle workers.
+- Revalidate Job links authorization before returning search results and disable cached copying immediately after access is denied.
+
+## 3.25.0 — 2026-11-23
+
+Owner-controlled Job links access
+
+- The owner always has Job links access; existing and new admins need an explicit owner grant from Admin management.
+- Enforce grants on the page and API, preserve signed-in sessions when permissions change, and remove cached library results after revocation.
+
+## 3.24.1 — 2026-11-23
+
+Focus the complete sourcing search bar
+
+- Show one blue focus outline around the full Job links and Job sourcing search bar, including its icon.
+- Remove the redundant Search buttons while preserving Enter-to-search.
+
+## 3.24.0 — 2026-11-23
+
+Choose shared job links page size
+
+- Choose 100, 200, 300, 400 or 500 items per page on Job links while keeping keyword and date filters.
+- Changing page size returns to the first page, and the API enforces a 500-item maximum.
+
+## 3.23.0 — 2026-11-23
+
+Filter shared job links by date
+
+- Filter Job links by saved job date across every workspace, with the Job sourcing date picker, previous/next day, Today and All dates controls.
+- Combine dates with keyword search and reset pagination when the selected date changes.
+
+## 3.22.3 — 2026-11-23
+
+Match shared job links to the sourcing sheet
+
+- Use compact single-line spreadsheet rows with drag selection and keyboard copying on Job links, matching Job sourcing.
+- Copy selected URLs one per line or copy complete company, role and link rows for sheet pasting.
+
+## 3.22.2 — 2026-11-23
+
+Make monitoring health evidence actionable
+
+- Show scoped health evidence, unknown coverage, worker progress and safe failure categories with persistent incident history.
+- Probe public shell and entry assets independently, retain job and queue charts during gateway outages, and correlate failed requests across gateway and worker logs.
+
+## 3.22.1 — 2026-11-23
+
+Recover malformed page asset loads
+
+- Retry malformed page-module downloads with fresh URLs and recover persistent asset failures without repeated reloads.
+- Keep older frontend chunks for 24 hours so open pages can finish loading after a rebuild.
+
+## 3.22.0 — 2026-11-23
+
+Shared job links library
+
+- Admins can search company, role and job links across retained workspace sheets, with the Job sourcing table style and clipboard copying for selected rows.
+
+## 3.21.2 — 2026-11-23
+
+Recover shared runtime status reads on Windows
+
+- Shared job-status reads retry brief Windows access conflicts and return a clear temporary-unavailability response when access remains blocked, preserving running-job state.
+- Background work waiting for runtime state is deferred without spending its business retry budget and is visible in monitoring.
+
+## 3.21.1 — 2026-11-23
+
+Short interview writes and safe Windows worker cleanup
+
+- Interview and calendar reconciliation reserve short SQLite write transactions after detection, avoiding stale read-snapshot write conflicts.
+- Shared worker servers handle Windows connection-close resets consistently. Busy database jobs defer without consuming business retries and appear in monitoring.
+
+## 3.21.0 — 2026-11-23
+
+Redundant model workers and bounded local recovery
+
+- Two model workers consume durable jobs while the existing shared lock coordinates inference, allowing processing to continue during one worker's recovery.
+- Gateway process launch and startup failures retry with backoff. Control database waits are bounded and transient failures return clear retry responses.
+
+## 3.20.1 — 2026-11-23
+
+Isolate service failures and preserve incident evidence
+
+- A failed API worker can fail over to a healthy API process without restarting the gateway. Job workers recover independently and temporary gateway loss no longer drains every service.
+- Independent monitoring records service failure and recovery history for targeted diagnosis after a transient outage.
+
+## 3.20.0 — 2026-11-23
+
+Independent service failure monitoring
+
+- API, collection and model workers publish private local health evidence, allowing monitoring to identify stopped or unresponsive services even when the gateway is down.
+- The independent monitor checks database and broker health directly and highlights individual failed workers with their logs.
+
+## 3.19.5 — 2026-11-23
+
+Visible outage alarms in independent monitoring
+
+- A prominent alert banner and browser-tab warning signal application outages, stale health checks and a disconnected monitor. The observer records when an outage begins.
+
+## 3.19.4 — 2026-11-23
+
+Use independent monitoring only
+
+- The embedded System monitoring navigation and page are removed from OfferPath. Monitoring remains available in the independent local console.
+
+## 3.19.3 — 2026-11-23
+
+Reliable monitoring state and restart errors
+
+- Broken monitoring responses update availability correctly, stale service states are labeled, and unreadable logs show a clear access message.
+- The monitor launcher waits for the previous instance to stop and avoids starting a conflicting replacement.
+
+## 3.19.2 — 2026-11-23
+
+Reload outdated independent monitoring servers
+
+- The launcher replaces outdated monitoring processes instead of reusing an old health endpoint. monitor.bat explicitly restarts the independent console.
+
+## 3.19.1 — 2026-11-23
+
+Shared monitoring charts in the independent console
+
+- The independent monitoring server now renders the same charts, service tiles, processing stages and event tables as embedded monitoring, retaining recorded snapshots during outages.
+
+## 3.19.0 — 2026-11-23
+
+Independent local monitoring and application recovery
+
+- A separate monitoring server on localhost port 52401 stays available during OfferPath outages, with service snapshots and local server logs.
+- Automatic recovery checks application services beyond the HTTP listener and retries hung startup or an unexpected exit.
+
+## 3.18.0 — 2026-11-23
+
+Manage deleted bidders' sourcing history
+
+- Admins can select deleted bidders at the bottom of the workbook list and copy, edit, search or delete their retained job sheets.
+
+## 3.17.3 — 2026-11-23
+
+HTTP connection cleanup and sustained crash recovery
+
+- Malformed requests on closing HTTP connections are safely disconnected without an asyncio callback traceback.
+- After an unexpected server exit, automatic recovery retries failed replacements and pauses during repeated crashes before trying again.
+
+## 3.17.2 — 2026-11-22
+
+Busy database is deferred, slow write locks are named
+
+- A calendar save that finds the database busy is retried later without counting as a failure or printing a traceback
+- The server window names any process that holds the database write lock for more than 10 seconds
+
+## 3.17.1 — 2026-11-22
+
+Scheduled checks no longer repeat for account problems
+
+- A scheduled check that finishes with problems on some accounts is no longer re-run five times; the problems stay on the Accounts page and the check runs again on its normal schedule
+
+## 3.17.0 — 2026-11-22
+
+Colored server window
+
+- The server window colors messages by severity: red for errors, yellow for warnings, green for success, cyan for routine progress, white on red for critical
+
+## 3.16.4 — 2026-11-21
+
+Offline outages no longer burn retries
+
+- When the internet or DNS is down, queued mail and calendar work now waits and is retried later instead of using up its attempts and being dropped
+
+## 3.16.3 — 2026-11-21
+
+Clean second Ctrl+C
+
+- Pressing Ctrl+C again while the server is stopping no longer prints a traceback from the log follower
+
+## 3.16.2 — 2026-11-21
+
+Clearer shared worker logs
+
+- Failed background jobs now log where the error was raised, and the repeated reconnect-for-read-marking warning is printed once per account instead of on every run
+
+## 3.16.1 — 2026-11-21
+
+Calendar saves survive a busy database
+
+- Calendar events are no longer lost when another worker is writing; the database wait is longer and a locked save is retried
+
+## 3.16.0 — 2026-11-21
+
+Server window shows warnings and crashes
+
+- The server window now shows warnings, errors and full tracebacks from every server process, labelled with the process name, instead of only startup lines. Everything is still saved in the log files.
+- When a worker process dies on its own, the window reports it with the exit code explained in words (for example access violation, stack overflow or forcibly ended) and what the worker wrote before it stopped.
+- Uncaught errors in any process, Python warnings and hard native crashes (with every thread's stack) are now recorded. Set OFFERPATH_CONSOLE_LOG to info, error or off to change how much the window shows.
+
+## 3.15.5 — 2026-11-20
+
+Clean shutdown on repeated Ctrl+C
+
+- Pressing Ctrl+C again while the server is shutting down now stops it immediately with a short message instead of crashing with a traceback.
+
+## 3.15.4 — 2026-11-20
+
+Compact job matches on calendar events
+
+- Possible job matches on a calendar event now show just the job title with its date, a Saved by or Applied by badge with the bidder's name, and the link; the match reasons, account and verification lines are gone.
+
+## 3.15.3 — 2026-11-20
+
+One profile quality chart
+
+- Profile quality shows every account in a single chart, one line per account, with a switch between interview rate and rejection rate instead of a separate chart for each account.
+- A table under the chart lists each account's applications and exact rates, doubles as the legend, and shows or hides an account's line when selected; the chart axis fits typical values so one thin week cannot flatten the lines.
+
+## 3.15.2 — 2026-11-20
+
+Profile quality from saved records
+
+- Each account's interview rate is interview emails divided by received application emails, and its rejection rate is rejection emails divided by received application emails.
+- The status is calculated from permanently saved records, not from mail received recently, so it no longer goes empty when an account has had no new mail for a week; it matches the application counts in Payments.
+- Interview and rejection emails are now saved permanently from now on, and the page shows the day the comparison starts from.
+- Redesigned the account cards with two rate tiles and the counts behind them, smooth area and bar charts, weekly grouping by default, and a clear message when an account has no application emails yet.
+
+## 3.15.1 — 2026-11-20
+
+Profile quality across all stored history
+
+- Profile quality ratios and daily, weekly and monthly charts now cover the entire stored mail history for the selected accounts.
+
+## 3.15.0 — 2026-11-20
+
+Profile quality chart styles
+
+- Switch each profile's quality trends between line and bar charts with the same interview and rejection email ratios.
+
+## 3.14.0 — 2026-11-20
+
+Profile quality trends
+
+- Compare interview-related and rejection email rates for each account by day, week or month in place of the dashboard message explorer.
+
+## 3.13.4 — 2026-11-20
+
+Full-height sourcing spreadsheet
+
+- The Job sourcing grid fills the available workspace even on empty days or sheets with only a few rows.
+
+## 3.13.3 — 2026-11-20
+
+More frequent shooting stars
+
+- Twelve staggered shooting stars bring a new streak to the sign-in sky every second.
+
+## 3.13.2 — 2026-11-20
+
+Brighter shooting star trails
+
+- Shooting stars on the sign-in screen are slightly brighter and leave longer trails.
+
+## 3.13.1 — 2026-11-20
+
+Shooting stars on sign-in
+
+- Tiny tapered star fragments cross the mountain sky on staggered diagonal paths.
+
+## 3.13.0 — 2026-11-20
+
+Ambient lights on sign-in
+
+- Tiny points of light drift slowly across the sign-in background when motion is enabled.
+
+## 3.12.9 — 2026-11-20
+
+Align the sign-in role selector
+
+- The Admin and Bidder selector uses the full rounded field and a single focus outline.
+
+## 3.12.8 — 2026-11-20
+
+Single focus outline
+
+- Text fields and shared buttons show a single clear keyboard focus outline.
+
+## 3.12.7 — 2026-11-20
+
+Clearer form interaction feedback
+
+- Mail filters highlight the focused field and show when results are updating. Buttons give a subtle press response.
+
+## 3.12.6 — 2026-11-20
+
+Dropdown hover feedback
+
+- Dropdowns and the calendar timezone picker smoothly highlight their borders on hover.
+
+## 3.12.5 — 2026-11-20
+
+Subtle button and tab transitions
+
+- Buttons and tabs ease into their hover colors over 140 milliseconds. Inactive profile tabs also softly highlight their lower edge.
+
+## 3.12.4 — 2026-11-20
+
+Show stripes for unanalyzed calendar bookings
+
+- The left stripe now follows each booking’s analysis status, including bookings with no review message.
+
+## 3.12.3 — 2026-11-20
+
+Hatched calendar event accent
+
+- Calendar events awaiting detail analysis show diagonal stripes inside their left accent bar.
+
+## 3.12.2 — 2026-11-20
+
+Fit the sourcing table to the workspace
+
+- Default text columns share the available width, and long job sheets scroll inside the table.
+
+## 3.12.1 — 2026-11-20
+
+Modern calendar event bars
+
+- Calendar events are calm rounded cards with a soft tint and a gentle lift on hover.
+- Past events are shown lightly transparent while upcoming ones stay bright; dashed outlines are gone, and unknown end times fade out softly at the bottom.
+
+## 3.12.0 — 2026-11-20
+
+Choose calendar colors per account
+
+- The interview calendar has a Colors menu: pick one of eight colors for each account, or reset it to the automatic color.
+- The chosen colors are saved for the workspace, so the browser and desktop app show the same colors.
+
+## 3.11.5 — 2026-11-20
+
+Tidier accounts and bidder forms
+
+- Account rows read Outlook and Updated 10s ago, so the sync time is always visible, and only paused accounts show a status badge.
+- Bidder payment, wallet and assignment fields no longer overlap or push Save buttons out of view, and the add bidder box has room to type.
+
+## 3.11.4 — 2026-11-19
+
+Reliable sync failure reasons
+
+- A mailbox's Sync failing reason now stays visible until mail collection succeeds; a successful calendar sync no longer hides it.
+- Mail that was collected is no longer reported as failing when only a follow-up step had a problem.
+
+## 3.11.3 — 2026-11-19
+
+Sync switch on each account
+
+- Each connected account now has a Sync switch for collecting new mail as it arrives, replacing the separate Automatic updates list and the Include in checks switch.
+- Turning Sync on for a paused account also includes it in checks again.
+
+## 3.11.2 — 2026-11-19
+
+Cleaner bidder management
+
+- Bidders are now managed in one panel: the bidder list on the left and the selected bidder's profile, payment, wallet, web access and accounts on the right, so switching bidders takes one click and no longer pushes the page around.
+
+## 3.11.1 — 2026-11-19
+
+Clean reply editor focus
+
+- The email reply editor shows one clean focus outline instead of a doubled line.
+
+## 3.11.0 — 2026-11-19
+
+See why automatic updates fail
+
+- When automatic mail collection fails for a mailbox, its card now shows Live · failing and a short reason, such as an expired Microsoft sign-in, instead of only Not synced yet.
+- The next successful collection clears the warning automatically.
+
+## 3.10.4 — 2026-11-19
+
+Clearer weekly refresh
+
+- Refresh this week now says how many new checks it found, and the duplicate Fully rebuild this week button is gone (it ran the same refresh).
+- Refreshing a week no longer rewrites blank Check cells, so people editing a sheet while Payments is open no longer get a sheet changed error.
+
+## 3.10.3 — 2026-11-19
+
+Pasted job rows start unchecked
+
+- Copying job rows to another sheet no longer copies their Check status; pasted rows start unchecked and are checked by that account's own confirmations.
+
+## 3.10.2 — 2026-11-19
+
+Keep job sourcing rows for pasting
+
+- Delete in Job sourcing now clears the selected rows' contents and keeps the rows, so you can paste the next batch of links into them.
+- Pasting into a day that has no job rows adds the copied rows to that day.
+- Deleting a day's rows always leaves a blank input row, so other days are never left without a row to paste into.
+
+## 3.10.1 — 2026-11-19
+
+Monitoring reliability fixes
+
+- Job activity is no longer lost on Windows when the monitoring page reads its files at the moment a worker saves them.
+- Workers save monitoring counts at most every 10 seconds instead of rewriting the whole day's file for each event.
+- The monitoring page's own refreshes are no longer counted as traffic.
+- Chart values are announced to screen readers, hover stays valid after switching the range, and the range is locked while live updates are paused.
+
+## 3.10.0 — 2026-11-19
+
+Graph-based system monitoring
+
+- System monitoring now shows graphs for traffic, server errors, response time, job outcomes and queue backlog over the last 1, 6 or 24 hours.
+- Key numbers (requests, error rate, p95 response time, jobs completed, retries and failures, backlog) appear as tiles with trend lines.
+- Service health is a compact strip with ready counts, and a per-stage table shows failure rates, job time and live queues.
+- Recent problems lists retries and failures; the long explanations and dot timeline are gone.
+- Job activity is recorded more reliably and with less disk work.
+
+## 3.9.10 — 2026-11-18
+
+Less explanatory text on Bidder management
+
+- Remove the activity chart caption, the deduction rule description and the unallocated-replies subtitle to save space.
+
+## 3.9.9 — 2026-11-18
+
+Simpler Sourcing toolbar
+
+- Keep only the previous/next day, date and Today controls on Sourcing, moved into the top toolbar; the second tool row is removed and the toolbar wraps neatly on smaller screens.
+
+## 3.9.8 — 2026-11-18
+
+Simpler Interview calendar toolbar
+
+- Remove the calendar's top tool row and keep Check now at the end of the date row, which is now the calendar's top row.
+
+## 3.9.7 — 2026-11-18
+
+Instant page navigation feedback
+
+- Highlight the page you click in the sidebar and header immediately, with a slim progress bar while it opens, instead of appearing to do nothing.
+- Start loading a page as soon as you point at or focus its link, so most pages open without waiting.
+
+## 3.9.6 — 2026-11-18
+
+Round status indicators
+
+- Fix the grey square around status and footer dots, and restore theme glows on buttons, dialogs and counts that the dark theme had overridden.
+
+## 3.9.5 — 2026-11-18
+
+Sourcing sheet fits the window
+
+- Keep the Sourcing sheet and its account tabs within the window at every header height.
+- Give dark-theme table headers a solid background so rows no longer show through them while scrolling.
+
+## 3.9.4 — 2026-11-18
+
+Readable Dashboard metrics
+
+- Show a visible label beside each Dashboard metric icon and arrange the four totals to fit the available space.
+
+## 3.9.3 — 2026-11-18
+
+Restore Dashboard compatibility across workspace workers
+
+- Open the Dashboard even when a workspace worker runs an older version during an update.
+
+## 3.9.2 — 2026-11-18
+
+Load Dashboard totals before optional details
+
+- Start loading Dashboard history without waiting for the chart and reader bundles, and load message rows when the explorer is opened.
+
+## 3.9.1 — 2026-11-18
+
+Start OfferPath from a fresh Windows session
+
+- Prompt for the local RabbitMQ password when a cold-start launcher has no AMQP_URL, and check the connection before startup.
+
+## 3.9.0 — 2026-11-18
+
+One-click Windows server restart
+
+- Double-click restart.bat to restart the running OfferPath server or start it when stopped.
+
+## 3.8.5 — 2026-11-18
+
+Reduce repeated inbox and realtime reads
+
+- Compute Inbox totals and category counts together, and coalesce realtime updates while a refresh is running.
+
+## 3.8.4 — 2026-11-18
+
+Scale worker health checks by process
+
+- Check each shared API worker once per sweep so a temporary slowdown cannot trigger repeated health failures from different workspaces in that sweep.
+- Reduce repeated Windows lock setup during database access.
+
+## 3.8.3 — 2026-11-18
+
+Load workspace pages before header totals
+
+- Open pages without waiting for Inbox and application totals, and compress large page responses over the gateway.
+
+## 3.8.2 — 2026-11-18
+
+Faster workspace loading and steadier traffic
+
+- Show workspace navigation while the page finishes loading and download smaller sign-in images.
+- Reduce repeated bidder Inbox requests and limit expensive database reads when a workspace is busy.
+- Return saved settings immediately and reload workspace schedules in the background.
+
+## 3.8.1 — 2026-11-18
+
+Faster first load after updates
+
+- Compress the app's scripts and styles before sending them, so the first visit after an update loads about three times faster over the tunnel.
+- Show a calm 'Still opening OfferPath…' notice instead of a connection warning when the first load is slow; the app opens on its own as soon as it is ready.
+
+## 3.8.0 — 2026-11-18
+
+Calendar sync with Check now and tidier header
+
+- Check now also collects calendar events, like scheduled checks; real-time updates already sync calendars with mail.
+- Keep the header on one tidy row at every desktop width, with a cleaner two-row layout on phones.
+- Remove the auto-check button from the header; automatic checks stay available in Settings and are off by default.
+- Calmer primary buttons, an icon-only sidebar collapse button in the sidebar's bottom-right corner, and aligned dashboard filter buttons.
+
+## 3.7.3 — 2026-11-18
+
+Matching selects and buttons
+
+- Give dark-theme dropdowns and secondary buttons the same glass fill, gradient rim and hover glow as outline buttons.
+
+## 3.7.2 — 2026-11-18
+
+Softer dark theme glow
+
+- Tone down the dark theme's gradient edges, glows and highlights for a calmer look.
+
+## 3.7.1 — 2026-11-18
+
+Consistent hover and focus states
+
+- Keep dark-theme buttons, the active navigation item and tabs looking the same on hover and after, with smooth glow changes instead of flat or grey flashes.
+- Restore visible keyboard focus on dark-theme buttons, remove glow from disabled buttons, and keep borderless panels borderless.
+- Show red borders on invalid fields in both themes, including while hovered or focused.
+
+## 3.7.0 — 2026-11-18
+
+Glowing dark theme
+
+- Refresh the dark theme with luminous gradient edges on panels and dialogs, cyan-to-blue borders, lit icon tiles and an ambient background glow.
+- Highlight the active navigation item, primary buttons, counts and focused fields with the brand glow. The light theme is unchanged.
+
+## 3.6.5 — 2026-11-18
+
+Roomier header identity
+
+- Add more space between the logo, the OfferPath title and the version badge, scaling it to fit narrower sidebars.
+
+## 3.6.4 — 2026-11-18
+
+Aligned header and sidebar collapse
+
+- Align the header breadcrumb with the page at every window width and sidebar state.
+- Move the sidebar collapse control from the header to the bottom of the sidebar.
+
+## 3.6.3 — 2026-11-18
+
+Full-width header
+
+- Move the OfferPath logo, title and version into a header that spans the full width, with the sidebar beneath it on the left.
+
+## 3.6.2 — 2026-11-18
+
+Brighter sidebar identity
+
+- Restyle the sidebar logo, OfferPath wordmark and version badge with the brand glow, bold italic two-tone lettering and a highlighted version pill.
+
+## 3.6.1 — 2026-11-18
+
+Shorter, plainer interface text
+
+- Remove technical and how-it-works explanations across the app, keeping labels, errors and the instructions you need to act.
+- Shorten confirmations, empty states, Settings descriptions and check status messages.
+
+## 3.6.0 — 2026-11-18
+
+Let real-time collection replace redundant checks
+
+- Scheduled checks skip accounts real-time collection is keeping current and slow to every 30 minutes once it covers every account; they speed back up automatically if real-time stops. Check now still checks everything.
+- Bidder live Inbox checks poll only assigned accounts real-time is not covering.
+- Replace check countdowns with how recently mail was updated: the top bar shows Updated 2 min ago, and the bidder Inbox shows when every assigned mailbox was last collected, turning amber after 5 minutes.
+
+## 3.5.8 — 2026-11-18
+
+Compact live Inbox status
+
+- Show the bidder Inbox live status as one compact, colour-coded line with a state pill (Live, Checking, Retrying, Delayed, Offline or Off), the next check countdown and the last update.
+- Flag live checks that are running late instead of showing due now indefinitely; the explanation moves to an info tooltip.
+
+## 3.5.7 — 2026-11-18
+
+Keep live Inbox checks healthy during read update retries
+
+- Outlook read update retries no longer make bidder live Inbox checks report failure or slow down to every minute; new mail keeps arriving every 30 seconds.
+- Show today's last successful live check as a time, matching the next check.
+
+## 3.5.6 — 2026-11-18
+
+One last-synced time per account
+
+- Account cards show one Last synced time covering both full mail checks and real-time collection, instead of a Last mail check time that ignored real-time updates.
+- Accounts with real-time collection on show a Live marker; the Automatic updates panel no longer repeats the sync time.
+
+## 3.5.5 — 2026-11-18
+
+Bidder Inbox in received order
+
+- Show the bidder Inbox as one list ordered by when each email was received, newest first, instead of grouping it by category.
+
+## 3.5.4 — 2026-11-18
+
+Compact Outlook read update badge
+
+- Show pending Outlook read updates on Accounts as a small orange count badge instead of a long description; hover it for details and reconnect guidance.
+
+## 3.5.3 — 2026-11-18
+
+Clearer Outlook read updates after reconnecting
+
+- Apply queued Outlook read updates immediately after an account is reconnected instead of waiting for the next mail check.
+- Ask to reconnect only when Microsoft refuses read permission; otherwise show that emails will be marked read on the next check.
+- Stop retrying read updates Microsoft permanently rejects, so they no longer keep the Accounts warning visible.
+
+## 3.5.2 — 2026-11-18
+
+Keep Google sign-in out of a full Credential Manager
+
+- On Windows, Google Sheets sign-in and its OAuth client settings are now stored in encrypted files instead of Credential Manager, so connecting Google no longer fails when Credential Manager is full.
+- Existing Google connections move to the new files automatically and free their Credential Manager entries.
+
+## 3.5.1 — 2026-11-18
+
+Reconnect Outlook when Credential Manager is full
+
+- On Windows, Outlook sign-in tokens are now stored in one encrypted file per account instead of several Credential Manager entries, so connecting or reconnecting accounts no longer fails when Credential Manager is full.
+- Existing Outlook sign-ins move to the new files automatically and free their Credential Manager entries; accounts stay connected.
+
+## 3.5.0 — 2026-11-18
+
+Show all mail in the bidder Inbox
+
+- Bidders now see classified mail in every category for their assigned accounts, not only info requests and application confirmations.
+- Filter the bidder Inbox by any category that has messages.
+
+## 3.4.0 — 2026-11-18
+
+Application confirmations in bidder Inbox
+
+- Bidders now see Application received messages alongside Info requests for their assigned accounts.
+- Filter the bidder Inbox by Info request or Application received, or view both together.
+
+## 3.3.1 — 2026-11-18
+
+Keep link-history cleanup within its selection
+
+- Remove only selected links from retained import snapshots during history cleanup, preserving unrelated imported rows and operation records.
+- Roll back cleanup safely when a retained import snapshot cannot be read.
+
+## 3.3.0 — 2026-11-18
+
+Manage sourcing link history from Accounts
+
+- Let admins preview and clear sourcing link history per email account and bidder, including deleted bidders, with optional sourcing-date filters.
+- Show affected and checked-link counts before permanent deletion, with concurrent-edit protection and safe retries.
+
+## 3.2.15 — 2026-11-18
+
+Extend application matching to ten days
+
+- Match application confirmations within ten Chicago calendar days of the sourcing date, including manual checks, automatic verification, and bounded payment refreshes.
+
+## 3.2.14 — 2026-11-18
+
+Modernize sign-in typography
+
+- Use locally hosted Manrope typography with refined heading weights, quieter supporting text, and restrained silver-blue accents on the sign-in page.
+
+## 3.2.13 — 2026-11-18
+
+Compact sign-in and expose Outlook read-sync failures
+
+- Reduce the sign-in panel, branding, fields, and button to a more natural size.
+- Show pending Outlook read updates in Accounts and preserve mail-collection read-sync errors so accounts requiring Mail.ReadWrite consent can be identified.
+
+## 3.2.12 — 2026-11-18
+
+Remove the sign-in logo frame
+
+- Remove the inherited rounded border, tile background, and shadow around the sign-in logo.
+
+## 3.2.11 — 2026-11-18
+
+Lighten the OfferPath logo finish
+
+- Lighten the shared logo to an icy silver-blue palette with soft cyan highlights for the updated application design.
+
+## 3.2.10 — 2026-11-18
+
+Deepen and sharpen the OfferPath logo
+
+- Refine the logo with richer sapphire-blue tones, controlled highlights, and a cleaner high-resolution transparent asset throughout the application.
+
+## 3.2.9 — 2026-11-18
+
+Use the supplied neon loop logo
+
+- Replace the approximate arrow mark with the supplied open-loop logo design across sign-in, navigation, startup, and the browser icon.
+
+## 3.2.8 — 2026-11-18
+
+Match the mountain sunrise sign-in design
+
+- Refine sign-in branding, glass panel, rounded fields, and metallic blue button to match the supplied design while retaining the existing background.
+
+## 3.2.7 — 2026-11-18
+
+Refine the OfferPath application mark
+
+- Update the shared application mark with a metallic silver-blue finish, dark rounded tile, and cyan highlights inspired by the new brand design.
+
+## 3.2.6 — 2026-11-18
+
+Center the sign-in form independently
+
+- Center the sign-in form itself in the viewport with OfferPath branding positioned above it, while keeping the complete layout visible on small screens.
+
+## 3.2.5 — 2026-11-18
+
+Center the sign-in panel
+
+- Remove promotional text and milestone badges over the sign-in artwork and center the sign-in panel vertically and horizontally.
+
+## 3.2.4 — 2026-11-18
+
+Refresh sign-in background
+
+- Publish the updated sign-in background in the production frontend assets.
+
+## 3.2.3 — 2026-11-18
+
+Close workspace schema probe connections
+
+- Close SQLite schema-check connections immediately after workspace validation to prevent retained database handles during repeated requests and failed upgrades.
+
+## 3.2.2 — 2026-11-18
+
+Recover workspaces after Outlook upgrade
+
+- Automatically apply the additive Outlook read-task migration when existing shared workspaces open, preventing schema-50 workspaces from returning server errors after updating.
+
+## 3.2.1 — 2026-11-17
+
+Avoid redundant Outlook read updates
+
+- Preserve Outlook read state during collection so already-read messages are not repeatedly updated and completed retry tasks are cleared.
+- Allow later Outlook read updates to proceed when an individual message update is rejected, while preserving failed tasks for retry.
+
+## 3.2.0 — 2026-11-17
+
+Automatically mark collected Outlook emails read
+
+- Automatically mark Outlook emails as read after they are saved, with durable retries for failed updates.
+- Reconnect existing Outlook accounts to grant Mail.ReadWrite permission.
+
+## 3.1.2 — 2026-11-16
+
+Recover workspace mail collection checkpoints
+
+- Recover automatic email collection from malformed or future-dated workspace checkpoints while preserving valid catch-up windows.
+- Identify failed shared jobs by workspace, account, and error type without logging private provider responses.
+
+## 3.1.1 — 2026-11-16
+
+Safe Windows monitoring probes
+
+- Fix a Windows monitoring liveness probe that could generate console interrupt events instead of checking model process state.
+
+## 3.1.0 — 2026-11-16
+
+Visual status history
+
+- Replace the monitoring event table with an interactive timeline grouped by component and status, with selectable event details.
+
+## 3.0.3 — 2026-11-16
+
+System-wide monitoring
+
+- Focus monitoring on shared service pools, global queue backlog, and event flow; remove per-admin health and sync cards.
+
+## 3.0.2 — 2026-11-16
+
+Close live event streams before server shutdown
+
+- Close browser event streams before the HTTP shutdown deadline and finish asynchronous subscription cleanup without cancelling ordinary API requests.
+- Log the shutdown signal or Windows listener failure so unexpected exits can be distinguished from shutdown cleanup errors.
+
+## 3.0.1 — 2026-11-15
+
+Protect shared worker retries and sign-in lifecycle
+
+- Prevent duplicate completed manual checks and keep queued retries from being replaced or overwriting newer status.
+- Defer busy shared workers without exhausting provider retries, separate collection/model queue budgets, and reject reclassification of disabled accounts.
+- Cancel and drain pending sign-ins on shutdown, revalidate workspace access before credential writes, and ignore notifications for suspended workspaces.
+- Restore the original-workspace backup check before shared worker startup.
+
+## 3.0.0 — 2026-11-15
+
+Shared RabbitMQ worker architecture
+
+- Add an opt-in fixed shared API and RabbitMQ job pool while keeping admin databases and credentials isolated.
+- Keep the current runtime as the default; switching requires draining existing jobs and does not migrate application database schemas.
+- Show shared component, data, and event flows in owner system monitoring.
+
+## 2.29.0 — 2026-11-14
+
+Owner system monitoring
+
+- Add an owner-only System monitoring page with health checks across all admin workspaces, queue and sync status, and a live operational event flow.
+- Record bounded operational telemetry without blocking collection, classification, or event delivery.
+
+## 2.28.2 — 2026-11-13
+
+Maintenance version update
+
+- Update the OfferPath application and bundled console version to 2.28.2.
+
+## 2.28.1 — 2026-11-13
+
+Protect concurrent workflows and live updates
+
+- Prevent encoded gateway paths from bypassing owner-only API restrictions and avoid worker replacement races.
+- Guard replies against stale messages, uncertain delivery, and unrelated Done updates; preserve account data when credential cleanup fails.
+- Preserve concurrent settings changes and prevent pending form saves from discarding edits.
+- Refresh business views through bounded transactional realtime hints and include Junk Email in Outlook notifications.
+- Correct calendar reschedule state, deadlines, time-zone ordering, review decisions, and date-boundary validation.
+
+## 2.28.0 — 2026-11-13
+
+Automatic email and calendar updates
+
+- Opt in to background email and Outlook calendar collection using durable Redis Streams jobs, recovery checks, and independent classification.
+- Update open workspace pages through authenticated server-sent events with replay, scoped access, and separate traffic limits.
+- Configure Microsoft notification subscriptions and monitor per-account automatic sync health from Accounts.
+
+## 2.27.18 — 2026-11-12
+
+Keep gateway and page loading responsive
+
+- Keep session replacement database work off the gateway serving loop so login contention does not stall other requests.
+- Cancel obsolete page reads and status polls, and ignore canceled responses before they can change the active session.
+- Preserve working Outlook credentials when a reconnect is canceled, fails, or is superseded by a newer sign-in.
+
+## 2.27.17 — 2026-11-10
+
+Bound local worker connects and recover dropped page-read sockets
+
+- Prevent stalled local worker connects from occupying gateway capacity for minutes, and expire idle connections before workers close them.
+- Recover a dropped GET/HEAD worker connection once within the page deadline, revalidating sessions and never replaying writes or slow reads.
+- Log sanitized worker connection failures and Cloudflare request references for origin/tunnel diagnosis.
+
+## 2.27.16 — 2026-11-10
+
+Recover Triage reads after temporary Cloudflare connection failures
+
+- Retry temporary Triage connection failures with bounded backoff while retaining filters and cached mail; never replay outgoing actions.
+- Show safe Cloudflare error codes and request references for HTTP 530 so tunnel failures can be diagnosed accurately.
+
+## 2.27.15 — 2026-11-10
+
+Recover missing startup styles and parse import wrappers safely
+
+- Keep startup covered until required styles are loaded; recover stylesheet failures with one bounded reload and a clear manual retry.
+- Wrap only parsed JavaScript import expressions, preserving ordinary text and Vite's lazy CSS dependency graph.
+
+## 2.27.14 — 2026-11-10
+
+Restore lazy page styles while retaining download retries
+
+- Preserve Vite's CSS and preload dependency graph when applying page-file retries, restoring calendar, dashboard, sourcing and pipeline layouts.
+
+## 2.27.13 — 2026-11-10
+
+Keep blocked optional analytics from aborting startup
+
+- Ignore CSP-blocked Cloudflare analytics and unrelated extension scripts during startup, while retaining recovery for OfferPath files and reporting genuine app initialization errors.
+
+## 2.27.12 — 2026-11-10
+
+Fix stalled startup recovery and page reveal timing
+
+- Keep slow-start recovery available after React mounts, ignore HTML whitespace when checking startup, and reveal ready pages correctly after class changes or frequent live updates.
+
+## 2.27.11 — 2026-11-10
+
+Retry transient page-file downloads before leaving the page
+
+- Retry failed lazy page imports twice using fresh request URLs before showing recovery, while preserving the current page and filters. Code errors still fail immediately.
+
+## 2.27.10 — 2026-11-10
+
+Keep startup smooth with one consistent loading screen
+
+- Use a single branded startup screen through sign-in checks, workspace loading and the initial page, with a gentle reveal and reduced-motion support.
+
+## 2.27.9 — 2026-11-10
+
+Recover failed page-module loads after outages and updates
+
+- Recover failed lazy-loaded page files with a bounded, connection-checked reload that preserves filters and deep links, plus a retry screen while the origin is unavailable.
+- Prevent truncated successful static responses when a hashed asset disappears during deployment; return a clean non-cacheable error instead.
+
+## 2.27.8 — 2026-11-10
+
+Preserve valid nested Windows static paths
+
+- Allow Windows-normalized filesystem separators for valid nested assets while continuing to reject malformed URL separators.
+- Reject reserved Windows device filenames and trailing-dot/space aliases before static-file lookup.
+
+## 2.27.7 — 2026-11-10
+
+Reject malformed Windows asset paths safely
+
+- Return HTTP 404 for invalid static-file URLs such as JavaScript stack locations instead of raising Windows invalid-filename exceptions, while preserving normal asset serving and genuine I/O diagnostics.
+
+## 2.27.6 — 2026-11-10
+
+Harden clipboard parsing and job-link duplicate checks
+
+- Preserve word boundaries in copied HTML blocks and reject incomplete quoted clipboard cells without changing the sheet.
+- Preserve repeated URL parameter value order so distinct links are not incorrectly filtered as duplicates.
+
+## 2.27.5 — 2026-11-10
+
+Remove embedded line breaks from pasted job fields
+
+- Automatically flatten cell-internal line breaks in pasted company names and roles and rejoin wrapped job URLs, while preserving spreadsheet row boundaries.
+- Apply the same cleanup to saved and imported job fields before validation and filtering.
+
+## 2.27.4 — 2026-11-10
+
+Keep pasted job rows aligned
+
+- Preserve spreadsheet HTML cell boundaries when pasting wrapped or multiline company names, roles and job links, with TSV fallback and bounded text-only parsing.
+
+## 2.27.3 — 2026-11-10
+
+Bound gateway authentication and startup waits
+
+- Include authentication in page-read deadlines, return retryable responses for session storage outages, and keep public sign-in assets independent of database availability.
+- Keep startup backup I/O away from worker heartbeat locks and enforce a wall-clock limit on readiness polling without interrupting dispatched writes.
+
+## 2.27.2 — 2026-11-10
+
+Deeper gateway and worker recovery fixes
+
+- Keep session reads available during control writes and recover unresponsive workspace listeners without restarting healthy or overloaded workers.
+- Avoid heartbeat lock contention during worker cleanup, preserve replacement workers, and complete shutdown cleanup after background errors.
+
+## 2.27.1 — 2026-11-10
+
+Recover stalled HTTP origins and keep gateway monitoring responsive
+
+- Move workspace discovery off the HTTP event loop and keep worker monitoring alive after transient storage errors.
+- The Windows start script now probes the local origin, recovers crashed or non-responsive child servers with bounded retries, and records recovery diagnostics.
+
+## 2.27.0 — 2026-11-10
+
+Separate owner and admin workspace mail schedules
+
+- Configure independent automatic mail-check intervals for the owner’s workspace and other admin workspaces, with quick choices, validation and clear live Inbox guidance.
+
+## 2.26.2 — 2026-11-10
+
+Bidder Inbox live refresh reliability
+
+- Show the next live Inbox check time and countdown, successful freshness, failure retries and disabled reasons in a responsive status panel.
+- Keep loaded Inbox messages during temporary outages, preserve access-revocation protection, correct fixed-category filter counts and reset reader position when switching messages.
+
+## 2.26.1 — 2026-11-09
+
+Invitation matching review fixes
+
+- Preserve saved job destinations, avoid false URL matches with repeated parameters, handle invalid dates safely, and expose refresh failures without losing loaded matches.
+
+## 2.26.0 — 2026-11-09
+
+Calendar invitation job history matches
+
+- Calendar invitation details suggest matching historical job links and the bidder who recorded each application, with confidence and multiple candidates.
+
+## 2.25.1 — 2026-11-09
+
+Make Queue retries and Undo notifications safe
+
+- Reuse a durable confirmation ID for bulk Queue retries so a lost response cannot clear newly arrived mail or reapply an undone action.
+- Discard notifications and Undo actions from previous workspaces or sessions, including delayed completion callbacks.
+
+## 2.25.0 — 2026-11-09
+
+Clear the Queue in one bulk action
+
+- Add an admin Queue action to mark the entire workspace backlog as done, including messages beyond current filters and the loaded list, with confirmation.
+- Restore bulk completion as one Undo action while preserving later individual changes, existing completed messages, and future arrivals. Emails are not deleted and provider read status is unchanged.
+
+## 2.24.7 — 2026-11-09
+
+Fix account presets, backup listing and manual reply recovery
+
+- Clear stale automatic IMAP server details immediately when changing mailbox addresses, while preserving subsequent manual edits.
+- Keep the backup list usable when an archive contains a malformed manifest, preserving the archive file.
+- Handle malformed Outlook reply metadata without leaving unsent requests stuck or weakening uncertain-delivery protection.
+
+## 2.24.6 — 2026-11-09
+
+Speed up page loading and recover from temporary outages
+
+- Keep open workspaces and unsaved input during temporary refresh failures, with an explicit connection retry.
+- Avoid write-lock waits for admin page reads, share concurrent workspace-startup waits, and bound page-read processing without retrying writes.
+- Search sparse job-sheet values without building full styled editor snapshots, reducing search time and memory use.
+
+## 2.24.5 — 2026-11-09
+
+Clarify duplicate Windows startup and preserve launch flags
+
+- Detect an existing gateway before opening the dashboard, distinguish lock contention from file access failures, and avoid growing Windows lock files on failed starts.
+- Forward Windows start-script arguments and preserve its exit status when using domain and tunnel options.
+
+## 2.24.4 — 2026-11-09
+
+Improve availability under concurrent users and preserve active filters
+
+- Separate bounded active-request admission from idle connection headroom, reserving capacity for worker health checks and model releases.
+- Retry temporary shared-model release failures and keep payment pages readable during concurrent database writes.
+- Preserve filters and URL state when clicking the current sidebar page or home title again.
+
+## 2.24.3 — 2026-11-09
+
+Refresh daily counts after bidder assignment changes
+
+- Refresh the header daily-count badge immediately after assigning or removing accounts and other bidder-management changes.
+
+## 2.24.2 — 2026-11-09
+
+Allow removal of previously paid account assignments
+
+- Admins can remove past or ongoing account assignments even when their dates include a recorded payment. Saved payment amounts and counts, emails, and job sheets remain intact.
+
+## 2.24.1 — 2026-11-09
+
+Close startup and session race conditions
+
+- Prevent concurrent workspace startup requests from stopping healthy workers, and clean up failed process launches.
+- Recover shared model capacity when lease validation is interrupted; keep authentication database reads off the HTTP event loop.
+- Discard stale account responses after session changes and prevent delayed password or sign-in responses from restoring a signed-out session.
+
+## 2.24.0 — 2026-11-09
+
+Improve active bidder Inbox speed and server reliability
+
+- Check currently assigned mailboxes about every 30 seconds while bidder Inboxes are active, with faster visible-page refresh and unchanged access/classification rules.
+- Prevent healthy workspace workers from terminating during gateway overload and always release background job locks after completion or startup failures.
+- Reject malformed Outlook responses without advancing failed checkpoints; fix Interviews error retry to reload its list.
+- Avoid unnecessary Job sourcing writes during navigation; bound large sheet responses and keep CSV export independent of dense snapshots.
+- Show the app recovery screen for lazy page-load failures while navigating.
+
+## 2.23.1 — 2026-11-08
+
+Recover frontend startup failures without a stuck loading screen
+
+- Use safe defaults when browser storage is unavailable so sign-in and workspace startup can continue.
+- Retry failed startup assets once with fresh HTML, then show a readable recovery action instead of an indefinite Starting OfferPath screen.
+
+## 2.23.0 — 2026-11-08
+
+Remember page filters and view preferences
+
+- Restore each page's filters, search, dates and view choices when navigating away and returning, scoped to the signed-in user and workspace.
+- Use tab-session storage with safe defaults and an in-memory fallback; leave passwords and editing drafts unsaved.
+
+## 2.22.1 — 2026-11-06
+
+Improve bidder inbox refresh and check schedule
+
+- Show bidders the next automatic mail check time and hide cached message details when access can no longer be confirmed.
+
+## 2.22.0 — 2026-11-06
+
+Add a restricted bidder inbox using Info request
+
+- Reuse Triage for bidders to read only Info request messages from currently assigned accounts and mark them Done, with server-enforced access and no reply or mailbox-management permissions. No classification categories or rules changed.
+
+## 2.21.15 — 2026-11-05
+
+Reconcile activity graphs with checked application totals
+
+- Use payment accounting for By day graphs and show the selected-day split between timed confirmations and checked links without receipt times.
+- Clarify that confirmation-time lines and hourly heatmaps show only recorded receipt times; preserve existing checks and timestamps.
+
+## 2.21.14 — 2026-11-05
+
+Recover invalid calendar analysis responses and bound retries
+
+- Normalize common model formats, use larger output budgets, and repair invalid or truncated calendar JSON once without inventing interview details.
+- Pause repeatedly invalid events as needs review, preserve their schedules and manual edits, and allow explicit retry without repeating successful analyses.
+
+## 2.21.13 — 2026-11-05
+
+Match delayed company-only confirmations and explain unchecked links
+
+- Company-only replies prefer the most recent eligible source date, including next-day confirmations, while preserving checked links and reserved receipts.
+- Check applications now shows row-level reasons for unresolved links instead of leaving silent unchecked boxes.
+
+## 2.21.12 — 2026-11-05
+
+Fix company-only confirmations blocked by checked job history
+
+- For confirmations without a role, match a unique unchecked company/account job on the receipt date before considering other source dates; checked rows cannot block new company-only matches, and bound receipts remain reserved.
+
+## 2.21.11 — 2026-11-05
+
+Fix shared payment status display and add match diagnostics
+
+- Show recorded paid amounts separately from calculated payment amounts for bidders, and enforce viewer row scope in the report serializer.
+- Add a read-only company/account matching report to investigate unchecked confirmations such as HP without modifying checks or saved receipt dates.
+
+## 2.21.10 — 2026-11-05
+
+Show permitted team payment status to bidders
+
+- Payment-visible bidders can see payment amounts and recorded status for coworkers when team work visibility is enabled, while coworker wallet details, rates, notes and accounts remain private.
+
+## 2.21.9 — 2026-11-05
+
+Broaden matching only for unchecked applications
+
+- Restore bidirectional whole-phrase company and role containment with exact-match priority, while preserving checked links, receipt bindings and historical confirmation dates across all checking paths.
+
+## 2.21.8 — 2026-11-05
+
+Preserve checked links across every checking path
+
+- Auto-checks, periodic checks, refreshes and manual Check applications now process only unchecked links, preserving saved checkmarks, receipt bindings and confirmation dates even after matching rules change.
+
+## 2.21.7 — 2026-11-05
+
+Make full rebuild preserve checked applications
+
+- Fully rebuild checks only unchecked links; existing checkmarks, receipt bindings, and confirmation dates remain unchanged, and bound receipts cannot be reassigned.
+
+## 2.21.6 — 2026-11-05
+
+Restore complete v2.21.0 checkpoint
+
+- Restore the complete application code and behavior from bc02a75, before the company and role containment matching changes and subsequent checking and recovery changes. Database records are not reverted.
+
+## 2.21.5 — 2026-11-05
+
+Recover rebuild-cleared application checks
+
+- Add a preview-first recovery command for audit-listed cleared checks, with explicit sourcing-date credit, transactional validation, and safe reruns.
+
+## 2.21.4 — 2026-11-05
+
+Preserve recorded checks and stop payment report writes
+
+- Make payment reports read-only and preserve existing checks and receipt dates during ordinary verification.
+- Disable destructive full rebuild requests and add a read-only application-count audit for recovery investigations.
+
+## 2.21.3 — 2026-11-05
+
+Restore checking behavior from v2.21.0
+
+- Restore the application matching and confirmation attribution logic from v2.21.0, before company/role containment changes.
+- Keep calendar analysis, background queue, dashboard permissions, UI improvements, and published release history unchanged. This restores code behavior; stored database history is not rolled back.
+
+## 2.21.2 — 2026-11-05
+
+Keep expanded matching additive and daily counts stable
+
+- Preserve legacy exact company/role matches before considering broader name containment, including valid saved receipt reservations during rebuilds.
+- Keep legitimate saved confirmation dates instead of moving historical counts to newly discovered earlier aliases or duplicate receipts.
+- Adding receipt evidence to an already manually checked job preserves its original manual accounting day; unchanged refreshes do not rewrite tab revisions.
+
+## 2.21.1 — 2026-11-05
+
+Match contained company and role names
+
+- Application confirmations match company names when either normalized name contains the other as a whole-word phrase, including Inspira Financial Trust LLC and Inspira Financial.
+- Role names support the same bidirectional containment when no exact eligible role match exists. Ambiguous matches, account/date limits, receipt reservations, and saved payments remain protected.
+
+## 2.21.0 — 2026-11-04
+
+Resume calendar analysis automatically
+
+- Calendar collection saves a durable analysis queue and finishes without waiting for the model; background batches resume automatically even when mail auto-check is disabled.
+- Analysis prioritizes upcoming events, rotates across accounts, and retries failed events with backoff without restarting completed work or re-fetching calendars.
+- Show completed and remaining analysis counts with retry reasons and a Retry analysis now action. Background batches update the calendar without repeated completion toasts or unrelated sourcing checks.
+
+## 2.20.0 — 2026-11-04
+
+Analyze calendar interview details with the configured model
+
+- Calendar sync analyzes event titles, descriptions, organizers, and attendees to identify interviews and extract company, role, stage, and actual interviewers without requiring fixed title patterns.
+- Successful analysis is cached; changed events are reanalyzed, while unavailable or malformed analysis is deferred for retry without losing native schedules or manual corrections.
+- Calendar times, cancellations, and meeting links remain authoritative. Interviewer corrections are editable and protected from automated updates.
+
+## 2.19.7 — 2026-11-04
+
+Fix spreadsheet drag selection regressions
+
+- Preserve the original range anchor for Shift-click selection after drag cleanup.
+- Start edge auto-scrolling only after the pointer actually moves, so holding an ordinary click cannot expand the selection.
+- Calculate drag-selection bounds from the usable grid viewport, excluding borders and the horizontal scrollbar.
+
+## 2.19.6 — 2026-11-04
+
+Auto-scroll spreadsheet drag selection
+
+- Dragging a sourcing row selection near the top or bottom edge now scrolls continuously and extends selection beyond the visible viewport, including wrapped rows.
+- Auto-scrolling stops on mouse release, window blur, view changes, or leaving the sheet.
+
+## 2.19.5 — 2026-11-04
+
+Dismiss completed link import progress
+
+- The sourcing progress bar briefly shows 100% after the saved sheet is ready, then automatically disappears.
+
+## 2.19.4 — 2026-11-04
+
+Show explicit meeting links
+
+- Calendar event details display the full meeting URL in its own clickable Meeting link field, separate from location.
+
+## 2.19.3 — 2026-11-04
+
+Simplify interview calendar details
+
+- Interview dialogs focus on time, email account, company, role, interview contacts, and location or a meeting link.
+- Deduplicate calendar accounts and contacts, exclude the candidate’s own email addresses, and stop labeling fallback calendar titles as companies.
+- Move event removal into Edit details and remove technical metadata and repeated source-account sections from the summary.
+
+## 2.19.2 — 2026-11-04
+
+Unify Accounts section headers
+
+- Accounts uses consistent Settings-style section headings with relevant inbox, connection, team, and visibility icons.
+- Bidder management and visibility headings sit above their cards, matching connected accounts and provider sections.
+
+## 2.19.1 — 2026-11-04
+
+Fix visibility refresh and settings reads
+
+- Opening Accounts loads bidder settings without running application matching or scanning weekly payments.
+- Bidder pages refresh saved visibility settings and discard cached team graphs when access changes.
+- Preserve visibility drafts on failed reloads and keep successfully saved options when a follow-up read fails.
+
+## 2.19.0 — 2026-11-04
+
+Scoped bidder dashboards and visibility controls
+
+- Bidders can view dashboard graphs for their assigned accounts without message lists or account status.
+- Accounts now groups providers, bidder management, and per-bidder payment and coworker-work visibility options in Settings-style panels.
+- Payment cells show gross totals before deductions and calculated net totals after deductions; saved records remain available in the admin editor.
+- Enforce bidder identity and data redaction in both standalone and private workspace APIs; reject stale visibility edits.
+
+## 2.18.2 — 2026-11-04
+
+Match header badge to checked daily application totals
+
+- Use today's checked application total for the header badge, matching the first number in the daily breakdown instead of received replies.
+
+## 2.18.1 — 2026-11-04
+
+Protect deduction edits and payment review from stale data
+
+- Preserve unsaved deduction drafts during refresh and reject conflicting rule edits.
+- Require payment review again when deduction rules or calculated net amounts change, including daily-count changes with the same weekly total.
+
+## 2.18.0 — 2026-11-04
+
+Add workspace daily minimum and payment deductions
+
+- Admins can save a daily checked-application minimum and flat dollar deduction for all bidders.
+- Highlight completed assigned weekdays below the minimum and deduct their fees from calculated pay, preserving recorded payments and manual confirmed amounts.
+
+## 2.17.3 — 2026-11-04
+
+Collect interview-related calendar events only
+
+- Exclude holidays, birthdays and unrelated calendar meetings while keeping interview-tagged events, recruiter calls and recognized interview updates.
+- Hide previously imported unrelated bookings after a successful sync without deleting saved records or changing Outlook; preserve complete-sync safeguards and availability checks.
+
+## 2.17.2 — 2026-11-04
+
+Show checked counts only to bidders
+
+- Limit bidder payment views and API responses to checked-application counts; admins retain checked applications and received replies.
+- Hide received-reply header badges and historical review-count notices from bidders on Bidder management, including expanded account rows and totals.
+
+## 2.17.1 — 2026-11-04
+
+Harden checked-application matching and optimize accounting
+
+- Require unambiguous account-wide job matches, preserve meaningful company and role distinctions, and prevent new automatic receipt reuse across jobs.
+- Fix removed-bidder reply weights, zero-dollar settlements, mixed-offset time filters and stale payment-count warnings while preserving saved records.
+- Group accounting queries, add date and message indexes, and avoid unchanged report and refresh writes; add a reproducible synthetic performance benchmark.
+
+## 2.17.0 — 2026-11-04
+
+Base bidder payments on checked applications
+
+- Calculate weekly application totals and pay from checked job-link rows using the editable payment rate and adjustment, preserving recorded payments and manual amount overrides.
+- Show checked applications first in bright text and received replies second in grey throughout bidder and account breakdowns; update totals, payment review counts and documentation.
+
+## 2.16.0 — 2026-11-04
+
+Search Triage mail by text
+
+- Search subjects, senders, companies, roles, summaries and stored message text within the selected Triage filters.
+
+## 2.15.0 — 2026-11-04
+
+Add Today to Triage time ranges
+
+- Filter Triage mail to today using America/Chicago midnight, matching bidder accounting, or choose the last 24 hours.
+
+## 2.14.2 — 2026-11-04
+
+Restore v2.13.5 classification behavior
+
+- Restore the v2.13.5 implementation, including improved email classification, before later reconciliation and classifier rollback changes.
+- Require automatic version updates for future runtime changes and preserve published history when restoring older behavior.
+
+## 2.14.1 — 2026-11-04
+
+Preserve historical receipt counts when reclassification fails
+
+- Keep previous valid email labels and receipt estimates when historical model attempts fail; report the failures in run logs.
+- Avoid loading message bodies during historical reclassification preflight.
+
+## 2.14.0 — 2026-11-04
+
+Restore original classification and rebuild historical estimates
+
+- Remove application reconciliation and platform-copy deductions; restore original email classification behavior.
+- Add admin actions to reclassify a week or all stored emails, log the run and rebuild estimates while preserving saved payments and manual checks.
+
+## 2.13.7 — 2026-11-04
+
+Fix platform and employer receipt double counting
+
+- Count a confirmed platform/employer receipt pair once while preserving both application-received emails, interview detection and raw evidence.
+- Correct daily badges and estimated payment counts consistently; keep existing recorded payments unchanged and retain reversible copy evidence.
+
+## 2.13.6 — 2026-11-04
+
+Reconcile confirmation emails with verified applications
+
+- Separate raw receipt emails, verified applications, possible extra confirmations and unmatched receipts while keeping receipt-based payments unchanged.
+- Prevent one receipt from checking multiple jobs, review repeated links across dates and improve safe seniority title matching.
+
+## 2.13.5 — 2026-11-04
+
+Keep activity chart tooltips fully readable
+
+- Prevent bidder activity tooltips from being clipped by charts; keep them inside the viewport with scrollable lists.
+
+## 2.13.4 — 2026-11-04
+
+Harden on-premises authentication and Cloudflare Tunnel deployment
+
+- Remove implicit default owner credentials, prevent failed-login budget resets, and enforce bounded HTTP requests with browser security policies.
+- Add loopback-only tunnel startup with HTTPS cookies and a documented origin firewall and Cloudflare Access deployment path.
+
+## 2.13.3 — 2026-11-04
+
+Improve interview and application receipt classification
+
+- Protect important mail from sender-only noise filtering and improve bounded interview context and classification validation.
+- Preserve stored mail labels during ordinary checks and provide a rollback reference and synthetic evaluation corpus.
+
+## 2.13.2 — 2026-11-03
+
+Daily application badge across workspace pages
+
+- Keep the daily application-confirmation badge visible on all workspace pages and mobile headers, including Admin management and Settings recovery.
+
+## 2.13.1 — 2026-11-03
+
+Clipboard, privacy and sourcing save fixes
+
+- Preserve normal text copy and paste while editing a sourcing cell, while keeping whole-row copying outside editors.
+- Load bidder editor forms only when first expanded and retain drafts afterward.
+- Mask international and quoted email addresses in bidder-management display labels.
+- Limit checked-row protection queries to the rows being saved, avoiding scans of unrelated sourcing history.
+
+## 2.13.0 — 2026-11-03
+
+Streamlined bidder management and sourcing rows
+
+- Open one bidder editor at a time and mask account emails in Bidder management.
+- Keep replies manual by removing the assisted drafting interface and generation APIs.
+- Reduce the sign-in layout size while preserving viewport fitting.
+- Select, copy and delete whole sourcing rows; checked rows have distinct styling and locked cell contents.
+
+## 2.12.0 — 2026-11-03
+
+Per-account role filters and Junk/Spam collection
+
+- Add a Roles by account section to Job link filters, with independent blocked role keywords for each email account and matching across its new job rows.
+- Include read and unread messages from Outlook Inbox and Junk Email and configured IMAP folders plus detected Junk/Spam, with safe checkpoint backfill and folder status reporting.
+
+## 2.11.1 — 2026-11-03
+
+Fitted sign-in and unique bidder usernames
+
+- Sign-in scales to fit the available viewport without page scrolling, including smaller and zoomed screens.
+- Bidders sign in with their username alone; duplicate names are rejected across admin workspaces when registering, renaming or enabling access.
+
 ## 2.11.0 — 2026-11-03
 
 Removable admin workspaces and reliable Outlook tests

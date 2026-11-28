@@ -12,6 +12,18 @@ from mailcheck.web.app import create_app
 from tests.web_client import TestClient
 
 
+def mark_checked(conn, tab_id, link_prefix):
+    """Test fixture: check the tab's jobs whose link starts with link_prefix."""
+    conn.execute("""INSERT INTO native_cells(row_id,column_id,value)
+        SELECT r.id, cc.id, 'true' FROM native_rows r
+        JOIN native_columns lc ON lc.tab_id=r.tab_id AND lc.kind='link'
+        JOIN native_cells l ON l.row_id=r.id AND l.column_id=lc.id AND l.value LIKE ? || '%'
+        JOIN native_columns cc ON cc.tab_id=r.tab_id AND cc.kind='check'
+        WHERE r.tab_id=?
+        ON CONFLICT(row_id,column_id) DO UPDATE SET value='true'""", (link_prefix, tab_id))
+    conn.commit()
+
+
 class PaymentTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -64,16 +76,16 @@ class PaymentTests(unittest.TestCase):
         self.message("unrelated", category="interview_invite")
         row = self.report()["bidders"][0]
         self.assertEqual(row["daily"], [2,0,0,0,0,0,0])
-        self.assertEqual(row["total"], 2)
+        self.assertEqual(row["received_reply_total"], 2)
         db.set_handled(self.conn, 1, True)
-        self.assertEqual(self.report()["bidders"][0]["total"], 2)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"], 2)
 
     def test_transfer_uses_receipt_date_and_rejects_overlaps(self):
         self.assign(end=date(2026,10,14))
         self.assign(who=2, start=date(2026,10,15))
         self.message("before", "2026-10-14T15:00:00Z")
         self.message("after", "2026-10-15T15:00:00Z")
-        self.assertEqual([b["total"] for b in self.report()["bidders"]], [1,1])
+        self.assertEqual([b["received_reply_total"] for b in self.report()["bidders"]], [1,1])
         with self.assertRaisesRegex(ValueError, "already has an assignment"):
             self.assign(who=2, start=date(2026,10,15), end=date(2026,10,15))
 
@@ -87,21 +99,21 @@ class PaymentTests(unittest.TestCase):
 
     def test_reclassification_changes_count_without_double_counting(self):
         self.assign(); pk=self.message("one")
-        self.assertEqual(self.report()["bidders"][0]["total"],1)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],1)
         db.save_classification(self.conn,pk,Classification(category="other"),"model","v1")
-        self.assertEqual(self.report()["bidders"][0]["total"],0)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],0)
         db.save_classification(self.conn,pk,Classification(category="application_ack"),"model","v1")
-        self.assertEqual(self.report()["bidders"][0]["total"],1)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],1)
 
     def test_counts_survive_retention_and_account_deletion_without_id_reuse(self):
         self.assign(); self.message("one")
         db.prune_messages(self.conn,before_iso="2027-01-01")
-        self.assertEqual(self.report()["bidders"][0]["total"],1)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],1)
         db.remove_account(self.conn,"personal")
         new=db.add_account(self.conn,label="replacement",email="new@example.test")
         self.assertNotEqual(new,self.account)
         self.message("one",account=new)
-        self.assertEqual(self.report()["bidders"][0]["total"],1)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],1)
         self.assertEqual(self.report()["unassigned"],1)
 
     def test_manual_payment_snapshot_and_idempotency(self):
@@ -137,6 +149,37 @@ class PaymentTests(unittest.TestCase):
         for route in ('/api/payments/bidders','/api/payments/bidders/1','/api/payments/bidders/1/assignments','/api/payments/assignments/1/end','/api/payments/bidders/1/paid','/api/payments/bidders/1/remove'):
             self.assertEqual(self.client.post(route,json={}).status_code,403)
 
+    def sheets_for(self, bidder_id):
+        return self.conn.execute("SELECT t.account_id,t.archived FROM native_tabs t JOIN native_books b ON b.id=t.book_id WHERE b.bidder_id=?", (bidder_id,)).fetchall()
+
+    def test_assigning_an_account_creates_its_profile_sheet(self):
+        self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-12"}).status_code,200)
+        self.assertEqual([(row["account_id"], row["archived"]) for row in self.sheets_for(3)], [(self.account, 0)])
+        # A later assignment of the same account never duplicates the sheet.
+        self.client.post('/api/payments/assignments/1/end',json={"end_date":"2026-10-25"})
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-26"}).status_code,200)
+        self.assertEqual(len(self.sheets_for(3)), 1)
+
+    def test_future_assignments_get_their_sheet_now_and_archived_or_ended_ones_are_left_alone(self):
+        from mailcheck import native_sourcing as sheets
+        self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-27"}).status_code,200)
+        self.assertEqual(len(self.sheets_for(3)), 1)  # starts later, already has its sheet
+        self.conn.execute("UPDATE native_tabs SET archived=1"); self.conn.commit()
+        self.assertEqual(sheets.ensure_assigned_sheets(self.conn, "2026-10-28"), [])
+        self.assertEqual([row["archived"] for row in self.sheets_for(3)], [1])
+        self.conn.execute("DELETE FROM native_tabs"); self.conn.execute("UPDATE bidder_assignments SET end_date='2026-10-27'"); self.conn.commit()
+        self.assertEqual(sheets.ensure_assigned_sheets(self.conn, "2026-10-28"), [])  # ended: no sheet
+
+    def test_upgrade_creates_missing_sheets_for_every_open_assignment(self):
+        from mailcheck import native_sourcing as sheets
+        self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
+        self.assertEqual(self.client.post('/api/payments/bidders/3/assignments',json={"account_id":self.account,"start_date":"2026-10-12"}).status_code,200)
+        self.conn.execute("DELETE FROM native_tabs"); self.conn.execute("DELETE FROM native_books"); self.conn.commit()
+        sheets.migrate(self.conn)
+        self.assertEqual([row["account_id"] for row in self.sheets_for(3)], [self.account])
+
     def test_admin_creates_bidder_assigns_accounts_and_records_manual_amount(self):
         self.message("one")
         self.assertEqual(self.client.post('/api/payments/bidders',json={"name":"Casey"}).status_code,200)
@@ -149,16 +192,17 @@ class PaymentTests(unittest.TestCase):
 
     def test_bidder_removal_refreshes_sourcing_and_preserves_history(self):
         from mailcheck import native_sourcing
-        self.assign(); self.message("one")
+        self.assign(); self.message("one"); self.add_checks(1, self.account, 1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid', json={
             "week": "2026-10-12", "expected_count": 1, "amount": "10"}).status_code, 200)
         book = native_sourcing.create_book(self.conn, 1)
-        native_sourcing.create_tab(self.conn, book, self.account, "Applications")
         response = self.client.post('/api/payments/bidders/1/remove', json={})
         self.assertEqual(response.status_code, 200, response.text)
         index = self.client.get('/api/sourcing').json()
         self.assertNotIn(1, [b["id"] for b in index["bidders"]])
-        self.assertNotIn(1, [b["bidder_id"] for b in index["books"]])
+        retained=next(b for b in index['books'] if b['bidder_id']==1)
+        self.assertTrue(retained['removed_at'])
+        self.assertTrue(all(tab['archived'] for tab in retained['tabs']))
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM bidder_payments WHERE bidder_id=1').fetchone()[0], 1)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM native_tabs WHERE book_id=? AND archived=1', (book,)).fetchone()[0], 1)
         self.assertEqual(self.conn.execute('SELECT login_enabled FROM bidders WHERE id=1').fetchone()[0], 0)
@@ -179,13 +223,38 @@ class PaymentTests(unittest.TestCase):
         url='/api/payments/assignments/1'
         response=self.client.post(url,json={"account_id":self.other,"start_date":"2026-10-12","end_date":"2026-10-14"})
         self.assertEqual(response.status_code,200,response.text)
-        self.assertEqual(self.report()["bidders"][0]["total"],0)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],0)
         self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":None}).status_code,200)
-        self.assertEqual(self.report()["bidders"][0]["total"],1)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],1)
         self.assertEqual(self.client.post(url+'/remove',json={}).status_code,200)
-        self.assertEqual(self.report()["bidders"][0]["total"],0)
+        self.assertEqual(self.report()["bidders"][0]["received_reply_total"],0)
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM application_receipts').fetchone()[0],1)
         self.assertEqual(self.client.post(url+'/remove',json={}).status_code,404)
+
+    def test_remove_paid_week_assignments_preserves_settlements_emails_and_job_sheets(self):
+        self.assign()
+        self.assign(account=self.other, end=date(2026,10,14))
+        self.message("personal-receipt")
+        self.message("work-receipt", account=self.other)
+        self.add_checks(1, self.account, 2)
+        self.add_checks(1, self.other, 1)
+        response = self.client.post('/api/payments/bidders/1/paid', json={
+            "week":"2026-10-12", "expected_count":3, "amount":"125.50", "note":"Already transferred"})
+        self.assertEqual(response.status_code, 200, response.text)
+        saved_payment = self.report()["bidders"][0]["payment"]
+        preserved_tables = ('messages', 'application_receipts', 'native_books', 'native_tabs', 'native_rows', 'native_cells')
+        before = {table:self.conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] for table in preserved_tables}
+        assignments = self.conn.execute('SELECT id FROM bidder_assignments ORDER BY id').fetchall()
+        for assignment in assignments:
+            response = self.client.post(f'/api/payments/assignments/{assignment[0]}/remove', json={})
+            self.assertEqual(response.status_code, 200, response.text)
+        row = self.report()["bidders"][0]
+        self.assertEqual(row["assignments"], [])
+        self.assertEqual(row["total"], 0)
+        self.assertEqual(row["payment"], saved_payment)
+        self.assertEqual(row["payable_amount_cents"], 12550)
+        self.assertEqual(saved_payment["application_count"], 3)
+        self.assertEqual({table:self.conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] for table in preserved_tables}, before)
 
     def test_shared_account_creation_edit_and_unassigned_counts(self):
         self.assign(end=date(2026,10,14))
@@ -209,11 +278,15 @@ class PaymentTests(unittest.TestCase):
     def add_checks(self, who, account, count, day="2026-10-12"):
         from mailcheck import native_sourcing as sheets
         book = sheets.create_book(self.conn, who)
-        tab_id = sheets.create_tab(self.conn, book, account, "Applications")
+        existing = self.conn.execute("SELECT id FROM native_tabs WHERE book_id=? AND account_id=?", (book, account)).fetchone()
+        tab_id = existing[0] if existing else sheets.create_tab(self.conn, book, account, "Applications")
         tab = sheets.owned(self.conn, tab_id, {"role": "admin"})
         base = sheets.snapshot(self.conn, tab)
-        sheets.append(self.conn, tab, f"checks-{who}-{account}", base["revision"],
-            [["Acme", "Engineer", f"https://jobs.test/{who}/{account}/{i}", "true"] for i in range(count)], work_date=day)
+        prefix = f"https://jobs.test/{who}/{account}/{base['revision']}/"
+        sheets.append(self.conn, tab, f"checks-{who}-{account}-{base['revision']}", base["revision"],
+            [["Acme", "Engineer", f"{prefix}{i}"] for i in range(count)], work_date=day)
+        # Pasted rows never carry a check, so mark these jobs checked directly.
+        mark_checked(self.conn, tab_id, prefix)
 
     def test_shared_receipts_are_allocated_by_account_day_weights_and_rounded_to_total(self):
         self.assign(); self.assign(who=2)
@@ -231,9 +304,9 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(scoped["daily"][0], 13)
         self.assertEqual([b["id"] for b in scoped["bidders"]], [1])
         payment = self.client.post('/api/payments/bidders/1/paid', json={
-            "week":"2026-10-12", "expected_count":13, "amount":"10"})
+            "week":"2026-10-12", "expected_count":11, "amount":"10"})
         self.assertEqual(payment.status_code, 200, payment.text)
-        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 13)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 11)
 
     def test_shared_weights_do_not_mix_accounts_and_zero_weight_gets_zero(self):
         self.assign(); self.assign(who=2)
@@ -245,7 +318,7 @@ class PaymentTests(unittest.TestCase):
         self.message("no-checks-next-day", "2026-10-13T15:00:00+00:00")
         result = self.report()
         self.assertEqual(result["unallocated_daily"][1], 1)
-        self.assertEqual([b["total"] for b in result["bidders"]], [3, 7])
+        self.assertEqual([b["total"] for b in result["bidders"]], [1, 1])
         self.assertEqual(result["daily"][0], 10)
 
     def test_two_shared_accounts_use_separate_contributors_before_summing_bidder_estimates(self):
@@ -270,31 +343,31 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(accounts[self.other]['daily'], [30,0,0,0,0,0,0])
         self.assertEqual(accounts[self.account]['checked_daily'], [1,0,0,0,0,0,0])
         self.assertEqual(accounts[self.other]['checked_daily'], [3,0,0,0,0,0,0])
-        self.assertEqual(sum(a['total'] for a in accounts.values()), 55)
-        self.assertEqual(rows[1]['total'], 55)
+        self.assertEqual(sum(a['total'] for a in accounts.values()), 4)
+        self.assertEqual(rows[1]['total'], 4)
         self.assertEqual(result['daily'][0], 140)
         self.assertEqual(result['unallocated_daily'][0], 0)
         scoped = payments.report(self.conn, date(2026,10,12), bidder_id=1)
         self.assertEqual(scoped['bidders'][0]['daily'][0], 55)
 
-    def test_primary_application_count_sums_daily_estimates_across_assigned_accounts(self):
+    def test_primary_application_count_sums_checked_links_across_assigned_accounts(self):
         self.assign(); self.assign(account=self.other)
         self.add_checks(1, self.account, 2)
         self.add_checks(1, self.other, 3)
         for i in range(9): self.message(f"received-{i}")
         row = self.report()["bidders"][0]
-        self.assertEqual(row["application_total"], 9)
+        self.assertEqual(row["application_total"], 5)
         self.assertEqual(row["checked_daily"][0], 5)
         response = self.client.post('/api/payments/bidders/1/paid', json={
-            "week":"2026-10-12", "expected_count":9, "amount":"10"})
+            "week":"2026-10-12", "expected_count":5, "amount":"10"})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 9)
+        self.assertEqual(self.report()["bidders"][0]["payment"]["application_count"], 5)
 
     def test_allocation_rounding_is_deterministic_for_ties(self):
         self.assign(); self.assign(who=2)
         self.add_checks(1, self.account, 1); self.add_checks(2, self.account, 1)
         self.message("one")
-        self.assertEqual([b["total"] for b in self.report()["bidders"]], [1, 0])
+        self.assertEqual([b["received_reply_total"] for b in self.report()["bidders"]], [1, 0])
 
     def test_edit_rejects_same_bidder_overlaps_and_invalid_dates(self):
         self.assign(end=date(2026,10,14));self.assign(start=date(2026,10,15))
@@ -303,16 +376,17 @@ class PaymentTests(unittest.TestCase):
             self.assertEqual(self.client.post('/api/payments/assignments/1',json=body).status_code,400)
         self.assertEqual(self.conn.execute('SELECT end_date FROM bidder_assignments WHERE id=1').fetchone()[0],'2026-10-14')
 
-    def test_paid_weeks_block_remove_but_allow_edits_outside_paid_dates(self):
+    def test_paid_weeks_protect_edits_but_allow_assignment_removal(self):
         self.assign();self.message("one");self.add_checks(1, self.account, 1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={"week":"2026-10-12","expected_count":1,"amount":"10"}).status_code,200)
         url='/api/payments/assignments/1'
-        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,400)
         for body in ({"account_id":self.account,"start_date":"2026-10-13","end_date":None},
                      {"account_id":self.other,"start_date":"2026-10-12","end_date":None}):
             self.assertEqual(self.client.post(url,json=body).status_code,400)
         self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":"2026-10-18"}).status_code,200)
         self.assertEqual(self.client.post(url,json={"account_id":self.account,"start_date":"2026-10-12","end_date":None}).status_code,200)
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,200)
+        self.assertEqual(self.client.post(url+'/remove',json={}).status_code,404)
 
     def test_guest_cannot_edit_or_remove_assignments(self):
         self.assign()
@@ -373,6 +447,7 @@ class PaymentTests(unittest.TestCase):
     def test_bidder_rate_calculates_money_with_adjustment_and_manual_week_override(self):
         self.assign()
         for i in range(309):self.message(f'rate-{i}')
+        self.add_checks(1, self.account, 309)
         self.assertEqual(self.client.post('/api/payments/bidders/1/rate',json={'pay_per_bid':'0.05','adjustment_percent':'20'}).status_code,200)
         row=self.client.get('/api/payments?week=2026-10-12').json()['bidders'][0]
         self.assertEqual(row['calculated_amount_cents'],1854)
@@ -389,6 +464,29 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(paid['payable_amount_cents'],1854)
         self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':309,'amount':'25'}).status_code,400)
 
+    def test_pay_uses_checked_links_not_reply_volume_and_keeps_editable_adjustment(self):
+        self.assign()
+        payments.save_rate(self.conn, 1, payments.RateBody(pay_per_bid="0.05", adjustment_percent="20"))
+        for i in range(171): self.message(f"reply-{i}")
+        row = self.report()["bidders"][0]
+        self.assertEqual((row["total"], row["received_reply_total"], row["calculated_amount_cents"]), (0, 171, 0))
+        self.add_checks(1, self.account, 76)
+        row = self.report()["bidders"][0]
+        self.assertEqual((row["total"], row["application_total"], row["calculated_amount_cents"]), (76, 76, 456))
+        self.assertEqual(row["account_breakdown"][0]["total"], 76)
+        with self.assertRaisesRegex(ValueError, "Counts changed"):
+            payments.record_payment(self.conn, 1, payments.PayBody(week=date(2026,10,12), expected_count=171, amount="10"))
+        payments.save_rate(self.conn, 1, payments.RateBody(pay_per_bid="0.05", adjustment_percent="50"))
+        self.assertEqual(self.report()["bidders"][0]["calculated_amount_cents"], 570)
+        payments.record_payment(self.conn, 1, payments.PayBody(week=date(2026,10,12), expected_count=76, amount="5.70"))
+        recorded = self.report()["bidders"][0]["payment"]
+        self.message("another-reply")
+        row = self.report()["bidders"][0]
+        self.assertEqual(row["received_reply_total"], 172)
+        self.assertEqual(row["calculated_amount_cents"], 570)
+        self.assertEqual(row["payment"], recorded)
+        self.assertEqual(recorded["application_count"], 76)
+
     def test_rate_rounding_validation_and_bidder_permissions(self):
         self.assertEqual(payments.calculate_amount('0.025',1,'0'),3)
         self.assertEqual(payments.calculate_amount('0.06',309,'20'),2225)
@@ -400,10 +498,11 @@ class PaymentTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/payments/bidders/1/amount',json={'week':'2026-10-12','expected_count':0,'amount':'1'}).status_code,403)
 
     def test_paid_amount_can_be_edited_with_history_and_stale_edit_protection(self):
-        self.assign();self.message('first')
+        self.assign();self.message('first');self.add_checks(1,self.account,1)
         self.assertEqual(self.client.post('/api/payments/bidders/1/paid',json={'week':'2026-10-12','expected_count':1,'amount':'19.70','note':'Original'}).status_code,200)
         original=self.report()['bidders'][0]['payment']
         self.message('second')
+        self.add_checks(1,self.account,1)
         body={'week':'2026-10-12','expected_count':2,'expected_revision':0,'amount':'18.54','note':'Corrected'}
         response=self.client.post('/api/payments/bidders/1/paid/edit',json=body)
         self.assertEqual(response.status_code,200,response.text)
@@ -427,7 +526,7 @@ class PaymentTests(unittest.TestCase):
             with patch("mailcheck.web.app.sourcing_verification.verify_all") as verify, patch("mailcheck.payments.sync_receipts") as sync:
                 result=client.get("/api/payments",headers=headers)
                 self.assertEqual(result.status_code,200,result.text)
-                self.assertEqual([b['name'] for b in result.json()['bidders']],['Alex','Blair'])
+                self.assertEqual([b['name'] for b in result.json()['bidders']],['Alex'])
                 verify.assert_not_called();sync.assert_not_called()
             self.assertEqual(client.post("/api/payments/refresh",json={},headers=headers).status_code,403)
             self.assertEqual(client.get("/api/accounts",headers=headers).status_code,403)
@@ -440,6 +539,7 @@ class PaymentTests(unittest.TestCase):
         self.assign()
         for i in range(10):
             self.message(f'nifemi-{i}')
+        self.add_checks(1, self.account, 10)
         before=payments.report(self.conn,date(2026,10,12),bidder_id=1)['bidders'][0]
         self.assertEqual(before['total'],10)
         self.assertIsNone(before['calculated_amount_cents'])
@@ -480,7 +580,7 @@ class PaymentTests(unittest.TestCase):
         bidders=response.json()["bidders"]
         self.assertEqual([b["id"] for b in bidders],[1])
         self.assertEqual([a["account_id"] for a in bidders[0]["account_breakdown"]],[self.account])
-        self.assertEqual(bidders[0]["account_breakdown"][0]["total"],1)
+        self.assertNotIn("received_reply_total", bidders[0]["account_breakdown"][0])
 
     def test_report_query_count_does_not_grow_with_bidder_count(self):
         def queries():
@@ -496,3 +596,219 @@ class PaymentTests(unittest.TestCase):
             self.conn.execute("INSERT INTO bidders(name,created_at) VALUES(?,'2026-01-01')",(f"Extra {i}",))
         self.conn.commit()
         self.assertEqual(queries(),before)
+
+    def test_removed_bidders_manual_checks_cannot_steal_reply_shares(self):
+        self.assign(); self.assign(who=2)
+        self.add_checks(1, self.account, 1)
+        self.add_checks(2, self.account, 9)
+        for i in range(10): self.message(f'shared-{i}')
+        payments.remove_bidder(self.conn, 2)
+        self.conn.commit()
+        result = self.report()
+        self.assertEqual(result['bidders'][0]['daily'][0], 10)
+        self.assertEqual(result['bidders'][0]['total'], 1)
+        self.assertEqual(sum(result['checked_daily']), 1)
+
+    def test_zero_dollar_payment_can_be_recorded_and_edited(self):
+        self.assign(); self.add_checks(1, self.account, 1)
+        response = self.client.post('/api/payments/bidders/1/paid', json={'week':'2026-10-12','expected_count':1,'amount':'0'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.report()['bidders'][0]['payment']['amount_cents'], 0)
+        edited = self.client.post('/api/payments/bidders/1/paid/edit', json={'week':'2026-10-12','expected_count':1,'expected_revision':0,'amount':'0','note':'No payment due'})
+        self.assertEqual(edited.status_code, 200, edited.text)
+
+    def test_unchanged_report_does_not_rewrite_receipt_ledger(self):
+        self.assign(); self.message('unchanged')
+        self.report()
+        before = self.conn.total_changes
+        self.report()
+        self.assertEqual(self.conn.total_changes, before)
+
+    def test_single_day_counts_use_chicago_midnight_not_source_day(self):
+        from mailcheck.sourcing_verification import completed_account_counts
+        self.assign(); self.add_checks(1, self.account, 1)
+        row = self.conn.execute('SELECT id FROM native_rows WHERE work_date IS NOT NULL LIMIT 1').fetchone()[0]
+        self.conn.execute("INSERT INTO sourcing_check_activity(row_id,bidder_id,account_id,work_date,source,confirmed_at,message_id) VALUES(?,1,?,'2026-10-12','confirmation','2026-10-13T04:59:59Z','boundary')", (row,self.account))
+        counts = completed_account_counts(self.conn, '2026-10-12', '2026-10-12')
+        self.assertEqual(counts, {(1,self.account,'2026-10-12'):1})
+        self.conn.execute("UPDATE sourcing_check_activity SET confirmed_at='2026-10-13T05:00:00Z'")
+        self.assertEqual(completed_account_counts(self.conn, '2026-10-12', '2026-10-12'), {})
+        self.conn.execute("UPDATE sourcing_check_activity SET confirmed_at='invalid-legacy-time'")
+        self.assertEqual(completed_account_counts(self.conn, '2026-10-12', '2026-10-12'), {(1,self.account,'2026-10-12'):1})
+
+    def test_bidder_payment_payload_has_checked_counts_only_but_admin_keeps_replies(self):
+        self.assign(); self.add_checks(1, self.account, 1)
+        for i in range(3): self.message(f'private-reply-{i}')
+        self.conn.commit()
+        admin = self.client.get('/api/payments?week=2026-10-12').json()
+        self.assertEqual(admin['bidders'][0]['daily'][0], 3)
+        self.assertEqual(admin['bidders'][0]['received_reply_total'], 3)
+        self.assertEqual(admin['bidders'][0]['checked_daily'][0], 1)
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(1,'2026-10-12',3,100,'2026-10-19','Saved')")
+        self.conn.execute("INSERT INTO bidder_payment_amounts VALUES(1,'2026-10-12',100,3)")
+        self.conn.commit()
+        sign_in_bidder(self.client,1)
+        response = self.client.get('/api/payments?week=2026-10-12')
+        self.assertEqual(response.status_code,200,response.text)
+        payload=response.json(); row=payload['bidders'][0]
+        self.assertEqual(payload['daily'],payload['checked_daily'])
+        self.assertEqual(row['daily'],row['checked_daily'])
+        self.assertEqual(row['daily'][0],1)
+        self.assertNotIn('received_reply_total',row)
+        self.assertNotIn('override_application_count',row)
+        self.assertNotIn('application_count',row['payment'])
+        self.assertEqual(row['payment']['amount_cents'],100)
+        self.assertNotIn('unallocated_daily',payload)
+        for account in row['account_breakdown']:
+            self.assertEqual(account['daily'],account['checked_daily'])
+            self.assertNotIn('received_reply_total',account)
+
+    def test_visibility_defaults_updates_conflicts_and_bidder_write_denied(self):
+        response = self.client.get('/api/payments/visibility')
+        self.assertEqual(response.status_code, 200)
+        alex = response.json()['bidders'][0]
+        self.assertEqual((alex['payment_visible'], alex['other_work_visible'], alex['visibility_revision']), (1, 0, 0))
+        body = dict(payment_visible=False, other_work_visible=True, expected_revision=0)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/visibility', json=body).status_code, 200)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/visibility', json=body).status_code, 400)
+        self.assertEqual(payments.visibility(self.conn, 1), dict(payment_visible=False, other_work_visible=True))
+        sign_in_bidder(self.client)
+        self.assertEqual(self.client.get('/api/payments/visibility').status_code, 403)
+        self.assertEqual(self.client.post('/api/payments/bidders/1/visibility', json=body).status_code, 403)
+
+    def test_hidden_money_and_shared_work_are_redacted_for_local_and_worker_bidders(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        self.assign(); self.assign(who=2, account=self.other)
+        self.add_checks(1, self.account, 1); self.add_checks(2, self.other, 2)
+        self.message('mine'); self.message('theirs', account=self.other)
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',payment_visible=0,other_work_visible=1 WHERE id=1")
+        self.conn.execute("UPDATE bidders SET pay_per_bid='100',wallet_address='private-wallet' WHERE id=2")
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(2,'2026-10-12',2,9999,'2026-10-19','private-note')")
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            for client, extra in ((self.client, {}), (worker, {'headers':headers})):
+                response=client.get('/api/payments?week=2026-10-12&bidder=2', **extra)
+                self.assertEqual(response.status_code,200,response.text)
+                data=response.json()
+                self.assertFalse(data['payment_visible'])
+                self.assertEqual([b['total'] for b in data['bidders']], [1,2])
+                for row in data['bidders']:
+                    for field in ('pay_per_bid','gross_amount_cents','calculated_amount_cents','payable_amount_cents','amount_override_cents','deduction_daily','deduction_total_cents','wallet_address','received_reply_total'):
+                        self.assertNotIn(field,row)
+                    self.assertIsNone(row['payment'])
+                    self.assertEqual(row['daily'],row['checked_daily'])
+                self.assertEqual(data['bidders'][1]['assignments'],[])
+                self.assertEqual(data['bidders'][1]['account_breakdown'],[])
+                with patch.object(payments,'today',return_value=date(2026,10,12)):
+                    self.assertEqual(client.get('/api/applications/today',**extra).json()['applications_today'],1)
+                activity=client.get('/api/payments/activity?week=2026-10-12&bidder=2',**extra).json()
+                self.assertEqual([b['id'] for b in activity['bidders']],[1,2])
+                self.assertNotIn('accounts',activity)
+                self.assertNotIn('account_runs',activity['workday'])
+                self.assertNotIn('private-wallet',response.text)
+                self.assertNotIn('private-note',response.text)
+            missing={k:v for k,v in headers.items() if k!='x-offerpath-bidder'}
+            self.assertEqual(worker.get('/api/payments',headers=missing).status_code,401)
+        self.conn.execute('UPDATE bidders SET payment_visible=1,other_work_visible=0 WHERE id=1');self.conn.commit()
+        data=self.client.get('/api/payments?week=2026-10-12').json()
+        self.assertTrue(data['payment_visible'])
+        self.assertEqual([b['id'] for b in data['bidders']],[1])
+        self.assertEqual(data['bidders'][0]['gross_amount_cents'],120)
+
+    def test_dashboard_graphs_are_own_assignment_scoped_and_have_no_messages_or_status(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        self.assign(end=date(2026,10,13));self.assign(who=2,account=self.other)
+        self.message('mine');self.message('others',account=self.other)
+        self.message('after-assignment','2026-10-14T15:00:00+00:00')
+        self.conn.execute('UPDATE bidders SET other_work_visible=1 WHERE id=1');self.conn.commit()
+        sign_in_bidder(self.client)
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            for client,extra in ((self.client,{}),(worker,{'headers':headers})):
+                response=client.get('/api/dashboard?start=2026-10-12&end=2026-10-18&tz=America/Chicago&bidder=2',**extra)
+                self.assertEqual(response.status_code,200,response.text)
+                data=response.json()
+                self.assertEqual(data['summary']['total'],1)
+                self.assertEqual(sum(day['total'] for day in data['daily']),1)
+                self.assertNotIn('messages',data);self.assertNotIn('history',data)
+                accounts=client.get('/api/dashboard/accounts',**extra).json()
+                self.assertEqual(accounts,{'accounts':[{'label':'personal'}],'bidders':[]})
+                self.assertEqual(client.get('/api/messages/1',**extra).status_code,404)
+                self.assertEqual(client.get('/api/accounts',**extra).status_code,403)
+                scoped=client.get('/api/dashboard?start=2026-10-12&end=2026-10-18&account=work',**extra).json()
+                self.assertEqual(scoped['summary']['total'],0)
+        self.assertEqual(self.client.get('/dashboard').status_code,200)
+        self.assertEqual(self.client.get('/',follow_redirects=False).headers['location'],'/dashboard')
+
+    def test_management_read_is_settings_only_and_does_not_verify_or_scan_payments(self):
+        self.assign()
+        self.conn.execute("UPDATE bidders SET pay_per_bid='0.05',wallet_address='wallet' WHERE id=1")
+        self.conn.commit()
+        with patch('mailcheck.web.app.sourcing_verification.verify_all') as verify, patch.object(payments,'report') as report:
+            response=self.client.get('/api/payments/management')
+            self.assertEqual(response.status_code,200,response.text)
+            data=response.json()
+            self.assertEqual(data['bidders'][0]['wallet_address'],'wallet')
+            self.assertEqual(data['bidders'][0]['assignments'][0]['account_id'],self.account)
+            self.assertEqual(len(data['accounts']),2)
+            self.assertNotIn('daily',data['bidders'][0])
+            verify.assert_not_called();report.assert_not_called()
+        sign_in_bidder(self.client)
+        self.assertEqual(self.client.get('/api/payments/management').status_code,403)
+        from fastapi.testclient import TestClient as WorkerClient
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            self.assertEqual(worker.get('/api/payments/management',headers=headers).status_code,403)
+
+    def test_payment_visible_viewers_can_see_visible_coworker_payment_status(self):
+        from fastapi.testclient import TestClient as WorkerClient
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(1,self.account,1);self.add_checks(2,self.other,2)
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',payment_visible=1,other_work_visible=1 WHERE id=1")
+        self.conn.execute("UPDATE bidders SET pay_per_bid='100',payment_visible=0,wallet_address='private-wallet' WHERE id=2")
+        self.conn.execute("INSERT INTO bidder_payments(bidder_id,week_start,application_count,amount_cents,paid_at,note) VALUES(2,'2026-10-12',2,9999,'2026-10-19','private-note')")
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        with WorkerClient(create_app(worker_secret='trusted')) as worker:
+            headers={'x-offerpath-worker':'trusted','x-offerpath-viewer':'bidder','x-offerpath-bidder':'1'}
+            for client,extra in ((self.client,{}),(worker,{'headers':headers})):
+                response=client.get('/api/payments?week=2026-10-12',**extra)
+                self.assertEqual(response.status_code,200,response.text)
+                peer=next(b for b in response.json()['bidders'] if b['id']==2)
+                self.assertTrue(peer['payment_visible'])
+                self.assertEqual(peer['gross_amount_cents'],24000)
+                self.assertEqual(peer['calculated_amount_cents'],24000)
+                self.assertEqual(peer['payment'],{'amount_cents':9999,'paid_at':'2026-10-19'})
+                for field in ('pay_per_bid','adjustment_percent','wallet_address','wallet_network','amount_override_cents'):
+                    self.assertNotIn(field,peer)
+                self.assertEqual(peer['assignments'],[])
+                self.assertEqual(peer['account_breakdown'],[])
+                self.assertNotIn('private-wallet',response.text)
+                self.assertNotIn('private-note',response.text)
+
+    def test_bidder_report_filters_peer_rows_even_with_an_unscoped_input(self):
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(1,self.account,1);self.add_checks(2,self.other,2)
+        original=self.report()
+        result=payments.bidder_report(original,1,{'payment_visible':True,'other_work_visible':False})
+        self.assertEqual([r['id'] for r in result['bidders']],[1])
+        self.assertEqual(sum(result['checked_daily']),1)
+        self.assertEqual(len(original['bidders']),2)
+
+    def test_shared_payment_status_includes_saved_amount_without_private_editor_fields(self):
+        self.assign();self.assign(who=2,account=self.other)
+        self.add_checks(2,self.other,2)
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',payment_visible=1,other_work_visible=1 WHERE id=1")
+        self.conn.execute("UPDATE bidders SET pay_per_bid='1',wallet_address='private-wallet' WHERE id=2")
+        self.conn.execute("INSERT INTO bidder_payment_amounts VALUES(2,'2026-10-12',777,2)")
+        self.conn.commit()
+        sign_in_bidder(self.client)
+        data=self.client.get('/api/payments?week=2026-10-12').json()
+        peer=next(row for row in data['bidders'] if row['id']==2)
+        self.assertEqual(peer['calculated_amount_cents'],240)
+        self.assertEqual(peer['payable_amount_cents'],777)
+        self.assertIsNone(peer['payment'])
+        self.assertNotIn('amount_override_cents',peer)
+        self.assertNotIn('wallet_address',peer)

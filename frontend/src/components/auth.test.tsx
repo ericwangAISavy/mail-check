@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,expect,it,vi} from "vitest"
-import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
+import {act,cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react"
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query"
 import {MemoryRouter} from "react-router-dom"
 import App from "@/App"
@@ -34,14 +34,15 @@ it("signs an additional admin into their own workspace without owner controls",a
   vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
   mount();await screen.findByLabelText("Username");fireEvent.change(screen.getByLabelText("Username"),{target:{value:"alice"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"alice-password-123"}})
-  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  fireEvent.click(screen.getByRole("button",{name:"Sign In"}))
   await screen.findByRole("link",{name:"Dashboard"})
   expect(api.login).toHaveBeenCalledWith("admin","alice-password-123",undefined,"alice")
   expect(screen.getByText("Alice workspace")).toBeTruthy()
   expect(screen.queryByRole("link",{name:"Admin management"})).toBeNull()
-  expect(screen.queryByRole("link",{name:"Settings"})).toBeNull()
+  // Added admins reach their personal Settings; workspace-wide settings stay with the owner.
+  expect(screen.getByRole("link",{name:"Settings"})).toBeTruthy()
   expect(screen.getByRole("button",{name:"Change password"})).toBeTruthy()
-  expect(screen.getByRole("button",{name:"Auto-check off"})).toHaveProperty("disabled",true)
+  expect(screen.queryByRole("button",{name:/Auto-check/})).toBeNull()
 })
 it("shows owner controls and explicit workspace identity",async()=>{
   vi.mocked(api.session).mockResolvedValue({role:"admin",is_owner:true,workspace_id:"legacy",workspace_name:"Original workspace"})
@@ -68,10 +69,10 @@ it("does not accept an old bidder identity",async()=>{
 it("preserves a failed sign-in form and clears private caches on sign-out",async()=>{
   vi.spyOn(api,"login").mockRejectedValue(new Error("Incorrect username or password."))
   const client=mount();await screen.findByLabelText("Username");fireEvent.change(screen.getByLabelText("Username"),{target:{value:"owner"}});fireEvent.change(await screen.findByLabelText("Password"),{target:{value:"wrong"}})
-  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  fireEvent.click(screen.getByRole("button",{name:"Sign In"}))
   expect((await screen.findByRole("alert")).textContent).toContain("Incorrect username")
   vi.mocked(api.login).mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue({role:"admin"});return {role:"admin"}})
-  fireEvent.click(screen.getByRole("button",{name:"Sign in"}));await screen.findByRole("link",{name:"Dashboard"})
+  fireEvent.click(screen.getByRole("button",{name:"Sign In"}));await screen.findByRole("link",{name:"Dashboard"})
   client.setQueryData(["reader",1],{body_html:"private"})
   vi.spyOn(api,"post").mockResolvedValue({ok:true})
   vi.mocked(api.session).mockResolvedValue({role:null})
@@ -81,16 +82,16 @@ it("preserves a failed sign-in form and clears private caches on sign-out",async
 })
 
 it("signs bidders into their admin team with only viewer navigation",async()=>{
-  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({bidders:[{id:9,name:"Dany + alice"}]}),{headers:{"Content-Type":"application/json"}})))
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({bidders:[{id:9,name:"Dany"}]}),{headers:{"Content-Type":"application/json"}})))
   const identity={role:"bidder" as const,bidder_id:1,workspace_id:"alice",workspace_name:"Alice team",username:"alice",managed:true}
   vi.spyOn(api,"login").mockImplementation(async()=>{vi.mocked(api.session).mockResolvedValue(identity);return identity})
   mount();fireEvent.change(await screen.findByLabelText("Sign in as"),{target:{value:"bidder"}})
-  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"Dany + alice"}})
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"Dany"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"bidder-password-123"}})
-  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  fireEvent.click(screen.getByRole("button",{name:"Sign In"}))
   await screen.findByRole("heading",{name:"Admin Dashboard"})
-  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",undefined,"Dany + alice")
-  expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Dashboard","Job sourcing","Bidder management"])
+  expect(api.login).toHaveBeenCalledWith("bidder","bidder-password-123",undefined,"Dany")
+  expect(screen.getAllByRole("link").map(link=>link.textContent)).toEqual(["Inbox","Dashboard","Job sourcing","Bidder management","Settings"])
   expect(screen.queryByRole("button",{name:"Check now"})).toBeNull()
   expect(screen.queryByRole("button",{name:"Change password"})).toBeNull()
 })
@@ -108,7 +109,7 @@ it("locks account selection and credentials while signing in",async()=>{
   mount();await screen.findByLabelText("Username")
   fireEvent.change(screen.getByLabelText("Username"),{target:{value:"owner"}})
   fireEvent.change(screen.getByLabelText("Password"),{target:{value:"secret"}})
-  fireEvent.click(screen.getByRole("button",{name:"Sign in"}))
+  fireEvent.click(screen.getByRole("button",{name:"Sign In"}))
   await screen.findByRole("button",{name:"Please wait…"})
   expect(screen.getByLabelText("Sign in as")).toHaveProperty("disabled",true)
   expect(screen.getByLabelText("Username")).toHaveProperty("disabled",true)
@@ -141,4 +142,83 @@ it("reveals a password only on request and hides it again when switching roles",
   expect(screen.getByLabelText("Password")).toHaveProperty("type","password")
   expect(screen.getByLabelText("Password")).toHaveProperty("value","")
   expect(fetch).not.toHaveBeenCalled()
+})
+
+it("locks scrolling only while sign-in is mounted and restores prior overflow",async()=>{
+  const rootOverflow=document.documentElement.style.overflow,bodyOverflow=document.body.style.overflow
+  document.documentElement.style.overflow="auto";document.body.style.overflow="visible"
+  try {
+    mount();await screen.findByLabelText("Username")
+    expect(document.documentElement.style.overflow).toBe("hidden")
+    expect(document.body.style.overflow).toBe("hidden")
+    cleanup()
+    expect(document.documentElement.style.overflow).toBe("auto")
+    expect(document.body.style.overflow).toBe("visible")
+  } finally {document.documentElement.style.overflow=rootOverflow;document.body.style.overflow=bodyOverflow}
+})
+
+it("fits sign-in to changes in the visible viewport",async()=>{
+  const viewport=Object.assign(new EventTarget(),{width:390,height:300,offsetTop:120,offsetLeft:0})
+  vi.stubGlobal("visualViewport",viewport)
+  mount();await screen.findByLabelText("Username")
+  const page=document.querySelector<HTMLElement>(".sign-in-page")!
+  await waitFor(()=>expect(page.style.height).toBe("300px"))
+  expect(page.style.top).toBe("120px")
+  viewport.height=240
+  viewport.dispatchEvent(new Event("resize"))
+  await waitFor(()=>expect(page.style.height).toBe("240px"))
+})
+
+it("clears private caches when a legacy admin identity changes within the same workspace",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",username:"alice",workspace_id:"team"})
+  const client=mount("/dashboard")
+  await screen.findByRole("heading",{name:"Admin Dashboard"})
+  client.setQueryData(["reader",1],{body_html:"Alice private message"})
+  client.setQueryData(["auth"],{role:"admin",username:"bob",workspace_id:"team"})
+  await waitFor(()=>expect(client.getQueryData(["reader",1])).toBeUndefined())
+})
+
+it("does not reopen the workspace when a password change finishes after session expiration",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",workspace_id:"alice",must_change_password:true})
+  let finish!:(result:unknown)=>void
+  vi.spyOn(api,"post").mockImplementation((url)=>url==="/api/auth/password"?new Promise(resolve=>{finish=resolve}) as never:Promise.resolve({ok:true}) as never)
+  mount();await screen.findByRole("heading",{name:"Choose your password"})
+  fireEvent.change(screen.getByLabelText("New password"),{target:{value:"new-password-123"}})
+  fireEvent.change(screen.getByLabelText("Confirm password"),{target:{value:"new-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Save password"}))
+  await screen.findByRole("button",{name:"Please wait…"})
+  vi.mocked(api.session).mockResolvedValue({role:null})
+  fireEvent(window,new Event("mailcheck:unauthorized"))
+  await screen.findByRole("heading",{name:"Sign In to OfferPath"})
+  finish({session:{role:"admin",workspace_id:"alice",must_change_password:false}})
+  await waitFor(()=>expect(screen.getByRole("button",{name:"Sign In"})).toHaveProperty("disabled",true))
+  expect(screen.getByRole("heading",{name:"Sign In to OfferPath"})).toBeTruthy()
+  expect(api.bootstrap).not.toHaveBeenCalled()
+})
+
+it("serializes password sign-out and isolates a newer login from old form completion",async()=>{
+  vi.mocked(api.session).mockResolvedValue({role:"admin",workspace_id:"alice",must_change_password:true})
+  let finishOld!:(result:unknown)=>void,finishNew!:(result:any)=>void
+  vi.spyOn(api,"post").mockImplementation((url)=>url==="/api/auth/password"?new Promise(resolve=>{finishOld=resolve}) as never:Promise.resolve({ok:true}) as never)
+  vi.spyOn(api,"login").mockImplementation(()=>new Promise(resolve=>{finishNew=resolve}))
+  mount();await screen.findByRole("heading",{name:"Choose your password"})
+  fireEvent.change(screen.getByLabelText("New password"),{target:{value:"new-password-123"}})
+  fireEvent.change(screen.getByLabelText("Confirm password"),{target:{value:"new-password-123"}})
+  fireEvent.click(screen.getByRole("button",{name:"Save password"}))
+  await screen.findByRole("button",{name:"Please wait…"})
+  expect(screen.getByRole("button",{name:"Sign out"})).toHaveProperty("disabled",true)
+  vi.mocked(api.session).mockResolvedValue({role:null})
+  fireEvent(window,new Event("mailcheck:unauthorized"))
+  await screen.findByRole("heading",{name:"Sign In to OfferPath"})
+  fireEvent.change(screen.getByLabelText("Username"),{target:{value:"bob"}})
+  fireEvent.change(screen.getByLabelText("Password"),{target:{value:"bob-password-123"}})
+  expect(screen.getByRole("button",{name:"Sign In"})).toHaveProperty("disabled",false)
+  fireEvent.click(screen.getByRole("button",{name:"Sign In"}))
+  await screen.findByRole("button",{name:"Please wait…"})
+  await act(async()=>finishOld({session:{role:"admin",workspace_id:"alice",must_change_password:false}}))
+  expect(screen.getByRole("button",{name:"Please wait…"})).toHaveProperty("disabled",true)
+  const nextIdentity={role:"admin" as const,user_id:3,workspace_id:"bob",username:"bob"}
+  vi.mocked(api.session).mockResolvedValue(nextIdentity)
+  await act(async()=>finishNew(nextIdentity))
+  await screen.findByRole("link",{name:"Dashboard"})
 })

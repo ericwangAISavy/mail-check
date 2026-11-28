@@ -44,7 +44,16 @@
   min-width: 190px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding-left: 9px;
+  padding: 0 9px;
+}
+.sourcing-search:focus-within {
+  border-color: var(--ring);
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+:root body form.sourcing-search input:is(:focus, :focus-visible) {
+  outline: none;
+  box-shadow: none;
 }
 .sourcing-search input {
   border: none !important;
@@ -54,6 +63,7 @@
   font-size: 13px;
 }
 .sheet-editor {
+  min-width: 0;
   min-height: 0;
   flex: 1;
   display: flex;
@@ -109,10 +119,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sourcing-grid {
-  flex: 1;
-  height: 100%;
-  min-height: 100px;
+.sheet-editor .sourcing-grid {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
   border: none;
   font-size: 13px;
   --rdg-color: var(--foreground);
@@ -128,6 +141,10 @@
 .sourcing-grid .rdg-cell {
   padding: 0 9px;
 }
+.sourcing-grid.is-row-mode { --rdg-selection-width:0px; }
+.sourcing-grid.is-row-mode .rdg-cell[aria-selected="true"] { outline:none; }
+.sourcing-grid.is-row-mode .sheet-range-cell { box-shadow:none; }
+.sourcing-grid.is-row-mode:focus-within .sheet-row-selected > .rdg-cell { border-top-color:color-mix(in srgb,var(--primary) 45%,var(--border)); border-bottom-color:color-mix(in srgb,var(--primary) 45%,var(--border)); }
 .sourcing-grid .sheet-heading-cell {
   font-weight: 600;
   background: var(--surface);
@@ -141,7 +158,7 @@
 .sheet-formula-cell {
   color: var(--muted-foreground);
 }
-.sourcing-grid input {
+.sourcing-grid input:not(.sourcing-check) {
   padding: 0 6px !important;
   border-radius: 0 !important;
   color: var(--foreground);
@@ -156,7 +173,13 @@
   border-top: 1px solid var(--border);
   padding: 0 8px;
 }
-.sourcing-tabs > button {
+.sourcing-tab-list {
+  display: flex;
+  align-self: stretch;
+  align-items: stretch;
+}
+.sourcing-tabs > button,
+.sourcing-tab-list > button {
   padding: 10px 19px;
   white-space: nowrap;
   font-size: 13px;
@@ -164,12 +187,13 @@
   background: transparent;
   border-bottom: 2px solid transparent;
 }
-.sourcing-tabs > button[aria-selected="true"] {
+.sourcing-tab-list > button[aria-selected="true"] {
   color: var(--primary);
   background: var(--background);
   border-bottom-color: var(--primary);
 }
-.sourcing-tabs > button:disabled {
+.sourcing-tabs > button:disabled,
+.sourcing-tab-list > button:disabled {
   opacity: 0.6;
 }
 .sourcing-empty {
@@ -338,8 +362,9 @@
 .sourcing-grid .sheet-highlight-row {
   background: color-mix(in srgb, var(--primary) 14%, var(--background));
 }
+/* The header sits above the content area, so the frame's grid row (not the
+   window height) sets this area's height. */
 .sourcing-workspace {
-  height: 100dvh !important;
   min-height: 0 !important;
   overflow: hidden;
 }
@@ -643,7 +668,7 @@
   .sourcing-missing-links { flex: 1 1 240px; }
 }
 .sourcing-viewer .sheet-edit-toolbar { justify-content: space-between; flex-wrap: wrap; padding: 10px 16px; }
-.sourcing-viewer-scroll { overflow: auto; max-height: 65vh; }
+.sourcing-viewer-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .sourcing-viewer-table { width: 100%; border-collapse: collapse; font-size: 13px; user-select: text; }
 .sourcing-viewer-table th,.sourcing-viewer-table td { border: 1px solid var(--border); padding: 9px 12px; vertical-align: top; white-space: pre-wrap; }
 .sourcing-viewer-table thead th { position: sticky; top: 0; background: var(--card); text-align: left; z-index: 1; }
@@ -654,3 +679,81 @@
 .sourcing-viewer-message { padding: 12px 16px; color: var(--muted-foreground); }
 .sourcing-viewer-pagination { display:flex; align-items:center; gap:12px; padding:12px; flex-wrap:wrap; }
 .sourcing-viewer-highlight { background: var(--muted); }
+.sourcing-viewer-table tbody tr[data-opened="true"] {
+  --sourcing-opened-tint: color-mix(in srgb, var(--muted-foreground) 9%, var(--card));
+}
+.sourcing-viewer-table tbody tr[data-opened="true"]:hover {
+  --sourcing-opened-tint: color-mix(in srgb, var(--muted-foreground) 13%, var(--card));
+}
+:root body .app-frame .sourcing-page .sourcing-viewer-table tbody tr[data-opened="true"]:not(.sourcing-viewer-highlight) > :is(th,td) {
+  background: var(--sourcing-opened-tint);
+}
+:root body .app-frame .sourcing-page .sourcing-viewer-table tbody tr[data-opened="true"] > td {
+  color: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground));
+}
+
+/* Row selection owns copying; ordinary rendered cell text is never browser-selected. */
+.sourcing-grid .native-cell-content,.sourcing-grid .native-cell-content a,.sourcing-grid .sheet-row-number,.sheet-formula-bar { user-select:none; -webkit-user-select:none; }
+.sourcing-grid .native-cell-input { user-select:text; -webkit-user-select:text; }
+.sourcing-grid .sheet-checked-row > .rdg-cell { background-color:color-mix(in srgb,#12b886 12%,var(--background)); }
+.sourcing-grid .sheet-row-selected.sheet-checked-row > .rdg-cell { background-color:color-mix(in srgb,#12b886 24%,var(--background)); }
+.sourcing-grid .sheet-checked-row .native-cell-content a { color:#087f5b; font-weight:600; }
+.dark .sourcing-grid .sheet-checked-row .native-cell-content a { color:#6ee7b7; }
+
+.sheet-verification-details {max-height:14rem;overflow:auto;flex-shrink:0;padding: .75rem 1rem; border-bottom: 1px solid var(--border); background: var(--surface);}
+.sheet-verification-details summary {cursor:pointer; color:var(--muted-foreground);}
+.sheet-verification-details ul {margin:.75rem 0 0; padding-left:1.25rem;}
+.sheet-verification-details li {margin:.4rem 0; overflow-wrap:anywhere;}
+
+/* Day controls sit in the top toolbar after the workbook name; the editor's own
+   tool row is hidden. Empty when no sheet is open. */
+.sourcing-toolbar-days:empty { display: none; }
+.sourcing-toolbar-days { display: flex; flex: none; align-items: center; min-width: 0; }
+.sourcing-toolbar-days .sheet-days { display: flex; align-items: center; gap: 4px; min-height: 0; padding: 0 0 0 12px; border: 0; border-left: 1px solid var(--border); background: transparent; }
+.sourcing-toolbar-days .sheet-days > svg { display: none; }
+.sourcing-toolbar-days .sheet-days input { width: 132px; height: 34px; }
+.sourcing-toolbar .sourcing-book-title { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 1150px) {
+  .sourcing-toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .sourcing-toolbar .sourcing-search { margin-left: 0; flex: 1 1 260px; max-width: none; }
+}
+@media (max-width: 700px) {
+  .sourcing-toolbar-days { flex: 1 1 100%; }
+  .sourcing-toolbar-days .sheet-days { padding-left: 0; border-left: 0; }
+  .sourcing-toolbar-days .sheet-days input { flex: 1 1 auto; width: auto; min-width: 0; }
+}
+
+/* Empty day: one full-width row that takes focus and accepts a paste. */
+.sheet-paste-row{display:contents}
+.sheet-paste-target{grid-column:1/-1;display:flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-bottom:1px solid var(--border);color:var(--muted-foreground);font-size:13px;cursor:cell;outline:none}
+.sheet-paste-target:hover{background:color-mix(in srgb,var(--primary) 5%,transparent)}
+.sheet-paste-target:focus-visible,.sheet-paste-target:focus{box-shadow:inset 0 0 0 2px var(--primary);color:var(--foreground)}
+.sheet-paste-target kbd{font:inherit;font-size:11px;padding:1px 6px;border:1px solid var(--border);border-radius:5px;background:var(--card)}
+.sourcing-toolbar select option.sourcing-deleted-bidder { color: var(--muted-foreground); font-style: italic; }
+.job-links-page .job-links-search { flex: 1; max-width: 580px; min-width: 150px; }
+.job-links-search input { flex: 1; width: 100%; padding: 8px 0; }
+.job-links-date-range { flex-wrap:wrap; }
+.job-links-date-range label { display:flex; align-items:center; gap:8px; color:var(--muted-foreground); font-size:13px; }
+.job-links-date-range input { min-width:140px; }
+.job-links-page-size { display:flex; align-items:center; gap:8px; margin-left:auto; font-size:13px; color:var(--muted-foreground); }
+.job-links-page .sheet-edit-toolbar { flex-wrap:wrap; }
+.job-links-filters { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; margin-left:auto; }
+.job-links-filters label { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; font-size:13px; color:var(--muted-foreground); cursor:pointer; }
+.job-links-filters input { width:14px; height:14px; margin:0; accent-color:var(--primary); }
+
+/* Add profile sheet: one decision up front, context below. */
+.sourcing-add-sheet { max-width: 520px !important; }
+.sourcing-add-sheet .sourcing-add-sheet-form { flex-direction: row; align-items: flex-end; gap: 10px; margin-top: 18px; }
+.sourcing-add-sheet .sourcing-add-sheet-form label { flex: 1 1 auto; font-size: 12.5px; font-weight: 600; color: var(--foreground); }
+.sourcing-add-sheet .sourcing-add-sheet-form .btn { flex: none; height: 36px; }
+.sourcing-add-sheet .sourcing-add-sheet-empty { margin-top: 18px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 6px; }
+.sourcing-add-sheet .sourcing-add-sheet-done { color: var(--success, #12b886); font-weight: 600; }
+.sourcing-add-sheet .sourcing-add-sheet-list { margin-top: 20px; padding: 16px 0 0; border-top: 1px solid var(--border); border-bottom: 0; }
+.sourcing-add-sheet .sourcing-add-sheet-list h3 { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); }
+.sourcing-add-sheet .sourcing-add-sheet-list h3 span { font-variant-numeric: tabular-nums; font-weight: 600; }
+.sourcing-add-sheet .sourcing-add-sheet-list ul { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 6px; }
+.sourcing-add-sheet .sourcing-add-sheet-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 12px; font-size: 13px; }
+.sourcing-add-sheet .sourcing-add-sheet-list li + li { border-top: 1px solid var(--border); }
+.sourcing-add-sheet .sourcing-add-sheet-list li span { color: var(--muted-foreground); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sourcing-add-sheet .sourcing-add-sheet-footer { display: flex; justify-content: flex-end; margin-top: 8px; }
+@media (max-width: 520px) { .sourcing-add-sheet .sourcing-add-sheet-form { flex-direction: column; align-items: stretch; } }

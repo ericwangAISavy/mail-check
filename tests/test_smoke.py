@@ -1318,7 +1318,7 @@ def test_review_fixes(msgs):
         class RecordingClient:
             def complete(self, system, user, json_mode=None, max_tokens=2048, deadline=None):
                 seen_json_mode["value"] = json_mode
-                return json.dumps({"results": [{"id": "0", "category": "rejection"}]})
+                return json.dumps({"results": [{"id": "0", "category": "rejection", "confidence": 0.95, "action_required": False, "summary": "Application declined."}]})
 
         run_classify(RecordingClient(), [msgs[0]], batch_size=8)
         check("the batch call defers to the client's use_json_mode (passes None)",
@@ -1424,6 +1424,8 @@ def test_graph_source():
 
             if self.path.startswith("/v1.0/me?"):
                 payload = {"mail": "me@outlook.com"}
+            elif "junkemail/messages" in self.path:
+                payload = page([])
             elif "page2" in self.path:
                 payload = page([{
                     "id": "B", "internetMessageId": "", "subject": "Second",

@@ -23,3 +23,7 @@ Only admins can send. Bidder sessions cannot access the reply or outgoing settin
 Each Send has a durable operation ID. Repeating an accepted operation returns its existing result instead of sending again. Concurrent duplicates and replies whose delivery outcome is unknown are blocked. The sending request is never automatically retried after a timeout, disconnect or ambiguous server failure, because the provider could already have accepted it. The draft and delivery warning remain visible and editing is locked. **Check send status** reads the existing delivery record. **Retry original send safely** reuses the original operation, body, mode and completion option, so a previously accepted request returns its existing result rather than sending twice. Acceptance means the provider accepted the message, not guaranteed final delivery to the recipient.
 
 Sent text, recipient metadata and delivery status are kept locally in `mail_replies`, independently of inbox retention. SMTP settings are stored in `mail_outgoing`; credentials remain in the OS keyring.
+
+Reply composition is manual. The assisted-drafting interface and its generation,
+context, and preference endpoints have been removed. Existing stored history is
+retained; mail classification and independent followup tracking are unaffected.

@@ -1,6 +1,64 @@
+# Job Sourcing table QA · November 27, 2026
+
+final result: passed
+
+OfferPath 3.44.0 was rendered against isolated fixtures with 500 saved jobs and two
+applicant accounts. The supplied mockup guided column order, compact spacing and
+visual states. The existing editor and its clipboard and deletion contracts governed
+interaction behavior.
+
+- **Sticky header.** At 252px of table scroll, the 3.43.0 header stayed in place but
+  its cells were transparent and the row underneath showed through. On 3.44.0 every
+  header cell stayed opaque, aligned with the matching body column and fixed at the
+  same vertical coordinate. Headers and rows measured 36px in all captures.
+- **Viewports and themes.** Inspected owner at 1440×900 and 390×844, and bidder at
+  those same sizes, across Classic dark, Classic light and Iris dark. The narrow
+  tables scroll horizontally within the table, and the applicant selectors and
+  counts fit. In the bidder fixture an offscreen timestamp description initially
+  grew the mobile document to 4,010px. Anchoring that description to its cell
+  restored the document to the 844px viewport height.
+- **Interaction.** A physical Chromium drag across Added selected three jobs.
+  A check-completion refresh waited for release, then inserted a job ahead of the
+  range. The three original jobs stayed selected and Delete submitted only their
+  original row and column IDs. Filtering, account switching, ascending and
+  descending age sorting, and bidder opened-link state passed. Holding a drag at
+  the table edge scrolled 84px and extended the selection to 19 rows. Resizing the
+  live editor to 1024×600 and then 390×844 preserved its opaque 36px header and
+  kept the document within the viewport.
+- **Clipboard and scale.** The single-row and three-row `text/plain` payloads
+  matched the baseline byte for byte, including the original URLs, Check field,
+  tabs and newlines. Paste and whitespace quoting passed automated regression
+  coverage. The desktop editor rendered 21 rows initially and 26 after scrolling,
+  matching the baseline with the same fixture. The read-only viewer retained its
+  100-row pages. Chromium recorded no runtime exceptions.
+
+Local evidence is in `%TEMP%/offerpath-sourcing-qa-eukI5j`, with measurements for
+each viewport and screenshots of scrolling, mobile actions and selection after
+refresh. The original overlap capture is in `%TEMP%/offerpath-sourcing-qa-zy22oO`.
+
+---
+
 # OfferPath sign-in redesign — November 3, 2026
 
 final result: passed
+
+## Follow-up: fitted viewport and plain bidder usernames
+
+The later user request requires a no-scroll sign-in page and plain bidder usernames.
+The layout now scales down to fit the visual viewport, with temporary root/body
+scroll locking that is restored when leaving sign-in. The bidder helper no longer
+asks for an admin suffix. Twenty-eight Chromium viewport/state combinations pass,
+including zoom-equivalent CSS dimensions, landscape, phone, error and required
+password-change states. Captures include `/tmp/signin-fit-1115x565.png` and
+`/tmp/signin-fit-390x280.png`; all controls remain within the viewport. This fit
+requirement intentionally supersedes 1:1 sizing at smaller screen dimensions.
+
+## Follow-up: smaller sign-in layout
+
+The later request to zoom the sign-in content out is implemented with a maximum
+layout scale of 0.85. The browser zoom setting remains unchanged. The 28 viewport
+and form-state checks pass again; `/tmp/signin-fit-1672x847.png` shows the reduced
+layout. This intentionally changes component sizes relative to the first mockup.
 
 ## Source and evidence
 

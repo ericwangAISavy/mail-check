@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, RotateCcw } from "lucide-react"
 import { api, request } from "@/lib/api"
-import type { Bootstrap, InterviewData } from "@/lib/types"
+import type { Bootstrap, CalendarAnalysisProgress, InterviewData } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Loading, useToast } from "@/components/common"
 import { calendarTimezone } from "@/lib/calendar-timezone"
 import { InterviewDetails } from "@/components/interview-details"
-import InterviewCalendar from "@/components/interview-calendar"
+import {SharedInterviewCalendar as InterviewCalendar} from '@/components/interview-feedback'
 import "./interviews.css"
+
+/** Only Check now is shown beside the calendar; Refresh stays available behind this flag. */
+const SHOW_CALENDAR_REFRESH = false
 
 export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const toast = useToast(), client = useQueryClient()
@@ -22,9 +25,9 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   if (account) queryParams.set("account",account)
   if (status) queryParams.set("status",status)
   if (company) queryParams.set("company",company)
-  const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:()=>request<InterviewData>(`/api/interviews?${queryParams}`),placeholderData:previous=>previous})
+  const query = useQuery({queryKey:["interviews", "list", queryParams.toString()],queryFn:({ signal }) =>request<InterviewData>(`/api/interviews?${queryParams}`, { signal }),placeholderData:previous=>previous})
   const seenJob = useRef<number | null>(null)
-  const job = useQuery({queryKey:["interview-job"],queryFn:api.status,refetchInterval:2000})
+  const job = useQuery({queryKey:["interview-job"],queryFn:({ signal }) => api.status(signal),refetchInterval:2000})
   useEffect(() => {
     if (job.data && seenJob.current !== job.data.completion_id) {
       if (seenJob.current !== null) void client.invalidateQueries({queryKey:["interviews"]})
@@ -37,13 +40,31 @@ export default function InterviewsPage({ bootstrap }: {bootstrap: Bootstrap}) {
   const events = (query.data?.events || []).filter(event=>event.start_at)
   const refresh = () => check.mutate()
   const check = useMutation({mutationFn:()=>api.post("/api/interviews/sync"),onSuccess:()=>{toast("Calendar collection started.","info");window.dispatchEvent(new Event("mailcheck:check-started"));void job.refetch()},onError:e=>toast(e.message,"error")})
+  const retryAnalysis = useMutation({mutationFn:()=>api.post('/api/interviews/analysis/retry'),onSuccess:()=>client.invalidateQueries({queryKey:['interviews']}),onError:e=>toast(e.message,'error')})
+  const analysisQuery = useQuery({queryKey:['interviews','analysis'],queryFn:({ signal }) =>request<CalendarAnalysisProgress>('/api/interviews/analysis', { signal }),refetchInterval:query=>query.state.data?.pending?5000:30000})
+  const analysis = analysisQuery.data?.pending !== undefined ? analysisQuery.data : query.data?.analysis
   const filterControls = <Card className="interview-filters"><label>Account<select aria-label="Account" value={account} onChange={e=>setFilter("account",e.target.value)}><option value="">All accounts</option>{query.data?.accounts.map(a=><option key={a.id} value={a.label}>{a.label}</option>)}</select></label><label>Status<select aria-label="Status" value={status} onChange={e=>setFilter("status",e.target.value)}><option value="">All statuses</option>{query.data?.statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Company<select aria-label="Company" value={company} onChange={e=>setFilter("company",e.target.value)}><option value="">All companies</option>{query.data?.companies.map(c=><option key={c}>{c}</option>)}</select></label></Card>
-  const actions = <div className="interview-actions"><Button variant="outline" size="sm" onClick={()=>void refresh()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}><RefreshCw size={16}/>Refresh</Button><Button size="sm" onClick={()=>check.mutate()} disabled={check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts}>Check now</Button></div>
+  const busy = check.isPending || job.isPending || job.isError || job.data?.running || !bootstrap.readiness.accounts
+  const actions = <div className="interview-actions">{SHOW_CALENDAR_REFRESH && <Button variant="outline" size="sm" onClick={()=>void refresh()} disabled={busy}><RefreshCw size={16}/>Refresh</Button>}<Button variant="ghost" size="icon" className="oc-check" aria-label="Check now" title="Check calendars now" onClick={()=>check.mutate()} disabled={busy}><RefreshCw size={16} className={job.data?.running?"is-spinning":undefined}/></Button></div>
+  // Once analysis has finished, items that need review collapse into a header chip.
+  const reviewOnly = !!analysis && analysis.pending===0 && (analysis.needs_review || 0)>0
+  // Retrying stays one click away in the calendar's "More" menu, without a toolbar chip.
+  const menuItems = reviewOnly && analysis ? <button type="button" disabled={retryAnalysis.isPending} title={analysis.last_error || undefined} onClick={()=>retryAnalysis.mutate()}><RotateCcw size={15} aria-hidden="true"/>Retry analysis · {analysis.needs_review} need review</button> : null
   return <div className="page-wrap interviews-page">
-
-
-    {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" onClick={()=>void refresh()}>Try again</Button></div> : <>
-    <InterviewCalendar actions={actions} events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} onSelect={select}/></>}
+    {analysis && analysis.pending>0 && <div className="calendar-analysis-status" role="status" aria-label="Calendar analysis">
+      <div className="calendar-analysis-badges">
+        <span className="calendar-analysis-label">Calendar analysis</span>
+        <span className="calendar-analysis-badge is-complete">{analysis.done}/{analysis.total} complete</span>
+        {analysis.pending>0 && <span className="calendar-analysis-badge">{analysis.pending} remaining</span>}
+        {(analysis.needs_review || 0)>0 && <span className="calendar-analysis-badge is-warning" title={analysis.last_error || undefined}>{analysis.needs_review} need review</span>}
+        <span className={`calendar-analysis-badge ${!analysis.pending || !bootstrap.readiness.model ? 'is-warning' : 'is-active'}`} title={analysis.last_error || undefined}>
+          {!analysis.pending ? 'Retries paused' : !bootstrap.readiness.model ? 'Model required' : analysis.running>0 ? 'Analyzing' : analysis.retry_in>0 ? 'Retry scheduled' : 'Queued'}
+        </span>
+      </div>
+      {(analysis.retrying>0 || (analysis.needs_review || 0)>0) && <Button variant="outline" size="sm" disabled={retryAnalysis.isPending} onClick={()=>retryAnalysis.mutate()}>Retry analysis now</Button>}
+    </div>}
+    {query.isPending ? <Loading/> : query.error ? <div role="alert" className="inline-error">{query.error.message}<Button variant="outline" disabled={query.isFetching} onClick={()=>void query.refetch()}>Try again</Button></div> : <>
+    <InterviewCalendar actions={actions} events={events} accounts={query.data?.accounts||[]} account={account} filterCount={[account,status,company].filter(Boolean).length} filters={filterControls} menuItems={menuItems} onSelect={select}/></>}
     <Dialog open={selected!==null} onOpenChange={open=>{if(!open)select(null)}}>{selected!==null && <InterviewDetails displayTimezone={calendarTimezone(params)} key={selected} id={selected} onRemoved={()=>select(null)} stages={query.data?.stages||[]} statuses={query.data?.statuses||[]}/>}</Dialog>
   </div>
 }

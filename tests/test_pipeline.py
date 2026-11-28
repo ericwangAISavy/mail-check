@@ -221,3 +221,57 @@ def test_review_queries_do_not_grow_per_calendar_booking(conn):
     finally: conn.set_trace_callback(None)
     assert result['total']>=50
     assert len(statements)<20
+
+
+def test_last_contact_uses_actual_time_across_offsets(conn):
+    item = p.create(conn, operation(account_id=1, company='Acme'))
+    item = p.add_contact(conn, item['id'], operation(revision=1, at='2026-10-20T09:00:00+02:00', expects_reply=True))
+    item = p.add_contact(conn, item['id'], operation(revision=2, at='2026-10-20T08:00:00Z', expects_reply=True))
+    assert item['last_contact_at'] == '2026-10-20T08:00:00Z'
+    assert p.list_data(conn)['opportunities'][0]['last_contact_at'] == '2026-10-20T08:00:00Z'
+
+
+def test_next_interview_uses_actual_time_across_offsets(conn):
+    conn.execute("UPDATE interview_events SET start_at='2090-10-20T09:00:00+02:00',end_at='2090-10-20T10:00:00+02:00' WHERE id=1")
+    conn.execute("INSERT INTO interview_events VALUES(2,'Acme','Engineer','2090-10-20T08:00:00Z','2090-10-20T09:00:00Z','Technical','Scheduled',NULL,NULL)")
+    conn.execute('INSERT INTO interview_sources VALUES(2,1)')
+    item = p.create(conn, operation(account_id=1, company='Acme'))
+    item = p.evidence(conn, item['id'], operation(revision=1, action='link', kind='event', source_id=1))
+    item = p.evidence(conn, item['id'], operation(revision=2, action='link', kind='event', source_id=2))
+    assert item['next_interview']['id'] == 1
+    assert p.list_data(conn)['opportunities'][0]['next_interview']['id'] == 1
+
+
+def test_followup_last_interview_uses_actual_time_across_offsets(conn):
+    from mailcheck import pipeline_followups
+    from datetime import datetime, timezone
+
+    conn.execute("UPDATE interview_events SET start_at='2026-10-01T09:00:00+02:00',end_at='2026-10-01T09:30:00+02:00' WHERE id=1")
+    conn.execute("INSERT INTO interview_events VALUES(2,'Acme','Engineer','2026-10-01T08:00:00Z','2026-10-01T08:30:00Z','Technical','Scheduled',NULL,NULL)")
+    conn.execute('INSERT INTO interview_sources VALUES(2,1)')
+    item = p.create(conn, operation(account_id=1, company='Acme'))
+    for event_id, start_at in [(1, '2026-10-01T09:00:00+02:00'), (2, '2026-10-01T08:00:00Z')]:
+        item = p.evidence(conn, item['id'], operation(revision=item['revision'], action='link', kind='event', source_id=event_id))
+        item = p.attendance(conn, item['id'], operation(revision=item['revision'], event_id=event_id, start_at=start_at, attendance='Attended'))
+    result = pipeline_followups.list_followups(conn, now=datetime(2026, 10, 20, tzinfo=timezone.utc))
+    assert result['items'][0]['last_interview_at'] == '2026-10-01T08:00:00Z'
+
+
+def test_review_accept_conflicts_after_another_decision_but_replays_its_operation(conn):
+    body = operation(action='accept', key='event:1:1', company='Acme')
+    first = p.review_action(conn, body)
+    assert p.review_action(conn, body) == first
+    with pytest.raises(FileExistsError):
+        p.review_action(conn, operation(action='accept', key='event:1:1', company='Acme'))
+    with pytest.raises(FileExistsError):
+        p.review_action(conn, operation(action='dismiss', key='event:1:1'))
+    assert conn.execute('SELECT COUNT(*) FROM pipeline_opportunities').fetchone()[0] == 1
+    assert conn.execute('SELECT action FROM pipeline_review_decisions WHERE key=?', ('event:1:1',)).fetchone()[0] == 'accept'
+
+
+def test_review_accept_conflicts_after_evidence_was_linked(conn):
+    item = p.create(conn, operation(account_id=1, company='Acme'))
+    p.evidence(conn, item['id'], operation(revision=1, action='link', kind='event', source_id=1))
+    with pytest.raises(FileExistsError):
+        p.review_action(conn, operation(action='accept', key='event:1:1', company='Acme'))
+    assert conn.execute('SELECT COUNT(*) FROM pipeline_opportunities').fetchone()[0] == 1

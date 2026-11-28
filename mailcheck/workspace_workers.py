@@ -1,11 +1,14 @@
 """Bounded local workspace processes. Only the authenticated gateway faces LAN clients."""
 from __future__ import annotations
 import asyncio
+import errno
 from dataclasses import dataclass, field
 import os
 import json
+import logging
 from pathlib import Path
 import secrets
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -24,6 +27,10 @@ def gateway_address(host: str, port: int) -> str:
     return f'http://{authority}:{port}'
 
 
+class InstanceAlreadyRunningError(RuntimeError):
+    """The singleton lock is held, distinct from an inaccessible lock file."""
+
+
 class InstanceLock:
     def __init__(self,path):self.path=Path(path);self.file=None
     def __enter__(self):
@@ -32,16 +39,35 @@ class InstanceLock:
         try:
             if os.name=='nt':
                 import msvcrt
-                self.file.seek(0);self.file.write(b' ');self.file.flush();self.file.seek(0)
-                msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
+                # Seed once, before locking byte zero. Repeated failed starts
+                # must neither append bytes nor write through another lock.
+                self.file.seek(0,os.SEEK_END)
+                if self.file.tell()==0:
+                    self.file.write(b' ');self.file.flush()
+                self.file.seek(0)
+                acquire=lambda:msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
             else:
                 import fcntl
-                fcntl.flock(self.file,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except (OSError,BlockingIOError):
-            self.file.close();raise RuntimeError('This OfferPath instance is already running.')
+                acquire=lambda:fcntl.flock(self.file.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+            try:
+                acquire()
+            except OSError as exc:
+                if exc.errno in (errno.EACCES,errno.EAGAIN,errno.EDEADLK):
+                    raise InstanceAlreadyRunningError(
+                        'OfferPath is already running for this data directory. '
+                        'Stop its existing terminal with Ctrl+C, then retry. '
+                        f'Lock: {self.path}') from None
+                raise
+        except BaseException:
+            self.file.close();self.file=None
+            raise
         return self
     def __exit__(self,*exc):
-        if self.file:self.file.close()
+        if self.file:self.file.close();self.file=None
+
+
+class WorkerStartupPending(RuntimeError):
+    pass
 
 
 @dataclass
@@ -53,14 +79,28 @@ class Worker:
     log: object
     ready: bool = False
     started_at: float = field(default_factory=time.time)
+    health_failures: int = 0
+    startup_at: float = field(default_factory=time.monotonic)
+    exit_reported: bool = False
+    log_start: int = 0  # size of its log when it started, so a crash report shows only its own output
+
+
+def _log_size(log):
+    try:return os.fstat(log.fileno()).st_size
+    except (OSError,ValueError):return 0
 
 
 class WorkerPool:
     def __init__(self,store,gateway_url,legacy_paths):
         self.store=store;self.gateway_url=gateway_url;self.legacy_paths=legacy_paths
         self.workers={};self.failures={};self.errors={};self.stopped=set();self.closing=False;self._lock=threading.RLock()
+        self._retiring=set()
+        self._backup_lock=threading.Lock()
 
     def _backup(self):
+        with self._backup_lock:self._backup_unlocked()
+
+    def _backup_unlocked(self):
         folder=self.store.root/'rollback-original'
         if folder.exists():
             try:
@@ -78,34 +118,62 @@ class WorkerPool:
 
     def ensure(self,workspace):
         wid=workspace['id']
+        if wid=='legacy':
+            with self._lock:
+                if self.closing or wid in self.stopped:raise RuntimeError('Workspace is suspended or shutting down.')
+                if wid in self._retiring:raise WorkerStartupPending('Workspace is restarting. Retry shortly.')
+                current=self.workers.get(wid)
+                needs_backup=current is None or current.process.poll() is not None
+            # Backup disk I/O must not hold the heartbeat authentication lock.
+            if needs_backup:self._backup()
         with self._lock:
             if self.closing or wid in self.stopped:raise RuntimeError('Workspace is suspended or shutting down.')
+            if wid in self._retiring:raise WorkerStartupPending('Workspace is restarting. Retry shortly.')
             current=self.workers.get(wid)
             if current and current.process.poll() is None:
                 if current.ready:return current
                 worker=current
             else:
                 if current:
+                    self._report_exit(current)
                     current.log.close();self.workers.pop(wid,None)
                 worker=self._spawn(workspace)
         # Concurrent first requests share the same process and independently
         # wait for readiness. No gateway event-loop thread holds this lock.
         try:
+            # Bound each page wait, but allow longer initialization/migrations.
+            deadline=time.monotonic()+20
             with httpx.Client(trust_env=False,timeout=1) as client:
                 for _ in range(100):
-                    if worker.process.poll() is not None:break
+                    remaining=min(deadline,worker.startup_at+120)-time.monotonic()
+                    if remaining<=0:break
+                    with self._lock:
+                        if self.workers.get(wid) is not worker or worker.process.poll() is not None:break
+                        if worker.ready:return worker
                     try:
-                        if client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token}).status_code==200:
-                            worker.ready=True
-                            self.errors.pop(wid,None)
-                            return worker
+                        if client.get(f'http://127.0.0.1:{worker.port}/_internal/ready',headers={'x-offerpath-worker':worker.token},timeout=min(1,remaining)).status_code==200:
+                            with self._lock:
+                                if self.workers.get(wid) is not worker:break
+                                worker.ready=True
+                                self.errors.pop(wid,None)
+                                return worker
                     except httpx.HTTPError:pass
-                    time.sleep(.1)
+                    time.sleep(min(.1,max(0,deadline-time.monotonic())))
+            with self._lock:
+                if self.workers.get(wid) is worker and worker.process.poll() is None:
+                    if worker.ready:return worker
+                    if time.monotonic()<worker.startup_at+120:
+                        raise WorkerStartupPending('Workspace is still starting. Retry shortly.')
+            stopped = self.stop(wid,suspended=False,expected=worker,only_unready=True)
+            if not stopped:
+                with self._lock:
+                    if self.workers.get(wid) is worker and worker.ready and worker.process.poll() is None:return worker
             raise RuntimeError('Workspace worker could not start. Check workspace health logs.')
+        except WorkerStartupPending:
+            raise
         except BaseException:
             # Do not terminate a replacement process started by another request.
-            with self._lock:
-                if self.workers.get(wid) is worker:self.stop(wid,suspended=False)
+            self.stop(wid,suspended=False,expected=worker,only_unready=True)
             raise
 
     def _spawn(self,workspace):
@@ -115,7 +183,6 @@ class WorkerPool:
         if recent and time.time()-recent[-1] < min(60,10*2**(len(recent)-1)):
             raise RuntimeError('Workspace restart is waiting for a short recovery period.')
         if len(self.workers)>=self.store.max_workspaces:raise RuntimeError('Worker capacity reached.')
-        if wid=='legacy':self._backup()
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
         token=secrets.token_urlsafe(48)
@@ -130,11 +197,17 @@ class WorkerPool:
             env['OFFERPATH_LEGACY_CONFIG_PATH']=str(self.legacy_paths[0])
             env['OFFERPATH_LEGACY_DB_PATH']=str(self.legacy_paths[1])
         env.update(OFFERPATH_WORKER_TOKEN=token,OFFERPATH_GATEWAY_URL=self.gateway_url,
+                   OFFERPATH_REALTIME_REGISTRY=str(self.store.root/'realtime.db'),
                    OFFERPATH_WORKER_ID=wid,OFFERPATH_WORKER_LOCK=str(self.store.root/'runtime'/f'{wid}.lock'))
         logs=self.store.root/'logs';logs.mkdir(mode=0o700,exist_ok=True)
-        log=(logs/f'{wid}.log').open('ab');os.chmod(log.name,0o600)
-        process=subprocess.Popen([sys.executable,'-m','mailcheck.workspace_workers','--port',str(port)],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
-        worker=Worker(wid,port,token,process,log)
+        log=(logs/f'{wid}.log').open('ab')
+        try:
+            os.chmod(log.name,0o600)
+            process=subprocess.Popen([sys.executable,'-m','mailcheck.workspace_workers','--port',str(port)],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
+        except BaseException:
+            log.close()
+            raise
+        worker=Worker(wid,port,token,process,log,log_start=_log_size(log))
         self.workers[wid]=worker;self.failures[wid]=recent+[time.time()]
         return worker
 
@@ -144,15 +217,77 @@ class WorkerPool:
                 if wid not in self.stopped and secrets.compare_digest(worker.token,token) and worker.process.poll() is None:return wid
         return None
 
-    def stop(self,wid,*,suspended=True):
+    def _report_exit(self,worker):
+        """Say once, loudly, that a worker process died on its own, and why.
+
+        Workers have no console, so without this a crash only showed up as the
+        process quietly coming back. Intentional stops are not reported."""
         with self._lock:
+            code=worker.process.poll()
+            if code is None or worker.exit_reported or self.closing or worker.workspace_id in self._retiring:return
+            worker.exit_reported=True
+        from . import process_diagnostics as diagnostics
+        name=getattr(worker.log,'name',None)
+        last=diagnostics.tail_lines(name,start=worker.log_start) if name else ''
+        logging.getLogger(__name__).error(
+            'Worker %s exited unexpectedly after %s: %s.%s',worker.workspace_id,
+            diagnostics.format_duration(time.time()-worker.started_at),diagnostics.describe_exit(code),
+            f'\nIts output since it started ({name}):\n{last}' if last else (f' It wrote nothing to its log ({name}) before it stopped.' if name else ''))
+
+    def health_endpoint(self, wid):
+        return '/_internal/ready'
+
+    def health_response_ok(self, status):
+        return status in (200, 503)
+
+    def check_health(self,wid):
+        with self._lock:
+            worker=self.workers.get(wid)
+            exited=bool(worker) and worker.process.poll() is not None
+        if exited:self._report_exit(worker)
+        with self._lock:
+            worker=self.workers.get(wid)
+            if self.closing or not worker or not worker.ready or worker.process.poll() is not None:return
+        try:
+            with httpx.Client(trust_env=False,timeout=2) as client:
+                status=client.get(f'http://127.0.0.1:{worker.port}{self.health_endpoint(wid)}',headers={'x-offerpath-worker':worker.token}).status_code
+            reachable=self.health_response_ok(status)
+        except httpx.HTTPError:
+            reachable=False
+        with self._lock:
+            if self.workers.get(wid) is not worker or self.closing:return
+            worker.health_failures=0 if reachable else worker.health_failures+1
+            failed=worker.health_failures>=3
+        if failed:
+            logging.getLogger(__name__).warning('Workspace %s stopped responding to three local health checks; recovering its worker.',wid)
+            self.errors[wid]='Workspace listener stopped responding; restarting.'
+            self.stop(wid,suspended=False,expected=worker)
+
+    def stop(self,wid,*,suspended=True,expected=None,only_unready=False):
+        with self._lock:
+            worker=self.workers.get(wid)
+            if expected is not None and worker is not expected:return False
+            if only_unready and worker and worker.ready:return False
             if suspended:self.stopped.add(wid)
             worker=self.workers.pop(wid,None)
+            # The old process still owns its workspace instance lock until it
+            # exits. Keep replacement startup paused without holding the pool
+            # lock needed by healthy workers' heartbeats during process.wait.
+            if worker:self._retiring.add(wid)
         if worker:
-            worker.process.terminate()
-            try:worker.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:worker.process.kill();worker.process.wait(timeout=5)
-            worker.log.close()
+            try:
+                if worker.process.poll() is None:
+                    try:worker.process.terminate()
+                    except OSError:
+                        if worker.process.poll() is None:raise
+                try:worker.process.wait(timeout=10)
+                except subprocess.TimeoutExpired:worker.process.kill();worker.process.wait(timeout=5)
+            finally:
+                try:worker.log.close()
+                finally:
+                    with self._lock:self._retiring.discard(wid)
+            return True
+        return False
 
     def enable(self,wid):
         with self._lock:self.stopped.discard(wid);self.failures.pop(wid,None)
@@ -169,19 +304,36 @@ class WorkerPool:
         with self._lock:
             self.closing=True
             ids=list(self.workers)
-        for wid in ids:self.stop(wid)
+        for wid in ids:
+            try:self.stop(wid)
+            except Exception:logging.getLogger(__name__).exception('Worker %s cleanup failed; continuing other worker cleanup.',wid)
 
     async def monitor(self):
         while True:
             await asyncio.sleep(5)
-            for workspace in self.store.enabled_workspaces():
-                try:await asyncio.to_thread(self.ensure,workspace)
-                except (RuntimeError,OSError,ValueError) as exc:self.errors[workspace["id"]]=str(exc) if isinstance(exc,RuntimeError) else "Workspace startup failed."
+            try:
+                workspaces = await asyncio.to_thread(self.store.enabled_workspaces)
+            except (RuntimeError, OSError, ValueError, sqlite3.Error):
+                self.errors['_monitor'] = 'Workspace discovery is temporarily unavailable; retrying.'
+                logging.getLogger(__name__).exception('Workspace discovery failed; monitor will retry.')
+                continue
+            self.errors.pop('_monitor', None)
+            await self._monitor_workspaces(workspaces)
+
+    async def _monitor_workspaces(self, workspaces):
+        for workspace in workspaces:
+            try:
+                await asyncio.to_thread(self.check_health,workspace['id'])
+                await asyncio.to_thread(self.ensure,workspace)
+            except (RuntimeError,OSError,ValueError) as exc:self.errors[workspace["id"]]=str(exc) if isinstance(exc,RuntimeError) else "Workspace startup failed."
 
 
 def main():
     import argparse
+    import urllib.error
     import urllib.request
+    from . import process_diagnostics
+    process_diagnostics.configure_process('workspace-worker')
     from .web.app import create_app
     from .web.server import run
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,required=True);args=parser.parse_args()
@@ -195,8 +347,16 @@ def main():
                 req=urllib.request.Request(os.environ['OFFERPATH_GATEWAY_URL']+'/_internal/ping',headers={'x-offerpath-worker':token})
                 with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=3) as response:
                     failures=0 if response.status==200 else failures+1
+            except urllib.error.HTTPError as exc:
+                # Uvicorn rejects requests before authentication when its
+                # concurrency limit is full. A reachable, overloaded gateway
+                # must not kill healthy workers and their in-flight jobs.
+                # Authentication failures still identify replaced workers.
+                failures=0 if exc.code==503 else failures+1
             except Exception:failures+=1
-            if failures>=3:os._exit(1)
+            if failures>=3:
+                logging.getLogger(__name__).warning("Stopping workspace worker after repeated gateway heartbeat failures.")
+                os._exit(1)
     from .maintenance import MaintenanceLock, lock_path
     with MaintenanceLock(lock_path()), InstanceLock(os.environ['OFFERPATH_WORKER_LOCK']):
         threading.Thread(target=parent_watch,daemon=True).start()

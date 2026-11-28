@@ -1,6 +1,6 @@
 """Microsoft Graph mail source for personal Outlook.com accounts.
 
-Collection calls are GET-only and never mark messages read or move them.
+Collection reads messages; committed messages are subsequently marked read.
 Explicit user replies are handled separately by mailcheck.replies.
 
 https://learn.microsoft.com/en-us/graph/api/user-list-messages
@@ -12,6 +12,7 @@ import random
 import time
 from datetime import date, datetime, timezone, timedelta
 from typing import Iterator
+from urllib.parse import quote
 
 import httpx
 
@@ -19,7 +20,7 @@ from ..models import RawMessage
 from ..calendar_events import CalendarBooking
 from ..interview_metadata import graph_calendars, message_references
 from ..outlook_auth import OutlookAuthError, ReconnectRequired, acquire_token, CALENDAR_SCOPES
-from .base import SourceError
+from .base import MessageReadError, ReadPermissionError, SourceError, collection_status
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 MESSAGES_URL = f"{GRAPH}/me/mailFolders/inbox/messages"
@@ -31,6 +32,19 @@ SELECT = (
 )
 PAGE_SIZE = 50
 MAX_PAGES = 40  # a hard stop so a pathological mailbox cannot loop forever
+#: Above this many changed events, one full listing is cheaper than fetching each.
+MAX_CHANGES = 50
+
+
+class GraphStatusError(SourceError):
+    """A Graph request the service rejected, with its HTTP status."""
+    def __init__(self, message: str, status: int, body: str = ""):
+        super().__init__(message)
+        self.status, self.body = status, body
+
+
+class CalendarResyncRequired(SourceError):
+    """The change token cannot be used; read the whole calendar again."""
 
 
 class OutlookGraphSource:
@@ -83,8 +97,9 @@ class OutlookGraphSource:
                     f"(HTTP {resp.status_code}). Reconnect the account in Accounts; calendar collection requires read-only Calendars.Read access."
                 )
             if resp.status_code >= 400:
-                raise SourceError(
-                    f"Microsoft Graph error {resp.status_code}: {resp.text[:200]}"
+                raise GraphStatusError(
+                    f"Microsoft Graph error {resp.status_code}: {resp.text[:200]}",
+                    resp.status_code, resp.text[:500],
                 )
             try:
                 return resp.json()
@@ -105,6 +120,36 @@ class OutlookGraphSource:
         )
 
     # ---------------------------------------------------------- MailSource API
+
+    def mark_read(self, uid: str) -> None:
+        """Idempotently mark a collected Graph message read."""
+        try:
+            token = acquire_token(self.label, self.client_id, scopes=["Mail.ReadWrite"])
+        except OutlookAuthError as exc:
+            raise ReadPermissionError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.") from exc
+        with httpx.Client(timeout=self.timeout, headers={"Authorization": f"Bearer {token}"}) as client:
+            for attempt in range(self.max_retries):
+                try:
+                    response = client.patch(f"{GRAPH}/me/messages/{quote(uid, safe='')}", json={"isRead": True})
+                except httpx.TransportError as exc:
+                    if attempt == self.max_retries - 1:
+                        raise SourceError("Could not reach Microsoft Graph to mark mail read.") from exc
+                    time.sleep(_backoff(attempt))
+                    continue
+                if response.status_code in (200, 204, 404, 410):
+                    return
+                if response.status_code in (401, 403):
+                    raise ReadPermissionError(f"Reconnect '{self.label}' to grant Mail.ReadWrite access.")
+                if response.status_code == 429 or response.status_code >= 500:
+                    if attempt < self.max_retries - 1:
+                        time.sleep(_retry_after(response) or _backoff(attempt))
+                        continue
+                elif 400 <= response.status_code < 500:
+                    raise MessageReadError(
+                        f"Microsoft Graph rejected a message read update (HTTP {response.status_code}).",
+                        # Malformed/invalid IDs never succeed; conflicts and locks may.
+                        permanent=response.status_code in (400, 422))
+                raise SourceError(f"Microsoft Graph read update failed (HTTP {response.status_code}).")
 
     def test(self) -> None:
         # Probe mailbox access with the Mail.Read permission we request. The
@@ -161,6 +206,75 @@ class OutlookGraphSource:
         if invalid_events:
             raise SourceError(f"Microsoft returned {invalid_events} invalid calendar events; other valid bookings were collected.")
 
+    # ------------------------------------------------- calendar change tracking
+    # Microsoft documents change tracking for the primary calendar only
+    # (/me/calendarView/delta). Other calendars are covered by full listings.
+
+    def _delta_pages(self, client: httpx.Client, url: str, params: dict | None = None) -> tuple[list, str]:
+        items: list = []
+        client.headers["Prefer"] = 'outlook.timezone="UTC", IdType="ImmutableId", odata.maxpagesize=100'
+        for _ in range(MAX_PAGES):
+            try:
+                data = self._get(client, url, params)
+            except GraphStatusError as exc:
+                if exc.status == 410 or any(code in exc.body.lower() for code in ("syncstatenotfound", "resyncrequired")):
+                    raise CalendarResyncRequired("Microsoft asked for a new full calendar read.") from exc
+                raise
+            if not isinstance(data, dict) or not isinstance(data.get("value"), list):
+                raise SourceError("Microsoft returned an invalid calendar change list; collection is incomplete.")
+            items.extend(data["value"])
+            link = data.get("@odata.deltaLink")
+            if isinstance(link, str) and link.startswith(GRAPH + "/"):
+                return items, link
+            url, params = data.get("@odata.nextLink"), None
+            if not isinstance(url, str) or not url.startswith(GRAPH + "/"):
+                break
+        raise SourceError("Microsoft did not finish the calendar change list; collection is incomplete.")
+
+    def calendar_delta_start(self, since: date, until: datetime) -> str:
+        """A change token for the primary calendar, valid from this moment."""
+        start = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+        with self._client(calendar=True) as client:
+            _, link = self._delta_pages(client, f"{GRAPH}/me/calendarView/delta",
+                {"startDateTime": start.isoformat(), "endDateTime": until.isoformat()})
+        return link
+
+    def calendar_changes(self, delta_link: str) -> tuple[list[CalendarBooking], list[str], str]:
+        """Changed bookings, removed provider ids and the next token.
+
+        Each changed id is read as a whole event: change lists can carry only a
+        few fields for recurring occurrences, and "removed" also covers events
+        that merely moved, so the event itself is the authority.
+        """
+        if not delta_link.startswith(GRAPH + "/"):
+            raise CalendarResyncRequired("The saved calendar change token is not usable.")
+        bookings: list[CalendarBooking] = []
+        removed: list[str] = []
+        with self._client(calendar=True) as client:
+            items, link = self._delta_pages(client, delta_link)
+            identities = [item.get("id") if isinstance(item, dict) else None for item in items]
+            if not all(isinstance(identity, str) and identity for identity in identities):
+                raise SourceError("Microsoft returned a changed event without an identity; collection is incomplete.")
+            identities = list(dict.fromkeys(identities))
+            if len(identities) > MAX_CHANGES:
+                raise CalendarResyncRequired("Many calendar events changed; reading the whole calendar instead.")
+            calendar = self._get(client, f"{GRAPH}/me/calendar", {"$select": "id,name"}) if identities else {}
+            for identity in identities:
+                try:
+                    item = self._get(client, f"{GRAPH}/me/events/{quote(identity, safe='')}")
+                except GraphStatusError as exc:
+                    if exc.status in (404, 410):
+                        removed.append("graph-event:" + identity)
+                        continue
+                    raise
+                if item.get("type") == "seriesMaster":
+                    continue  # its occurrences are listed individually
+                try:
+                    bookings.append(_calendar_booking(item, calendar))
+                except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                    raise SourceError("Microsoft returned an invalid changed event; collection is incomplete.") from exc
+        return bookings, removed, link
+
     def fetch_unread(self, since: date | datetime, *, include_read: bool = False) -> Iterator[RawMessage]:
         if isinstance(since, datetime):
             instant = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
@@ -179,20 +293,38 @@ class OutlookGraphSource:
             "$orderby": "receivedDateTime desc",
         }
         with self._client() as client:
-            url = MESSAGES_URL
-            visited: set[str] = set()
-            while url:
-                if url in visited:
-                    raise SourceError("Microsoft Graph repeated a mail page; collection is incomplete. Retry the check.")
-                visited.add(url)
-                data = self._get(client, url, params)
-                for item in data.get("value") or []:
-                    yield _to_raw(item)
-                # nextLink already carries every query parameter.
-                url, params = data.get("@odata.nextLink"), None
+            seen=set()
+            for first_url,folder in ((MESSAGES_URL,"Inbox"),(f"{GRAPH}/me/mailFolders/junkemail/messages","Junk Email")):
+                collection_status(f"Checking {folder}…")
+                url, page_params = first_url, params
+                visited=set()
+                count=0
+                try:
+                    while url:
+                        if url in visited:
+                            raise SourceError("Microsoft Graph repeated a mail page; collection is incomplete. Retry the check.")
+                        visited.add(url)
+                        data=self._get(client,url,page_params)
+                        if not isinstance(data, dict) or not isinstance(data.get("value"), list):
+                            raise SourceError("Microsoft returned an invalid mail listing; collection is incomplete.")
+                        for item in data["value"]:
+                            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip():
+                                raise SourceError("Microsoft returned an invalid message identity; collection is incomplete.")
+                            try:
+                                raw=_to_raw(item,folder)
+                            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                                raise SourceError("Microsoft returned invalid message data; collection is incomplete.") from exc
+                            if raw.message_id in seen:continue
+                            seen.add(raw.message_id)
+                            count+=1
+                            yield raw
+                        url,page_params=data.get("@odata.nextLink"),None
+                except SourceError as exc:
+                    raise SourceError(f"{folder}: {exc}") from exc
+                collection_status(f"Collected {count} message(s) from {folder}.")
 
 
-def _to_raw(item: dict) -> RawMessage:
+def _to_raw(item: dict, folder: str = "Inbox") -> RawMessage:
     sender = ((item.get("from") or {}).get("emailAddress")) or {}
     body = item.get("body") or {}
     text = body.get("content") or item.get("bodyPreview") or ""
@@ -214,8 +346,9 @@ def _to_raw(item: dict) -> RawMessage:
 
     return RawMessage(
         message_id=message_id,
+        is_read=item.get("isRead"),
         uid=str(item.get("id") or ""),
-        folder="Inbox",
+        folder=folder,
         from_addr=(sender.get("address") or "").lower(),
         from_name=sender.get("name") or "",
         subject=item.get("subject") or "(no subject)",
@@ -270,6 +403,14 @@ def _calendar_booking(item: dict, calendar: dict) -> CalendarBooking:
         platform = "Microsoft Teams"
     elif provider in ("skypeForBusiness","skypeForConsumer"):
         platform = "Skype"
+    body = item.get("body") or {}
+    description = body.get("content") or item.get("bodyPreview") or ""
+    if body.get("contentType", "").lower() == "html":
+        from ..normalize import _html_to_text
+        description = _html_to_text(description)
+    if not link and not found:
+        found, described_platform = meeting_link(description)
+        platform = described_platform or platform
     modified = item.get("lastModifiedDateTime")
     return CalendarBooking(provider_id="graph-event:"+identity,
         uid=item.get("iCalUId") or f"graph:{calendar['id']}:{identity}",
@@ -279,4 +420,6 @@ def _calendar_booking(item: dict, calendar: dict) -> CalendarBooking:
         organizer_name=organizer.get("name"),organizer_email=organizer.get("address"),
         participants=[a["emailAddress"]["address"] for a in item.get("attendees") or [] if (a.get("emailAddress") or {}).get("address")],
         updated_at=datetime.fromisoformat(modified.replace("Z","+00:00")) if modified else None,
-        calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "",show_as=item.get("showAs") or "busy",all_day=bool(item.get("isAllDay")))
+        description=description,
+        attendees=[" ".join(filter(None, [a['emailAddress'].get('name'), a['emailAddress'].get('address')])) for a in item.get('attendees') or [] if isinstance(a.get('emailAddress'), dict)],
+        calendar_name=calendar.get("name") or "",original_timezone=item.get("originalStartTimeZone") or "",show_as=item.get("showAs") or "busy",all_day=bool(item.get("isAllDay")),categories=[value for value in item.get("categories") or [] if isinstance(value,str)])

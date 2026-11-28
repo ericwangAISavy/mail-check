@@ -1,20 +1,34 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { KeyRound, LoaderCircle, Mail, Plus, ShieldCheck, Trash2, UserRound, Wifi } from "lucide-react"
+import { AlertTriangle, Eye, Inbox, Plug, UsersRound, type LucideIcon, KeyRound, LoaderCircle, Mail, Plus, ShieldCheck, Trash2, UserRound, Wifi } from "lucide-react"
 import { api, request } from "@/lib/api"
 import type { Account } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { EmptyState, Loading, PageHeading, Switch, useToast } from "@/components/common"
+import { EmptyState, Loading, PageHeading, useToast } from "@/components/common"
 
 import OutlookDialog from "@/components/outlook-dialog"
 import OutgoingDialog from "@/components/outgoing-dialog"
+import BidderVisibility from "@/components/bidder-visibility"
+import "./accounts.css"
 import BidderManagement from "@/components/bidder-management"
+import { AccountSync } from "@/components/realtime-accounts"
+import LinkHistoryDialog from "@/components/link-history-dialog"
+import { parseStamp, shortAgo } from "@/lib/relative-time"
+
+function AccountSectionHeading({ icon: Icon, eyebrow, title, detail }: { icon: LucideIcon; eyebrow: string; title: string; detail?: React.ReactNode }) {
+  return <div className="settings-section-title account-section-heading">
+    <span className="section-symbol" aria-hidden="true"><Icon size={18} strokeWidth={1.8} /></span>
+    <div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div>
+    {detail && <span className="account-section-detail">{detail}</span>}
+  </div>
+}
 
 function AccountRow({ account, onRefresh, onReconnect }: { account: Account; onRefresh: () => void; onReconnect: () => void }) {
   const [outgoingOpen, setOutgoingOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [busy, setBusy] = useState("")
   const toast = useToast()
   const change = async (action: string, url: string) => {
@@ -27,7 +41,9 @@ function AccountRow({ account, onRefresh, onReconnect }: { account: Account; onR
     finally { setBusy("") }
   }
   const label = encodeURIComponent(account.label)
-  return <><div className="account-row"><div className="account-icon">{account.provider === "outlook" ? <Mail size={19} /> : <UserRound size={19} />}</div><div className="account-info"><div className="account-name-line"><h3>{account.label}</h3><Badge variant={account.provider === "outlook" ? "default" : "outline"}>{account.provider === "outlook" ? "Microsoft" : "IMAP"}</Badge><Badge variant={account.enabled ? "muted" : "outline"}>{account.enabled ? "Active" : "Paused"}</Badge></div><p>{account.email}{account.provider === "imap" ? ` · ${account.imap_host} · ${account.folder}` : " · Personal Microsoft account"} · Last mail check: {account.last_checked_at?new Date(account.last_checked_at).toLocaleString():"Not checked yet"}</p></div><div className="account-actions"><span className="account-toggle-label">Include in checks</span><Switch disabled={Boolean(busy)} checked={account.enabled} label={`Include ${account.label} in checks`} onChange={(enabled) => void change("toggle", `/api/accounts/${label}/toggle?enabled=${enabled}`)} /><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void change("test", `/api/accounts/${label}/test`)}>{busy === "test" ? <LoaderCircle className="spin" /> : <Wifi size={14} />}Test</Button>{account.provider === "imap" && <Button variant="outline" size="sm" onClick={()=>setOutgoingOpen(true)} disabled={Boolean(busy)}>Outgoing mail</Button>}<Button variant="outline" size="sm" onClick={onReconnect} disabled={Boolean(busy)}>Reconnect</Button><Button variant="ghost" size="icon" className="account-remove" title={`Remove ${account.label}`} disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Remove ${account.label}? Its local message history will stay until normal retention cleanup.`)) void change("remove", `/api/accounts/${label}/delete`) }}><Trash2 size={15} /></Button></div></div><OutgoingDialog open={outgoingOpen} onOpenChange={setOutgoingOpen} label={account.label} onSaved={onRefresh}/></>
+  return <><div className="account-row"><div className="account-icon">{account.provider === "outlook" ? <Mail size={19} /> : <UserRound size={19} />}</div><div className="account-info"><div className="account-name-line"><h3>{account.label}</h3><Badge variant={account.provider === "outlook" ? "default" : "outline"}>{account.provider === "outlook" ? "Microsoft" : "IMAP"}</Badge>{!account.enabled && <Badge variant="outline">Paused</Badge>}{account.live && (account.sync_error
+  ? <Badge variant="warning" className="live-badge is-failing" title={account.sync_error}><AlertTriangle size={12} aria-hidden="true" />Live · failing</Badge>
+  : <Badge variant="default" className="live-badge" title="Real-time collection is on: new mail is collected as it arrives."><span className="live-dot" aria-hidden="true" />Live</Badge>)}{account.provider === "outlook" && !!account.pending_read_updates && <Badge variant="warning" className="read-update-badge" role="status" title={readUpdateHint(account)} aria-label={readUpdateHint(account)}>{account.pending_read_updates}</Badge>}</div><p className="account-meta">{account.email.toLocaleLowerCase() !== account.label.toLocaleLowerCase() && <>{account.email} · </>}{account.provider === "imap" ? `${account.imap_host} · ${account.folder}` : "Outlook"} · <SyncedAt account={account} /></p>{account.live && account.sync_error && <p className="account-sync-error" role="status"><AlertTriangle size={13} aria-hidden="true" /><span><strong>Sync failing:</strong> {account.sync_error}{account.last_synced_at ? ` Last good sync ${new Date(account.last_synced_at).toLocaleString()}.` : ""}</span></p>}</div><div className="account-actions"><AccountSync account={account} onChanged={onRefresh} disabled={Boolean(busy)} /><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => void change("test", `/api/accounts/${label}/test`)}>{busy === "test" ? <LoaderCircle className="spin" /> : <Wifi size={14} />}Test</Button>{account.provider === "imap" && <Button variant="outline" size="sm" onClick={()=>setOutgoingOpen(true)} disabled={Boolean(busy)}>Outgoing mail</Button>}<Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)} disabled={Boolean(busy)}>Link history</Button><Button variant="outline" size="sm" onClick={onReconnect} disabled={Boolean(busy)}>Reconnect</Button><Button variant="ghost" size="icon" className="account-remove" title={`Remove ${account.label}`} disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Remove ${account.label}? Its local message history will stay until normal retention cleanup.`)) void change("remove", `/api/accounts/${label}/delete`) }}><Trash2 size={15} /></Button></div></div>{historyOpen && <LinkHistoryDialog accountId={account.id} accountLabel={account.label} onClose={() => setHistoryOpen(false)} />}<OutgoingDialog open={outgoingOpen} onOpenChange={setOutgoingOpen} label={account.label} onSaved={onRefresh}/></>
 }
 
 function AddImapDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; refresh: () => void }) {
@@ -48,12 +64,16 @@ function AddImapDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenC
       try {
         const result = await request<{ preset: { host: string; port: number; note: string } | null }>(`/api/preset?email=${encodeURIComponent(email)}`, { signal: controller.signal })
         if (controller.signal.aborted) return
-        if (!result.preset) { setNote("Add your provider’s IMAP hostname below."); return }
+        if (!result.preset) {
+          if (!manualServer.current) { setHost(""); setPort(993) }
+          setNote("Add your provider’s IMAP hostname below.")
+          return
+        }
         if (!manualServer.current) { setHost(result.preset.host); setPort(result.preset.port) }
         setNote(result.preset.note)
         setLabel((current) => current || email.split("@")[0].replace(/[^a-z0-9_-]/gi, "-").slice(0, 28))
       } catch (error) {
-        if (!controller.signal.aborted) setNote(error instanceof Error ? error.message : "Could not load provider details. Enter your server details below.")
+        if (!controller.signal.aborted) setNote(error instanceof Error ? error.message : "Could not load provider details.")
       }
     }, 250)
     return () => { window.clearTimeout(timer); controller.abort() }
@@ -69,7 +89,7 @@ function AddImapDialog({ open, onOpenChange, refresh }: { open: boolean; onOpenC
     finally { setPending(false) }
   }
   const close = (next: boolean) => { if (!next) setPassword(""); onOpenChange(next) }
-  return <Dialog open={open} onOpenChange={close}><DialogContent><DialogHeader><DialogTitle>Connect a mailbox</DialogTitle><DialogDescription>Mail collection uses read-only IMAP. You can connect outgoing SMTP after setup to send replies. Your app password is saved only in your OS keyring.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-stack"><label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => { manualServer.current = false; setEmail(event.target.value) }} placeholder="you@gmail.com" /></label><label>Account label<input required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Personal" /></label><label>App password<input type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Provider app password" /><small>Never paste your everyday mailbox password. Credentials are not sent to Ollama.</small></label><details className="advanced-field"><summary>Server details</summary><div className="settings-grid"><label>IMAP host<input required value={host} onChange={(event) => { manualServer.current = true; setHost(event.target.value) }} placeholder="imap.gmail.com" /></label><label>Port<input type="number" min={1} max={65535} value={port} onChange={(event) => { manualServer.current = true; setPort(Number(event.target.value)) }} /></label><label>Folder<input value={folder} onChange={(event) => setFolder(event.target.value)} /></label></div></details>{note && <p className="form-hint">{note}</p>}<div className="dialog-footer"><Button variant="outline" type="button" onClick={() => close(false)}>Cancel</Button><Button disabled={pending}>{pending && <LoaderCircle className="spin" />}Test &amp; connect</Button></div></form></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={close}><DialogContent><DialogHeader><DialogTitle>Connect a mailbox</DialogTitle><DialogDescription></DialogDescription></DialogHeader><form onSubmit={submit} className="form-stack"><label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => { manualServer.current = false; setHost(""); setPort(993); setNote(""); setEmail(event.target.value) }} placeholder="you@gmail.com" /></label><label>Account label<input required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Personal" /></label><label>App password<input type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Provider app password" /><small>Never paste your everyday mailbox password. Credentials are not sent to Ollama.</small></label><details className="advanced-field"><summary>Server details</summary><div className="settings-grid"><label>IMAP host<input required value={host} onChange={(event) => { manualServer.current = true; setHost(event.target.value) }} placeholder="imap.gmail.com" /></label><label>Port<input type="number" min={1} max={65535} value={port} onChange={(event) => { manualServer.current = true; setPort(Number(event.target.value)) }} /></label><label>Folder<input value={folder} onChange={(event) => setFolder(event.target.value)} /></label></div></details>{note && <p className="form-hint">{note}</p>}<div className="dialog-footer"><Button variant="outline" type="button" onClick={() => close(false)}>Cancel</Button><Button disabled={pending}>{pending && <LoaderCircle className="spin" />}Test &amp; connect</Button></div></form></DialogContent></Dialog>
 }
 
 
@@ -94,23 +114,54 @@ function ReconnectImapDialog({account,onClose,refresh}:{account:Account|null;onC
 }
 
 
+/** "Updated 10s ago": the latest full check or real-time collection. Only this
+ *  label ticks, so the rest of the page is not re-rendered every 10 seconds. */
+function SyncedAt({ account }: { account: Account }) {
+  const [now, setNow] = useState(() => Date.now())
+  const stamp = parseStamp(account.last_synced_at ?? account.last_checked_at)
+  useEffect(() => {
+    if (!stamp) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 10_000)
+    return () => window.clearInterval(timer)
+  }, [stamp?.getTime()])
+  return stamp ? <time dateTime={stamp.toISOString()} title={`Last synced ${stamp.toLocaleString()}`}>Updated {shortAgo(stamp, now)}</time> : <>Not synced yet</>
+}
+
+function readUpdateHint(account: Account) {
+  const count = account.pending_read_updates ?? 0
+  return account.read_updates_need_permission
+    ? `${count} email(s) could not be marked read: Microsoft refused permission. Reconnect this account and grant Mail.ReadWrite access.`
+    : `${count} email(s) will be marked read in Outlook on the next mail check.`
+}
+
 export default function AccountsPage({canManageSettings=true}:{canManageSettings?:boolean}) {
   const [imapReconnect,setImapReconnect]=useState<Account|null>(null)
   const [imapOpen, setImapOpen] = useState(false)
   const [outlookOpen, setOutlookOpen] = useState(false)
   const [reconnectLabel, setReconnectLabel] = useState<string>()
   const queryClient = useQueryClient()
-  const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: api.accounts })
+  // Sync times also arrive by live update; poll as a backstop so "Updated …" stays true.
+  const { data, isPending, error } = useQuery({ queryKey: ["accounts"], queryFn: ({ signal }) => api.accounts(signal), refetchInterval: 60_000 })
   const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["accounts"] }); void queryClient.invalidateQueries({ queryKey: ["bidder-management"] }); void queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); void queryClient.invalidateQueries({ queryKey: ["dashboard-accounts"] }) }, [queryClient])
   if (isPending) return <div className="page-wrap"><Loading /></div>
   return <div className="page-wrap accounts-page"><PageHeading title="Accounts" description="Connect the inboxes behind your next opportunity." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect mailbox</Button>} />
-    <div className="security-note"><ShieldCheck size={18} /><span><strong>You control outgoing mail.</strong> Mail checks never mark messages as read. Replies are sent only when you click Send.</span></div>
+    <div className="security-note"><ShieldCheck size={18} /><span><strong>You control outgoing mail.</strong></span></div>
     {error && <p className="inline-error" role="alert">{error.message}</p>}
-    {data?.accounts.length ? <><div className="section-title-line"><div><p className="eyebrow">CONNECTED INBOXES</p><h2>Your accounts</h2></div><span className="account-total">{data.accounts.length} total</span></div><Card className="account-card">{data.accounts.map((account) => <AccountRow key={account.id} account={account} onRefresh={refresh} onReconnect={()=>{if(account.provider==="imap")setImapReconnect(account);else{setReconnectLabel(account.label);setOutlookOpen(true)}}} />)}</Card></> : <EmptyState title="One inbox at a time" description="Connect a mailbox to begin building your private application queue." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect your first mailbox</Button>} />}
-    <BidderManagement />
-    <div className="provider-heading"><div><p className="eyebrow">CONNECTION OPTIONS</p><h2>Choose your provider</h2></div><span>Credentials stay on your computer.</span></div>
+    <div className="settings-layout"><nav className="settings-nav" aria-label="Account sections">{[["connected-accounts","Connected accounts"],["provider-options","Choose provider"],["bidder-management","Manage bidders"],["bidder-visibility","Bidder visibility"]].map(([id,label])=><a href={`#${id}`} key={id}>{label}</a>)}</nav><div className="settings-sections"><section id="connected-accounts">
+    <AccountSectionHeading icon={Inbox} eyebrow="CONNECTED INBOXES" title="Your accounts" detail={data?.accounts.length ? `${data.accounts.length} total` : undefined} />
+    {data?.accounts.length ? <><Card className="account-card">{data.accounts.map((account) => <AccountRow key={account.id} account={account} onRefresh={refresh} onReconnect={()=>{if(account.provider==="imap")setImapReconnect(account);else{setReconnectLabel(account.label);setOutlookOpen(true)}}} />)}</Card></> : <EmptyState title="One inbox at a time" description="Connect a mailbox to get started." action={<Button onClick={() => setImapOpen(true)}><Plus size={16} />Connect your first mailbox</Button>} />}
+    </section><section id="provider-options">
+    <AccountSectionHeading icon={Plug} eyebrow="CONNECTION OPTIONS" title="Choose your provider" detail="Credentials stay on your computer." />
     <div className="provider-grid"><button className="provider-card" onClick={() => setImapOpen(true)}><span className="provider-logo"><KeyRound /></span><span><strong>Gmail, Yahoo, iCloud &amp; more</strong><small>Connect with a secure app password over IMAP.</small></span><Plus size={17} className="provider-add" /></button><button className="provider-card" disabled={!data?.outlook_ready && !canManageSettings} onClick={() => data?.outlook_ready ? (setReconnectLabel(undefined),setOutlookOpen(true)) : (window.location.href = "/settings#outlook")}><span className="provider-logo provider-microsoft">M</span><span><strong>Personal Outlook</strong><small>{data?.outlook_ready ? "Sign in with Microsoft. No password is stored." : canManageSettings ? "Add your Microsoft client ID in Settings first." : "The owner must configure the shared Microsoft connection."}</small></span><Plus size={17} className="provider-add" /></button></div>
-    <Card className="privacy-card"><ShieldCheck size={18} /><div><strong>Your mail stays yours.</strong><p>Messages and email bodies live in your local database. Only sender, subject, and the configured body excerpt go to your chosen Ollama model. Microsoft 365 work and school accounts are not supported.</p></div></Card>
+    <Card className="privacy-card"><ShieldCheck size={18} /><div><strong>Your mail stays yours.</strong><p>Mail is stored on this computer. Only the sender, subject and a short excerpt go to your model.</p></div></Card>
+    </section><section id="bidder-management">
+      <AccountSectionHeading icon={UsersRound} eyebrow="TEAM MANAGEMENT" title="Manage bidders and account assignments" />
+      <BidderManagement embedded />
+    </section><section id="bidder-visibility">
+      <AccountSectionHeading icon={Eye} eyebrow="ACCESS & VISIBILITY" title="Bidder visibility" />
+      <BidderVisibility embedded />
+    </section></div></div>
     <ReconnectImapDialog account={imapReconnect} onClose={()=>setImapReconnect(null)} refresh={refresh}/><AddImapDialog open={imapOpen} onOpenChange={setImapOpen} refresh={refresh} /><OutlookDialog accountLabel={reconnectLabel} open={outlookOpen} onOpenChange={setOutlookOpen} refresh={refresh} />
   </div>
 }

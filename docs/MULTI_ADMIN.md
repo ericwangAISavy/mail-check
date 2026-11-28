@@ -15,7 +15,7 @@ For a fresh installation only, start locally with `--single-admin`, sign in as
 `owner` with the legacy initial password `admin`, change the password in Settings,
 then stop and restart normally. Do not expose this initial setup server to the network.
 
-Open **Admin management**. Create a username, workspace name, and temporary
+Open **Admin management**, then **Add admin**. Create a username, workspace name, and temporary
 password of at least 12 characters. Give those credentials to the admin yourself;
 OfferPath does not email credentials. The new admin must replace the temporary
 password before accessing workspace data. They start with no email accounts or
@@ -30,6 +30,12 @@ workspace. The workspace banner always identifies whose data is open. Opening
 another workspace revokes the previous session and records an audit event.
 Other tabs detect the changed workspace and reload their identity before loading
 private data. Finish edits in other tabs before switching.
+
+Admin management shows one task at a time: **Workspaces**, **Backups**, or
+**Activity**. Search the workspace directory and select an admin to manage their
+access, reset a password, suspend access, or remove their workspace. Browser
+presence is separate from workspace service health. Only the selected admin's
+controls are shown. Creation drafts survive task changes; **Cancel** clears them.
 
 Bidders are records managed by admins. The new public gateway does not support
 bidder login, password management, public bidder-name lookup, or old bidder
@@ -124,6 +130,13 @@ or undo later changes made to external accounts or the OS keyring.
 
 ## Backing up added-admin workspaces
 
+The **Backups** task shows the last successful backup, next scheduled backup,
+and archive count. **Download latest** selects the newest archive. **Browse
+backups** opens a separate history browser with eight archives per page and an
+automatic/manual filter. Automatic-backup settings, the folder path, and restore
+instructions expand only when needed. Unsaved backup settings survive switching
+tasks; backup polling pauses while the task is hidden.
+
 For a complete host backup, stop the gateway and all workers first. Preserve the
 control directory (including `control.db` and each workspace's `config`/`data`
 directory), plus the original workspace files at their original locations. Keep
@@ -164,3 +177,45 @@ Enable. Stored files are retained offline and remain included in installation
 backups; this action does not erase mail, application, or payment history from disk.
 The removed username may be used to create a new, empty workspace with a separate
 identity; it never reconnects to the retained data.
+
+## Windows: “OfferPath is already running” during startup
+
+The gateway holds an operating-system lock for the data directory throughout its
+lifetime. A second start is rejected even if it specifies another port. The mere
+presence of `gateway.lock` is normal: an unlocked file is reused after shutdown,
+and a process exit releases the OS lock. Do not delete the file to bypass a live
+instance or start workers manually.
+
+First stop the existing gateway with Ctrl+C in its original terminal and wait for
+shutdown. To identify an existing listener without changing anything:
+
+```powershell
+Get-NetTCPConnection -LocalPort 52400 -State Listen -ErrorAction SilentlyContinue |
+  Select-Object LocalAddress, LocalPort, OwningProcess
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -match '-m\s+mailcheck\s+web(\s|$)' } |
+  Select-Object ProcessId, ParentProcessId, CommandLine
+```
+
+If the original terminal is unavailable, verify the exact process is OfferPath's
+gateway before stopping that PID through Task Manager or `Stop-Process -Id PID`.
+Do not stop all Python processes; unrelated applications may use them. After the
+old gateway has stopped, rerun its original command with the same port, domain,
+workspace limit and other options. A Cloudflare deployment can pass options
+through the Windows script, for example:
+
+```powershell
+.\start.bat --tunnel --allow-host app.offerpath.bid --no-open
+```
+
+Keep any existing `--max-workspaces` or nondefault-port flags as well. The script
+runs from its own repository directory, forwards arguments and returns Python's
+exit status. Starting the script without tunnel/domain options still selects the
+ordinary local-only profile; it does not inherit another process's command line.
+
+From 2.24.5, a startup preflight reports an existing lock before advertising the
+Dashboard or opening a browser; the lifespan lock remains authoritative against
+simultaneous starts. Unrelated disk/permission errors are reported separately.
+Failed Windows starts do not append bytes to an existing lock file. Automated
+checks simulate Windows locking and exercise real POSIX singleton exclusion;
+native Windows launch/restart behavior still needs confirmation on the host.

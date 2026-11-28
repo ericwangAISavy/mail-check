@@ -2,13 +2,16 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ToastProvider } from "@/components/common"
+import * as apiModule from "@/lib/api"
 import { api } from "@/lib/api"
 import type { Account } from "@/lib/types"
 import AccountsPage from "./accounts"
 
 const clients: QueryClient[] = []
 let accounts: Account[] = []
+const originalRequest=apiModule.request
 beforeEach(() => {
+  vi.spyOn(apiModule,"request").mockImplementation((url,init)=>url==="/api/realtime/accounts" ? Promise.resolve({configured:false,accounts:[]} as any) : url.startsWith("/api/payments")||url==="/api/auth/bidders/manage" ? Promise.resolve({bidders:[],accounts:[]} as any) : originalRequest(url,init))
   accounts = [{ id: 1, label: "personal", email: "me@example.test", provider: "imap", imap_host: "imap.example.test", imap_port: 993, folder: "INBOX", use_ssl: true, enabled: true }]
   vi.spyOn(api, "accounts").mockImplementation(async () => ({ accounts: structuredClone(accounts), outlook_ready: true }))
 })
@@ -20,22 +23,61 @@ function mount() {
 }
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
 
+it("previews deleted bidder links before clearing history", async () => {
+  const current = vi.mocked(apiModule.request).getMockImplementation()!
+  vi.mocked(apiModule.request).mockImplementation((url, init) => url.endsWith('/link-history') ?
+    Promise.resolve({ bidders: [{ id: 9, name: 'Former bidder', deleted: true, link_count: 12 }] } as never) : current(url, init))
+  const post = vi.spyOn(api, 'post').mockImplementation(async (url) =>
+    url.endsWith('/preview') ? { link_count: 12, checked_count: 2, preview_token: 'a'.repeat(64) } as never : { deleted: 12 } as never)
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Link history' }))
+  await screen.findByRole('option', { name: /Former bidder \(Deleted\)/ })
+  fireEvent.change(screen.getByLabelText('Bidder'), { target: { value: '9' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review deletion' }))
+  const remove = await screen.findByRole('button', { name: 'Delete 12 links' })
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(screen.getByText(/Removing checked rows can change/)).toBeTruthy()
+  fireEvent.click(remove)
+  await screen.findByText('12 sourcing link(s) removed.')
+  expect(post.mock.calls[1][0]).toBe('/api/accounts/1/link-history/clear')
+  expect(post.mock.calls[1][1]).toMatchObject({ bidder_id: 9, start: null, end: null, preview_token: 'a'.repeat(64) })
+})
+
+it("shows pending Outlook read updates without asking to reconnect", async () => {
+  accounts[0].provider = "outlook"
+  accounts[0].pending_read_updates = 3
+  mount()
+  const badge = await screen.findByRole("status", { name: "3 email(s) will be marked read in Outlook on the next mail check." })
+  expect(badge.textContent).toBe("3")
+  expect(badge.getAttribute("title")).toBe("3 email(s) will be marked read in Outlook on the next mail check.")
+  expect(screen.queryByText(/email\(s\)/)).toBeNull()  // no long sub-description line
+})
+
+it("asks to reconnect only when Microsoft refused read permission", async () => {
+  accounts[0].provider = "outlook"
+  accounts[0].pending_read_updates = 3
+  accounts[0].read_updates_need_permission = true
+  mount()
+  const badge = await screen.findByRole("status", { name: /3 email\(s\) could not be marked read: Microsoft refused permission\. Reconnect this account/ })
+  expect(badge.textContent).toBe("3")
+  expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy()
+})
+
 it("tests the selected account and prevents a concurrent toggle", async () => {
   let finish!: (value: unknown) => void
   const post = vi.spyOn(api, "post").mockImplementation(() => new Promise((resolve) => { finish = resolve as typeof finish }))
   mount(); fireEvent.click(await screen.findByRole("button", { name: "Test" }))
   expect(post).toHaveBeenCalledWith("/api/accounts/personal/test")
-  expect((screen.getByRole("switch", { name: "Include personal in checks" }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole("button", { name: "Reconnect" }) as HTMLButtonElement).disabled).toBe(true)
   await act(async () => finish({ message: "Connection OK." }))
   await screen.findByText("Connection OK.")
-  expect((screen.getByRole("switch", { name: "Include personal in checks" }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole("button", { name: "Reconnect" }) as HTMLButtonElement).disabled).toBe(false)
 })
-it("updates inclusion state through the existing account toggle API", async () => {
-  const post = vi.spyOn(api, "post").mockImplementation(async () => { accounts[0].enabled = false; return { message: "Paused personal." } as any })
-  mount(); fireEvent.click(await screen.findByRole("switch", { name: "Include personal in checks" }))
-  await screen.findByText("Paused", { exact: true })
-  expect(post).toHaveBeenCalledWith("/api/accounts/personal/toggle?enabled=false")
-  expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false")
+it("puts the Sync switch in each account row instead of Include in checks", async () => {
+  mount()
+  expect(await screen.findByRole("switch", { name: "Sync personal" })).toBeTruthy()
+  expect(screen.queryByText("Include in checks")).toBeNull()
+  expect(screen.queryByRole("region", { name: "Automatic updates" })).toBeNull()
 })
 it("respects removal confirmation and refreshes the account list", async () => {
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
@@ -78,7 +120,7 @@ it("reconnects Outlook in place to grant read-only calendar access",async()=>{
   mount();fireEvent.click(await screen.findByRole("button",{name:"Reconnect"}))
   const label=screen.getByLabelText("Account label") as HTMLInputElement
   expect(label.value).toBe("personal");expect(label.readOnly).toBe(true)
-  expect(screen.getByText(/Calendars.Read/)).toBeTruthy()
+  expect(screen.getByText('Sign in with Microsoft to connect this account.')).toBeTruthy()
   fireEvent.click(screen.getByRole("button",{name:"Continue with Microsoft"}))
   await waitFor(()=>expect(post).toHaveBeenCalledWith("/api/outlook/start",{label:"personal",reconnect:true}))
   expect(await screen.findByText("TEST")).toBeTruthy()
@@ -124,9 +166,88 @@ it("shows Gmail app-password guidance and prevents duplicate reconnect submissio
  await act(async()=>finish({message:"Reconnected."}))
 })
 
-it("shows each account's last successful mail check",async()=>{
+it("shows one last-synced time covering full checks and real-time collection",async()=>{
  accounts[0].last_checked_at="2026-11-01T12:34:56Z"
+ accounts[0].last_synced_at="2026-11-01T12:40:00Z"
+ accounts[0].last_synced_at=new Date(Date.now()-10_000).toISOString()
  mount()
- expect(await screen.findByText(/Last mail check:/)).toBeTruthy()
- expect(screen.getByText(/Last mail check:/).textContent).toContain(new Date(accounts[0].last_checked_at).toLocaleString())
+ const updated=await screen.findByText(/^Updated /)
+ expect(updated.textContent).toMatch(/^Updated 1[01]s ago$/)  // allow a slow test run
+ expect(updated.getAttribute("title")).toBe(`Last synced ${new Date(accounts[0].last_synced_at!).toLocaleString()}`)
+ expect(screen.queryByText(/Last synced:|Last mail check|Personal Microsoft account/)).toBeNull()
+ expect(document.querySelector(".account-meta")?.textContent).toMatch(/^me@example\.test · imap\.example\.test · INBOX · Updated 1[01]s ago$/)
+})
+
+it("labels Microsoft accounts Outlook and does not repeat an email used as the name",async()=>{
+ Object.assign(accounts[0],{provider:"outlook",label:"me@example.test",last_synced_at:new Date(Date.now()-120_000).toISOString()})
+ mount()
+ await screen.findByText(/^Updated /)
+ expect(document.querySelector(".account-meta")?.textContent).toBe("Outlook · Updated 2m ago")
+})
+
+it("falls back to the full-check time and marks live accounts",async()=>{
+ accounts[0].last_checked_at="2026-11-01T12:34:56Z"
+ accounts[0].live=true
+ mount()
+ expect((await screen.findByText(/^Updated /)).getAttribute("title")).toBe(`Last synced ${new Date("2026-11-01T12:34:56Z").toLocaleString()}`)
+ expect(screen.getByText("Live").closest(".live-badge")?.getAttribute("title")).toMatch(/collected as it arrives/)
+})
+
+it("says why live collection is failing instead of only Not synced yet",async()=>{
+ accounts[0].live=true
+ accounts[0].sync_error="Microsoft sign-in expired. Reconnect this mailbox."
+ mount()
+ const status=(await screen.findByText(/Microsoft sign-in expired\. Reconnect this mailbox\./)).closest('[role="status"]')
+ expect(status?.textContent).toContain("Sync failing: Microsoft sign-in expired. Reconnect this mailbox.")
+ expect(screen.getByText("Live · failing").closest(".live-badge")?.className).toContain("is-failing")
+ expect(screen.queryByText("Live")).toBeNull()
+})
+
+it("shows Not synced yet and no Live marker by default",async()=>{
+ mount()
+ expect(await screen.findByText(/Not synced yet/)).toBeTruthy()
+ expect(screen.queryByText("Live")).toBeNull()
+})
+
+it('orders provider, bidder management, and visibility panels beneath connected accounts',async()=>{
+ mount();await screen.findByText('Manage bidders and account assignments')
+ const provider=document.getElementById('provider-options')!
+ const management=document.getElementById('bidder-management')!
+ const visibility=document.getElementById('bidder-visibility')!
+ expect(provider.compareDocumentPosition(management)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(management.compareDocumentPosition(visibility)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(screen.getByRole('navigation',{name:'Account sections'})).toBeTruthy()
+})
+
+it("clears the previous provider server when a new address has no preset", async () => {
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(json({ preset: url.includes("gmail") ? { host: "imap.gmail.com", port: 993, note: "Gmail" } : null }))))
+  mount(); fireEvent.click(await screen.findByRole("button", { name: "Connect mailbox" }))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@gmail.com" } })
+  await waitFor(() => expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("imap.gmail.com"))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@custom.example" } })
+  await screen.findByText("Add your provider’s IMAP hostname below.")
+  expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("")
+})
+
+it("preserves a manual server when the provider lookup has no preset", async () => {
+  let finish!: (value: Response) => void
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve })))
+  mount(); fireEvent.click(await screen.findByRole("button", { name: "Connect mailbox" }))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@custom.example" } })
+  await waitFor(() => expect(finish).toBeTypeOf("function"))
+  fireEvent.change(screen.getByLabelText("IMAP host"), { target: { value: "imap.custom.example" } })
+  fireEvent.change(screen.getByLabelText("Port"), { target: { value: "1993" } })
+  await act(async () => finish(json({ preset: null })))
+  expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("imap.custom.example")
+  expect((screen.getByLabelText("Port") as HTMLInputElement).value).toBe("1993")
+})
+
+it.each(["me@custom.example", "me"])("clears the previous provider server immediately when the address changes to %s", async email => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ preset: { host: "imap.gmail.com", port: 1993, note: "Gmail" } })))
+  mount(); fireEvent.click(await screen.findByRole("button", { name: "Connect mailbox" }))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "me@gmail.com" } })
+  await waitFor(() => expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("imap.gmail.com"))
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: email } })
+  expect((screen.getByLabelText("IMAP host") as HTMLInputElement).value).toBe("")
+  expect((screen.getByLabelText("Port") as HTMLInputElement).value).toBe("993")
 })

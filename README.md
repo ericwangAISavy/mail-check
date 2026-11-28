@@ -1,5 +1,16 @@
 # OfferPath
 
+### Start or restart the Windows server
+
+Double-click **restart.bat** in this folder to restart OfferPath, or to start it if stopped. Keep the server window open. The running supervisor uses its existing RabbitMQ connection settings when restarting. For a cold start, the launcher uses the current terminal's `AMQP_URL` if available. Otherwise it prompts for the local RabbitMQ `offerpath` password and checks the connection before starting. The password is kept only for the running process and its children.
+
+When upgrading from a version without this launcher, press **Ctrl+C** in the old server window once and wait for it to exit before double-clicking **restart.bat**. You can also use **start.bat** for a normal foreground start.
+
+The launcher also starts an independent monitoring server at **http://127.0.0.1:52401** on the server PC. It stays running when OfferPath stops and shows availability, the last service snapshot, and local log tails. Run **monitor.bat** to start it separately during an outage. Gateway output is saved in `logs/origin-server.log` under OfferPath's control directory. The availability watchdog checks the gateway every five seconds and recovers after three failed checks. Each worker has its own health and recovery checks. Repeated crashes trigger a cooldown. Ctrl+C intentionally stops OfferPath.
+
+The shared deployment starts two model worker processes. `OFFERPATH_MODEL_WORKERS` controls their count, while the existing model-operation lock coordinates inference. Gateway startup failures retry with backoff. Control-database contention returns a temporary-unavailability response promptly and subsequent requests open fresh SQLite connections.
+
+
 **Every application, a step forward.**
 
 OfferPath brings job sourcing, application tracking, email replies, interview
@@ -22,7 +33,7 @@ For information  (2)
 12 unread | 4 classified | 5 cached | 3 prefiltered  across 1 account(s) in 6.2s
 ```
 
-**Collection stays read-only.** Mail checks never mark messages as read. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
+**Outlook emails are automatically marked as read after collection is saved.** Pending updates retry on subsequent collection runs, even if classification fails, and are applied immediately after an account is reconnected. Accounts asks you to reconnect only when Microsoft refuses the read permission; updates Microsoft permanently rejects (for example an invalid message ID) are dropped. Existing Outlook accounts must reconnect in Accounts to grant Mail.ReadWrite permission. You can explicitly send replies from the Triage reader using Outlook or SMTP; nothing is sent by automatic checks. See [Replying from the app](docs/REPLIES.md).
 
 ## Install
 
@@ -36,6 +47,7 @@ Everything can be done from the web console — connecting a model, adding mailb
 running checks, and reading results:
 
 ```bash
+python -m mailcheck web-password  # first installation: choose a strong owner password locally
 python -m mailcheck web
 ```
 
@@ -44,10 +56,10 @@ Prefer the terminal? The same steps are below.
 
 On Triage, **Check now** and automatic web checks fetch and classify read and unread mail
 from all enabled accounts using the existing categories. On Interview, both
-**Check now** buttons collect native calendar bookings from
+**Check now** buttons collect interview-related native calendar bookings from
 connected Outlook calendars through Microsoft Graph. Teams, Google Meet, Zoom,
-phone and in-person bookings are included without reading inbox messages or running
-classification. Calendar
+phone and in-person interviews are included without reading inbox messages or running
+classification. Holidays, birthdays and unrelated meetings are excluded. Calendar
 collection requires read-only `Calendars.Read`; reconnect existing Outlook accounts
 in Accounts after adding that permission to your Microsoft application. IMAP does
 not expose calendar events and is not used as a fallback. See
@@ -60,6 +72,11 @@ open **Admin management** to create admins. Added admins must change their tempo
 password before accessing their own email accounts, bidders and application data.
 Bidders are managed records and no longer sign in.
 
+The owner always has access to the shared **Job links** library. Other admins,
+including existing accounts after an upgrade, need the owner to enable
+**Job links access** on their admin card. The owner can revoke it without signing
+the admin out; API access changes immediately and active menus refresh automatically.
+
 The owner's existing database/configuration/OS-keyring entries stay in place.
 New workspaces have separate databases, credential namespaces and worker
 processes. Only the owner can access Settings; all admins inherit that shared
@@ -67,10 +84,19 @@ configuration while connecting their own email accounts. A separate control data
 12-hour HttpOnly sessions. See [Multi-admin setup and rollback](docs/MULTI_ADMIN.md)
 for capacity limits, backups and returning to the previous single-admin version.
 
-For a new installation without `web-auth.json`, first start locally with
-`python -m mailcheck web --single-admin`, sign in with username `owner` and the
-legacy initial password `admin`, change it in Settings, then stop and restart
-without `--single-admin`. Existing installations do not need this bootstrap step.
+For a new installation without `web-auth.json`, run `python -m mailcheck web-password`
+locally before starting. Existing strong owner passwords are preserved. Missing
+credentials never create a default account, and the CLI refuses the legacy `admin`
+password. For Cloudflare Tunnel hosting, use:
+
+```bash
+python -m mailcheck web --no-open --tunnel --allow-host YOUR_DOMAIN
+```
+
+Users continue to use `https://YOUR_DOMAIN`. The app stays on localhost and uses
+HTTPS-only sign-in cookies. Follow [On-premises security](docs/ON_PREM_SECURITY.md)
+for the tunnel configuration, IPv4/IPv6 firewall and router requirements, Cloudflare
+Access/MFA, deployment verification and rollback. No inbound app port is needed.
 
 ### Share from your own server or computer
 
@@ -106,7 +132,7 @@ publicly reachable server or an HTTPS tunnel instead. Binding to `0.0.0.0` alone
 does not create a public URL. A tunnel must forward the visitor's Host header and
 HTTPS scheme correctly and its public hostname must be included in `--allow-host`.
 
-**Before opening public access, change the default admin password locally.** Use HTTPS
+**Before opening public access, provision a unique owner password locally.** Use HTTPS
 for internet access and `--secure-cookies` so browser sign-in cookies are sent only
 over HTTPS. Leave that flag off for local HTTP development. The app trusts forwarded
 scheme/client information from a loopback reverse proxy; keep the proxy on the same
@@ -381,11 +407,14 @@ Personal **Outlook.com, Hotmail and Live** accounts sign in with Microsoft inste
 mailbox password — Microsoft disabled basic-auth IMAP, so app passwords cannot work there.
 
 One-time setup: register a **public client** application in the Microsoft Entra admin
-center with delegated `Calendars.Read`, `Mail.Read` and `Mail.Send` permissions and device-code flow enabled, then paste its
+center with delegated `Calendars.Read`, `Mail.ReadWrite` and `Mail.Send` permissions and device-code flow enabled, then paste its
 Application (client) ID into Settings → Outlook. That ID is a public identifier, not a
 secret; no client secret is used or stored. Accounts → *Outlook.com, Hotmail, Live* then
-shows a code to enter at Microsoft's sign-in page. Tokens live in the OS keyring and are
-deleted with the account.
+shows a code to enter at Microsoft's sign-in page. Tokens are deleted with the account.
+On Windows each account's tokens are one file in the workspace's private config folder
+(`outlook-tokens`), encrypted to your Windows user with DPAPI; other systems use the OS
+keyring. Existing Windows sign-ins move to these files automatically, which frees their
+Credential Manager entries, so reconnecting no longer fails when Credential Manager is full.
 
 Microsoft 365 work and school accounts are out of scope.
 
@@ -396,6 +425,15 @@ Microsoft 365 work and school accounts are out of scope.
   been run against a real Microsoft tenant.
 
 ## Development
+
+For the opt-in RabbitMQ shared process architecture and a drained migration from
+per-admin workers, see [Shared workers](docs/SHARED_WORKERS.md). Existing deployments
+keep their current worker mode until explicitly switched.
+
+For opt-in background email/calendar collection and live page updates using Redis Streams,
+see [Automatic updates](docs/REALTIME.md). Existing manual checks remain available.
+
+The owner-only **System monitoring** page shows component health across all admin workspaces, queue and sync status, and recent operational event flow. See [System monitoring](docs/SYSTEM_MONITORING.md) for health evidence and event retention details.
 
 ```bash
 python tests/test_smoke.py
@@ -453,4 +491,17 @@ Interview opportunity tracking and migration: [Interview pipeline](docs/INTERVIE
 
 ### Per-account bidder work breakdown
 
-In **Bidder management → Daily breakdown**, click the arrow beside a bidder’s name to show each email account separately. Account rows show daily estimated confirmations / checked applications and the account’s weekly estimated total. Shared-account rows use that bidder’s allocated share and add up to the bidder’s combined figures. Payments remain recorded for the bidder. Bidders viewing their own report only see their own account breakdown.
+In **Bidder management → Daily breakdown**, click the arrow beside a bidder’s name to show each email account separately. Account rows show daily checked applications / received replies and the account’s weekly checked total. Shared-account received replies use that bidder’s allocated share; checked counts belong to each bidder’s own job-link rows. Calculated pay uses checked applications × pay per bid × (1 + editable adjustment / 100), not received replies. Payments remain recorded for the bidder. Bidders viewing their own report only see their own account breakdown.
+
+
+### Account-specific blocked roles
+
+Open **Job sourcing → Job link filters → Roles by account**, select an email account, and enter one blocked role keyword or phrase per line. For example, `MLOps`, `Full stack`, or `Machine learning`. Save each account separately. Matching ignores case, spaces and hyphens, while preserving symbols such as `C++` and `C#`. Filters apply to new/pasted/imported jobs and newly completed role fields across that account’s tabs and bidders. Existing job history is preserved. Clearing the list disables role filtering only for that account.
+
+### Inbox and Junk/Spam collection
+
+Manual and automatic mail checks collect both read and unread mail from Outlook Inbox and Junk Email. IMAP checks the configured folder plus discovered Junk/Spam folders (including Gmail’s Spam folder). Outlook messages are automatically marked read after they are saved locally. Failed read updates retry on later collection runs. IMAP uses read-only folder selection and fetching. Messages found in more than one scanned folder are collected once. Folder names and collected counts appear in collection status/log messages.
+
+The first incremental check after this upgrade uses the configured first-check lookback again to include the newly covered folders. Afterwards, successful per-account checkpoints resume as usual. A failure in any scanned folder keeps that account’s checkpoint unchanged for retry.
+
+Bidder accounting uses conservative job matching: company-only acknowledgements do not automatically check several roles, and one acknowledgement cannot newly check several job rows across shared-account bidder tabs. Existing checks and recorded payments survive upgrades; review stale automatic checks with an explicit selected-week rebuild. See [bidder payment rules](docs/BIDDER_PAYMENTS.md).

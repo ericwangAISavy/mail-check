@@ -1,7 +1,7 @@
 """Installation-wide shared writer locks and exclusive offline maintenance."""
 from __future__ import annotations
 
-from functools import wraps
+from functools import lru_cache, wraps
 import hashlib
 import os
 from pathlib import Path
@@ -24,6 +24,10 @@ def lock_path(config_file: Path | None = None) -> Path:
     override = os.environ.get('OFFERPATH_MAINTENANCE_LOCK')
     if override:
         return Path(override).expanduser().resolve()
+    from .workspaces import current_workspace
+    context = current_workspace()
+    if context is not None:
+        config_file = context.shared_config or context.legacy_config
     if config_file is None:
         from .config import config_path
         config_file = Path(os.environ.get('OFFERPATH_SHARED_CONFIG_PATH') or
@@ -35,6 +39,24 @@ def lock_path(config_file: Path | None = None) -> Path:
 
 def journal_path(path: Path) -> Path:
     return Path(str(path) + '.restore-journal.json')
+
+
+@lru_cache(maxsize=1)
+def _windows_lock_api():
+    import ctypes
+    from ctypes import wintypes
+    class OVERLAPPED(ctypes.Structure):
+        _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
+                    ('Offset', wintypes.DWORD), ('OffsetHigh', wintypes.DWORD),
+                    ('hEvent', wintypes.HANDLE)]
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    unlock = kernel.UnlockFileEx
+    unlock.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                             wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
+    acquire = kernel.LockFileEx
+    acquire.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                        wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
+    return OVERLAPPED, acquire, unlock
 
 
 class MaintenanceLock:
@@ -50,20 +72,9 @@ class MaintenanceLock:
         try:
             if os.name == 'nt':
                 import ctypes
-                from ctypes import wintypes
                 import msvcrt
-                class OVERLAPPED(ctypes.Structure):
-                    _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
-                                ('Offset', wintypes.DWORD), ('OffsetHigh', wintypes.DWORD),
-                                ('hEvent', wintypes.HANDLE)]
-                self._overlapped = OVERLAPPED()
-                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
-                self._unlock = kernel.UnlockFileEx
-                self._unlock.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                                         wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
-                acquire = kernel.LockFileEx
-                acquire.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
-                                    wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(OVERLAPPED)]
+                overlapped, acquire, self._unlock = _windows_lock_api()
+                self._overlapped = overlapped()
                 self._handle = msvcrt.get_osfhandle(self.file.fileno())
                 if not acquire(self._handle, 1 | (2 if self.exclusive else 0), 0, 1, 0,
                                ctypes.byref(self._overlapped)):
@@ -103,8 +114,61 @@ def shared_writer(function):
     return guarded
 
 
+class MaintenanceCursor(sqlite3.Cursor):
+    def execute(self, sql, parameters=()):
+        self.connection._validate_statement(sql)
+        return super().execute(sql, parameters)
+
+    def executescript(self, sql_script):
+        self.connection._validate_commit()
+        return super().executescript(sql_script)
+
+
 class MaintenanceConnection(sqlite3.Connection):
     _maintenance_lock = None
+    _commit_check = None
+
+    def _validate_commit(self):
+        if self._commit_check is not None:
+            try:
+                self._commit_check()
+            except BaseException:
+                super().rollback()
+                raise
+
+    def commit(self):
+        self._validate_commit()
+        return super().commit()
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self._validate_commit()
+        return super().__exit__(exc_type, exc, tb)
+
+    def _validate_statement(self, sql):
+        import re
+        # SQLite accepts empty statements, comments, and a BOM before the verb;
+        # comments can also follow a verb without intervening whitespace.
+        statement = re.sub(r'^(?:[\s;\ufeff]|--[^\n]*(?:\n|$)|/\*.*?\*/)*', '', sql, flags=re.S)
+        if re.match(r'(?:COMMIT|END|RELEASE)\b', statement, flags=re.I):
+            self._validate_commit()
+
+    def execute(self, sql, parameters=()):
+        self._validate_statement(sql)
+        return super().execute(sql, parameters)
+
+    def cursor(self, factory=MaintenanceCursor):
+        if self._commit_check is not None and not (
+                isinstance(factory, type) and issubclass(factory, MaintenanceCursor)):
+            if not isinstance(factory, type) or not issubclass(factory, sqlite3.Cursor):
+                raise ValueError('Guarded connections require a SQLite cursor class.')
+            factory = type('GuardedCursor', (MaintenanceCursor, factory), {})
+        return super().cursor(factory)
+
+    def executescript(self, sql_script):
+        # sqlite3 executescript implicitly commits any pending transaction.
+        self._validate_commit()
+        return super().executescript(sql_script)
 
     def close(self):
         super().close()
@@ -129,6 +193,12 @@ def connect_database(path, **kwargs):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path, factory=MaintenanceConnection, **kwargs)
         conn._maintenance_lock = lock
+        from .workspaces import current_commit_guard
+        guard = current_commit_guard()
+        if guard is not None:
+            from .config import db_path
+            if Path(path).resolve() == db_path().resolve():
+                conn._commit_check = guard
         return conn
     except BaseException:
         lock.__exit__(None, None, None)

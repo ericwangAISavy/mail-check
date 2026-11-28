@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import contextmanager
+import time
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
 from . import config
 from .models import Classification, NormalizedMessage
 
-SCHEMA_VERSION = 37
+# Version 39 was used by a later-reverted release; do not reuse it.
+SCHEMA_VERSION = 61
+SHARED_SCHEMA_MIN_VERSION = 50
 
 #: ``INSERT ... RETURNING`` needs SQLite 3.35 (2021). Python 3.11 bundles far
 #: newer than that everywhere we run, but the two-statement fallback costs
@@ -55,6 +58,10 @@ CREATE TABLE IF NOT EXISTS interview_sources (
     candidate_key TEXT NOT NULL DEFAULT '',
     UNIQUE(account_id, external_message_id, candidate_key)
 );
+CREATE TABLE IF NOT EXISTS interview_source_details (
+    source_id INTEGER PRIMARY KEY REFERENCES interview_sources(id) ON DELETE CASCADE,
+    description TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS interview_calendar_state (
     source_id INTEGER PRIMARY KEY REFERENCES interview_sources(id) ON DELETE CASCADE,
     start_at TEXT NOT NULL,
@@ -64,6 +71,27 @@ CREATE TABLE IF NOT EXISTS interview_calendar_state (
 CREATE INDEX IF NOT EXISTS idx_interviews_start ON interview_events(start_at);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_event ON interview_sources(event_id, account_id);
 CREATE INDEX IF NOT EXISTS idx_interview_sources_thread ON interview_sources(account_id, thread_id);
+CREATE TABLE IF NOT EXISTS calendar_analysis_tasks (
+    id INTEGER PRIMARY KEY,account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    external_id TEXT NOT NULL,version TEXT NOT NULL,booking TEXT,start_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt REAL NOT NULL DEFAULT 0,lease_until REAL NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',last_seen REAL NOT NULL,
+    UNIQUE(account_id,external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_analysis_ready ON calendar_analysis_tasks(state,next_attempt);
+CREATE INDEX IF NOT EXISTS idx_calendar_analysis_external ON calendar_analysis_tasks(external_id,account_id);
+CREATE TABLE IF NOT EXISTS calendar_analysis_worker (
+    id INTEGER PRIMARY KEY CHECK(id=1),last_account INTEGER NOT NULL DEFAULT 0,
+    next_run REAL NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS calendar_analyses (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    external_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL,
+    analyzed_at TEXT NOT NULL, PRIMARY KEY(account_id,external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_cache_external ON calendar_analyses(external_id,account_id);
+CREATE INDEX IF NOT EXISTS idx_interview_analysis_rank ON interview_events(extraction_rank,id);
 CREATE TABLE IF NOT EXISTS interview_scans (
     message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
     fingerprint TEXT NOT NULL,
@@ -103,6 +131,21 @@ CREATE TABLE IF NOT EXISTS messages (
     web_notified INTEGER NOT NULL DEFAULT 0,
     UNIQUE(account_id, message_id)
 );
+
+
+CREATE TABLE IF NOT EXISTS queue_clear_members (
+    message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    operation TEXT NOT NULL,
+    handled_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_queue_clear_operation ON queue_clear_members(operation);
+CREATE TABLE IF NOT EXISTS queue_clear_operations (
+    operation TEXT PRIMARY KEY NOT NULL,
+    message_count INTEGER NOT NULL CHECK(message_count>=0),
+    created_at TEXT NOT NULL
+);
+INSERT OR IGNORE INTO queue_clear_operations(operation,message_count,created_at)
+    SELECT operation,COUNT(*),MAX(handled_at) FROM queue_clear_members GROUP BY operation;
 
 
 CREATE TABLE IF NOT EXISTS classifications (
@@ -162,6 +205,7 @@ INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_handled ON messages(handled_at);
 CREATE INDEX IF NOT EXISTS idx_messages_acct_date ON messages(account_id, date_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_fetched ON messages(fetched_at, id);
 CREATE INDEX IF NOT EXISTS idx_messages_handled_date ON messages(handled_at, date_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_received
     ON messages(julianday(COALESCE(date_utc, fetched_at)), id);
@@ -198,11 +242,19 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("runs", "llm_retries", "INTEGER DEFAULT 0"),
     ("bidder_payments", "revision", "INTEGER NOT NULL DEFAULT 0"),
     ("bidders", "pay_per_bid", "TEXT"),
+    ("bidders", "visibility_revision", "INTEGER NOT NULL DEFAULT 0"),
+    ("bidders", "payment_visible", "INTEGER NOT NULL DEFAULT 1"),
+    ("bidders", "other_work_visible", "INTEGER NOT NULL DEFAULT 0"),
     ("bidders", "adjustment_percent", "TEXT NOT NULL DEFAULT '20'"),
     ("bidders", "wallet_network", "TEXT NOT NULL DEFAULT ''"),
     ("bidders", "wallet_address", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "company", "TEXT NOT NULL DEFAULT ''"),
     ("application_receipts", "role", "TEXT NOT NULL DEFAULT ''"),
+    ("application_receipts", "job_refs", "TEXT NOT NULL DEFAULT '[]'"),
+    ("interview_events", "interviewers", "TEXT NOT NULL DEFAULT '[]'"),
+    ("interview_calendar_state", "interview_related", "INTEGER NOT NULL DEFAULT 0"),
+    # When a sourcing row first held a job; the 7-day work queue is measured from it.
+    ("native_rows", "created_at", "REAL"),
 ]
 
 
@@ -217,6 +269,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE messages SET date_utc = NULL WHERE date_utc < '1971'")
 
 
+def _validate_schema_version(version, *, shared):
+    if version > SCHEMA_VERSION:
+        raise RuntimeError(f'Unsupported database schema {version} is newer than supported schema {SCHEMA_VERSION}; refusing to downgrade it.')
+    if shared and version < SHARED_SCHEMA_MIN_VERSION:
+        raise RuntimeError(f'Shared workers require a supported database schema ({SHARED_SCHEMA_MIN_VERSION} through {SCHEMA_VERSION}); found {version}. No automatic migration was performed.')
+
+
 def connect(path: Path | None = None) -> sqlite3.Connection:
     """Open the database, bringing the schema up to date only when it is not.
 
@@ -227,9 +286,29 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     re-issued on every open.
     """
     path = path or config.db_path()
+    from .workspaces import current_workspace
+    shared = current_workspace() is not None
+    existing_shared = shared and Path(path).is_file()
+    if existing_shared:
+        # Every supported intermediate version must reach the serialized
+        # upgrade below. Accepting only the baseline and current version
+        # strands workspaces after a later additive schema update.
+        with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True)) as existing:
+            version = existing.execute('PRAGMA user_version').fetchone()[0]
+            _validate_schema_version(version,shared=True)
     from .maintenance import connect_database
-    conn = connect_database(path)
+    # Several worker processes write this file; SQLite's 5-second default gave up
+    # ("database is locked") whenever another worker held a write a little longer.
+    conn = connect_database(path, timeout=30)
     conn.row_factory = sqlite3.Row
+    try:
+        # Recheck the actual opened file, including non-shared connections.
+        # A newer binary may have upgraded it after the read-only preflight.
+        version=conn.execute('PRAGMA user_version').fetchone()[0]
+        _validate_schema_version(version,shared=shared and (existing_shared or version!=0))
+    except BaseException:
+        conn.close()
+        raise
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL lets the console read while a check is writing, instead of the two
     # blocking each other; NORMAL trades an fsync per commit for one per
@@ -245,9 +324,12 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
             # after acquiring the lock: another connection may have upgraded
             # the database while this one was waiting.
             conn.execute("BEGIN IMMEDIATE")
-            if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            _validate_schema_version(version,shared=shared and (existing_shared or version!=0))
+            if version != SCHEMA_VERSION:
                 from .sourcing_activity import SCHEMA as ACTIVITY_SCHEMA, initialize as initialize_activity
                 from .mail_checkpoints import SCHEMA as CHECKPOINT_SCHEMA
+                from .read_marking import SCHEMA as READ_SCHEMA
                 from .payments import SCHEMA as PAYMENT_SCHEMA
                 from .replies import SCHEMA as REPLY_SCHEMA
                 from .outgoing import SCHEMA as OUTGOING_SCHEMA
@@ -257,9 +339,11 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                 from .native_sourcing import SCHEMA as NATIVE_SCHEMA, migrate as migrate_native
                 from .interview_processes import SCHEMA as PROCESS_SCHEMA
                 from .interview_pipeline import SCHEMA as PIPELINE_SCHEMA
+                from .sourcing_postings import SCHEMA as POSTING_SCHEMA
+                from .sourcing_fallbacks import SCHEMA as MATCH_EVIDENCE_SCHEMA
                 # executescript commits an existing transaction, so execute
                 # these simple DDL statements individually to retain the lock.
-                for statement in (SCHEMA + CHECKPOINT_SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA).split(";"):
+                for statement in (SCHEMA + READ_SCHEMA + CHECKPOINT_SCHEMA + ASSISTANT_SCHEMA + FOLLOWUP_SCHEMA + PAYMENT_SCHEMA + REPLY_SCHEMA + OUTGOING_SCHEMA + SOURCING_SCHEMA + NATIVE_SCHEMA + PROCESS_SCHEMA + PIPELINE_SCHEMA + ACTIVITY_SCHEMA + POSTING_SCHEMA + MATCH_EVIDENCE_SCHEMA).split(";"):
                     if statement.strip():
                         conn.execute(statement)
                 _migrate(conn)
@@ -267,8 +351,26 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
                     if statement.strip():
                         conn.execute(statement)
                 migrate_native(conn)
+                from .realtime.storage import initialize as initialize_realtime
+                initialize_realtime(conn)
                 initialize_activity(conn)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed ON sourcing_check_activity(confirmed_at,bidder_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_confirmed_day ON sourcing_check_activity(julianday(confirmed_at),bidder_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_check_activity_message ON sourcing_check_activity(message_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_native_rows_date ON native_rows(work_date,tab_id)")
+                if version < 56:
+                    from .confirmation_counts import job_references
+                    conn.create_function('receipt_job_references',3,job_references,deterministic=True)
+                    conn.execute("""UPDATE application_receipts AS r SET job_refs=(
+                        SELECT receipt_job_references(substr(m.subject,1,2000),substr(m.body_text,1,16000),substr(m.original_html,1,64000))
+                        FROM messages m WHERE m.account_id=r.account_id AND m.message_id=r.message_id)
+                        WHERE r.category IN ('interview_invite','rejection') AND r.job_refs='[]'
+                        AND EXISTS (SELECT 1 FROM messages m WHERE m.account_id=r.account_id AND m.message_id=r.message_id)""")
+                if version < 61:
+                    from . import calendar_colors
+                    conn.execute(calendar_colors.SCHEMA)
+                    conn.execute(calendar_colors.DEFAULT_SCHEMA)
+                    calendar_colors.assign_defaults(conn)
                 conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
@@ -278,11 +380,63 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+class ReadDeadlineExpired(TimeoutError):
+    """A time-bounded SQLite read exceeded its request budget."""
+
+
 @contextmanager
-def session(path: Path | None = None) -> Iterator[sqlite3.Connection]:
+def atomic_write(conn):
+    """Reserve the writer before reading records that will be reconciled."""
+    owns_transaction = not conn.in_transaction
+    if owns_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("SAVEPOINT atomic_write")
+        try:
+            yield
+        except BaseException:
+            conn.execute("ROLLBACK TO atomic_write")
+            conn.execute("RELEASE atomic_write")
+            raise
+        conn.execute("RELEASE atomic_write")
+        if owns_transaction:
+            conn.commit()
+    except BaseException:
+        if owns_transaction:
+            conn.rollback()
+        raise
+
+
+def is_busy_error(error):
+    if not isinstance(error, sqlite3.OperationalError):
+        return False
+    code = getattr(error, 'sqlite_errorcode', 0)
+    return (code & 255) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or str(error).lower() in (
+        'database is locked', 'database table is locked')
+
+
+@contextmanager
+def session(path: Path | None = None, *, read_deadline: float | None = None) -> Iterator[sqlite3.Connection]:
+    if read_deadline is not None and time.monotonic() >= read_deadline:
+        raise ReadDeadlineExpired("Database read deadline expired.")
     conn = connect(path)
     try:
-        yield conn
+        if read_deadline is not None:
+            remaining_ms = int((read_deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                raise ReadDeadlineExpired("Database read deadline expired.")
+            conn.execute(f"PRAGMA busy_timeout = {min(5000, remaining_ms)}")
+            conn.set_progress_handler(lambda: time.monotonic() >= read_deadline, 1000)
+            try:
+                yield conn
+            except sqlite3.OperationalError as exc:
+                if exc.sqlite_errorcode == sqlite3.SQLITE_INTERRUPT:
+                    raise ReadDeadlineExpired("Database read deadline expired.") from exc
+                raise
+            finally:
+                conn.set_progress_handler(None, 0)
+        else:
+            yield conn
         conn.commit()
     finally:
         conn.close()
@@ -306,6 +460,8 @@ def add_account(
     folder: str = "INBOX",
     provider: str = "imap",
 ) -> int:
+    from .calendar_colors import assign_defaults
+
     cur = conn.execute(
         "INSERT INTO accounts (id, label, email, provider, imap_host, imap_port, use_ssl,"
         " folder, created_at) VALUES ((SELECT COALESCE(MAX(id),0)+1 FROM ("
@@ -313,6 +469,7 @@ def add_account(
         "UNION ALL SELECT account_id AS id FROM bidder_assignments)), ?, ?, ?, ?, ?, ?, ?, ?)",
         (label, email, provider, imap_host, imap_port, int(use_ssl), folder, _now()),
     )
+    assign_defaults(conn)
     conn.commit()
     return int(cur.lastrowid)
 
@@ -483,11 +640,34 @@ def mark_announced(conn: sqlite3.Connection, pks: list[int]) -> None:
     conn.commit()
 
 
+def _handled_now(conn: sqlite3.Connection) -> str:
+    """Order local completion actions even on coarse or adjusted system clocks.
+
+    Call only after acquiring the write transaction so concurrent actions cannot
+    reserve timestamps out of commit order.
+    """
+    stamp = _now()
+    latest = conn.execute("SELECT handled_at FROM messages WHERE handled_at IS NOT NULL ORDER BY handled_at DESC LIMIT 1").fetchone()
+    if latest:
+        try:
+            previous = datetime.fromisoformat(latest[0])
+            current = datetime.fromisoformat(stamp)
+            previous = previous.replace(tzinfo=previous.tzinfo or timezone.utc)
+            current = current.replace(tzinfo=current.tzinfo or timezone.utc)
+            if previous >= current:
+                return (previous.astimezone(timezone.utc) + timedelta(microseconds=1)).isoformat()
+        except (ValueError, TypeError, OverflowError):
+            pass  # Older malformed local timestamps must not prevent Done.
+    return stamp
+
+
 def set_handled(conn: sqlite3.Connection, pk: int, handled: bool) -> bool:
     """Mark Done / restore. Local only — no provider mailbox is touched."""
+    # A later single-message action supersedes its membership in a bulk Undo.
+    conn.execute("DELETE FROM queue_clear_members WHERE message_pk=?", (pk,))
     cur = conn.execute(
         "UPDATE messages SET handled_at = ? WHERE id = ?",
-        (_now() if handled else None, pk),
+        (_handled_now(conn) if handled else None, pk),
     )
     conn.commit()
     return cur.rowcount > 0
@@ -537,7 +717,7 @@ def prune_messages(conn: sqlite3.Connection, *, before_iso: str, protect_fetched
 
 
 def get_cached(
-    conn: sqlite3.Connection, message_pk: int, prompt_version: str
+    conn: sqlite3.Connection, message_pk: int, prompt_version: str | None
 ) -> Classification | None:
     """The latest result under this prompt version, whichever model produced it.
 
@@ -545,10 +725,13 @@ def get_cached(
     the user doing anything; a per-model cache would re-classify every stored
     message each time it did.
     """
+    # None preserves the latest stored label across prompt upgrades. Explicit
+    # reclassification remains a separate user action.
+    version_filter = " AND prompt_version = ?" if prompt_version is not None else ""
+    params = (message_pk, prompt_version) if prompt_version is not None else (message_pk,)
     row = conn.execute(
-        "SELECT * FROM classifications WHERE message_pk = ? AND prompt_version = ?"
-        " ORDER BY created_at DESC, id DESC LIMIT 1",
-        (message_pk, prompt_version),
+        "SELECT * FROM classifications WHERE message_pk = ?" + version_filter
+        + " ORDER BY created_at DESC, id DESC LIMIT 1", params,
     ).fetchone()
     if not row:
         return None
@@ -716,12 +899,47 @@ LATEST_CLASSIFICATION = """
 """
 
 
+def _text_search(search: str | None) -> tuple[str, list[str]]:
+    """Literal substring matching; user input never becomes SQL or LIKE syntax."""
+    term = (search or "").strip()
+    if not term:
+        return "", []
+    fields = ("m.subject", "m.from_addr", "m.from_name", "m.body_text",
+              "c.company", "c.role", "c.summary")
+    return " AND (" + " OR ".join(
+        f"instr(lower(COALESCE({field},'')), lower(?)) > 0" for field in fields
+    ) + ")", [term] * len(fields)
+
+
+def bidder_info_scope(bidder_id):
+    """Bidder inbox access follows current account assignments, never client filters."""
+    from .payments import today
+    day=today().isoformat()
+    return (""" AND a.enabled=1 AND EXISTS (
+        SELECT 1 FROM bidder_assignments ba JOIN bidders b ON b.id=ba.bidder_id
+        WHERE ba.bidder_id=? AND b.removed_at IS NULL AND ba.account_id=m.account_id
+        AND ba.start_date<=? AND (ba.end_date IS NULL OR ba.end_date>=?))""",[bidder_id,day,day])
+
+
+def latest_bidder_mail_after(conn, bidder_id: int, after: str, after_id: int):
+    scope, values = bidder_info_scope(bidder_id)
+    return conn.execute(
+        """SELECT m.id, m.fetched_at
+        FROM messages m JOIN accounts a ON a.id=m.account_id
+        WHERE (m.fetched_at,m.id) > (?,?)""" + scope +
+        " ORDER BY m.fetched_at DESC,m.id DESC LIMIT 1",
+        [after, after_id, *values],
+    ).fetchone()
+
+
 def category_counts(
     conn: sqlite3.Connection,
     *,
     since_iso: str | None = None,
     account_label: str | None = None,
     handled: bool | None = None,
+    search: str | None = None,
+    bidder_id: int | None = None,
 ) -> dict[str, int]:
     """Counts per category over the latest classification of each message."""
     sql = (
@@ -734,8 +952,15 @@ def category_counts(
         + " WHERE 1 = 1"
     )
     params: list = []
+    if bidder_id is not None:
+        scope, values = bidder_info_scope(bidder_id)
+        sql += scope
+        params.extend(values)
+    search_sql, search_params = _text_search(search)
+    sql += search_sql
+    params.extend(search_params)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     if account_label:
         sql += " AND a.label = ?"
@@ -748,6 +973,20 @@ def category_counts(
     return {r["category"]: r["n"] for r in conn.execute(sql, params)}
 
 
+APPLICATION_MATCHED_SQL = """(c.category='application_ack' AND EXISTS (
+    SELECT 1 FROM sourcing_check_activity e
+    JOIN native_rows r ON r.id=e.row_id
+    JOIN native_tabs t ON t.id=r.tab_id AND t.account_id=m.account_id
+    JOIN native_books b ON b.id=t.book_id
+    JOIN bidders p ON p.id=b.bidder_id AND p.removed_at IS NULL
+    JOIN native_columns hc ON hc.tab_id=t.id AND hc.kind='check'
+    JOIN native_cells checked ON checked.row_id=r.id AND checked.column_id=hc.id AND checked.value='true'
+    JOIN native_columns lc ON lc.tab_id=t.id AND lc.kind='link'
+    JOIN native_cells link ON link.row_id=r.id AND link.column_id=lc.id AND trim(link.value)!=''
+    WHERE e.message_id=m.message_id AND e.account_id=m.account_id AND e.confirmed_at IS NOT NULL
+)) AS application_matched"""
+
+
 def query_triaged(
     conn: sqlite3.Connection,
     *,
@@ -756,6 +995,8 @@ def query_triaged(
     since_iso: str | None = None,
     handled: bool | None = None,
     limit: int = 500,
+    search: str | None = None,
+    bidder_id: int | None = None,
 ) -> list[sqlite3.Row]:
     """Latest classification per message, joined with the message and account.
 
@@ -772,7 +1013,8 @@ def query_triaged(
                m.date_utc, m.snippet, m.provider_url, m.handled_at,
                a.label AS account_label, a.email AS account_email, a.provider, a.imap_host,
                c.category, c.confidence, c.company, c.role, c.deadline,
-               c.action_required, c.summary, c.source, c.retryable, c.created_at
+               c.action_required, c.summary, c.source, c.retryable, c.created_at,
+        """ + APPLICATION_MATCHED_SQL + """
         FROM messages m
         JOIN accounts a ON a.id = m.account_id
         """
@@ -780,6 +1022,13 @@ def query_triaged(
         + " WHERE 1 = 1"
     )
     params: list = []
+    if bidder_id is not None:
+        scope, values = bidder_info_scope(bidder_id)
+        sql += scope
+        params.extend(values)
+    search_sql, search_params = _text_search(search)
+    sql += search_sql
+    params.extend(search_params)
     if categories:
         sql += f" AND c.category IN ({','.join('?' * len(categories))})"
         params += categories
@@ -787,15 +1036,16 @@ def query_triaged(
         sql += " AND a.label = ?"
         params.append(account_label)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     if handled is True:
         sql += " AND m.handled_at IS NOT NULL"
     elif handled is False:
         sql += " AND m.handled_at IS NULL"
     # Completed reads best most-recently-finished first; everything else by date.
-    sql += f" ORDER BY m.handled_at DESC, {RECEIVED} DESC LIMIT ?" if handled else \
-           f" ORDER BY {RECEIVED} DESC LIMIT ?"
+    # The bidder Inbox is one timeline: always newest received first.
+    sql += f" ORDER BY m.handled_at DESC, {RECEIVED} DESC LIMIT ?" if handled and bidder_id is None else \
+           f" ORDER BY {RECEIVED} DESC, m.id DESC LIMIT ?"
     params.append(limit)
     return list(conn.execute(sql, params))
 
@@ -832,7 +1082,8 @@ def get_triaged(conn: sqlite3.Connection, pk: int) -> sqlite3.Row | None:
                m.date_utc, m.fetched_at, m.snippet, m.body_text, m.original_html, m.provider_url, m.handled_at,
                a.label AS account_label, a.email AS account_email, a.provider, a.imap_host,
                c.category, c.confidence, c.company, c.role, c.deadline,
-               c.action_required, c.summary, c.source, c.retryable, c.created_at
+               c.action_required, c.summary, c.source, c.retryable, c.created_at,
+        """ + APPLICATION_MATCHED_SQL + """
         FROM messages m
         JOIN accounts a ON a.id = m.account_id
         """
@@ -842,12 +1093,16 @@ def get_triaged(conn: sqlite3.Connection, pk: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def queue_counts(
+def triage_counts(
     conn: sqlite3.Connection,
     *,
     since_iso: str | None = None,
     account_label: str | None = None,
-) -> dict[str, int]:
+    search: str | None = None,
+    bidder_id: int | None = None,
+    handled: bool | None = None,
+    after_pk: int | None = None,
+) -> tuple[dict[str, int], dict[str, int]]:
     """Headline numbers for the action queue: actionable, informational, done.
 
     "Actionable" matches exactly what the queue view itself shows — including
@@ -870,23 +1125,55 @@ def queue_counts(
         + " WHERE 1 = 1"
     )
     params: list = []
+    if bidder_id is not None:
+        scope, values = bidder_info_scope(bidder_id)
+        sql += scope
+        params.extend(values)
+    search_sql, search_params = _text_search(search)
+    sql += search_sql
+    params.extend(search_params)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     if account_label:
         sql += " AND a.label = ?"
         params.append(account_label)
+    if after_pk is not None:
+        # Messages stored after the newest one a person has already seen.
+        sql += " AND m.id > ?"
+        params.append(after_pk)
     sql += " GROUP BY c.category, done"
 
+    categories: dict[str, int] = {}
     actionable = informational = done = 0
     for row in conn.execute(sql, params):
+        category = row["category"]
+        if handled is None or bool(row["done"]) == handled:
+            categories[category] = categories.get(category, 0) + row["n"]
         if row["done"]:
             done += row["n"]
-        elif is_queue_category(row["category"]):
+        elif bidder_id is not None or is_queue_category(category):
             actionable += row["n"]
         else:
             informational += row["n"]
-    return {"actionable": actionable, "informational": informational, "done": done}
+    return categories, {"actionable": actionable, "informational": informational, "done": done}
+
+
+def queue_counts(
+    conn: sqlite3.Connection,
+    *,
+    since_iso: str | None = None,
+    account_label: str | None = None,
+    search: str | None = None,
+    after_pk: int | None = None,
+) -> dict[str, int]:
+    _, summary = triage_counts(conn, since_iso=since_iso, account_label=account_label, search=search, after_pk=after_pk)
+    return summary
+
+
+def latest_message_pk(conn: sqlite3.Connection) -> int:
+    """The newest stored message id; ids only grow, so it marks "seen up to here"."""
+    return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0])
 
 
 def messages_in_categories(
@@ -927,7 +1214,7 @@ def messages_in_categories(
         sql += " AND a.label = ?"
         params.append(account_label)
     if since_iso:
-        sql += f" AND {RECEIVED} >= ?"
+        sql += f" AND julianday({RECEIVED}) >= julianday(?)"
         params.append(since_iso)
     sql += f" ORDER BY {RECEIVED} DESC LIMIT ?"
     params.append(limit)

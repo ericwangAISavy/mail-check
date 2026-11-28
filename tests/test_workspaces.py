@@ -4,8 +4,37 @@ import pytest
 from mailcheck import config, secrets
 
 
+def test_initialization_never_replaces_an_existing_workspace_database(tmp_path):
+    from mailcheck.workspaces import provision,initialize_database
+    from mailcheck.web.system_monitoring import database_snapshot
+    root=provision(tmp_path,'a'*32)
+    database=initialize_database(root)
+    before=database.read_bytes()
+    with pytest.raises(FileExistsError,match='refusing replacement'):
+        initialize_database(root)
+    assert database.read_bytes()==before
+    database.unlink()
+    evidence=database_snapshot(database)
+    assert evidence['status']=='unknown'
+    assert evidence['reason']=='database_missing'
+    assert not database.exists()
+
+
+@pytest.mark.parametrize('suffix',['-wal','-shm','-journal'])
+def test_initialization_preserves_orphaned_sqlite_recovery_files(tmp_path,suffix):
+    from mailcheck.workspaces import provision,initialize_database
+    root=provision(tmp_path,'b'*32)
+    orphan=root/'data'/('mailcheck.db'+suffix)
+    orphan.write_bytes(b'preserve recovery data')
+    with pytest.raises(ValueError,match='recovery files'):
+        initialize_database(root)
+    assert orphan.read_bytes()==b'preserve recovery data'
+    assert not (root/'data'/'mailcheck.db').exists()
+
+
 def test_legacy_paths_and_secret_namespace_remain_unchanged(tmp_path):
-    with patch.dict('os.environ',{},clear=True):
+    # This verifies the legacy namespace, not Windows shell profile discovery.
+    with patch.dict('os.environ',{},clear=True),patch.object(config,'user_data_dir',return_value=str(tmp_path/'data')),patch.object(config,'user_config_dir',return_value=str(tmp_path/'config')):
         assert config.db_path().name == 'mailcheck.db'
         assert secrets._key_for_account('same') == 'account:same'
 
@@ -69,3 +98,40 @@ def test_managed_workspace_inherits_owner_settings_without_writing_them(tmp_path
         shared.write_text('[llm]\nbase_url="http://new-owner-model:11434"\n')
         assert config.load().llm.base_url=='http://new-owner-model:11434'
         assert config.db_path()==root/'data'/'mailcheck.db'
+
+
+def test_workspace_check_intervals_are_independent_and_reload_shared_changes(tmp_path):
+    wid='c'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[watch]\ninterval_minutes=2\nother_interval_minutes=10\nauto_check=true\n')
+    with patch.dict('os.environ',{'OFFERPATH_SHARED_CONFIG_PATH':str(shared),'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid}):
+        member=config.load()
+        assert member.watch.interval_minutes==10
+        member.watch.interval_minutes=99
+        assert config.load().watch.interval_minutes==10
+        shared.write_text('[watch]\ninterval_minutes=1\nother_interval_minutes=5\nauto_check=true\n')
+        assert config.load().watch.interval_minutes==5
+    with patch.dict('os.environ',{},clear=True),patch.object(config,'config_path',return_value=shared):
+        assert config.load().watch.interval_minutes==1
+        assert config.load().watch.other_interval_minutes==5
+
+
+def test_existing_owner_interval_is_preserved_and_other_workspaces_default_to_ten(tmp_path):
+    wid='d'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[watch]\ninterval_minutes=2\n')
+    with patch.dict('os.environ',{'OFFERPATH_SHARED_CONFIG_PATH':str(shared),'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid}):
+        assert config.load().watch.interval_minutes==10
+    with patch.dict('os.environ',{},clear=True),patch.object(config,'config_path',return_value=shared):
+        assert config.load().watch.interval_minutes==2
+
+
+def test_worker_schedule_uses_effective_interval_in_seconds(tmp_path):
+    from mailcheck.web import app as web
+    wid='e'*32;root=tmp_path/wid;root.mkdir();(root/'workspace.id').write_text(wid)
+    shared=tmp_path/'owner.toml';shared.write_text('[watch]\ninterval_minutes=2\nother_interval_minutes=10\nauto_check=true\n')
+    with patch.dict(web._sched,{'next_due':None}),patch.object(web.time,'time',return_value=100):
+        with patch.dict('os.environ',{'OFFERPATH_SHARED_CONFIG_PATH':str(shared),'OFFERPATH_WORKSPACE_ROOT':str(root),'OFFERPATH_WORKSPACE_ID':wid}):
+            web._reschedule(config.load())
+            assert web._sched['next_due']==700
+        with patch.dict('os.environ',{},clear=True),patch.object(config,'config_path',return_value=shared):
+            web._reschedule(config.load())
+            assert web._sched['next_due']==220

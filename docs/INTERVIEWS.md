@@ -1,8 +1,66 @@
 # Meeting calendar
 
-The admin-only Interview page displays local calendar bookings in Work week, Week,
+The admin-only Interview page displays interview-related calendar bookings in Work week, Week,
 Month and Day views. Named bidders are limited to their own sourcing sheets and payments. No production events are
 seeded, and existing mail history is preserved.
+
+## Calendar content analysis
+
+Email calendar invitations (ICS), including IMAP/Gmail accounts, use the same
+semantic analyzer as native Microsoft calendar events. New imports are queued
+without waiting for inference. Existing saved invitations are discovered in
+bounded batches in each enabled workspace, without rereading mailbox history.
+Retained event descriptions remain usable after the original email is pruned.
+The worker updates company, role, interviewers and review fields on the existing
+event; original times, cancellation state, meeting links, source identities and
+manual corrections are preserved. A negative email-invitation analysis stays
+visible for review and supports fresh inference through **Retry analysis**.
+Direct provider-calendar collection still requires a calendar-capable connection;
+new IMAP invitations are imported by mail sync.
+
+Calendar analysis uses its own context limit, independent of the email body
+limit. It retains up to 16,000 description characters and selects at most 12,000
+for the model, prioritizing hiring details over meeting boilerplate while
+preserving source order. Its cache tracks the analysis version, context limit
+and bounded source description, including changes beyond the selected excerpt.
+
+Ambiguous or below-80%-confidence decisions stay in **Needs review**, with their
+queued content retained. **Retry analysis** runs fresh inference; uncertain
+results are not cached as final decisions. Previously recognized interviews stay
+visible while analysis is uncertain or pending. Provider dates, cancellation
+state and meeting links remain authoritative, and manual corrections are protected.
+
+Only legacy pending tasks with the original queue version format recover fuller
+saved descriptions; current tasks keep their queued content, including deliberate
+description removals. Repeated unchanged review markers do not write event rows
+again. Run
+**Check now** or wait for the next calendar sync to requeue older completed
+analyses under the updated version. Full source content previously unavailable
+locally requires a calendar sync to recover.
+
+## Shared company feedback
+
+Open an interview event and use **Your feedback** to select any combination of
+`in-person`, `linkedin`, `fuck` and `normal`. Click a selected option again to
+clear it. These mean an in-person process, LinkedIn questions, intensive identity
+verification, and a warm/normal interview respectively. No description is needed.
+
+**Shared feedback** combines admins' choices for that company across workspaces.
+This panel appears above possible job matches. Calendar event titles show an
+amber warning triangle for `in-person`, `linkedin` or `fuck`, and a green check
+for `normal` alone. Warnings take priority when both types exist. Icons remain
+inside short event bars; tooltips and accessible names retain the full labels.
+Each admin edits only their own current
+company choices in the selected workspace. Clearing your choices preserves other
+admins' feedback. Case, punctuation and legal company suffixes are normalized;
+different company names are not fuzzily combined. Set the actual company first
+if an event only has a generic meeting title.
+
+Only the fixed labels are shared, without author names, mailbox information or
+other workspaces' event details. Feedback loads independently so an unavailable
+feedback store does not prevent using the calendar. Gateway deployments keep it
+in the control database; standalone deployments use `interview-feedback.db`
+beside the application database.
 
 ## Interview processes
 
@@ -93,21 +151,84 @@ accessible calendar and reads each calendar's `calendarView`, following calendar
 and event pagination. The default date window covers at least the previous year
 and one year ahead, independently of the mail lookback. It is based on event dates, not invitation receipt dates.
 
-`calendarView` expands recurring occurrences and exceptions. Bookings are accepted
-regardless of title, organizer, meeting provider, or whether they have a join link.
-Teams, Google Meet, Zoom, Webex, Skype, telephone and in-person bookings all use the
-same collection path. This does not connect to Google Calendar itself: Google Meet
-bookings must exist on a connected Outlook calendar.
+That full read is what **Check now** does. Automatic runs are incremental:
 
-Only event metadata is used and saved: title, start/end, original timezone, organizer,
-attendees, location, online-meeting link/provider, cancellation and revision data.
+- Between full reads, only changes to the **primary** calendar are requested
+  (`/me/calendarView/delta`, the only calendar Microsoft documents change tracking for).
+- Every 30 minutes all calendars are read in full. This picks up changes and
+  deletions in other calendars and moves the date window forward. An expired change
+  token, or more than 50 changes at once, also causes a full read.
+- Events that have not changed are not queued or saved again.
+- With Microsoft change notifications active, fallback polling is every 15 minutes;
+  without them it stays at 2 minutes.
+
+Progress is kept in a `calendar-sync` folder beside the database. Deleting it is
+safe; the next run reads everything again.
+
+`calendarView` expands recurring occurrences and exceptions. When an Ollama server is
+configured in Settings, calendar sync uses its loaded model to classify each event
+and extract company, role, interview stage, and explicitly identified interviewers.
+It considers the combined title, description, organizer, named attendees, location,
+and categories; there is no required keyword or fixed invitation format. Candidate
+addresses, organizers, recruiters, and other attendees are not automatically treated
+as interviewers. Holidays, personal appointments, and ordinary work meetings are
+excluded. Ambiguous or incomplete interview details are marked **Needs review**.
+
+Provider dates, recurrence identity, cancellation state, and meeting links remain
+authoritative. Model output cannot change them. Safe recognized meeting links in
+calendar descriptions are retained when structured meeting fields are absent.
+All-day onsite interviews are supported; all-day duration alone does not mean holiday.
+
+Without a configured model, collection still works with conservative interview
+metadata checks. If analysis fails, recognizable interviews retain their native
+schedule and previous extracted details; manual corrections always win. The sync
+queues unfinished analysis for automatic retry. Common output formatting differences
+are normalized without inventing interview details. Invalid or truncated JSON gets
+one bounded repair request with a larger response budget. A missing interview
+decision or invalid confidence is never treated as a successful analysis. Successful
+analysis is cached by event content and prompt version, so unchanged events do not
+make repeat model requests. Description or attendee changes trigger reanalysis.
+Calendar collection queues uncached events without waiting for inference. A saved
+background queue resumes in small batches, even when automatic mail checks are off.
+Upcoming events are prioritized within each account, and accounts take turns so a
+large account cannot monopolize analysis. Failed events back off from 30 seconds to
+30 minutes; a busy/unavailable model pauses requests for at least a minute. Untried
+events continue before repeated failures. The configured classification deadline
+bounds each batch rather than a full year of collection. An invalid response after
+three task attempts pauses that event as **Needs review** instead of retrying
+forever. These tasks retain their saved booking and remain in the total count;
+they are not counted as completed. Other events continue. Timeouts and service
+outages retain automatic retries. **Retry analysis now** resets the attempt budget
+for paused/retrying tasks; correcting the model or changing the event content can
+then allow analysis to finish. Successful cached events, native dates, meeting
+links, and manual corrections are preserved.
+
+The calendar shows completed/remaining counts, retry reasons, and **Retry analysis
+now**. Background batches update results without repeated completion toasts or
+unrelated sourcing checks. The server must stay running; the browser may be closed.
+Saved work survives restarts, including recovery of an interrupted worker claim.
+A complete provider snapshot cancels tasks for removed events; an incomplete fetch
+does not. Old queued results cannot overwrite a newer provider snapshot.
+
+After upgrading from v2.20.0, refresh the calendar once to seed the saved queue for
+previously deferred events. Further manual refreshes are not needed for the backlog.
+
+After a complete successful provider sync, missing or unrelated bookings in the
+collected window are hidden; incomplete provider syncs never remove missing events.
+No events are edited or deleted in Outlook. Availability calculations still use all
+busy appointments independently of interview classification.
+
 Graph calendarView uses its default projection because revision timestamps do not
-support `$select`; unused properties, including event bodies, are discarded.
-The calendar client requests UTC timestamps and uses read-only `Calendars.Read`.
-There are no inbox/message endpoints, attachment scans, email bodies, model calls,
-or meeting-relevance classification in this flow. The saved-mail scan endpoint is
-retired (HTTP 410), and its UI action and source-email reader have been removed
-from the calendar. The separate CLI mail tools retain their existing workflow.
+support `$select`. Event descriptions are converted to plain text and bounded by
+Settings’ body-excerpt limit before being sent to the configured model, alongside
+event metadata. Raw descriptions are not saved by this analysis cache; the cache
+stores fingerprints and validated analysis results in the workspace database.
+Pending queue entries retain native event metadata and the bounded description
+excerpt so analysis can resume without repeated Graph fetches. This queued payload
+is cleared after successful analysis or cancellation.
+Calendar sync uses read-only `Calendars.Read`. It never reads inbox messages,
+classifies emails, or creates message/classification rows. The saved-mail scan
+endpoint remains retired (HTTP 410).
 
 IMAP has no calendar event API. IMAP-only accounts report this explicitly without
 opening a mailbox or falling back to reading messages. Native Google Calendar and
@@ -120,7 +241,7 @@ CalDAV account connections are not implemented.
    is requested.
 2. In Accounts, click **Reconnect** beside each existing Outlook account and finish
    Microsoft's device-code consent with the same Microsoft account.
-3. Click **Check now**. A model connection is not required.
+3. Configure your Ollama connection in Settings for semantic event analysis, then click **Check now**. Collection itself still works without a model.
 
 Reconnection retains the account ID, local event records and account associations.
 A different Microsoft identity is rejected. Tokens stay in the existing OS keyring.
@@ -133,6 +254,9 @@ reconnect instruction, without a message-based fallback.
 Provider-neutral `CalendarBooking` records feed the existing local event/source
 SQLite tables. No new message or classification rows are created. Source rows
 contain the native event identifier and account association, with no stored email.
+Schema 44 adds extracted interviewers and the content-based calendar analysis cache
+without deleting existing events, source associations, or manual corrections.
+Schema 45 adds the durable analysis queue, retry state, and worker leases.
 Previous event history is preserved. Schema 19 retains organization pins and removal records and adds
 manual process names without deleting events or messages;
 timelines continue to derive events and messages from their existing tables.
@@ -230,3 +354,17 @@ enabled account remain visible. Returning events reappear automatically. Outlook
 updates clear removed meeting links/locations and can reinstate cancelled events;
 explicit local corrections remain protected. Calendar collection is read-only
 and never edits Outlook.
+
+## Calendar event summary
+
+The event dialog shows time in the selected display timezone, linked email accounts,
+company, role, interview contacts, location, and a separate clickable full meeting URL when available. Accounts
+and contacts are deduplicated; the candidate's linked email addresses are omitted
+from the contact list. Organizer/contact information does not establish who will
+conduct the interview.
+
+Native calendar titles are not structured company data. When a calendar title was
+stored as a fallback company, the summary keeps it as the dialog title and marks
+the company as **Not provided**. Missing roles are also shown as **Not provided**;
+these details are not guessed. Model analysis can fill supported details on the next calendar sync. **Edit details** allows local company, role, and interviewer corrections and event
+removal. Technical source metadata and calendar notes stay out of the summary.

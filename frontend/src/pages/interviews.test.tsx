@@ -6,7 +6,7 @@ import { ToastProvider } from "@/components/common"
 import { api, request } from "@/lib/api"
 import type { Bootstrap, InterviewEvent } from "@/lib/types"
 import InterviewsPage from "./interviews"
-vi.mock("@/lib/api",()=>({request:vi.fn(),api:{status:vi.fn(),startCheck:vi.fn(),post:vi.fn(),reader:vi.fn()}}))
+vi.mock("@/lib/api", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/api")>(),request:vi.fn(),api:{status:vi.fn(),startCheck:vi.fn(),post:vi.fn(),reader:vi.fn()}}))
 const bootstrap:Bootstrap={readiness:{model:true,accounts:true,privacy_ack:true,outlook:true},counts:{},taxonomy:[],presets:[],last_run:"",account_count:2}
 const event=():InterviewEvent=>({id:1,calendar_uid:"uid",company:"Acme",role:"Engineer",stage:"Technical Interview",status:"Scheduled",display_status:"Scheduled",start_at:new Date(new Date().setHours(23,0,0,0)).toISOString(),end_at:new Date(new Date().setHours(23,45,0,0)).toISOString(),timezone:"UTC",meeting_platform:"Zoom",meeting_url:"https://zoom.us/j/123",location:null,organizer_name:"Recruiter",organizer_email:"recruiter@acme.test",participants:[],notes:null,confidence:.98,needs_review:false,review_reason:null,manual_fields:[],created_at:new Date().toISOString(),updated_at:new Date().toISOString()})
 const clients:QueryClient[]=[]
@@ -28,46 +28,52 @@ beforeEach(()=>{
 afterEach(()=>{vi.useRealTimers();cleanup();clients.splice(0).forEach(c=>c.clear());vi.clearAllMocks()})
 function ChangeInterview() { const navigate=useNavigate(); return <button data-testid="other-interview" onClick={()=>navigate("/interviews?event=2")}>Navigate to another interview</button> }
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});clients.push(client);render(<QueryClientProvider client={client}><MemoryRouter><ChangeInterview/><ToastProvider><InterviewsPage bootstrap={bootstrap}/></ToastProvider></MemoryRouter></QueryClientProvider>)}
-it("renders real records in month, week, and day views with date navigation",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
-  expect(screen.getByRole("button",{name:"Work week"}).getAttribute("aria-pressed")).toBe("true")
-  fireEvent.click(screen.getByRole("button",{name:"Month"}))
-  await waitFor(()=>expect(document.querySelectorAll('.calendar-day').length).toBe(42))
-  expect(document.querySelector('.calendar-day .interview-event')).toBeTruthy()
-  fireEvent.click(screen.getByRole("button",{name:"Week"}));expect(document.querySelectorAll('.calendar-day').length).toBe(7)
-  fireEvent.click(screen.getByRole("button",{name:"Day"}));expect(document.querySelectorAll('.calendar-day').length).toBe(1)
+it("renders real records in the work week with date navigation",async()=>{
+  mount();await screen.findByRole("button",{name:"Check now"})
+  await waitFor(()=>expect(document.querySelectorAll('.calendar-day').length).toBe(5))
   const day=document.querySelector('.calendar-day')!.getAttribute('aria-label')
   fireEvent.click(screen.getByRole("button",{name:"Next calendar period"}));expect(document.querySelector('.calendar-day')!.getAttribute('aria-label')).not.toBe(day)
   fireEvent.click(screen.getByRole("button",{name:"Today"}));expect(document.querySelector('.calendar-day')!.getAttribute('aria-label')).toBe(day)
 })
-it("filters real account, company, and status and collects calendar events without a model",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
-  fireEvent.click(screen.getByRole("button",{name:"Filter"}))
-  fireEvent.change(screen.getByLabelText("Account"),{target:{value:"personal"}})
-  await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes("account=personal"))).toBe(true))
-  await screen.findByRole("button",{name:"Month"})
-  fireEvent.change(screen.getByLabelText("Status"),{target:{value:"Cancelled"}})
-  await screen.findByRole("button",{name:"Month"})
-  fireEvent.change(screen.getByLabelText("Company"),{target:{value:"Acme"}})
-  await waitFor(()=>expect(vi.mocked(request).mock.calls.some(([url])=>url.includes('account=personal')&&url.includes('status=Cancelled')&&url.includes('company=Acme'))).toBe(true))
-  fireEvent.click(screen.getByRole("button",{name:"Check now"}));await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/interviews/sync"))
-  expect(screen.queryByRole("button",{name:"Import saved invitations"})).toBeNull()
+it("keeps only Check now beside the calendar date row",async()=>{
+  mount();await screen.findByRole("button",{name:"Check now"})
+  for(const name of ["Month","Week","Day","Work week","Split view","Print","Refresh"])expect(screen.queryByRole("button",{name})).toBeNull()
+  expect(screen.getByRole("button",{name:"Check now"}).closest(".outlook-date-bar")).not.toBeNull()
 })
 it("opens event details and persists only fields explicitly corrected",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   await within(dialog).findByRole("button",{name:"Edit details"})
-  expect(within(dialog).getByRole("link",{name:/Open Zoom link/}).getAttribute('href')).toBe('https://zoom.us/j/123')
+  const feedback=within(dialog).getByRole('region',{name:'Interview feedback'})
+  const links=within(dialog).getByRole('region',{name:'Possible job matches'})
+  expect(feedback.compareDocumentPosition(links)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(within(dialog).getByRole("link",{name:current.meeting_url!}).getAttribute('href')).toBe('https://zoom.us/j/123')
   expect(within(dialog).queryByRole("button",{name:"View source email"})).toBeNull()
   fireEvent.click(within(dialog).getByRole("button",{name:"Edit details"}))
   fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:"Correct Company"}})
   fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{company:'Correct Company'}))
 })
+it("protects interview corrections during a pending save and preserves a failed draft",async()=>{
+  let rejectSave!:(error:Error)=>void
+  vi.mocked(api.post).mockImplementation(()=>new Promise((_,reject)=>{rejectSave=reject}))
+  mount();await screen.findByRole("button",{name:"Check now"})
+  fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
+  const dialog=await screen.findByRole("dialog")
+  fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
+  fireEvent.change(within(dialog).getByLabelText("Company"),{target:{value:"Correct Company"}})
+  fireEvent.click(within(dialog).getByRole("button",{name:"Save corrections"}))
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith("/api/interviews/1",{company:"Correct Company"}))
+  for(const input of dialog.querySelectorAll(".interview-editor input, .interview-editor select, .interview-editor textarea"))expect(input).toHaveProperty("disabled",true)
+  rejectSave(new Error("Could not save corrections"))
+  await within(dialog).findByText("Could not save corrections")
+  expect(within(dialog).getByLabelText("Company")).toHaveProperty("value","Correct Company")
+  expect(within(dialog).getByLabelText("Company")).toHaveProperty("disabled",false)
+})
 it("shows only dated calendar events without upcoming or review panels",async()=>{
   current={...event(),start_at:null,end_at:null,display_status:'Needs review',needs_review:true}
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   expect(document.querySelector('.calendar-day .interview-event')).toBeNull()
   expect(document.querySelector('.interview-agenda')).toBeNull()
   expect(document.querySelector('.interview-summary')).toBeNull()
@@ -76,7 +82,7 @@ it("shows only dated calendar events without upcoming or review panels",async()=
 })
 it("sends the editor timezone when correcting a date with missing original timezone",async()=>{
   current={...event(),timezone:null}
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -91,7 +97,7 @@ it("sends the editor timezone when correcting a date with missing original timez
 it("resets editing and drafts when navigation selects another event",async()=>{
   const original=vi.mocked(request).getMockImplementation()!
   vi.mocked(request).mockImplementation(async(url,...rest)=>url==='/api/interviews/2'?{event:{...event(),id:2,company:'Second Company'},sources:[]} as any:original(url,...rest))
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   let dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -103,7 +109,7 @@ it("resets editing and drafts when navigation selects another event",async()=>{
   expect((within(dialog).getByLabelText('Company') as HTMLInputElement).value).toBe('Second Company')
 })
 it("does not protect an unchanged end time when only the start is corrected",async()=>{
-  mount();await screen.findByRole("button",{name:"Month"})
+  mount();await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button",{name:/Acme, Technical Interview/})[0])
   const dialog=await screen.findByRole("dialog")
   fireEvent.click(await within(dialog).findByRole("button",{name:"Edit details"}))
@@ -113,34 +119,127 @@ it("does not protect an unchanged end time when only the start is corrected",asy
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{start_at:'2026-10-20T10:00',timezone:zone}))
 })
 
-it('opens native application lookup with company, role and the available profile',async()=>{
- mount();await screen.findByRole('button',{name:'Month'})
+it('shows only useful details and the linked email account',async()=>{
+ mount();await screen.findByRole('button',{name:'Check now'})
  fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
- const link=await screen.findByRole('link',{name:/Find application/})
- expect(link.getAttribute('href')).toBe('/sourcing?q=Acme+Engineer&account=1')
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Email account')
+ expect(within(dialog).getByText('work@example.test')).toBeTruthy()
+ expect(within(dialog).getByText('Company')).toBeTruthy()
+ expect(within(dialog).getByText('Role')).toBeTruthy()
+ expect(within(dialog).getByText('Interviewer / contact')).toBeTruthy()
+ expect(within(dialog).getByText('Location')).toBeTruthy()
+ for(const label of ['Original timezone','Display timezone','Participants','Detected status','Last updated','Notes','Connected calendar accounts'])expect(within(dialog).queryByText(label)).toBeNull()
+ expect(within(dialog).queryByRole('button',{name:'Remove from calendar'})).toBeNull()
 })
 it("removes a saved event and closes its details", async () => {
   mount()
-  await screen.findByRole("button", {name:"Month"})
+  await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button", {name:/Acme, Technical Interview/})[0])
   const dialog = await screen.findByRole("dialog")
-  fireEvent.click(await within(dialog).findByRole("button", {name:"Remove from calendar"}))
+  fireEvent.click(await within(dialog).findByRole("button", {name:"Edit details"}))
+  fireEvent.click(within(dialog).getByRole("button", {name:"Remove from calendar"}))
   await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull())
   expect(api.post).toHaveBeenCalledWith("/api/interviews/1/remove")
 })
 it("keeps the event details open if removal fails", async () => {
   vi.mocked(api.post).mockRejectedValueOnce(new Error("Could not remove event"))
   mount()
-  await screen.findByRole("button", {name:"Month"})
+  await screen.findByRole("button",{name:"Check now"})
   fireEvent.click(screen.getAllByRole("button", {name:/Acme, Technical Interview/})[0])
   const dialog = await screen.findByRole("dialog")
-  fireEvent.click(await within(dialog).findByRole("button", {name:"Remove from calendar"}))
+  fireEvent.click(await within(dialog).findByRole("button", {name:"Edit details"}))
+  fireEvent.click(within(dialog).getByRole("button", {name:"Remove from calendar"}))
   expect((await within(dialog).findByRole("alert")).textContent).toBe("Could not remove event")
   expect((within(dialog).getByRole("button", {name:"Remove from calendar"}) as HTMLButtonElement).disabled).toBe(false)
 })
 
-it('Refresh requests a real Outlook calendar sync',async()=>{
-  mount();await screen.findByRole('button',{name:'Month'})
-  fireEvent.click(screen.getByRole('button',{name:'Refresh'}))
+it('Check now requests a real Outlook calendar sync',async()=>{
+  mount();await screen.findByRole('button',{name:'Check now'})
+  fireEvent.click(screen.getByRole('button',{name:'Check now'}))
   await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/sync'))
 })
+
+it('deduplicates native accounts and contacts without treating the event title as a company',async()=>{
+ current.company='CONFIRMED - VIDEO Interview Danny Vo - HR AI Solutions Lead'
+ current.role=null
+ current.organizer_name='Rebecca Moore';current.organizer_email='rebecca@airbus.com'
+ current.participants=['REBECCA@airbus.com','antonio@airbus.com','work@example.test']
+ current.location=current.meeting_url
+ const base=vi.mocked(request).getMockImplementation()!
+ vi.mocked(request).mockImplementation(async(url,init)=>{
+  if(url==='/api/interviews/1')return {event:current,sources:[1,2].map(id=>({id,account_id:1,message_pk:null,account_label:'work',account_email:id===1?'work@example.test':'WORK@example.test',source_subject:current.company}))} as any
+  return base(url,init)
+ })
+ mount();await screen.findByRole('button',{name:'Check now'})
+ fireEvent.click(screen.getAllByRole('button',{name:/CONFIRMED - VIDEO Interview/})[0])
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Email account')
+ expect(within(dialog).getAllByText(/^work@example.test$/i)).toHaveLength(1)
+ expect(within(dialog).getByText('Company').nextElementSibling!.textContent).toBe('Not provided')
+ expect(within(dialog).getByText('Role').nextElementSibling!.textContent).toBe('Not provided')
+ const contacts=within(dialog).getByText('Interviewer / contact').nextElementSibling!
+ expect(contacts.textContent).toBe('Rebecca Moore · rebecca@airbus.comantonio@airbus.com')
+ expect(within(dialog).getAllByRole('link',{name:current.meeting_url!})).toHaveLength(1)
+ expect(within(dialog).getByText('Meeting link')).toBeTruthy()
+ expect(within(dialog).getByRole('link',{name:current.meeting_url!}).getAttribute('href')).toBe(current.meeting_url)
+})
+
+it('shows extracted interviewers instead of treating every attendee as an interviewer',async()=>{
+ current.interviewers=['Rebecca Moore <rebecca@airbus.com>']
+ current.participants=['scheduler@airbus.com','candidate@example.test']
+ mount();await screen.findByRole('button',{name:'Check now'})
+ fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Rebecca Moore <rebecca@airbus.com>')
+ expect(within(dialog).queryByText('scheduler@airbus.com')).toBeNull()
+ expect(within(dialog).queryByText('Recruiter · recruiter@acme.test')).toBeNull()
+ fireEvent.click(within(dialog).getByRole('button',{name:'Edit details'}))
+ fireEvent.change(within(dialog).getByLabelText('Interviewers (one per line)'),{target:{value:'Correct person <correct@airbus.com>\nSecond person'}})
+ fireEvent.click(within(dialog).getByRole('button',{name:'Save corrections'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/1',{interviewers:['Correct person <correct@airbus.com>','Second person']}))
+})
+it('keeps explicitly cleared interviewers empty instead of restoring unrelated attendees',async()=>{
+ current.interviewers=[];current.manual_fields=['interviewers']
+ mount();await screen.findByRole('button',{name:'Check now'})
+ fireEvent.click(screen.getAllByRole('button',{name:/Acme, Technical Interview/})[0])
+ const dialog=await screen.findByRole('dialog')
+ await within(dialog).findByText('Interviewer / contact')
+ expect(within(dialog).getByText('Interviewer / contact').nextElementSibling!.textContent).toBe('Not provided')
+})
+
+it('shows real queued analysis progress and a manual retry without labeling collection a failure',async()=>{
+ const base=vi.mocked(request).getMockImplementation()!
+ vi.mocked(request).mockImplementation(async(url,init)=>{
+  const result:any=await base(url,init)
+  return url.startsWith('/api/interviews?') ? {...result,analysis:{done:3,total:356,pending:353,retrying:1,running:0,retry_in:60,last_error:'Model response timed out'}} : result
+ })
+ mount()
+ await screen.findByText('3/356 complete')
+ expect(screen.getByText('353 remaining')).toBeTruthy()
+ expect(screen.getByText('Retry scheduled')).toBeTruthy()
+ expect(screen.queryByText('Model response timed out')).toBeNull()
+ expect(screen.getByText('Retry scheduled').getAttribute('title')).toBe('Model response timed out')
+ fireEvent.click(screen.getByRole('button',{name:'Retry analysis now'}))
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/analysis/retry'))
+})
+
+it('keeps invalid analyses visible as needing review instead of claiming completion or endless retries',async()=>{
+ const base=vi.mocked(request).getMockImplementation()!
+ vi.mocked(request).mockImplementation(async(url,init)=>{
+  const result:any=await base(url,init)
+  const progress={done:341,total:364,pending:0,needs_review:23,retrying:0,running:0,retry_in:0,last_error:'Invalid analysis fields: confidence'}
+  if(url==='/api/interviews/analysis')return progress
+  return url.startsWith('/api/interviews?')?{...result,analysis:progress}:result
+ })
+ mount()
+ expect(await screen.findByRole('status',{name:'Interview counts'})).toBeTruthy()
+ expect(screen.queryByText(/need review/)).toBeNull() // no toolbar chip
+ expect(screen.queryByText(/Automatic retry scheduled/)).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'More calendar options'}))
+ const retry=await screen.findByRole('button',{name:/Retry analysis · 23 need review/})
+ expect(retry.getAttribute('title')).toBe('Invalid analysis fields: confidence')
+ fireEvent.click(retry)
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/api/interviews/analysis/retry'))
+})
+

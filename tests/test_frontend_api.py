@@ -38,6 +38,80 @@ class FrontendApiTests(unittest.TestCase):
         self.client = TestClient(create_app())
         self.addCleanup(self.client.close)
 
+    def test_lightweight_bootstrap_skips_both_header_aggregations(self):
+        with patch.object(db, "queue_counts", side_effect=AssertionError("mail aggregate")), \
+             patch.object(web_app.payments, "checked_today", side_effect=AssertionError("payment aggregate")):
+            response = self.client.get("/api/bootstrap?include_counts=false")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"], {})
+        self.assertIn("actionable", self.client.get("/api/queue-counts").json())
+
+    def test_calendar_defaults_use_each_unused_color_and_keep_explicit_overrides(self):
+        initial = self.client.get("/api/interviews").json()["accounts"][0]
+        response = self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": 7})
+        self.assertEqual(response.status_code, 200, response.text)
+        for index in range(7):
+            db.add_account(self.conn, label=f"Applicant {index}", email=f"applicant{index}@example.test")
+        accounts = self.client.get("/api/interviews").json()["accounts"]
+        chosen = {a["id"]: a["calendar_color"] if a["calendar_color"] is not None else a["calendar_default_color"] for a in accounts}
+        self.assertEqual(set(chosen.values()), set(range(8)))
+        original = next(a for a in accounts if a["id"] == self.account_id)
+        self.assertEqual(original["calendar_default_color"], initial["calendar_default_color"])
+        another = next(a for a in accounts if a["id"] != self.account_id)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{another['id']}", json={"color": 7}).status_code, 200)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": None}).status_code, 200)
+        reset = next(a for a in self.client.get("/api/interviews").json()["accounts"] if a["id"] == self.account_id)
+        self.assertIsNone(reset["calendar_color"])
+        self.assertEqual(reset["calendar_default_color"], initial["calendar_default_color"])
+
+    def test_calendar_default_migration_preserves_existing_color_choices(self):
+        from contextlib import closing
+        from mailcheck import calendar_colors
+
+        calendar_colors.set_color(self.conn, self.account_id, 5)
+        self.conn.execute("DROP TABLE account_calendar_defaults")
+        self.conn.execute("PRAGMA user_version = 60")
+        self.conn.commit()
+        with closing(db.connect(self.path)) as conn:
+            self.assertEqual(calendar_colors.colors(conn)[self.account_id], 5)
+            self.assertIn(calendar_colors.default_colors(conn)[self.account_id], range(8))
+
+    def test_concurrent_settings_updates_preserve_unrelated_fields(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        real_load,real_save=config.load,config.save
+        first_read=threading.Event();second_read=threading.Event()
+        release_first=threading.Event();first_saved=threading.Event()
+        count_lock=threading.Lock();reads=0
+        def queued_load():
+            nonlocal reads
+            cfg=real_load()
+            with count_lock:
+                reads+=1;number=reads
+            if number==1:
+                first_read.set()
+                assert release_first.wait(5)
+            elif number==2:
+                second_read.set()
+                assert first_saved.wait(5)
+            return cfg
+        def tracked_save(cfg):
+            path=real_save(cfg)
+            first_saved.set()
+            return path
+        with patch.object(config,'load',side_effect=queued_load),patch.object(config,'save',side_effect=tracked_save):
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                first=workers.submit(self.client.post,'/api/settings',json={'retain_days':99})
+                self.assertTrue(first_read.wait(5))
+                second=workers.submit(self.client.post,'/api/settings',json={'interval_minutes':30})
+                second_read.wait(.2)
+                release_first.set()
+                self.assertEqual(first.result(timeout=5).status_code,200)
+                self.assertEqual(second.result(timeout=5).status_code,200)
+        saved=real_load()
+        self.assertEqual(saved.check.retain_days,99)
+        self.assertEqual(saved.watch.interval_minutes,30)
+
     def test_imap_reconnect_tests_new_secret_before_saving_and_keeps_account(self):
         before = db.get_account(self.conn, "personal")
         with patch.object(web_app, "IMAPSource") as source, \
@@ -118,8 +192,14 @@ class FrontendApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-store", response.headers.get("cache-control", ""))
-        self.assertIn("Starting OfferPath", response.text)
-        self.assertIn("reload this page", response.text)
+        import re
+        self.assertIn("Preparing your workspace", response.text)
+        self.assertIn("data-offerpath-startup", response.text)
+        startup = re.search(r'src="(/assets/startup-recovery-v\d+\.js)"', response.text)
+        self.assertIsNotNone(startup)
+        recovery = self.client.get(startup.group(1))
+        self.assertEqual(recovery.status_code, 200)
+        self.assertIn("Try loading OfferPath again", recovery.text)
 
     def test_check_routes_select_mail_or_calendar_and_share_lock(self):
         with patch.object(web_app, "_state", return_value={"has_accounts": True, "llm_ready": True}), \
@@ -204,6 +284,22 @@ class FrontendApiTests(unittest.TestCase):
             db.set_handled(self.conn, pk, True)
         return pk
 
+    def test_queue_counts_report_items_new_since_the_last_seen_message(self):
+        first = self.add_message("one")
+        self.add_message("two", done=True)
+        baseline = self.client.get("/api/queue-counts").json()
+        self.assertEqual(baseline["actionable"], 1)
+        self.assertNotIn("new", baseline)
+        seen = baseline["latest"]
+        self.assertGreaterEqual(seen, first)
+        self.assertEqual(self.client.get(f"/api/queue-counts?seen={seen}").json()["new"], 0)
+        self.add_message("three")
+        self.add_message("four", category="info_request")  # searchable, not in the action queue
+        after = self.client.get(f"/api/queue-counts?seen={seen}").json()
+        self.assertEqual(after["actionable"], 2)
+        self.assertEqual(after["new"], 1)
+        self.assertGreater(after["latest"], seen)
+
     def test_bootstrap_exposes_readiness_navigation_and_taxonomy(self):
         self.add_message("one")
 
@@ -215,6 +311,60 @@ class FrontendApiTests(unittest.TestCase):
         self.assertEqual(payload["counts"]["actionable"], 1)
         self.assertTrue(payload["taxonomy"])
         self.assertTrue(payload["presets"])
+
+    def test_today_filter_uses_chicago_midnight_including_dst(self):
+        from datetime import timezone
+        before = self.add_message("before-midnight")
+        inside = self.add_message("after-midnight")
+        for instant, lower in (("2026-11-04T18:00:00+00:00", "2026-11-04T06:00:00+00:00"),
+                               ("2026-11-02T04:30:00+00:00", "2026-11-01T05:00:00+00:00")):
+            with self.subTest(instant=instant):
+                boundary = datetime.fromisoformat(lower)
+                self.conn.execute("UPDATE messages SET date_utc=? WHERE id=?", ((boundary-timedelta(seconds=1)).isoformat(), before))
+                self.conn.execute("UPDATE messages SET date_utc=? WHERE id=?", (boundary.isoformat(), inside))
+                self.conn.commit()
+                with patch.object(web_app, "datetime", wraps=datetime) as clock:
+                    clock.now.return_value = datetime.fromisoformat(instant)
+                    response = self.client.get("/api/triage?view=all&days=0&account=personal")
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                self.assertEqual([row["pk"] for group in payload["groups"] for row in group["items"]], [inside])
+                self.assertEqual(sum(payload["counts"].values()), 1)
+                self.assertEqual(payload["days"], 0)
+
+    def test_triage_text_search_matches_saved_fields_and_literal_characters(self):
+        wanted = self.add_message("wanted")
+        other = self.add_message("other")
+        self.conn.execute("UPDATE messages SET subject='Unique subject',from_addr='hello@special.test',from_name='Talent Team',body_text='Literal 100%_ match' WHERE id=?", (wanted,))
+        self.conn.execute("UPDATE classifications SET company='ExampleCorp',role='Rust engineer',summary='Choose a slot' WHERE message_pk=?", (wanted,))
+        self.conn.commit()
+        for term in ("unique", "SPECIAL.TEST", "Talent Team", "100%_", "examplecorp", "Rust", "Choose a slot"):
+            with self.subTest(term=term):
+                response = self.client.get("/api/triage", params={"view":"all", "account":"personal", "q":term})
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                self.assertEqual([row["pk"] for group in payload["groups"] for row in group["items"]], [wanted])
+                self.assertEqual(sum(payload["counts"].values()), 1)
+                self.assertEqual(payload["summary"]["actionable"], 1)
+                self.assertNotIn("body_text", str(payload["groups"]))
+        self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"' OR 1=1 --"}).json()["total"], 0)
+        self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"unique", "category":"rejection"}).json()["total"], 0)
+        self.assertEqual(self.client.get("/api/triage", params={"view":"all", "q":"   "}).json()["total"], 2)
+
+    def test_today_filter_compares_timezone_offsets_as_instants(self):
+        before = self.add_message("offset-before")
+        inside = self.add_message("offset-inside")
+        self.conn.execute("UPDATE messages SET date_utc='2026-11-04T06:30:00+01:00' WHERE id=?", (before,))
+        self.conn.execute("UPDATE messages SET date_utc='2026-11-04T00:30:00-06:00' WHERE id=?", (inside,))
+        self.conn.commit()
+        with patch.object(web_app, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime.fromisoformat("2026-11-04T18:00:00+00:00")
+            response = self.client.get("/api/triage?view=all&days=0")
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual([row['pk'] for group in payload['groups'] for row in group['items']], [inside])
+        self.assertEqual(sum(payload['counts'].values()), 1)
+        self.assertEqual(payload['summary']['actionable'], 1)
 
     def test_triage_filters_views_and_keeps_message_bodies_out_of_rows(self):
         active = self.add_message("active")
@@ -249,6 +399,89 @@ class FrontendApiTests(unittest.TestCase):
         self.assertEqual(response.json()["accounts"][0]["label"], "personal")
         self.assertNotIn("password", str(response.json()).lower())
 
+    def test_account_api_counts_only_current_mailbox_read_updates(self):
+        self.conn.execute("UPDATE accounts SET provider='outlook' WHERE id=?", (self.account_id,))
+        self.conn.executemany('INSERT INTO outlook_read_tasks VALUES(?,?,?)', [
+            (self.account_id, 'me@example.test', 'pending'),
+            (self.account_id, 'previous@example.test', 'old-mailbox'),
+        ])
+        self.conn.commit()
+        response = self.client.get('/api/accounts')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['accounts'][0]['pending_read_updates'], 1)
+        self.assertIs(response.json()['accounts'][0]['read_updates_need_permission'], False)
+        from types import SimpleNamespace
+        from mailcheck import read_marking
+        read_marking._set_needs_permission(SimpleNamespace(id=self.account_id), 'me@example.test', True)
+        self.assertIs(self.client.get('/api/accounts').json()['accounts'][0]['read_updates_need_permission'], True)
+
+    def test_calendar_account_colors_are_chosen_from_the_palette(self):
+        def color():
+            data = self.client.get("/api/interviews").json()
+            return next(a for a in data["accounts"] if a["id"] == self.account_id)["calendar_color"]
+        self.assertIsNone(color())                                    # automatic by default
+        response = self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": 6})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(color(), 6)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": 8}).status_code, 422)
+        self.assertEqual(self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": -1}).status_code, 422)
+        self.assertEqual(self.client.post("/api/interviews/account-colors/9999", json={"color": 1}).status_code, 404)
+        self.assertEqual(color(), 6)
+        self.client.post(f"/api/interviews/account-colors/{self.account_id}", json={"color": None})
+        self.assertIsNone(color())                                    # back to automatic
+
+    def test_account_api_reports_why_live_collection_is_failing(self):
+        from unittest.mock import patch
+        from mailcheck.outlook_auth import ReconnectRequired
+        from mailcheck.realtime import settings as realtime_settings, storage as realtime_storage
+        from mailcheck.realtime.sync_status import record_failure
+        realtime_storage.set_account(self.conn, self.account_id, True)
+        record_failure(self.conn, self.account_id, ReconnectRequired("raw provider detail"))
+        configured = realtime_settings.Settings(amqp_url="amqp://broker.test/")
+        with patch.object(realtime_settings.Settings, "from_env", classmethod(lambda cls: configured)):
+            row = self.client.get("/api/accounts").json()["accounts"][0]
+            self.assertIs(row["live"], True)
+            self.assertEqual(row["sync_error"], "Microsoft sign-in expired. Reconnect this mailbox.")
+            self.assertNotIn("raw provider detail", str(row))
+            # Read-marking warnings after a successful sync are not a collection failure.
+            realtime_storage.set_status(self.conn, self.account_id, error="Read marking pending.", last_sync=1.0)
+            self.assertIsNone(self.client.get("/api/accounts").json()["accounts"][0]["sync_error"])
+        # Without the background service there is no live collection to report on.
+        record_failure(self.conn, self.account_id, ReconnectRequired("x"))
+        self.assertIsNone(self.client.get("/api/accounts").json()["accounts"][0]["sync_error"])
+
+    def test_account_api_reports_latest_sync_and_live_collection(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+        from mailcheck import mail_checkpoints
+        from mailcheck.realtime import settings as realtime_settings, storage as realtime_storage
+        account = db.get_account(self.conn, "personal")
+        full = datetime.now(timezone.utc) - timedelta(hours=2)
+        mail_checkpoints.record(self.conn, account, full)
+        self.conn.commit()
+        first = self.client.get("/api/accounts").json()["accounts"][0]
+        self.assertEqual(first["last_synced_at"], first["last_checked_at"])
+        self.assertIs(first["live"], False)
+        live = datetime.now(timezone.utc) - timedelta(minutes=1)
+        realtime_storage.set_account(self.conn, self.account_id, True)
+        realtime_storage.set_status(self.conn, self.account_id, last_sync=live.timestamp())
+        configured = realtime_settings.Settings(amqp_url="amqp://broker.test/")
+        with patch.object(realtime_settings.Settings, "from_env", classmethod(lambda cls: configured)):
+            row = self.client.get("/api/accounts").json()["accounts"][0]
+            self.assertIs(row["live"], True)
+            self.assertEqual(datetime.fromisoformat(row["last_synced_at"]), datetime.fromtimestamp(live.timestamp(), timezone.utc))
+            self.assertEqual(datetime.fromisoformat(row["last_checked_at"]), full)  # unchanged
+            realtime_storage.set_status(self.conn, self.account_id, last_sync=(datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
+            skewed = self.client.get("/api/accounts").json()["accounts"][0]
+            self.assertEqual(skewed["last_synced_at"], skewed["last_checked_at"])  # future stamps ignored
+            self.conn.execute("UPDATE accounts SET enabled=0 WHERE id=?", (self.account_id,))
+            self.conn.commit()
+            self.assertIs(self.client.get("/api/accounts").json()["accounts"][0]["live"], False)
+        # Without the background service, an opted-in account is not live.
+        self.conn.execute("UPDATE accounts SET enabled=1 WHERE id=?", (self.account_id,))
+        self.conn.commit()
+        self.assertIs(self.client.get("/api/accounts").json()["accounts"][0]["live"], False)
+
     def test_settings_api_provides_editable_state_without_secrets(self):
         response = self.client.get("/api/settings")
 
@@ -280,6 +513,16 @@ class FrontendApiTests(unittest.TestCase):
                     response = client.get(path)
                     self.assertEqual(response.status_code, 200)
                     self.assertIn("React app", response.text)
+
+    def test_today_count_is_available_without_loading_workspace_settings(self):
+        from mailcheck import payments
+        self.conn.execute("INSERT INTO application_receipts(account_id,message_id,received_at,category) VALUES(?,?,?,?)",(self.account_id,'counter-test','2026-11-03T18:00:00+00:00','application_ack'))
+        self.conn.commit()
+        from datetime import date
+        with patch.object(payments,'today',return_value=date(2026,11,3)),patch('mailcheck.web.app.cfgmod.load',side_effect=ValueError('invalid settings')),patch.object(db,'queue_counts',side_effect=AssertionError('full queue must not load')):
+            response=self.client.get('/api/applications/today')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json(),{'applications_today':0})
 
     def test_bootstrap_reads_queue_counts_once_without_changing_response(self):
         with patch.object(db, "queue_counts", wraps=db.queue_counts) as counts:

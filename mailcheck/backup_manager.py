@@ -46,7 +46,7 @@ class BackupManager:
                     if archive.getinfo('manifest.json').file_size>2*1024*1024:continue
                     created=json.loads(archive.read('manifest.json'))['created_at']
                 archives.append({'name':path.name,'size':path.stat().st_size,'created_at':created,'automatic':path.name.startswith('auto-')})
-            except (OSError,ValueError,KeyError,zipfile.BadZipFile):continue
+            except (OSError,ValueError,TypeError,KeyError,zipfile.BadZipFile):continue
         return {**state,'folder':str(self.folder),'running':running,'archives':archives}
 
     def configure(self,enabled,retain):

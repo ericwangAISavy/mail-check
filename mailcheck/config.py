@@ -8,7 +8,9 @@ import os
 import re
 import tempfile
 import threading
+import time
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -22,43 +24,68 @@ APP_NAME = "mail-check"
 
 
 def config_dir() -> Path:
-    from .workspaces import workspace_root
+    from .workspaces import workspace_root, current_workspace
     root = workspace_root()
     if root:
         return root / "config"
+    context = current_workspace()
+    if context is not None:
+        return context.legacy_config.parent
     legacy = os.environ.get("OFFERPATH_LEGACY_CONFIG_PATH")
     return Path(legacy).parent if legacy else Path(user_config_dir(APP_NAME, appauthor=False))
 
 
 def data_dir() -> Path:
-    from .workspaces import workspace_root
+    from .workspaces import workspace_root, current_workspace
     root = workspace_root()
     if root:
         return root / "data"
+    context = current_workspace()
+    if context is not None:
+        return context.legacy_db.parent
     legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
     return Path(legacy).parent if legacy else Path(user_data_dir(APP_NAME, appauthor=False))
 
 
 def config_path() -> Path:
     # Always validate the workspace before considering explicit legacy paths.
-    from .workspaces import workspace_root
+    from .workspaces import workspace_root, current_workspace
     root = workspace_root()
     if root:
         return root / "config" / "config.toml"
+    context = current_workspace()
+    if context is not None:
+        return context.legacy_config
     legacy = os.environ.get("OFFERPATH_LEGACY_CONFIG_PATH")
     return Path(legacy) if legacy else config_dir() / "config.toml"
 
 
 def db_path() -> Path:
-    from .workspaces import workspace_root
+    from .workspaces import workspace_root, current_workspace
     root = workspace_root()
     if root:
         return root / "data" / "mailcheck.db"
+    context = current_workspace()
+    if context is not None:
+        return context.legacy_db
     legacy = os.environ.get("OFFERPATH_LEGACY_DB_PATH")
     return Path(legacy) if legacy else data_dir() / "mailcheck.db"
 
 
+def shared_config_path() -> Path | None:
+    from .workspaces import current_workspace
+    context = current_workspace()
+    if context is not None:
+        return context.shared_config
+    shared = os.environ.get('OFFERPATH_SHARED_CONFIG_PATH')
+    return Path(shared) if shared else None
+
+
 def control_dir() -> Path:
+    from .workspaces import current_workspace
+    context = current_workspace()
+    if context is not None:
+        return context.control_root
     return Path(os.environ.get('OFFERPATH_CONTROL_ROOT') or config_dir()/'offerpath-control')
 
 
@@ -165,9 +192,10 @@ class CheckConfig(BaseModel):
 
 
 class WatchConfig(BaseModel):
-    interval_minutes: int = Field(default=10, ge=1, le=1440)
+    interval_minutes: int = Field(default=2, ge=1, le=1440)
+    other_interval_minutes: int = Field(default=10, ge=1, le=1440)
     auto_check: bool = False
-    """Let the web console run checks on the interval by itself.
+    """Let the running server check mail automatically.
 
     Off by default: opening a page should never start spending tokens without
     the user asking for it.
@@ -244,13 +272,51 @@ def load() -> Config:
     # is read from the owner's atomic settings file by managed workers.
     from .workspaces import workspace_root
     workspace_root()  # Invalid worker contexts must never fall back to owner paths.
-    shared=os.environ.get("OFFERPATH_SHARED_CONFIG_PATH")
-    return Config.model_validate(_read_toml(Path(shared) if shared else config_path()))
+    shared = shared_config_path()
+    cfg = Config.model_validate(_read_toml(Path(shared) if shared else config_path()))
+    # Only non-owner workers receive this path. Resolve their effective interval
+    # on each load without changing the owner file or the cached raw settings.
+    if shared:
+        cfg.watch.interval_minutes = cfg.watch.other_interval_minutes
+    return cfg
 
 
 #: Serializes writes within this process — the web console's request-handling
-#: threads and its background scheduler thread can both call save().
-_save_lock = threading.Lock()
+#: threads and its background scheduler thread can both call save(). Reentrant
+#: so request handlers can hold the same lock across their read-modify-save.
+_save_lock = threading.RLock()
+_update_local = threading.local()
+
+
+@contextmanager
+def update_lock():
+    """Serialize read-modify-save across web threads and CLI processes."""
+    from .maintenance import MaintenanceLock, lock_path
+    from .workspace_workers import InstanceLock, InstanceAlreadyRunningError
+    path=config_path().resolve()
+    with MaintenanceLock(lock_path(path)), _save_lock:
+        held=getattr(_update_local,'paths',None)
+        if held is None:
+            held=_update_local.paths=set()
+        if path in held:
+            yield
+            return
+        guard=InstanceLock(path.with_name('.'+path.name+'.update.lock'))
+        deadline=time.monotonic()+30
+        while True:
+            try:
+                guard.__enter__()
+                break
+            except InstanceAlreadyRunningError:
+                if time.monotonic()>=deadline:
+                    raise ValueError('Settings are busy. Try saving again shortly.') from None
+                time.sleep(.05)
+        held.add(path)
+        try:
+            yield
+        finally:
+            held.remove(path)
+            guard.__exit__(None,None,None)
 
 
 @shared_writer
@@ -264,7 +330,7 @@ def save(cfg: Config) -> Path:
     (``os.replace`` uses ``MoveFileEx`` with ``MOVEFILE_REPLACE_EXISTING``), so
     a reader always sees either the old file or the fully-written new one.
     """
-    if os.environ.get("OFFERPATH_SHARED_CONFIG_PATH"):
+    if shared_config_path() is not None:
         raise ValueError("Settings are managed by the owner.")
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
